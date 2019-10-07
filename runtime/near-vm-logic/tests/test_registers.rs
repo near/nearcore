@@ -1,8 +1,10 @@
+use std::mem::size_of;
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
-use std::mem::size_of;
+use near_runtime_fees::RuntimeFeesConfig;
+
 
 mod fixtures;
 
@@ -11,9 +13,10 @@ fn test_one_register() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     logic.write_register(0, &vec![0, 1, 2]).unwrap();
     assert_eq!(logic.register_len(0).unwrap(), 3u64);
@@ -27,9 +30,10 @@ fn test_non_existent_register() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostErrorOrStorageError>);
     let buffer = [0u8; 3];
@@ -44,9 +48,10 @@ fn test_many_registers() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     let max_registers = config.max_number_registers;
     for i in 0..max_registers {
@@ -70,11 +75,12 @@ fn test_max_register_size() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
-    let value = vec![0u8; (config.max_register_size +1) as usize];
+    let value = vec![0u8; (config.max_register_size + 1) as usize];
 
     assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation.into()));
 }
@@ -85,8 +91,9 @@ fn test_max_register_memory_limit() {
     let context = get_context(vec![], false);
     let config = Config::free();
     let promise_results = vec![];
+    let fees = RuntimeFeesConfig::default();
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     let max_registers = config.registers_memory_limit / config.max_register_size;
 
@@ -95,7 +102,10 @@ fn test_max_register_memory_limit() {
         logic.write_register(i, &value).expect("should be written successfully");
     }
     let last = vec![1u8; config.max_register_size as usize];
-    assert_eq!(logic.write_register(max_registers, &last), Err(HostError::MemoryAccessViolation.into()));
+    assert_eq!(
+        logic.write_register(max_registers, &last),
+        Err(HostError::MemoryAccessViolation.into())
+    );
 }
 
 #[test]
@@ -103,8 +113,9 @@ fn test_register_is_not_used() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
     assert_eq!(logic.register_len(0), Ok(std::u64::MAX));
 }

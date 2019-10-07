@@ -4,6 +4,7 @@ use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, VMLogic};
+use near_runtime_fees::RuntimeFeesConfig;
 
 struct KeyVal<'a>(&'a [u8], &'a [u8]);
 
@@ -69,9 +70,10 @@ fn test_iterator() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     add_key_vals(&mut logic, &[KeyVal(b"foo1", b"bar1"), KeyVal(b"foo2", b"bar2")]);
     let iter_id = iter_prefix_check(
@@ -88,9 +90,10 @@ fn test_iterator_invalidation() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     let iter_id = logic.storage_iter_prefix(1, b"a".as_ptr() as _).unwrap();
     add_key_vals(&mut logic, &[KeyVal(b"f3", b"a")]);
@@ -102,9 +105,10 @@ fn test_iterator_from_second() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     add_key_vals(
         &mut logic,
@@ -121,9 +125,10 @@ fn test_iterator_range() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     add_key_vals(
         &mut logic,
@@ -156,9 +161,10 @@ fn test_iterator_range_intersect() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     add_key_vals(
         &mut logic,

@@ -2,6 +2,7 @@ use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, VMLogic};
+use near_runtime_fees::RuntimeFeesConfig;
 
 mod fixtures;
 
@@ -10,11 +11,12 @@ fn test_storage_write_counter() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
-    let data_record_cost = config.runtime_fees.storage_usage_config.data_record_cost;
+    let data_record_cost = fees.storage_usage_config.data_record_cost;
     let key = b"foo";
     let val = b"bar";
 
@@ -41,9 +43,10 @@ fn test_storage_remove() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let config = Config::default();
+    let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &fees, &promise_results, &mut memory);
 
     let key = b"foo";
     let val = b"bar";

@@ -47105,48 +47105,6 @@
   "runtime_config": {
     "account_length_baseline_cost_per_block": "6561",
     "transaction_costs": {
-      "ext_costs": {
-        "input_byte": 1,
-        "storage_read_base": 1,
-        "storage_read_key_byte": 1,
-        "storage_read_value_byte": 1,
-        "storage_write_base": 1,
-        "storage_write_key_byte": 1,
-        "storage_write_value_byte": 1,
-        "storage_has_key_base": 1,
-        "storage_has_key_byte": 1,
-        "storage_remove_base": 1,
-        "storage_remove_key_byte": 1,
-        "storage_remove_ret_value_byte": 1,
-        "storage_iter_create_prefix_base": 1,
-        "storage_iter_create_range_base": 1,
-        "storage_iter_create_key_byte": 1,
-        "storage_iter_next_base": 1,
-        "storage_iter_next_key_byte": 1,
-        "storage_iter_next_value_byte": 1,
-        "read_register_base": 1,
-        "read_register_byte": 1,
-        "write_register_base": 1,
-        "write_register_byte": 1,
-        "account_balance": 1,
-        "prepaid_gas": 1,
-        "used_gas": 1,
-        "random_seed": 1,
-        "sha256": 1,
-        "sha256_byte": 1,
-        "attached_deposit": 1,
-        "storage_usage": 1,
-        "block_index": 1,
-        "block_timestamp": 1,
-        "current_account_id": 1,
-        "current_account_id_byte": 1,
-        "signer_account_id": 1,
-        "signer_account_id_byte": 1,
-        "signer_account_pk": 1,
-        "signer_account_pk_byte": 1,
-        "predecessor_account_id": 1,
-        "predecessor_account_id_byte": 1
-      },
       "action_receipt_creation_config": {
         "send_sir": 1,
         "execution": 1,
@@ -47243,141 +47201,47 @@
     "storage_cost_byte_per_block": "1",
     "poke_threshold": 60,
     "wasm_config": {
-      "runtime_fees": {
-        "ext_costs": {
-          "input_byte": 1,
-          "storage_read_base": 1,
-          "storage_read_key_byte": 1,
-          "storage_read_value_byte": 1,
-          "storage_write_base": 1,
-          "storage_write_key_byte": 1,
-          "storage_write_value_byte": 1,
-          "storage_has_key_base": 1,
-          "storage_has_key_byte": 1,
-          "storage_remove_base": 1,
-          "storage_remove_key_byte": 1,
-          "storage_remove_ret_value_byte": 1,
-          "storage_iter_create_prefix_base": 1,
-          "storage_iter_create_range_base": 1,
-          "storage_iter_create_key_byte": 1,
-          "storage_iter_next_base": 1,
-          "storage_iter_next_key_byte": 1,
-          "storage_iter_next_value_byte": 1,
-          "read_register_base": 1,
-          "read_register_byte": 1,
-          "write_register_base": 1,
-          "write_register_byte": 1,
-          "account_balance": 1,
-          "prepaid_gas": 1,
-          "used_gas": 1,
-          "random_seed": 1,
-          "sha256": 1,
-          "sha256_byte": 1,
-          "attached_deposit": 1,
-          "storage_usage": 1,
-          "block_index": 1,
-          "block_timestamp": 1,
-          "current_account_id": 1,
-          "current_account_id_byte": 1,
-          "signer_account_id": 1,
-          "signer_account_id_byte": 1,
-          "signer_account_pk": 1,
-          "signer_account_pk_byte": 1,
-          "predecessor_account_id": 1,
-          "predecessor_account_id_byte": 1
-        },
-        "action_receipt_creation_config": {
-          "send_sir": 1,
-          "execution": 1,
-          "send_not_sir": 1
-        },
-        "storage_usage_config": {
-          "value_cost_per_byte": 1,
-          "account_cost": 100,
-          "data_record_cost": 40,
-          "key_cost_per_byte": 1,
-          "code_cost_per_byte": 1
-        },
-        "data_receipt_creation_config": {
-          "cost_per_byte": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "base_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          }
-        },
-        "action_creation_config": {
-          "delete_account_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "deploy_contract_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "function_call_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "function_call_cost_per_byte": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "deploy_contract_cost_per_byte": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "create_account_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "delete_key_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "stake_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "transfer_cost": {
-            "send_sir": 1,
-            "execution": 1,
-            "send_not_sir": 1
-          },
-          "add_key_cost": {
-            "full_access_cost": {
-              "send_sir": 1,
-              "execution": 1,
-              "send_not_sir": 1
-            },
-            "function_call_cost_per_byte": {
-              "send_sir": 1,
-              "execution": 1,
-              "send_not_sir": 1
-            },
-            "function_call_cost": {
-              "send_sir": 1,
-              "execution": 1,
-              "send_not_sir": 1
-            }
-          }
-        },
-        "burnt_gas_reward": {
-          "numerator": 3,
-          "denominator": 10
-        }
+      "ext_costs": {
+        "input_byte": 1,
+        "storage_read_base": 1,
+        "storage_read_key_byte": 1,
+        "storage_read_value_byte": 1,
+        "storage_write_base": 1,
+        "storage_write_key_byte": 1,
+        "storage_write_value_byte": 1,
+        "storage_has_key_base": 1,
+        "storage_has_key_byte": 1,
+        "storage_remove_base": 1,
+        "storage_remove_key_byte": 1,
+        "storage_remove_ret_value_byte": 1,
+        "storage_iter_create_prefix_base": 1,
+        "storage_iter_create_range_base": 1,
+        "storage_iter_create_key_byte": 1,
+        "storage_iter_next_base": 1,
+        "storage_iter_next_key_byte": 1,
+        "storage_iter_next_value_byte": 1,
+        "read_register_base": 1,
+        "read_register_byte": 1,
+        "write_register_base": 1,
+        "write_register_byte": 1,
+        "account_balance": 1,
+        "prepaid_gas": 1,
+        "used_gas": 1,
+        "random_seed": 1,
+        "sha256": 1,
+        "sha256_byte": 1,
+        "attached_deposit": 1,
+        "storage_usage": 1,
+        "block_index": 1,
+        "block_timestamp": 1,
+        "current_account_id": 1,
+        "current_account_id_byte": 1,
+        "signer_account_id": 1,
+        "signer_account_id_byte": 1,
+        "signer_account_pk": 1,
+        "signer_account_pk_byte": 1,
+        "predecessor_account_id": 1,
+        "predecessor_account_id_byte": 1
       },
       "max_log_len": 500,
       "max_number_logs": 100,
