@@ -11,7 +11,7 @@
 
 ## NEAR Protocol - scalable and usable blockchain
 
-![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
+![Build status](https://gitlab.com/near-protocol/nearcore/badges/master/pipeline.svg)
 [![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
@@ -34,7 +34,7 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and work items.
+This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
 
 High level milestones:
 
@@ -44,3 +44,11 @@ High level milestones:
  - [ ] (In progress) Nightshade: Added sharding and staking.
  - [ ] TestNet: Added governance module, ready to launch as MainNet
  - [ ] MainNet: Launched full blockchain.
+
+## Running 
+
+Checkout the [Running Locally](https://docs.nearprotocol.com/docs/local-setup/running-testnet) and [Running Remotely](https://docs.nearprotocol.com/docs/local-setup/running-testnet#running-official-testnet-on-gcp) sections.
+
+## Developing
+
+Checkout the [Developing NEARCore](https://docs.nearprotocol.com/docs/contribution/contribution-overview#creating-and-submitting-a-pull-request-prs) section of documentation.
