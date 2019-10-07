@@ -184,7 +184,7 @@ impl NightshadeRuntime {
         Ok(())
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRootHash>) {
+    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRootHash>, Vec<u64>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -198,12 +198,15 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<StateRootHash> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store_update, state_roots)
+        let state_parts: Vec<u64> = BorshDeserialize::try_from_slice(&data)
+            .expect("Failed to deserialize genesis parts len");
+        (store_update, state_roots, state_parts)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRootHash>) {
+    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRootHash>, Vec<u64>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
+        let mut state_parts = vec![];
         let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
@@ -242,8 +245,9 @@ impl NightshadeRuntime {
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
+            state_parts.push(self.num_state_parts(&state_root) as u64);
         }
-        (store_update, state_roots)
+        (store_update, state_roots, state_parts)
     }
 }
 
@@ -272,7 +276,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>, Vec<u64>) {
         let has_records = !self.genesis_config.records.is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -973,7 +977,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (store_update, state_roots) = runtime.genesis_state();
+            let (store_update, state_roots, _state_parts) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime

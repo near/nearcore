@@ -36,6 +36,8 @@ use crate::{Chain, ChainGenesis, ValidTransaction};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 
+pub const DEFAULT_NUM_STATE_PARTS: u64 = 7;
+
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
 
@@ -249,10 +251,11 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>, Vec<u64>) {
         (
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRootHash::default()).collect()),
+            vec![0; self.num_shards() as usize], // TODO discuss
         )
     }
 
@@ -468,6 +471,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
+        println!("HERE! {:?}", state_root);
         let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
@@ -601,7 +605,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         let data = state.try_to_vec()?;
-        let num_state_parts = 7; // TODO MOO
+        let num_state_parts = DEFAULT_NUM_STATE_PARTS as usize;
         let mut parts = vec![];
         for i in 0..num_state_parts {
             let begin = data.len() / num_state_parts * i;
@@ -615,6 +619,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         let (new_state_root, proofs) = merklize(&parts);
 
         self.state.write().unwrap().insert(new_state_root, state);
+        println!(
+            "QQQ {:?} datalen={:?} {:?} {:?}",
+            shard_id,
+            data.len(),
+            new_state_root,
+            num_state_parts
+        );
         self.num_state_parts.write().unwrap().insert(new_state_root, num_state_parts as u64);
         for i in 0..num_state_parts {
             let key = hash(&StateKey(i as u64, new_state_root).try_to_vec().unwrap());
@@ -666,17 +677,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn num_state_parts(&self, state_root: &StateRootHash) -> usize {
-        self.num_state_parts.read().unwrap().get(&state_root).unwrap().clone() as usize
-    }
-
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
         part_id: u64,
         state_root: StateRootHash,
+        num_state_parts: u64,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
-        if part_id as usize >= self.num_state_parts(&state_root) {
+        if part_id >= num_state_parts {
             return Err("Invalid part_id in obtain_state_part".to_string().into());
         }
         if shard_id >= self.num_shards() {
@@ -704,9 +712,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn confirm_state(&self, state_root: &StateRootHash) -> Result<bool, Error> {
+    fn confirm_state(
+        &self,
+        state_root: &StateRootHash,
+        num_state_parts: u64,
+    ) -> Result<bool, Error> {
         let mut data = vec![];
-        for i in 0..self.num_state_parts(&state_root) {
+        for i in 0..num_state_parts as usize {
             let key = hash(&StateKey(i as u64, *state_root).try_to_vec().unwrap());
             match self.state_parts.read().unwrap().get(&key) {
                 Some(part) => {
@@ -721,6 +733,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
+        println!("HERE RE! {:?} {:?}", state_root, state);
         self.state.write().unwrap().insert(*state_root, state);
         Ok(true)
     }

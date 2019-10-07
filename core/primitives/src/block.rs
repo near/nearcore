@@ -233,6 +233,7 @@ impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
         state_roots: Vec<StateRootHash>,
+        state_parts_len: Vec<u64>,
         timestamp: DateTime<Utc>,
         num_shards: ShardId,
         initial_gas_limit: Gas,
@@ -245,6 +246,7 @@ impl Block {
                 ShardChunkHeader::new(
                     CryptoHash::default(),
                     state_roots[i as usize % state_roots.len()],
+                    state_parts_len[i as usize % state_roots.len()],
                     CryptoHash::default(),
                     0,
                     0,

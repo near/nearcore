@@ -154,18 +154,20 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                 if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
             format!("#{:>8} Downloading blocks {}%", current_height, percent)
         }
-        SyncStatus::StateSync(_sync_hash, shard_statuses) => {
+        SyncStatus::StateSync(_sync_hash, shard_to_downloads) => {
             let mut res = String::from("State ");
-            for (shard_id, shard_status) in shard_statuses {
+            for (shard_id, shard_sync_download) in shard_to_downloads {
                 res = res
                     + format!(
                         "{}: {}",
                         shard_id,
-                        match shard_status {
-                            ShardSyncStatus::StateDownload { .. } => format!("download"),
-                            ShardSyncStatus::StateValidation => format!("validation"),
-                            ShardSyncStatus::StateDone => format!("done"),
-                            ShardSyncStatus::Error(error) => format!("error {}", error),
+                        match shard_sync_download.status {
+                            ShardSyncStatus::StateDownloadHeader { .. } => {
+                                format!("download header")
+                            }
+                            ShardSyncStatus::StateDownloadParts { .. } => format!("download parts"),
+                            ShardSyncStatus::StateDownloadFinalize => format!("finalizing"),
+                            ShardSyncStatus::StateDownloadComplete => format!("done"),
                         }
                     )
                     .as_str();

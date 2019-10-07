@@ -740,7 +740,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 account_id,
                 need_header,
                 parts_range,
-                parts_particular,
             } => {
                 self.send_message_to_account(
                     ctx,
@@ -751,7 +750,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             hash,
                             need_header,
                             parts_range,
-                            parts_particular,
                         ),
                     }),
                 );

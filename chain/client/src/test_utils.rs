@@ -371,7 +371,6 @@ pub fn setup_mock_all_validators(
                             account_id: target_account_id,
                             need_header,
                             parts_range,
-                            parts_particular,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
@@ -384,7 +383,6 @@ pub fn setup_mock_all_validators(
                                                 *hash,
                                                 *need_header,
                                                 parts_range.to_vec(),
-                                                parts_particular.to_vec(),
                                             ))
                                             .then(move |response| {
                                                 let response = response.unwrap();

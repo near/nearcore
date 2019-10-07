@@ -250,19 +250,9 @@ impl Peer {
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
-            PeerMessage::StateRequest(
-                shard_id,
-                hash,
-                need_header,
-                parts_range,
-                parts_particular,
-            ) => NetworkClientMessages::StateRequest(
-                shard_id,
-                hash,
-                need_header,
-                parts_range,
-                parts_particular,
-            ),
+            PeerMessage::StateRequest(shard_id, hash, need_header, parts_range) => {
+                NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_range)
+            }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
                 if announce_account.peer_id() != peer_id {
@@ -280,19 +270,9 @@ impl Peer {
                 RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)
                 }
-                RoutedMessageBody::StateRequest(
-                    shard_id,
-                    hash,
-                    need_header,
-                    parts_range,
-                    parts_particular,
-                ) => NetworkClientMessages::StateRequest(
-                    shard_id,
-                    hash,
-                    need_header,
-                    parts_range,
-                    parts_particular,
-                ),
+                RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_range) => {
+                    NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_range)
+                }
                 RoutedMessageBody::ChunkPartRequest(request) => {
                     NetworkClientMessages::ChunkPartRequest(request, peer_id)
                 }

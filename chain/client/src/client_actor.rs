@@ -284,13 +284,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(
-                shard_id,
-                hash,
-                need_header,
-                parts_range,
-                parts_particular,
-            ) => {
+            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_range) => {
                 let mut parts = vec![];
                 for Range(from, to) in parts_range {
                     for part_id in from..to {
@@ -301,15 +295,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         } else {
                             return NetworkClientResponses::NoResponse;
                         }
-                    }
-                }
-                for part_id in parts_particular {
-                    if let Ok(part) =
-                        self.client.chain.get_state_response_part(shard_id, part_id, hash)
-                    {
-                        parts.push(part);
-                    } else {
-                        return NetworkClientResponses::NoResponse;
                     }
                 }
                 if need_header {
@@ -337,15 +322,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 shard_state,
             }) => {
                 // Populate the hashmaps with shard statuses that might be interested in this state
-                //     (naturally, the plural of statuses is statuseses)
-                let mut shard_statuseses = vec![];
+                let mut shard_to_downloads_vec = vec![];
 
                 // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shard_statuses) =
+                if let SyncStatus::StateSync(sync_hash, shard_to_downloads) =
                     &mut self.client.sync_status
                 {
                     if hash == *sync_hash {
-                        shard_statuseses.push(shard_statuses);
+                        shard_to_downloads_vec.push(shard_to_downloads);
                     }
                 }
 
@@ -355,54 +339,117 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 {
                     if hash == sync_hash {
                         assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-                        if let Some((_, shard_statuses)) =
+                        if let Some((_, shard_to_downloads)) =
                             self.client.catchup_state_syncs.get_mut(&sync_hash)
                         {
-                            shard_statuseses.push(shard_statuses);
+                            shard_to_downloads_vec.push(shard_to_downloads);
                         }
                         // We should not be requesting the same state twice.
                         break;
                     }
                 }
 
-                if !shard_statuseses.is_empty() {
-                    let shard_state_header = shard_state.header.unwrap();
-                    match self.client.chain.set_state_parts(
-                        shard_state_header.chunk.header.inner.prev_state_root,
-                        shard_state.parts,
-                    ) {
-                        Ok(()) => {
-                            match self.client.chain.set_state_header(
-                                &self
-                                    .client
-                                    .block_producer
-                                    .as_ref()
-                                    .map(|bp| bp.account_id.clone()),
-                                shard_id,
-                                hash,
-                                shard_state_header,
-                            ) {
-                                Ok(()) => {
-                                    for shard_statuses in shard_statuseses {
-                                        shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
-                                    }
-                                }
-                                Err(err) => {
-                                    for shard_statuses in shard_statuseses {
-                                        shard_statuses.insert(
-                                            shard_id,
-                                            ShardSyncStatus::Error(format!(
-                                                "Failed to set state header for {} @ {}: {}",
-                                                shard_id, hash, err
-                                            )),
-                                        );
+                for shard_to_downloads in shard_to_downloads_vec {
+                    let shard_sync_download = if shard_to_downloads.contains_key(&shard_id) {
+                        &shard_to_downloads[&shard_id]
+                    } else {
+                        // TODO is this correct behavior?
+                        continue;
+                    };
+                    let mut new_shard_download = shard_sync_download.clone();
+
+                    match shard_sync_download.status {
+                        ShardSyncStatus::StateDownloadHeader => {
+                            if let Some(header) = &shard_state.header {
+                                if !shard_sync_download.downloads[0].done {
+                                    match self.client.chain.set_state_header(
+                                        &self
+                                            .client
+                                            .block_producer
+                                            .as_ref()
+                                            .map(|bp| bp.account_id.clone()),
+                                        shard_id,
+                                        hash,
+                                        header.clone(),
+                                    ) {
+                                        Ok(()) => {
+                                            new_shard_download.downloads[0].done = true;
+                                        }
+                                        Err(_err) => {
+                                            new_shard_download.downloads[0].error = true;
+                                        }
                                     }
                                 }
                             }
                         }
+                        ShardSyncStatus::StateDownloadParts => {
+                            for part in shard_state.parts.iter() {
+                                let part_id = part.state_part.part_id as usize;
+                                if part_id >= shard_sync_download.downloads.len() {
+                                    // TODO ???
+                                    continue;
+                                }
+                                if !shard_sync_download.downloads[part_id].done {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash,
+                                        part.clone(),
+                                    ) {
+                                        Ok(()) => {
+                                            new_shard_download.downloads[part_id].done = true;
+                                        }
+                                        Err(_err) => {
+                                            new_shard_download.downloads[part_id].error = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            continue;
+                        }
+                    }
+
+                    shard_to_downloads.insert(shard_id, new_shard_download);
+                }
+
+                /*if !shard_to_downloads_vec.is_empty() {
+
+
+                    let shard_state_header = shard_state.header.unwrap();
+
+                    match self.client.chain.set_state_header(
+                        &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                        shard_id,
+                        hash,
+                        shard_state_header,
+                    ) {
+                        Ok(()) => {
+                            for shard_to_downloads in shard_to_downloads_vec {
+                                shard_to_downloads.insert(shard_id, ShardSyncStatus::StateDone);
+                            }
+                        }
                         Err(err) => {
-                            for shard_statuses in shard_statuseses {
-                                shard_statuses.insert(
+                            for shard_to_downloads in shard_to_downloads_vec {
+                                shard_to_downloads.insert(
+                                    shard_id,
+                                    ShardSyncStatus::Error(format!(
+                                        "Failed to set state header for {} @ {}: {}",
+                                        shard_id, hash, err
+                                    )),
+                                );
+                            }
+                        }
+                    }
+
+                    match self.client.chain.set_state_parts(
+                        shard_state_header.chunk.header.inner.prev_state_root,
+                        shard_state.parts,
+                    ) {
+                        Ok(()) => {}
+                        Err(err) => {
+                            for shard_to_status in shard_to_downloads_vec {
+                                shard_to_status.insert(
                                     shard_id,
                                     ShardSyncStatus::Error(format!(
                                         "Failed to set state parts for {} @ {}: {}",
@@ -412,7 +459,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                     }
-                }
+                }*/
 
                 NetworkClientResponses::NoResponse
             }

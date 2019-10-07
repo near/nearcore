@@ -110,7 +110,7 @@ pub struct ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>, Vec<u64>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -300,17 +300,13 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
-    /// Returns the number of the parts of the state.
-    /// All logic about handling, managing and proving parts
-    /// is responsibility of the current Runtime implementation.
-    fn num_state_parts(&self, state_root: &StateRootHash) -> usize;
-
     /// Get the part of the state from given state root + proof.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
         part_id: u64,
         state_root: StateRootHash,
+        num_state_parts: u64,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
 
     /// Set state part that expected to be given state root with provided data.
@@ -327,7 +323,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Should be executed after accepting all the parts.
     /// Returns `true` if state is set successfully.
-    fn confirm_state(&self, state_root: &StateRootHash) -> Result<bool, Error>;
+    fn confirm_state(&self, state_root: &StateRootHash, num_parts: u64) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
