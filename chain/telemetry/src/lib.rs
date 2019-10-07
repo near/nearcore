@@ -1,5 +1,4 @@
 use std::time::Duration;
-use std::u64;
 
 use actix::prelude::Future;
 use actix::{Actor, Addr, Context, Handler, Message};
