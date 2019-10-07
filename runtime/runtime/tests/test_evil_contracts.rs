@@ -106,3 +106,21 @@ fn test_evil_deep_recursion() {
         }
     });
 }
+
+#[test]
+fn test_evil_abort() {
+    let node =
+        setup_test_contract(include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm"));
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".to_string(),
+            "test_contract".to_string(),
+            "abort_with_zero",
+            vec![],
+            FUNCTION_CALL_GAS_AMOUNT,
+            0,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::Failure, "{:?}", res);
+}
