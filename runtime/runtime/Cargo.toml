@@ -17,8 +17,10 @@ rand_xorshift = "0.1"
 ethash = "0.3"
 ethereum-bigint = "0.2"
 sodiumoxide = "0.2.2"
+lazy_static = "^1.4"
 
 near-crypto = { path = "../../core/crypto" }
+near-metrics = { path = "../../near-metrics" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-verifier = { path = "../../runtime/verifier" }

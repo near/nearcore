@@ -742,7 +742,7 @@ impl ClientActor {
             validator_proposals,
             block_producer.signer.clone(),
         );
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED);
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }
 

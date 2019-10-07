@@ -55,8 +55,6 @@ Select the configuration file at `$PATH_TO_REPO/conf/grafana-dashboard.json` and
 
 You should then be able to view a dashboard with a few metrics!
 
-
-
 ## Details
 
 Near has a HTTP endpoint for Prometheus using the HTTP Server. The default port
@@ -66,5 +64,10 @@ Prometheus data can be reached at `localhost:3030/metrics`.
 Prometheus can be connected to on `localhost:9090`. Using this data can me
 manipulated into graphs or more useful forms.
 
-## TODO: Details about running grafana
-Grafana makes pretty graphs :)
+## Add an additional metrics
+
+Define the metrics in the crate in a file named `metrics.rs`. Each new metric should
+be defined as a constant reference within a `lazy_static` macro.
+
+It is recommended to use the safe `near-metrics` crate operations when interacting
+with the metrics to handle the case where instantiation fails.

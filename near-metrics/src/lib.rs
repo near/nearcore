@@ -25,7 +25,7 @@
 //! extern crate lazy_static;
 //! use lighthouse_metrics::*;
 //!
-//! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
+//! // These metrics are "magically" linked to the global registry PEER_CONNECTIONS_TOTALdefined in `lighthouse_metrics`.
 //! lazy_static! {
 //!     pub static ref RUN_COUNT: Result<IntCounter> = try_create_int_counter(
 //!         "runs_total",
@@ -120,6 +120,18 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);
+    }
+}
+
+pub fn inc_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.inc();
+    }
+}
+
+pub fn dec_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.dec();
     }
 }
 
