@@ -15,6 +15,8 @@ use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
 use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
 
+use assert_matches::assert_matches;
+
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
 
@@ -57,7 +59,12 @@ pub fn test_smart_contract_panic(node: impl Node) {
     let transaction_result = node_user
         .function_call(alice_account(), alice_account(), "panic_with_message", vec![], 1000000, 0)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("Smart contract panicked: WAT?".to_string()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
 }
 
