@@ -15,7 +15,7 @@
   "editable": true,
   "gnetId": null,
   "graphTooltip": 0,
-  "id": 2,
+  "id": 1,
   "links": [],
   "panels": [
     {
@@ -23,11 +23,12 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": "Prometheus",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 6,
         "x": 0,
         "y": 0
       },
@@ -58,7 +59,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "block_num_processed",
+          "expr": "block_processed_total",
           "format": "time_series",
           "instant": false,
           "intervalFactor": 1,
@@ -66,7 +67,7 @@
           "refId": "A"
         },
         {
-          "expr": "block_num_processed_successfully",
+          "expr": "block_processed_successfully_total",
           "hide": false,
           "legendFormat": "BlocksProcessSuccessfully",
           "refId": "B"
@@ -94,6 +95,95 @@
         {
           "format": "short",
           "label": "",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "Prometheus",
+      "description": "The number of blocks produced by this node.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "hideTimeOverride": true,
+      "id": 2,
+      "legend": {
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "block_produced_total",
+          "hide": false,
+          "legendFormat": "BlocksProduced",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": "15m",
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Blocks Produced",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": null,
           "logBase": 1,
           "max": null,
           "min": null,
@@ -168,7 +258,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
-      "description": "The number of blocks produced by this node.",
+      "datasource": "Prometheus",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -177,8 +267,7 @@
         "x": 0,
         "y": 8
       },
-      "hideTimeOverride": true,
-      "id": 2,
+      "id": 24,
       "legend": {
         "avg": false,
         "current": false,
@@ -204,17 +293,21 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "block_num_produced",
-          "hide": false,
-          "legendFormat": "BlocksProduced",
+          "expr": "transaction_processed_total",
+          "legendFormat": "Transaction Processed",
           "refId": "A"
+        },
+        {
+          "expr": "transaction_processed_successefully_total",
+          "legendFormat": "Transactions Processed Successfully",
+          "refId": "B"
         }
       ],
       "thresholds": [],
-      "timeFrom": "15m",
+      "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Blocks Produced",
+      "title": "Transactions Proccessed",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -315,7 +408,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "head_block_height",
+          "expr": "block_height_head",
           "refId": "A"
         }
       ],
@@ -343,6 +436,7 @@
         "#C8F2C2",
         "#d44a3a"
       ],
+      "datasource": "Prometheus",
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -480,7 +574,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "http_status_request_total",
+          "expr": "http_status_requests_total",
           "refId": "A"
         }
       ],
@@ -581,6 +675,310 @@
         }
       ],
       "valueName": "current"
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 16,
+      "options": {
+        "displayMode": "lcd",
+        "fieldOptions": {
+          "calcs": [
+            "last"
+          ],
+          "defaults": {
+            "mappings": [],
+            "min": 0,
+            "thresholds": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "override": {},
+          "values": false
+        },
+        "orientation": "horizontal"
+      },
+      "pluginVersion": "6.3.5",
+      "targets": [
+        {
+          "expr": "action_create_account_total",
+          "refId": "A"
+        },
+        {
+          "expr": "action_deploy_contract_total",
+          "refId": "B"
+        },
+        {
+          "expr": "action_function_call_total",
+          "refId": "C"
+        },
+        {
+          "expr": "action_transfer_total",
+          "refId": "D"
+        },
+        {
+          "expr": "action_stake_total",
+          "refId": "E"
+        },
+        {
+          "expr": "action_add_key_total",
+          "refId": "F"
+        },
+        {
+          "expr": "action_delete_key_total",
+          "refId": "G"
+        },
+        {
+          "expr": "action_delete_account_total",
+          "refId": "H"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Actions Processed",
+      "type": "bargauge"
+    },
+    {
+      "cacheTimeout": null,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 18,
+      "links": [],
+      "options": {
+        "displayMode": "lcd",
+        "fieldOptions": {
+          "calcs": [
+            "last"
+          ],
+          "defaults": {
+            "mappings": [],
+            "min": 0,
+            "thresholds": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "override": {},
+          "values": false
+        },
+        "orientation": "horizontal"
+      },
+      "pluginVersion": "6.3.5",
+      "targets": [
+        {
+          "expr": "peer_connections_total",
+          "legendFormat": "Peer Connections",
+          "refId": "A"
+        },
+        {
+          "expr": "peer_block_received_total",
+          "legendFormat": "Peer Blocks Received",
+          "refId": "B"
+        },
+        {
+          "expr": "peer_transaction_received_total",
+          "legendFormat": "Peer Transaction Received",
+          "refId": "E"
+        },
+        {
+          "expr": "peer_message_received_total",
+          "legendFormat": "Peer Messages Received",
+          "refId": "D"
+        },
+        {
+          "expr": "peer_data_received_bytes",
+          "legendFormat": "Peer Bytes Received",
+          "refId": "C"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Peer Details",
+      "type": "bargauge"
+    },
+    {
+      "cacheTimeout": null,
+      "colorBackground": false,
+      "colorValue": false,
+      "colors": [
+        "#299c46",
+        "rgba(237, 129, 40, 0.89)",
+        "#d44a3a"
+      ],
+      "datasource": "Prometheus",
+      "format": "none",
+      "gauge": {
+        "maxValue": 100,
+        "minValue": 0,
+        "show": false,
+        "thresholdLabels": false,
+        "thresholdMarkers": true
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "id": 22,
+      "interval": null,
+      "links": [],
+      "mappingType": 1,
+      "mappingTypes": [
+        {
+          "name": "value to text",
+          "value": 1
+        },
+        {
+          "name": "range to text",
+          "value": 2
+        }
+      ],
+      "maxDataPoints": 100,
+      "nullPointMode": "connected",
+      "nullText": null,
+      "options": {},
+      "postfix": "",
+      "postfixFontSize": "50%",
+      "prefix": "",
+      "prefixFontSize": "50%",
+      "rangeMaps": [
+        {
+          "from": "null",
+          "text": "N/A",
+          "to": "null"
+        }
+      ],
+      "sparkline": {
+        "fillColor": "rgba(31, 118, 189, 0.18)",
+        "full": false,
+        "lineColor": "rgb(31, 120, 193)",
+        "show": false,
+        "ymax": null,
+        "ymin": null
+      },
+      "tableColumn": "",
+      "targets": [
+        {
+          "expr": "validator_active_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "thresholds": "",
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Active Staked Validators",
+      "type": "singlestat",
+      "valueFontSize": "80%",
+      "valueMaps": [
+        {
+          "op": "=",
+          "text": "N/A",
+          "value": "null"
+        }
+      ],
+      "valueName": "current"
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "id": 20,
+      "legend": {
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "validators_amount_staked_low + validators_amount_staked_high * (2 ^ 63)",
+          "legendFormat": "Validator Staked Amount",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Validator",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
     }
   ],
   "refresh": "5s",
@@ -611,5 +1009,5 @@
   "timezone": "",
   "title": "nearcore",
   "uid": "qgvhAH2Wk",
-  "version": 3
+  "version": 12
 }

@@ -21,10 +21,24 @@ Build the NEARCore node:
 Generate the initial configuration (genesis state, validator keys and node keys):
 
 `$ $PATH_TO_REPO/target/debug/near init`
+`$ $PATH_TO_REPO/target/debug/near testnet`
 
-Then run a NEAR node:
+Then run a NEAR node0:
 
-`$ $PATH_TO_REPO/target/debug/near run`
+`$ $PATH_TO_REPO/target/debug/near --home ~/.near/node0 run`
+
+Extract the server details from the NEAR boot node, it will look similar to:
+
+`ed25519:BT6VhbcNeuq9KXUYpELanWMnSho2LFC5EiGP2Wx7S7gj@0.0.0.0:24567`
+
+Run nodes 1 to 3, replacing `--boot-nodes` with the details output from `node0`
+and X with 1, 2 then 3 (executing the addition symbols).
+
+```
+target/release/near --home ~/.near/nodeX run \
+                    --boot-nodes "ed25519:BT6VhbcNeuq9KXUYpELanWMnSho2LFC5EiGP2Wx7S7gj@0.0.0.0:24567" \
+                    --network-addr 0.0.0.0:(24567 + X) --rpc-addr 0.0.0.0:(3031 + X)
+```
 
 ## Setup and run Grafana
 

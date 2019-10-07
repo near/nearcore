@@ -23,7 +23,7 @@
 //! ```rust
 //! #[macro_use]
 //! extern crate lazy_static;
-//! use lighthouse_metrics::*;
+//! use near_metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry PEER_CONNECTIONS_TOTALdefined in `lighthouse_metrics`.
 //! lazy_static! {
