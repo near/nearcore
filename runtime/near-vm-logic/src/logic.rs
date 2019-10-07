@@ -1402,7 +1402,7 @@ impl<'a> VMLogic<'a> {
         let msg = self.get_assembly_script_utf16_string(u64::from(msg_ptr))?;
         let filename = self.get_assembly_script_utf16_string(u64::from(filename_ptr))?;
 
-        let message = format!("{:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+        let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
         self.logs.push(format!("ABORT: {}", message));
 
         Err(HostError::GuestPanic(message).into())
