@@ -1,4 +1,4 @@
-use near_metrics::{IntCounter, try_create_int_counter};
+use near_metrics::{try_create_int_counter, IntCounter};
 
 lazy_static! {
     pub static ref BLOCK_PRODUCED_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(

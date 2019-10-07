@@ -17,7 +17,6 @@ use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
 
-
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
 
@@ -377,9 +376,18 @@ impl Chain {
         match maybe_new_head {
             Ok(head) => {
                 // Metrics
-                near_metrics::set_gauge(&metrics::VALIDATOR_ACTIVE_TOTAL, block.header.inner.validator_proposals.len() as i64);
+                near_metrics::set_gauge(
+                    &metrics::VALIDATOR_ACTIVE_TOTAL,
+                    block.header.inner.validator_proposals.len() as i64,
+                );
                 // Sum validator balances into two i64's
-                let sum = block.header.inner.validator_proposals.iter().map(|validator_stake| validator_stake.amount as u128).sum::<u128>();
+                let sum = block
+                    .header
+                    .inner
+                    .validator_proposals
+                    .iter()
+                    .map(|validator_stake| validator_stake.amount as u128)
+                    .sum::<u128>();
                 let low = (sum % 2u128.pow(63)) as i64;
                 let high = (sum.wrapping_shr(63) % 2u128.pow(63)) as i64;
                 near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED_LOW, low);

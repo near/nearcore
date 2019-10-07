@@ -12,19 +12,19 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
-use near_metrics;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, SendMessage, Unregister, HandshakeFailureReason, PROTOCOL_VERSION
+    Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages, PeerChainInfo,
+    PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
-use crate::metrics;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -372,7 +372,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
-                    },
+                    }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
                     }
@@ -387,7 +387,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis))
+                            HandshakeFailureReason::GenesisMismatch(self.genesis),
+                        ),
                     });
                     return;
                     // Connection will be closed by a handshake timeout
@@ -397,7 +398,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION))
+                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
+                        ),
                     });
                 }
                 if handshake.chain_info.genesis != self.genesis {
