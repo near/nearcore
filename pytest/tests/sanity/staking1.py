@@ -20,7 +20,7 @@ def get_validators():
     return set([x['account_id'] for x in nodes[0].get_status()['validators']])
 
 def get_stakes():
-    return [int(nodes[2].get_account("test%s" % i)['result']['staked']) for i in range(3)]
+    return [int(nodes[2].get_account("test%s" % i)['result']['locked']) for i in range(3)]
 
 status = nodes[2].get_status()
 hash_ = status['sync_info']['latest_block_hash']

@@ -399,7 +399,7 @@ fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount + account.staked;
+            total_supply += account.amount + account.locked;
         }
     }
     total_supply
@@ -569,7 +569,8 @@ fn state_records_account_with_key(
             account_id: account_id.to_string(),
             account: AccountView {
                 amount,
-                staked,
+                locked: staked,
+                desired_stake: staked,
                 code_hash: code_hash.into(),
                 storage_usage: 0,
                 storage_paid_at: 0,

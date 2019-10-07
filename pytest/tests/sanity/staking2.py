@@ -23,7 +23,7 @@ def get_validators():
     return set([x['account_id'] for x in nodes[0].get_status()['validators']])
 
 def get_stakes():
-    return [int(nodes[2].get_account("test%s" % i)['result']['staked']) for i in range(3)]
+    return [int(nodes[2].get_account("test%s" % i)['result']['locked']) for i in range(3)]
 
 def get_expected_stakes():
     global all_stakes
@@ -71,7 +71,7 @@ def doit(seq = []):
 
     do_moar_stakes(hash_)
     last_staked_height = height
-        
+
     while True:
         assert time.time() - started < TIMEOUT
 
