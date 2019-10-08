@@ -38,6 +38,7 @@ impl Measurements {
 
     pub fn plot(measurements: &[Self]) {
         const COLORS: &[&str] = &["red", "orange", "cyan", "blue", "violet"];
+        const POINTS: &[char] = &['o', 'x', '*', 's', 't', 'd', 'r'];
         assert!(measurements.len() <= COLORS.len(), "Not enough hardcoded colors.");
 
         let mut fg = Figure::new();
@@ -46,7 +47,7 @@ impl Measurements {
             .set_title("A plot", &[])
             .set_legend(Graph(0.5), Graph(0.9), &[], &[])
             .set_x_label("Block size", &[])
-            .set_y_label("Duration millisec", &[])
+            .set_y_label("Duration micros", &[])
             .set_grid_options(true, &[LineStyle(DotDotDash), Color("black")])
             .set_x_log(Some(2.0))
             .set_x_grid(true)
@@ -61,11 +62,11 @@ impl Measurements {
             for (block_size, durations) in &measurement.data {
                 for duration in durations {
                     xs.push(*block_size as u64);
-                    ys.push(duration.as_millis() as u64 / *block_size as u64);
+                    ys.push(duration.as_micros() as u64 / *block_size as u64);
                 }
                 mean_xs.push(*block_size as u64);
                 mean_ys.push(
-                    durations.iter().map(|d| d.as_millis() as u64).sum::<u64>()
+                    durations.iter().map(|d| d.as_micros() as u64).sum::<u64>()
                         / durations.len() as u64
                         / *block_size as u64,
                 );
@@ -73,7 +74,7 @@ impl Measurements {
             axes.points(
                 xs.as_slice(),
                 ys.as_slice(),
-                &[Color(COLORS[i]), PointSymbol('o'), Caption(measurement.title)],
+                &[Color(COLORS[i]), PointSymbol(POINTS[i]), Caption(measurement.title)],
             )
             .lines_points(
                 mean_xs.as_slice(),
