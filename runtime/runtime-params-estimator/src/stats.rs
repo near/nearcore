@@ -1,6 +1,4 @@
-use gnuplot::{
-    AxesCommon, Caption, Color, Dash, DotDotDash, Figure, Graph, LineStyle, PlotOption, PointSymbol,
-};
+use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use std::collections::BTreeMap;
 use std::time::Duration;
 

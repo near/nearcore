@@ -12,7 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, MerkleHash, ShardId};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, TrieUpdate, COL_STATE,
+    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
 };
 use node_runtime::StateRecord;
 use std::collections::BTreeMap;
