@@ -85,6 +85,30 @@ impl HeaderList {
         self.headers.insert(block_header.hash, block_header);
     }
 
+    pub fn push_front(&mut self, block_header: BlockHeader) {
+        let block_hash = block_header.hash;
+        self.queue.push_front(block_hash);
+        self.headers.insert(block_hash, block_header);
+    }
+
+    pub fn pop_front(&mut self) -> Option<BlockHeader> {
+        let front = if let Some(hash) = self.queue.pop_front() {
+            hash
+        } else {
+            return None;
+        };
+        let header = self.headers.remove(&front).unwrap();
+        Some(header)
+    }
+
+    pub fn from_headers(headers: Vec<BlockHeader>) -> Self {
+        let mut res = Self::new();
+        for header in headers {
+            res.push_back(header);
+        }
+        res
+    }
+
     /// Update the cache. `hash` must exists in the current cache. Remove everything before `hash`
     /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
     /// from higher height to lower height.
@@ -104,9 +128,7 @@ impl HeaderList {
             }
         }
         for header in new_list.into_iter().rev() {
-            let block_hash = header.hash;
-            self.queue.push_front(block_hash);
-            self.headers.insert(block_hash, header);
+            self.push_front(header);
         }
     }
 }
@@ -303,24 +325,35 @@ impl ChainStore {
         if self.header_history.is_empty() {
             self.header_history.push_back(cur_header.clone());
         }
-        let mut cur_block_hash = cur_header.inner.prev_hash;
+        let mut prev_block_hash = cur_header.inner.prev_hash;
 
         if self.header_history.contains(&cur_header.hash) {
             self.header_history.update(&cur_header.hash, vec![]);
         } else {
             let mut header_list = vec![cur_header.clone()];
+            let mut find_ancestor = false;
             while !self.header_history.is_empty() {
-                let cur_block_header = if let Ok(header) = self.get_block_header(&cur_block_hash) {
+                let prev_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash)
+                {
                     header.clone()
                 } else {
                     return false;
                 };
-                if self.header_history.contains(&cur_block_header.hash) {
-                    self.header_history.update(&cur_block_header.hash, header_list);
+                if self.header_history.contains(&prev_block_header.hash) {
+                    self.header_history.update(&prev_block_header.hash, header_list.clone());
+                    find_ancestor = true;
                     break;
                 }
-                cur_block_hash = cur_block_header.inner.prev_hash;
-                header_list.push(cur_block_header);
+                self.header_history.pop_front();
+                prev_block_hash = prev_block_header.inner.prev_hash;
+                header_list.push(prev_block_header);
+                if header_list.len() >= max_difference_in_height as usize {
+                    self.header_history = HeaderList::from_headers(header_list.clone());
+                    break;
+                }
+            }
+            if !find_ancestor {
+                self.header_history = HeaderList::from_headers(header_list);
             }
         }
 
@@ -330,12 +363,13 @@ impl ChainStore {
         }
         let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
         for _ in 0..num_to_fetch {
-            let cur_block_header = if let Ok(header) = self.get_block_header(&cur_block_hash) {
+            let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
                 header.clone()
             } else {
                 return false;
             };
-            cur_block_hash = cur_block_header.inner.prev_hash;
+            prev_block_hash = cur_block_header.inner.prev_hash;
+            let cur_block_hash = cur_block_header.hash;
             self.header_history.queue.push_back(cur_block_header.hash);
             self.header_history.headers.insert(cur_block_header.hash, cur_block_header);
             if &cur_block_hash == base_block_hash {

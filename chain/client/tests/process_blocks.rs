@@ -512,6 +512,73 @@ fn test_invalid_tx_wrong_fork() {
     );
 }
 
+/// Switch to a fork chain and send a transaction that is based on the fork chain
+/// but has expired.
+#[test]
+fn test_invalid_tx_long_fork_expired() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.transaction_validity_period = 4;
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let genesis = client.chain.get_block_by_height(0).unwrap().clone();
+    let genesis_hash = genesis.hash();
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+
+    let b1 = Block::empty_with_height(&genesis, 1, bls_signer.clone());
+    let hash1 = b1.hash();
+    client.process_block(b1, Provenance::PRODUCED);
+
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: genesis_hash,
+            actions: vec![],
+        },
+    );
+
+    assert_eq!(client.process_tx(tx), NetworkClientResponses::ValidTx);
+
+    let mut latest_fork_hash = genesis.hash();
+    let mut prev_block = genesis.clone();
+    let mut hashes = vec![];
+    for i in 1..6 {
+        let b = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+        prev_block = b.clone();
+        latest_fork_hash = b.hash();
+        let result = client.process_block(b, Provenance::NONE);
+        hashes.push(latest_fork_hash);
+    }
+
+    assert!(client.chain.get_block_header(&hash1).is_ok());
+    assert!(client.chain.get_block_header(&latest_fork_hash).is_ok());
+
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: hashes[0].clone(),
+            actions: vec![],
+        },
+    );
+    assert_eq!(
+        client.process_tx(tx),
+        NetworkClientResponses::InvalidTx(
+            "Transaction has expired or from a different fork".to_string()
+        )
+    );
+}
+
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
 #[test]
 fn test_time_attack() {
