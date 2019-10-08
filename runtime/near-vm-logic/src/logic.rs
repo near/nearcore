@@ -275,6 +275,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         let mut buf;
         if len != std::u64::MAX {
@@ -285,13 +286,13 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=self.config.max_log_len {
-                if i == self.config.max_log_len {
-                    return Err(HostError::BadUTF8.into());
-                }
                 Self::try_fit_mem(self.memory, ptr, i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
+                }
+                if i == self.config.max_log_len {
+                    return Err(HostError::BadUTF8.into());
                 }
                 buf.push(el);
             }
@@ -1367,6 +1368,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn panic_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         Err(HostError::GuestPanic(self.get_utf8_string(len, ptr)?).into())
     }
@@ -1378,6 +1380,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
         self.logs.push(message);
