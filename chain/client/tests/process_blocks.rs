@@ -553,7 +553,7 @@ fn test_invalid_tx_long_fork_expired() {
         let b = Block::empty_with_height(&prev_block, i, bls_signer.clone());
         prev_block = b.clone();
         latest_fork_hash = b.hash();
-        let result = client.process_block(b, Provenance::NONE);
+        client.process_block(b, Provenance::NONE);
         hashes.push(latest_fork_hash);
     }
 

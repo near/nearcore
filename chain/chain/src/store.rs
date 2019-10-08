@@ -361,7 +361,11 @@ impl ChainStore {
         if self.header_history.contains(base_block_hash) {
             return true;
         }
+        assert!(max_difference_in_height >= self.header_history.len() as u64);
         let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
+        // here the queue cannot be empty so it is safe to unwrap
+        let last_hash = self.header_history.queue.back().unwrap();
+        prev_block_hash = self.header_history.headers.get(last_hash).unwrap().inner.prev_hash;
         for _ in 0..num_to_fetch {
             let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
                 header.clone()
@@ -370,8 +374,7 @@ impl ChainStore {
             };
             prev_block_hash = cur_block_header.inner.prev_hash;
             let cur_block_hash = cur_block_header.hash;
-            self.header_history.queue.push_back(cur_block_header.hash);
-            self.header_history.headers.insert(cur_block_header.hash, cur_block_header);
+            self.header_history.push_back(cur_block_header);
             if &cur_block_hash == base_block_hash {
                 return true;
             }
@@ -1166,5 +1169,78 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn commit(self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit().map_err(|e| e.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::KeyValueRuntime;
+    use crate::{Chain, ChainGenesis};
+    use near_crypto::InMemoryBlsSigner;
+    use near_primitives::block::Block;
+    use near_store::test_utils::create_test_store;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_header_cache_long_fork() {
+        let store = create_test_store();
+        let chain_genesis = ChainGenesis::test();
+        let transaction_validity_period = 5;
+        let validators = vec![vec!["test1"]];
+        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
+            store.clone(),
+            validators
+                .into_iter()
+                .map(|inner| inner.into_iter().map(Into::into).collect())
+                .collect(),
+            1,
+            1,
+        ));
+        let mut chain = Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, bls_signer.clone())];
+        let mut store_update = chain.mut_store().store_update();
+        store_update.save_block_header(short_fork[0].header.clone());
+        store_update.commit().unwrap();
+
+        let short_fork_head = short_fork[0].clone().header;
+        assert!(chain.mut_store().check_blocks_on_same_chain(
+            &short_fork_head,
+            &genesis.hash(),
+            transaction_validity_period
+        ));
+        let mut long_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 2) {
+            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            long_fork.push(block);
+        }
+        store_update.commit().unwrap();
+        let valid_base_hash = long_fork[2].hash();
+        let cur_header = &long_fork.last().unwrap().header;
+        assert!(chain.mut_store().check_blocks_on_same_chain(
+            cur_header,
+            &valid_base_hash,
+            transaction_validity_period
+        ));
+        let invalid_base_hash = long_fork[0].hash();
+        assert!(!chain.mut_store().check_blocks_on_same_chain(
+            cur_header,
+            &invalid_base_hash,
+            transaction_validity_period
+        ));
+        assert_eq!(
+            chain.store().header_history.queue.clone().into_iter().collect::<Vec<_>>(),
+            long_fork
+                .iter()
+                .rev()
+                .take(transaction_validity_period as usize)
+                .map(|h| h.hash())
+                .collect::<Vec<_>>()
+        );
     }
 }
