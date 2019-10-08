@@ -52,6 +52,15 @@ pub fn test_smart_contract_simple(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
+pub fn test_smart_contract_panic(node: impl Node) {
+    let node_user = node.user();
+    let transaction_result = node_user
+        .function_call(alice_account(), alice_account(), "panic_with_message", vec![], 1000000, 0)
+        .unwrap();
+    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(transaction_result.receipts.len(), 2);
+}
+
 pub fn test_smart_contract_self_call(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
