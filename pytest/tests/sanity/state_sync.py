@@ -22,8 +22,8 @@ assert mode in ['notx', 'onetx', 'manytx']
 from cluster import init_cluster, spin_up_node
 from utils import TxContext
 
-TIMEOUT = 150
 START_AT_BLOCK = int(sys.argv[2])
+TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = {'local': True, 'near_root': '../target/debug/'}
 near_root, node_dirs = init_cluster(2, 1, 1, config, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})

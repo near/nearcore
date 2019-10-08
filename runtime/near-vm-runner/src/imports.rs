@@ -64,6 +64,7 @@ wrapped_imports! {
     // #####################
     value_return<[value_len: u64, value_ptr: u64] -> []>,
     panic<[] -> []>,
+    panic_utf8<[len: u64, ptr: u64] -> []>,
     log_utf8<[len: u64, ptr: u64] -> []>,
     log_utf16<[len: u64, ptr: u64] -> []>,
     abort<[msg_ptr: u32, filename_ptr: u32, line: u32, col: u32] -> []>,

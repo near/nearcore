@@ -37,6 +37,7 @@ extern "C" {
     // #####################
     fn value_return(value_len: u64, value_ptr: u64);
     fn panic();
+    fn panic_utf8(len: u64, ptr: u64);
     fn log_utf8(len: u64, ptr: u64);
     fn log_utf16(len: u64, ptr: u64);
     fn abort(msg_ptr: u32, filename_ptr: u32, line: u32, col: u32);
@@ -178,7 +179,6 @@ ext_test_u64!(ext_block_index, block_index);
 ext_test_u64!(ext_used_gas, used_gas);
 ext_test_u64!(ext_prepaid_gas, prepaid_gas);
 
-
 ext_test!(ext_random_seed, random_seed);
 ext_test!(ext_predecessor_account_id, predecessor_account_id);
 ext_test!(ext_signer_pk, signer_account_pk);
@@ -187,8 +187,6 @@ ext_test!(ext_account_id, current_account_id);
 
 ext_test_u128!(ext_account_balance, account_balance);
 ext_test_u128!(ext_attached_deposit, attached_deposit);
-
-
 
 #[no_mangle]
 pub unsafe fn ext_sha256() {
@@ -245,6 +243,18 @@ pub unsafe fn log_something() {
 }
 
 #[no_mangle]
+pub unsafe fn abort_with_zero() {
+    // Tries to abort with 0 ptr to check underflow handling.
+    abort(0, 0, 0, 0);
+}
+
+#[no_mangle]
+pub unsafe fn panic_with_message() {
+    let data = b"WAT?";
+    panic_utf8(data.len() as u64, data.as_ptr() as _);
+}
+
+#[no_mangle]
 pub unsafe fn run_test() {
     let value: [u8; 4] = 10i32.to_le_bytes();
     value_return(value.len() as u64, value.as_ptr() as _);
@@ -283,13 +293,7 @@ pub unsafe fn benchmark_storage_8b() {
     let mut sum = 0u64;
     for i in 0..n {
         let el = i.to_le_bytes();
-        storage_write(
-            el.len() as u64,
-            el.as_ptr() as u64,
-            el.len() as u64,
-            el.as_ptr() as u64,
-            0,
-        );
+        storage_write(el.len() as u64, el.as_ptr() as u64, el.len() as u64, el.as_ptr() as u64, 0);
 
         let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
         if result == 1 {
@@ -326,13 +330,7 @@ pub unsafe fn benchmark_storage_10kib() {
     let mut sum = 0u64;
     for i in 0..n {
         el[..size_of::<u64>()].copy_from_slice(&i.to_le_bytes());
-        storage_write(
-            el.len() as u64,
-            el.as_ptr() as u64,
-            el.len() as u64,
-            el.as_ptr() as u64,
-            0,
-        );
+        storage_write(el.len() as u64, el.as_ptr() as u64, el.len() as u64, el.as_ptr() as u64, 0);
 
         let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
         if result == 1 {
