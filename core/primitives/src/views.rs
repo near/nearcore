@@ -9,6 +9,7 @@ use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::errors::{ActionError, ExecutionError};
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -612,8 +613,8 @@ pub enum FinalExecutionStatus {
     NotStarted,
     /// The execution has started and still going.
     Started,
-    /// The execution has failed.
-    Failure,
+    /// The execution has failed with the given error.
+    Failure(ExecutionErrorView),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
 }
@@ -623,7 +624,7 @@ impl fmt::Debug for FinalExecutionStatus {
         match self {
             FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
             FinalExecutionStatus::Started => f.write_str("Started"),
-            FinalExecutionStatus::Failure => f.write_str("Failure"),
+            FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
                 logging::pretty_utf8(&from_base64(&v).unwrap())
@@ -638,12 +639,68 @@ impl Default for FinalExecutionStatus {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ExecutionErrorView {
+    pub error_message: String,
+    pub error_type: String,
+}
+
+impl From<ExecutionError> for ExecutionErrorView {
+    fn from(error: ExecutionError) -> Self {
+        ExecutionErrorView {
+            error_message: format!("{}", error),
+            error_type: match &error {
+                ExecutionError::Action(e) => match e {
+                    ActionError::AccountAlreadyExists(_) => {
+                        "ActionError::AccountAlreadyExists".to_string()
+                    }
+                    ActionError::AccountDoesNotExist(_, _) => {
+                        "ActionError::AccountDoesNotExist".to_string()
+                    }
+                    ActionError::CreateAccountNotAllowed(_, _) => {
+                        "ActionError::CreateAccountNotAllowed".to_string()
+                    }
+                    ActionError::ActorNoPermission(_, _, _) => {
+                        "ActionError::ActorNoPermission".to_string()
+                    }
+                    ActionError::DeleteKeyDoesNotExist(_) => {
+                        "ActionError::DeleteKeyDoesNotExist".to_string()
+                    }
+                    ActionError::AddKeyAlreadyExists(_) => {
+                        "ActionError::AddKeyAlreadyExists".to_string()
+                    }
+                    ActionError::DeleteAccountStaking(_) => {
+                        "ActionError::DeleteAccountStaking".to_string()
+                    }
+                    ActionError::DeleteAccountHasRent(_, _) => {
+                        "ActionError::DeleteAccountHasRent".to_string()
+                    }
+                    ActionError::RentUnpaid(_, _) => "ActionError::RentUnpaid".to_string(),
+                    ActionError::TriesToUnstake(_) => "ActionError::TriesToUnstake".to_string(),
+                    ActionError::TriesToStake(_, _, _, _) => {
+                        "ActionError::TriesToStake".to_string()
+                    }
+                    ActionError::FunctionCallError(_) => {
+                        "ActionError::FunctionCallError".to_string()
+                    }
+                },
+            },
+        }
+    }
+}
+
+impl From<ActionError> for ExecutionErrorView {
+    fn from(error: ActionError) -> Self {
+        ExecutionError::Action(error).into()
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
     /// The execution has failed.
-    Failure,
+    Failure(ExecutionErrorView),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
     /// The final action of the receipt returned a promise or the signed transaction was converted
@@ -655,7 +712,7 @@ impl fmt::Debug for ExecutionStatusView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
-            ExecutionStatusView::Failure => f.write_str("Failure"),
+            ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
                 logging::pretty_utf8(&from_base64(&v).unwrap())
@@ -671,25 +728,10 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     fn from(outcome: ExecutionStatus) -> Self {
         match outcome {
             ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
-            ExecutionStatus::Failure => ExecutionStatusView::Failure,
+            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e.into()),
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 ExecutionStatusView::SuccessReceiptId(receipt_id.into())
-            }
-        }
-    }
-}
-
-impl From<ExecutionStatusView> for ExecutionStatus {
-    fn from(view: ExecutionStatusView) -> Self {
-        match view {
-            ExecutionStatusView::Unknown => ExecutionStatus::Unknown,
-            ExecutionStatusView::Failure => ExecutionStatus::Failure,
-            ExecutionStatusView::SuccessValue(v) => {
-                ExecutionStatus::SuccessValue(from_base64(&v).unwrap())
-            }
-            ExecutionStatusView::SuccessReceiptId(receipt_id) => {
-                ExecutionStatus::SuccessReceiptId(receipt_id.into())
             }
         }
     }
@@ -714,17 +756,6 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             logs: outcome.logs,
             receipt_ids: outcome.receipt_ids.into_iter().map(|h| h.into()).collect(),
             gas_burnt: outcome.gas_burnt,
-        }
-    }
-}
-
-impl From<ExecutionOutcomeView> for ExecutionOutcome {
-    fn from(view: ExecutionOutcomeView) -> Self {
-        Self {
-            status: view.status.into(),
-            logs: view.logs,
-            receipt_ids: view.receipt_ids.into_iter().map(|h| h.into()).collect(),
-            gas_burnt: view.gas_burnt,
         }
     }
 }

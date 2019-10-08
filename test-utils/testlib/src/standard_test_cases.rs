@@ -13,7 +13,9 @@ use crate::fees_utils::*;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
-use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
+
+use assert_matches::assert_matches;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
@@ -57,7 +59,12 @@ pub fn test_smart_contract_panic(node: impl Node) {
     let transaction_result = node_user
         .function_call(alice_account(), alice_account(), "panic_with_message", vec![], 1000000, 0)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("Smart contract panicked: WAT?".to_string()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
 }
 
@@ -84,7 +91,12 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), "_run_test", vec![], 1000000, 0)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("MethodNotFound".to_string()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -96,7 +108,12 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.function_call(account_id.clone(), bob_account(), "", vec![], 1000000, 0).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("MethodEmptyName".to_string()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -109,7 +126,12 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), "", vec![], 1000000, 10)
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("MethodEmptyName".to_string()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -301,7 +323,13 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let transfer_cost = transfer_cost();
     let transaction_result =
         node_user.send_money(account_id.clone(), eve_dot_alice_account(), money_used).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::AccountDoesNotExist("Transfer".to_string(), eve_dot_alice_account())
+                .into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -387,7 +415,12 @@ pub fn test_create_account_again(node: impl Node) {
         )
         .unwrap();
 
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::AccountAlreadyExists(eve_dot_alice_account()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -440,7 +473,10 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         .create_account(account_id.clone(), bob_account(), node.signer().public_key(), money_used)
         .unwrap();
     let create_account_cost = create_account_transfer_full_key_cost_fail_on_create_account();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(ActionError::AccountAlreadyExists(bob_account()).into())
+    );
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -518,7 +554,12 @@ pub fn test_add_existing_key(node: impl Node) {
     let transaction_result = node_user
         .add_key(account_id.clone(), node.signer().public_key(), AccessKey::full_access())
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::AddKeyAlreadyExists(node.signer().public_key()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -551,7 +592,12 @@ pub fn test_delete_key_not_owned(node: impl Node) {
 
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::DeleteKeyDoesNotExist(account_id.clone()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
@@ -861,7 +907,10 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result =
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(ActionError::TriesToUnstake(eve_dot_alice_account()).into())
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
 }
 
@@ -891,7 +940,10 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result =
         node_user.stake(new_account_id.clone(), node.block_signer().public_key(), 5).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_matches!(
+        &transaction_result.status,
+        FinalExecutionStatus::Failure(e) if e.error_type == "ActionError::RentUnpaid"
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
 }
 
@@ -928,7 +980,10 @@ pub fn test_delete_account_fail(node: impl Node) {
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let delete_account_cost = delete_account_cost();
     let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(ActionError::DeleteAccountStaking(bob_account()).into())
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
@@ -941,7 +996,13 @@ pub fn test_delete_account_no_account(node: impl Node) {
     let node_user = node.user();
     let transaction_result =
         node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::AccountDoesNotExist("DeleteAccount".to_string(), eve_dot_alice_account())
+                .into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
 }
 
@@ -962,7 +1023,12 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result =
         node_user.delete_account(alice_account(), eve_dot_alice_account()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
+    assert_eq!(
+        transaction_result.status,
+        FinalExecutionStatus::Failure(
+            ActionError::DeleteAccountStaking(eve_dot_alice_account()).into()
+        )
+    );
     assert_eq!(transaction_result.receipts.len(), 1);
     assert!(node.user().view_account(&eve_dot_alice_account()).is_ok());
 }

@@ -77,9 +77,13 @@ impl ViewClientActor {
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => Some(FinalExecutionStatus::NotStarted),
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
                         ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
                         ExecutionStatusView::SuccessValue(v) => {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
@@ -127,7 +131,14 @@ impl Handler<Query> for ViewClientActor {
         };
 
         self.runtime_adapter
-            .query(state_root, header.inner.height, header.inner.timestamp, &header.hash, path_parts, &msg.data)
+            .query(
+                state_root,
+                header.inner.height,
+                header.inner.timestamp,
+                &header.hash,
+                path_parts,
+                &msg.data,
+            )
             .map_err(|err| err.to_string())
     }
 }

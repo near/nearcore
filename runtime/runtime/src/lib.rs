@@ -42,7 +42,8 @@ use crate::config::{
 };
 pub use crate::store::StateRecord;
 use near_primitives::errors::{
-    ActionError, InvalidAccessKeyError, InvalidTxError, InvalidTxErrorOrStorageError,
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError,
+    InvalidTxErrorOrStorageError,
 };
 
 mod actions;
@@ -532,15 +533,14 @@ impl Runtime {
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
 
-        // Generating transaction result and committing or rolling back state.
+        // Committing or rolling back state.
         match &result.result {
             Ok(_) => {
                 *total_rent_paid += rent_paid;
                 state_update.commit();
             }
-            Err(e) => {
+            Err(_) => {
                 state_update.rollback();
-                result.logs.push(format!("Runtime error: {}", e));
             }
         };
 
@@ -620,7 +620,7 @@ impl Runtime {
             ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
-            Err(_) => ExecutionStatus::Failure,
+            Err(e) => ExecutionStatus::Failure(ExecutionError::Action(e)),
         };
 
         Self::print_log(&result.logs);

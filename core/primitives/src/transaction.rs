@@ -7,6 +7,7 @@ use near_crypto::{BlsPublicKey, PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
 use crate::block::BlockHeader;
+use crate::errors::ExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
@@ -183,8 +184,8 @@ impl PartialEq for SignedTransaction {
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
-    /// The execution has failed.
-    Failure,
+    /// The execution has failed with the given execution error.
+    Failure(ExecutionError),
     /// The final action succeeded and returned some value or an empty vec.
     SuccessValue(Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted
@@ -196,7 +197,7 @@ impl fmt::Debug for ExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
-            ExecutionStatus::Failure => f.write_str("Failure"),
+            ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
             ExecutionStatus::SuccessValue(v) => {
                 f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
             }

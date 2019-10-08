@@ -206,7 +206,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {
                     _successful_transactions += 1
                 }
-                ExecutionStatus::Failure => failed_transactions += 1,
+                ExecutionStatus::Failure(_) => failed_transactions += 1,
                 _ => {}
             }
         }

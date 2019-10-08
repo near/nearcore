@@ -79,8 +79,8 @@ impl RuntimeTestbed {
 
         if !allow_failures {
             for outcome in &apply_result.tx_result {
-                match outcome.outcome.status {
-                    ExecutionStatus::Failure => panic!("Execution failed {:#?}", outcome.outcome),
+                match &outcome.outcome.status {
+                    ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),
                 }
             }
