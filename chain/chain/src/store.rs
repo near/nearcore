@@ -352,17 +352,18 @@ impl ChainStore {
                 } else {
                     return false;
                 };
+                self.header_history.pop_front();
                 if self.header_history.update(&prev_block_header.hash, header_list.clone()) {
                     find_ancestor = true;
                     break;
                 }
-                self.header_history.pop_front();
                 prev_block_hash = prev_block_header.inner.prev_hash;
                 header_list.push(prev_block_header);
             }
             if !find_ancestor {
                 self.header_history = HeaderList::from_headers(header_list);
             }
+            // It is possible that cur_len is max_difference_in_height + 1 after the above update.
             let cur_len = self.header_history.len() as u64;
             if cur_len > max_difference_in_height {
                 for _ in 0..cur_len - max_difference_in_height {
@@ -1195,11 +1196,9 @@ mod tests {
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
 
-    #[test]
-    fn test_header_cache_long_fork() {
+    fn get_chain() -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let transaction_validity_period = 5;
         let validators = vec![vec!["test1"]];
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
             store.clone(),
@@ -1210,7 +1209,13 @@ mod tests {
             1,
             1,
         ));
-        let mut chain = Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap();
+        Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap()
+    }
+
+    #[test]
+    fn test_header_cache_long_fork() {
+        let transaction_validity_period = 5;
+        let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
         let short_fork = vec![Block::empty_with_height(&genesis, 1, bls_signer.clone())];
@@ -1234,7 +1239,7 @@ mod tests {
             long_fork.push(block);
         }
         store_update.commit().unwrap();
-        let valid_base_hash = long_fork[2].hash();
+        let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
         assert!(chain.mut_store().check_blocks_on_same_chain(
             cur_header,
@@ -1260,20 +1265,8 @@ mod tests {
 
     #[test]
     fn test_header_cache_normal_case() {
-        let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
         let transaction_validity_period = 5;
-        let validators = vec![vec!["test1"]];
-        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
-            validators
-                .into_iter()
-                .map(|inner| inner.into_iter().map(Into::into).collect())
-                .collect(),
-            1,
-            1,
-        ));
-        let mut chain = Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap();
+        let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
         let mut blocks = vec![];
@@ -1305,6 +1298,47 @@ mod tests {
         assert!(!chain.mut_store().check_blocks_on_same_chain(
             &new_block.header,
             &valid_base_hash,
+            transaction_validity_period
+        ));
+    }
+
+    #[test]
+    fn test_header_cache_off_by_one() {
+        let transaction_validity_period = 5;
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+        let mut short_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 1) {
+            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            short_fork.push(block);
+        }
+        store_update.commit().unwrap();
+
+        let short_fork_head = short_fork.last().unwrap().clone().header;
+        assert!(!chain.mut_store().check_blocks_on_same_chain(
+            &short_fork_head,
+            &genesis.hash(),
+            transaction_validity_period
+        ));
+        let mut long_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period * 5) {
+            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            long_fork.push(block);
+        }
+        store_update.commit().unwrap();
+        let long_fork_head = &long_fork.last().unwrap().header;
+        assert!(!chain.mut_store().check_blocks_on_same_chain(
+            long_fork_head,
+            &genesis.hash(),
             transaction_validity_period
         ));
     }
