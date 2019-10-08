@@ -5,7 +5,7 @@ use futures::Future;
 use near_crypto::{BlsPublicKey, PublicKey, Signer};
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
@@ -59,8 +59,6 @@ pub trait User {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView;
 
     fn get_state_root(&self) -> CryptoHashView;
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 
     fn get_access_key(
         &self,
@@ -266,11 +264,6 @@ pub trait AsyncUser: Send + Sync {
     ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = String>>;
 
     fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
-
-    fn get_receipt_info(
-        &self,
-        hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
 
     fn get_access_key(
         &self,

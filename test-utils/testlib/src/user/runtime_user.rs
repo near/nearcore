@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
@@ -132,7 +132,9 @@ impl RuntimeUser {
                             Some(FinalExecutionStatus::NotStarted)
                         }
                         ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
                         ExecutionStatusView::SuccessValue(v) => {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
@@ -208,16 +210,6 @@ impl User for RuntimeUser {
 
     fn get_state_root(&self) -> CryptoHashView {
         self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
-    }
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
-        let receipt = self.receipts.borrow().get(hash).cloned()?;
-        let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
-        Some(ReceiptInfo {
-            receipt,
-            result: transaction_result.into(),
-            block_index: Default::default(),
-        })
     }
 
     fn get_access_key(

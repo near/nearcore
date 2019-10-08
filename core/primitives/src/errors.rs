@@ -235,3 +235,25 @@ impl Display for ActionError {
         }
     }
 }
+
+/// Error returned in the ExecutionOutcome in case of failure.
+/// Currently it's can only be an ActionError, but potentially there can be more errors from
+/// Runtime. That's why we use ExecutionError instead of ActionError directly.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ExecutionError {
+    Action(ActionError),
+}
+
+impl Display for ExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ExecutionError::Action(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<ActionError> for ExecutionError {
+    fn from(error: ActionError) -> Self {
+        ExecutionError::Action(error)
+    }
+}
