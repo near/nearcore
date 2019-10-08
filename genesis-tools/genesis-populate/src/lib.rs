@@ -1,7 +1,6 @@
 //! Tools for creating a genesis block.
 
 use borsh::BorshSerialize;
-use byteorder::{LittleEndian, WriteBytesExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
@@ -13,7 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, MerkleHash, ShardId};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
+    create_store, get_account, set_access_key, set_account, set_code, TrieUpdate, COL_STATE,
 };
 use node_runtime::StateRecord;
 use std::collections::BTreeMap;
@@ -259,7 +258,6 @@ impl GenesisBuilder {
         if let (Some(wasm_binary), Some(wasm_binary_base64)) =
             (self.additional_accounts_code.as_ref(), self.additional_accounts_code_base64.as_ref())
         {
-            let tmp = wasm_binary.len();
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
             let contract_record = StateRecord::Contract {
