@@ -175,7 +175,7 @@ impl EpochManager {
 
             for proposal in info.proposals.into_iter().rev() {
                 if !slashed_validators.contains(&proposal.account_id) {
-                    if proposal.amount == 0 {
+                    if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
                         validator_kickout.insert(proposal.account_id.clone());
                     }
                     // This code relies on the fact that within a block the proposals are ordered
@@ -1282,6 +1282,42 @@ mod tests {
                 20,
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
                 inflation
+            )
+        );
+    }
+
+    #[test]
+    fn test_unstake_and_then_change_stake() {
+        let store = create_test_store();
+        let config = epoch_config(2, 1, 2, 0, 90);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(8);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test1", amount_staked)]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
+        assert_eq!(epoch_id, EpochId(h[2]));
+        assert_eq!(
+            epoch_manager.get_epoch_info(&epoch_id).unwrap(),
+            &epoch_info(
+                vec![("test1", amount_staked), ("test2", amount_staked)],
+                vec![1, 0],
+                vec![vec![1, 0]],
+                vec![],
+                change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
+                0,
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
     }
