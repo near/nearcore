@@ -22,6 +22,7 @@ cd ../nearlib
 yarn
 yarn build
 ../scripts/waitonserver.sh
+export HELLO_WASM_PATH=../tests/hello.wasm # Need delete after new near-hello based nearlib release
 yarn test
 yarn doc
 
