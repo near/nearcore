@@ -317,4 +317,13 @@ mod tests {
         let sig1 = BlsSignature::try_from_slice(&bytes).unwrap();
         assert_eq!(sig, sig1);
     }
+
+    #[test]
+    fn test_to_string() {
+        let sk = BlsSecretKey::from_random();
+        let pk = sk.public_key();
+        let s = serde_json::to_string_pretty(&pk).unwrap();
+        let pk1: BlsPublicKey = serde_json::from_str(&s).unwrap();
+        assert_eq!(pk1, pk);
+    }
 }

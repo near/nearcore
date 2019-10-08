@@ -175,7 +175,7 @@ impl EpochManager {
 
             for proposal in info.proposals.into_iter().rev() {
                 if !slashed_validators.contains(&proposal.account_id) {
-                    if proposal.amount == 0 {
+                    if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
                         validator_kickout.insert(proposal.account_id.clone());
                     }
                     // This code relies on the fact that within a block the proposals are ordered
@@ -487,7 +487,10 @@ impl EpochManager {
     pub fn compute_stake_return_info(
         &mut self,
         last_block_hash: &CryptoHash,
-    ) -> Result<(HashMap<AccountId, Balance>, HashMap<AccountId, Balance>), EpochError> {
+    ) -> Result<
+        (HashMap<AccountId, Balance>, HashMap<AccountId, Balance>, HashSet<AccountId>),
+        EpochError,
+    > {
         let next_next_epoch_id = EpochId(*last_block_hash);
         let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward.clone();
 
@@ -502,6 +505,18 @@ impl EpochManager {
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
+        let kickout: HashSet<_> = stake_change
+            .iter()
+            .filter_map(
+                |(account_id, stake)| {
+                    if *stake == 0 {
+                        Some(account_id.clone())
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect();
         debug!(target: "epoch_manager",
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change
@@ -522,7 +537,7 @@ impl EpochManager {
             stake_info.insert(account_id.to_string(), max_of_stakes);
         }
         debug!(target: "epoch_manager", "stake_info: {:?}, validator_reward: {:?}", stake_info, validator_reward);
-        Ok((stake_info, validator_reward))
+        Ok((stake_info, validator_reward, kickout))
     }
 
     /// Get validators for current epoch and next epoch.
@@ -1267,6 +1282,42 @@ mod tests {
                 20,
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
                 inflation
+            )
+        );
+    }
+
+    #[test]
+    fn test_unstake_and_then_change_stake() {
+        let store = create_test_store();
+        let config = epoch_config(2, 1, 2, 0, 90);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(8);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test1", amount_staked)]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
+        assert_eq!(epoch_id, EpochId(h[2]));
+        assert_eq!(
+            epoch_manager.get_epoch_info(&epoch_id).unwrap(),
+            &epoch_info(
+                vec![("test1", amount_staked), ("test2", amount_staked)],
+                vec![1, 0],
+                vec![vec![1, 0]],
+                vec![],
+                change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
+                0,
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
     }

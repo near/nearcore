@@ -56,9 +56,11 @@ pub fn proposals_to_epoch_info(
     }
     for r in epoch_info.validators.iter() {
         match ordered_proposals.entry(r.account_id.clone()) {
-            Entry::Occupied(e) => {
-                let p = &*e.get();
+            Entry::Occupied(mut e) => {
+                let p = e.get_mut();
                 let return_stake = if r.amount > p.amount { r.amount - p.amount } else { 0 };
+                let reward = *validator_reward.get(&r.account_id).unwrap_or(&0);
+                p.amount += reward;
                 stake_change.insert(r.account_id.clone(), (p.amount, return_stake));
             }
             Entry::Vacant(e) => {

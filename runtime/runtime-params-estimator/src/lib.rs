@@ -5,7 +5,6 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::MerkleHash;
 use near_store::{create_store, Trie, TrieUpdate, COL_STATE};
 use node_runtime::config::RuntimeConfig;
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::{ApplyState, Runtime};
 use std::fs::File;
 use std::io::Read;
@@ -52,8 +51,7 @@ impl RuntimeTestbed {
         let root = state_roots.pop().unwrap();
 
         let runtime_config = RuntimeConfig::default();
-        let ethash_provider = Arc::new(std::sync::Mutex::new(EthashProvider::new(workdir.path())));
-        let runtime = Runtime::new(runtime_config, ethash_provider);
+        let runtime = Runtime::new(runtime_config);
         let prev_receipts = vec![];
 
         let apply_state = ApplyState {

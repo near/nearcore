@@ -264,6 +264,67 @@ impl<'a> VMLogic<'a> {
             .collect())
     }
 
+    // ###################################
+    // # String reading helper functions #
+    // ###################################
+
+    /// Helper function to read and return utf8-encoding string.
+    /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
+    ///
+    /// # Errors
+    ///
+    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
+    fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        let mut buf;
+        if len != std::u64::MAX {
+            if len > self.config.max_log_len {
+                return Err(HostError::BadUTF8.into());
+            }
+            buf = Self::memory_get(self.memory, ptr, len)?;
+        } else {
+            buf = vec![];
+            for i in 0..=self.config.max_log_len {
+                Self::try_fit_mem(self.memory, ptr, i)?;
+                let el = self.memory.read_memory_u8(ptr + i);
+                if el == 0 {
+                    break;
+                }
+                if i == self.config.max_log_len {
+                    return Err(HostError::BadUTF8.into());
+                }
+                buf.push(el);
+            }
+        }
+        String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
+    }
+
+    /// Helper function to read UTF-16 assembly script formatted string from guest memory.
+    /// # Errors
+    ///
+    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string is not UTF-16 returns `BadUtf16`.
+    fn get_assembly_script_utf16_string(&mut self, ptr: u64) -> Result<String> {
+        if ptr < 4 {
+            return Err(HostError::BadUTF16.into());
+        }
+        let mut slice = [0u8; 4];
+        let buf = Self::memory_get(self.memory, ptr - 4, 4)?;
+        slice.copy_from_slice(&buf);
+        let len: u32 = u32::from_le_bytes(slice);
+        if len % 2 != 0 {
+            return Err(HostError::BadUTF16.into());
+        }
+        let buffer = Self::memory_get(self.memory, ptr, u64::from(len))?;
+        let mut u16_buffer = Vec::new();
+        for i in 0..((len / 2) as usize) {
+            let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
+            u16_buffer.push(c);
+        }
+        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
+    }
+
     // #################
     // # Registers API #
     // #################
@@ -1258,6 +1319,7 @@ impl<'a> VMLogic<'a> {
     // #####################
     // # Miscellaneous API #
     // #####################
+
     /// Sets the blob of data as the return value of the contract.
     ///
     /// # Errors
@@ -1296,7 +1358,19 @@ impl<'a> VMLogic<'a> {
 
     /// Terminates the execution of the program with panic `GuestPanic`.
     pub fn panic(&self) -> Result<()> {
-        Err(HostError::GuestPanic.into())
+        Err(HostError::GuestPanic("explicit guest panic".to_string()).into())
+    }
+
+    /// Guest panics with the UTF-8 encoded string.
+    /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
+    ///
+    /// # Errors
+    ///
+    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
+    pub fn panic_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
+        Err(HostError::GuestPanic(self.get_utf8_string(len, ptr)?).into())
     }
 
     /// Logs the UTF-8 encoded string.
@@ -1306,49 +1380,11 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
-        let mut buf;
-        if len != std::u64::MAX {
-            if len > self.config.max_log_len {
-                return Err(HostError::BadUTF8.into());
-            }
-            buf = Self::memory_get(self.memory, ptr, len)?;
-        } else {
-            buf = vec![];
-            for i in 0..=self.config.max_log_len {
-                if i == self.config.max_log_len {
-                    return Err(HostError::BadUTF8.into());
-                }
-                Self::try_fit_mem(self.memory, ptr, i)?;
-                let el = self.memory.read_memory_u8(ptr + i);
-                if el == 0 {
-                    break;
-                }
-                buf.push(el);
-            }
-        }
-        let str = String::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
-        let message = format!("LOG: {}", str);
+        let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
         self.logs.push(message);
         Ok(())
-    }
-
-    /// Helper function to read UTF-16 from guest memory.
-    pub fn get_utf16(&mut self, _len: u64, ptr: u64) -> Result<String> {
-        let mut slice = [0u8; 4];
-        let buf = Self::memory_get(self.memory, ptr - 4, 4)?;
-        slice.copy_from_slice(&buf);
-        let len: u32 = u32::from_le_bytes(slice);
-        if len % 2 != 0 {
-            return Err(HostError::BadUTF16.into());
-        }
-        let buffer = Self::memory_get(self.memory, ptr, u64::from(len))?;
-        let mut u16_buffer = Vec::new();
-        for i in 0..((len / 2) as usize) {
-            let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
-            u16_buffer.push(c);
-        }
-        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
 
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
@@ -1358,24 +1394,21 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
-        let str = self.get_utf16(len, ptr)?;
-        let message = format!("LOG: {}", str);
-        self.logs.push(message);
+    pub fn log_utf16(&mut self, _len: u64, _ptr: u64) -> Result<()> {
+        // TODO(#1419): Implement proper utf-16 string reading.
         Ok(())
     }
 
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
     /// contracts directly, but instead called by the code generated by AssemblyScript.
     pub fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
-        let msg = self.get_utf16(std::u64::MAX, u64::from(msg_ptr))?;
-        let filename = self.get_utf16(std::u64::MAX, u64::from(filename_ptr))?;
+        let msg = self.get_assembly_script_utf16_string(u64::from(msg_ptr))?;
+        let filename = self.get_assembly_script_utf16_string(u64::from(filename_ptr))?;
 
-        let message =
-            format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
-        self.logs.push(message);
+        let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
+        self.logs.push(format!("ABORT: {}", message));
 
-        Err(HostError::GuestPanic.into())
+        Err(HostError::GuestPanic(message).into())
     }
 
     /// Reads account id from the given location in memory.

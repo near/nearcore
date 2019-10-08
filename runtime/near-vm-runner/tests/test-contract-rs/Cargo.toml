@@ -19,6 +19,9 @@ opt-level = "z"
 lto = true
 debug = false
 panic = "abort"
+rpath = false
+debug-assertions = false
+incremental = false
 
 [workspace]
 members = []
