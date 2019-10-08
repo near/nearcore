@@ -14,8 +14,6 @@ log = "0.4"
 kvdb = "0.1"
 rand = "0.6"
 rand_xorshift = "0.1"
-ethash = "0.3"
-ethereum-bigint = "0.2"
 sodiumoxide = "0.2.2"
 
 near-crypto = { path = "../../core/crypto" }
@@ -32,9 +30,6 @@ borsh = "0.2.2"
 test-utils = []
 
 [dev-dependencies]
-ethereum-rlp = "0.2"
-ethereum-block = "0.3"
-ethereum-hexutil = "0.2"
 tempdir = "0.3"
 serde_json = "1.0.40"
 base64 = "0.10.1"
