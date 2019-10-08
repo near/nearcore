@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use borsh::BorshDeserialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -31,9 +31,8 @@ use near_store::{
     TrieUpdate, WrappedTrieChanges, COL_STATE,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
+use node_runtime::{ApplyState, Runtime, StateRecord};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
@@ -68,11 +67,8 @@ impl NightshadeRuntime {
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
-        let mut ethash_dir = home_dir.to_owned();
-        ethash_dir.push(ETHASH_CACHE_PATH);
-        let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
-        let runtime = Runtime::new(genesis_config.runtime_config.clone(), ethash_provider.clone());
-        let trie_viewer = TrieViewer::new(ethash_provider);
+        let runtime = Runtime::new(genesis_config.runtime_config.clone());
+        let trie_viewer = TrieViewer::new();
         let num_shards = genesis_config.block_producers_per_shard.len() as ShardId;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis_config.epoch_length,

@@ -5,7 +5,6 @@ extern crate serde_derive;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
 
 use borsh::BorshSerialize;
 use kvdb::DBValue;
@@ -41,7 +40,6 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas, total_send_fees, RuntimeConfig,
 };
-use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
 use near_primitives::errors::{
     ActionError, InvalidAccessKeyError, InvalidTxError, InvalidTxErrorOrStorageError,
@@ -51,12 +49,9 @@ mod actions;
 pub mod adapter;
 pub mod cache;
 pub mod config;
-pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
 mod store;
-
-pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -129,15 +124,13 @@ impl Default for ActionResult {
     }
 }
 
-#[allow(dead_code)]
 pub struct Runtime {
     config: RuntimeConfig,
-    ethash_provider: Arc<Mutex<EthashProvider>>,
 }
 
 impl Runtime {
-    pub fn new(config: RuntimeConfig, ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Runtime { config, ethash_provider }
+    pub fn new(config: RuntimeConfig) -> Self {
+        Runtime { config }
     }
 
     fn print_log(log: &[LogEntry]) {

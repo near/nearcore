@@ -1,10 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use tempdir::TempDir;
-
-use lazy_static::lazy_static;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
@@ -16,7 +13,6 @@ use near_primitives::views::{
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{Trie, TrieUpdate};
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -51,18 +47,11 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
 
-lazy_static! {
-    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
-        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
-    ));
-}
-
 impl RuntimeUser {
     pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
-        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new(ethash_provider),
+            trie_viewer: TrieViewer::new(),
             account_id: account_id.to_string(),
             client,
             transaction_results: Default::default(),
@@ -139,7 +128,9 @@ impl RuntimeUser {
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => Some(FinalExecutionStatus::NotStarted),
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
                         ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
                         ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
                         ExecutionStatusView::SuccessValue(v) => {
