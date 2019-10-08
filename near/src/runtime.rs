@@ -188,7 +188,7 @@ impl NightshadeRuntime {
         Ok(())
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -202,12 +202,15 @@ impl NightshadeRuntime {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let state_roots: Vec<MerkleHash> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        (store_update, state_roots)
+        let state_num_parts = vec![1; state_roots.len()];
+        // TODO MOO read new_state_num_parts
+        (store_update, state_roots, state_num_parts)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
+        let mut state_num_parts = vec![];
         let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
@@ -239,15 +242,16 @@ impl NightshadeRuntime {
                 })
                 .collect::<Vec<_>>();
             let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
-            let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
+            let (shard_store_update, state_root, num_parts) = self.runtime.apply_genesis_state(
                 state_update,
                 &validators,
                 &shard_records[shard_id as usize],
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
+            state_num_parts.push(num_parts);
         }
-        (store_update, state_roots)
+        (store_update, state_roots, state_num_parts)
     }
 }
 
@@ -276,7 +280,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
         let has_records = !self.genesis_config.records.is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -632,6 +636,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             new_root: apply_result.root,
+            new_num_parts: apply_result.num_parts,
             transaction_results: apply_result.tx_result,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
@@ -939,6 +944,7 @@ mod test {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
         state_roots: Vec<MerkleHash>,
+        state_num_parts: Vec<u64>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
@@ -973,7 +979,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (store_update, state_roots) = runtime.genesis_state();
+            let (store_update, state_roots, state_num_parts) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime
@@ -1000,6 +1006,7 @@ mod test {
                     total_weight: Weight::default(),
                 },
                 state_roots,
+                state_num_parts,
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),

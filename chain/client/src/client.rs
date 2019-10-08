@@ -357,6 +357,7 @@ impl Client {
         let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
+            chunk_extra.state_num_parts,
             next_height,
             shard_id,
             chunk_extra.gas_used,

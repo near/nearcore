@@ -89,6 +89,7 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
+    pub new_num_parts: u64,
     pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
@@ -103,7 +104,7 @@ pub struct ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -468,6 +469,7 @@ mod tests {
         let num_shards = 32;
         let genesis = Block::genesis(
             vec![MerkleHash::default()],
+            vec![1], /* TODO MOO */
             Utc::now(),
             num_shards,
             1_000_000,

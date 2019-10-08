@@ -374,6 +374,7 @@ impl From<BlockHeaderView> for BlockHeader {
 pub struct ChunkHeaderView {
     pub prev_block_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
+    pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHashView,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -394,6 +395,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             prev_block_hash: chunk.inner.prev_block_hash.into(),
             prev_state_root: chunk.inner.prev_state_root.into(),
+            prev_state_num_parts: chunk.inner.prev_state_num_parts,
             encoded_merkle_root: chunk.inner.encoded_merkle_root.into(),
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -421,6 +423,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash.into(),
                 prev_state_root: view.prev_state_root.into(),
+                prev_state_num_parts: view.prev_state_num_parts,
                 encoded_merkle_root: view.encoded_merkle_root.into(),
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,

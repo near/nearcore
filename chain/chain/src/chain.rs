@@ -183,9 +183,10 @@ impl Chain {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let (state_store_update, state_roots, state_num_parts) = runtime_adapter.genesis_state();
         let genesis = Block::genesis(
             state_roots.clone(),
+            state_num_parts.clone(),
             chain_genesis.time,
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
@@ -241,12 +242,20 @@ impl Chain {
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
 
-                    for (chunk_header, state_root) in genesis.chunks.iter().zip(state_roots.iter())
+                    for (chunk_header, (state_root, state_num_parts)) in
+                        genesis.chunks.iter().zip(state_roots.iter().zip(state_num_parts.iter()))
                     {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0),
+                            ChunkExtra::new(
+                                state_root,
+                                *state_num_parts,
+                                vec![],
+                                0,
+                                chain_genesis.gas_limit,
+                                0,
+                            ),
                         );
                     }
 
@@ -1113,6 +1122,7 @@ impl Chain {
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
+            apply_result.new_num_parts,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
@@ -1670,6 +1680,7 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         ChunkExtra::new(
                             &apply_result.new_root,
+                            apply_result.new_num_parts,
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,

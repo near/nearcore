@@ -236,10 +236,11 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
         (
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| MerkleHash::default()).collect()),
+            vec![0; self.num_shards() as usize], /* TODO MOO */
         )
     }
 
@@ -599,6 +600,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let new_state_root =
             hash(&StateRoot(balances_root, receipt_root, tx_root).try_to_vec().unwrap());
         self.state.write().unwrap().insert(new_state_root, state);
+        let new_state_num_parts = 7; // TODO MOO
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
@@ -606,6 +608,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(*state_root),
             ),
             new_root: new_state_root,
+            new_num_parts: new_state_num_parts,
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
