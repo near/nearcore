@@ -101,6 +101,16 @@ impl HeaderList {
         Some(header)
     }
 
+    pub fn pop_back(&mut self) -> Option<BlockHeader> {
+        let back = if let Some(hash) = self.queue.pop_back() {
+            hash
+        } else {
+            return None;
+        };
+        let header = self.headers.remove(&back).unwrap();
+        Some(header)
+    }
+
     pub fn from_headers(headers: Vec<BlockHeader>) -> Self {
         let mut res = Self::new();
         for header in headers {
@@ -109,11 +119,14 @@ impl HeaderList {
         res
     }
 
-    /// Update the cache. `hash` must exists in the current cache. Remove everything before `hash`
+    /// Tries to update the cache. if `hash` is in the cache, remove everything before `hash`
     /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
     /// from higher height to lower height.
-    fn update(&mut self, hash: &CryptoHash, new_list: Vec<BlockHeader>) {
-        assert!(self.headers.contains_key(hash));
+    /// Returns true if `hash` is in the cache and false otherwise.
+    fn update(&mut self, hash: &CryptoHash, new_list: Vec<BlockHeader>) -> bool {
+        if !self.headers.contains_key(hash) {
+            return false;
+        }
         loop {
             let front = if let Some(elem) = self.queue.front() {
                 elem.clone()
@@ -130,6 +143,7 @@ impl HeaderList {
         for header in new_list.into_iter().rev() {
             self.push_front(header);
         }
+        true
     }
 }
 
@@ -327,9 +341,8 @@ impl ChainStore {
         }
         let mut prev_block_hash = cur_header.inner.prev_hash;
 
-        if self.header_history.contains(&cur_header.hash) {
-            self.header_history.update(&cur_header.hash, vec![]);
-        } else {
+        let contains_hash = self.header_history.update(&cur_header.hash, vec![]);
+        if !contains_hash {
             let mut header_list = vec![cur_header.clone()];
             let mut find_ancestor = false;
             while !self.header_history.is_empty() {
@@ -339,29 +352,30 @@ impl ChainStore {
                 } else {
                     return false;
                 };
-                if self.header_history.contains(&prev_block_header.hash) {
-                    self.header_history.update(&prev_block_header.hash, header_list.clone());
+                if self.header_history.update(&prev_block_header.hash, header_list.clone()) {
                     find_ancestor = true;
                     break;
                 }
                 self.header_history.pop_front();
                 prev_block_hash = prev_block_header.inner.prev_hash;
                 header_list.push(prev_block_header);
-                if header_list.len() >= max_difference_in_height as usize {
-                    self.header_history = HeaderList::from_headers(header_list.clone());
-                    break;
-                }
             }
             if !find_ancestor {
                 self.header_history = HeaderList::from_headers(header_list);
             }
+            let cur_len = self.header_history.len() as u64;
+            if cur_len > max_difference_in_height {
+                for _ in 0..cur_len - max_difference_in_height {
+                    self.header_history.pop_back();
+                }
+            }
         }
 
         // second step: check if `base_block_hash` exists
+        assert!(max_difference_in_height >= self.header_history.len() as u64);
         if self.header_history.contains(base_block_hash) {
             return true;
         }
-        assert!(max_difference_in_height >= self.header_history.len() as u64);
         let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
         // here the queue cannot be empty so it is safe to unwrap
         let last_hash = self.header_history.queue.back().unwrap();
@@ -1242,5 +1256,56 @@ mod tests {
                 .map(|h| h.hash())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_header_cache_normal_case() {
+        let store = create_test_store();
+        let chain_genesis = ChainGenesis::test();
+        let transaction_validity_period = 5;
+        let validators = vec![vec!["test1"]];
+        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
+            store.clone(),
+            validators
+                .into_iter()
+                .map(|inner| inner.into_iter().map(Into::into).collect())
+                .collect(),
+            1,
+            1,
+        ));
+        let mut chain = Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+        let mut blocks = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 2) {
+            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            blocks.push(block);
+        }
+        store_update.commit().unwrap();
+        let valid_base_hash = blocks[1].hash();
+        let cur_header = &blocks.last().unwrap().header;
+        assert!(chain.mut_store().check_blocks_on_same_chain(
+            cur_header,
+            &valid_base_hash,
+            transaction_validity_period
+        ));
+        assert_eq!(chain.store().header_history.len(), transaction_validity_period as usize);
+        let new_block = Block::empty_with_height(
+            &blocks.last().unwrap(),
+            transaction_validity_period + 2,
+            bls_signer.clone(),
+        );
+        let mut store_update = chain.mut_store().store_update();
+        store_update.save_block_header(new_block.header.clone());
+        store_update.commit().unwrap();
+        assert!(!chain.mut_store().check_blocks_on_same_chain(
+            &new_block.header,
+            &valid_base_hash,
+            transaction_validity_period
+        ));
     }
 }
