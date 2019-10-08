@@ -13,16 +13,20 @@ mkdir nearlib_release_test
 cd nearlib_release_test
 
 yarn add nearlib
-cd node_modules/nearlib
+rm package.json yarn.lock
+mv node_modules/nearlib .
+cd nearlib
 yarn
 yarn build
-../../../scripts/waitonserver.sh
+../../scripts/waitonserver.sh
 yarn test
 yarn doc
-cd ../..
+cd ..
 
 # Try creating and building new project using NEAR CLI tools
 yarn add near-shell
-cd node_modules/near-shell
+rm package.json yarn.lock
+mv node_modules/near-shell .
+ce near-shell
 yarn
-cd ../../..
+cd ../..
