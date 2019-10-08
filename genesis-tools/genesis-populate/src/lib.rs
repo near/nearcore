@@ -226,7 +226,7 @@ impl GenesisBuilder {
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
-        const TESTING_INIT_STAKE: Balance = 50_000_000;
+        const TESTING_INIT_STAKE: Balance = 0;
         let shard_id = self.runtime.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =

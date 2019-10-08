@@ -1,5 +1,6 @@
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::time::Duration;
 
 /// Stores measurements per block.
@@ -37,7 +38,9 @@ impl Measurements {
     pub fn plot(measurements: &[Self]) {
         const COLORS: &[&str] = &["red", "orange", "cyan", "blue", "violet"];
         const POINTS: &[char] = &['o', 'x', '*', 's', 't', 'd', 'r'];
-        assert!(measurements.len() <= COLORS.len(), "Not enough hardcoded colors.");
+        if measurements.len() > COLORS.len() {
+            println!("Not enough hardcoded colors.");
+        }
 
         let mut fg = Figure::new();
         let axes = fg
@@ -72,23 +75,44 @@ impl Measurements {
             axes.points(
                 xs.as_slice(),
                 ys.as_slice(),
-                &[Color(COLORS[i]), PointSymbol(POINTS[i]), Caption(measurement.title)],
+                &[
+                    Color(COLORS[i % COLORS.len()]),
+                    PointSymbol(POINTS[i % POINTS.len()]),
+                    Caption(measurement.title),
+                ],
             )
             .lines_points(
                 mean_xs.as_slice(),
                 mean_ys.as_slice(),
-                &[Color(COLORS[i]), PointSymbol('.')],
+                &[Color(COLORS[i % COLORS.len()]), PointSymbol('.')],
             );
         }
         fg.show().unwrap();
     }
+
+    pub fn save_to_csv(measurements: &[Self], path: &Path) {
+        let mut writer = csv::Writer::from_path(path).unwrap();
+        writer.write_record(&["measurement", "mean", "stddev", "5-ile", "95-ile"]).unwrap();
+        for measurement in measurements {
+            let stats = measurement.stats();
+            writer
+                .write_record(&[
+                    format!("{}", stats.mean.as_micros()),
+                    format!("{}", stats.stddev.as_micros()),
+                    format!("{}", stats.ile5.as_micros()),
+                    format!("{}", stats.ile95.as_micros()),
+                ])
+                .unwrap();
+        }
+        writer.flush().unwrap();
+    }
 }
 
 pub struct DataStats {
-    mean: Duration,
-    stddev: Duration,
-    ile5: Duration,
-    ile95: Duration,
+    pub mean: Duration,
+    pub stddev: Duration,
+    pub ile5: Duration,
+    pub ile95: Duration,
 }
 
 impl DataStats {
