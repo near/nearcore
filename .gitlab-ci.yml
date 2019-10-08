@@ -110,8 +110,6 @@ test_nearlib:
 
 test_nearlib_release:
     stage: test
-    only: 
-    - master
     tags:
     - gcloud
     before_script:
