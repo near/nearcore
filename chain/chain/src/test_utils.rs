@@ -288,20 +288,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         approval_sig: &BlsSignature,
         data: &[u8],
     ) -> Result<bool, Error> {
-        let public_keys: Vec<_> = self
-            .validators
-            .iter()
-            .flatten()
-            .enumerate()
-            .take(approval_mask.len())
-            .filter_map(|(i, validate_stake)| {
-                if approval_mask[i] {
-                    Some(validate_stake.public_key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let public_keys: Vec<_> =
+            self.validators
+                .iter()
+                .flatten()
+                .zip(approval_mask.iter())
+                .filter_map(|(validate_stake, is_approved)| {
+                    if *is_approved {
+                        Some(validate_stake.public_key.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
         Ok(approval_sig.verify_aggregate(data, &public_keys))
     }
 
