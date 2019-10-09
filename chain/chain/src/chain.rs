@@ -1118,31 +1118,31 @@ impl Chain {
         Ok(())
     }
 
+    pub fn get_received_state_header(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
+            return Err(
+            ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
+                .into(),
+        ));*/
+        // TODO achtung, line above compiles weirdly, remove unwrap
+        Ok(self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
+    }
+
     pub fn set_state_part(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part: ShardStateSyncResponsePart,
     ) -> Result<(), Error> {
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        let shard_state_header =
-            /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
-                return Err(
-                ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
-                    .into(),
-            ));*/
-            // TODO achtung, line above compiles weirdly, remove unwrap 
-            self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap();
-        let ShardStateSyncResponseHeader {
-            chunk,
-            chunk_proof: _,
-            prev_chunk_header: _,
-            prev_chunk_proof: _,
-            incoming_receipts_proofs: _,
-            root_proofs: _,
-        } = shard_state_header;
+        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+        let _state_num_parts = chunk.header.inner.prev_state_num_parts;
         self.runtime_adapter
             .accept_state_part(state_root, &part.state_part, &part.proof)
             .map_err(|_| ErrorKind::InvalidStatePayload)?;
@@ -1154,15 +1154,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        let shard_state_header =
-            /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
-                return Err(
-                ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
-                    .into(),
-            ));*/
-            // TODO achtung, line above compiles weirdly, remove unwrap 
-            self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap();
+        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader {
             chunk,
             chunk_proof: _,

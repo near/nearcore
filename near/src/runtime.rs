@@ -738,7 +738,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         part_id: u64,
         state_root: StateRoot,
-        state_num_parts: u64,
+        _state_num_parts: u64,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
         if part_id > 0 {
             /* TODO MOO */
