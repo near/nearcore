@@ -12,7 +12,7 @@ use near_chunks::NetworkAdapter;
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, Range, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, Range, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -402,6 +402,30 @@ pub enum StateSyncResult {
     Completed,
 }
 
+pub struct StateSyncStrategy {}
+
+impl StateSyncStrategy {
+    pub fn download_all_from_one(
+        shard_sync_download: &ShardSyncDownload,
+    ) -> Result<Vec<Vec<Range>>, near_chain::Error> {
+        let mut strategy = vec![];
+        let mut begin = 0;
+        for (end, download) in shard_sync_download.downloads.iter().enumerate() {
+            if !download.run_me {
+                if begin != end {
+                    strategy.push(Range(begin as u64, end as u64));
+                }
+                begin = end + 1;
+            }
+        }
+        let end = shard_sync_download.downloads.len();
+        if begin != end {
+            strategy.push(Range(begin as u64, end as u64));
+        }
+        Ok(vec![strategy])
+    }
+}
+
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -574,7 +598,7 @@ impl StateSync {
         Ok((update_sync_status, all_done))
     }
 
-    // returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
+    /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
     pub fn request_shard(
         &mut self,
         shard_id: ShardId,
@@ -630,24 +654,16 @@ impl StateSync {
             }
             ShardSyncStatus::StateDownloadParts => {
                 //println!("REQUEST PARTS {:?}", shard_id);  /* TODO MOO */
-                let shard_state_header = unwrap_or_return!(
-                    chain.get_received_state_header(shard_id, hash),
-                    Ok(shard_sync_download)
-                );
-                let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-                let state_num_parts = chunk.header.inner.prev_state_num_parts;
-
-                self.network_adapter.send(NetworkRequests::StateRequest {
+                let download_strategy =
+                    StateSyncStrategy::download_all_from_one(&shard_sync_download)?;
+                self.apply_download_strategy(
                     shard_id,
                     hash,
-                    need_header: false,
-                    parts_range: vec![Range(0, state_num_parts)],
-                    account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
-                });
-                for i in 0..state_num_parts as usize {
-                    assert!(new_shard_sync_download.downloads[i].run_me);
-                    new_shard_sync_download.downloads[i].run_me = false;
-                }
+                    &shard_bps,
+                    download_strategy,
+                    &shard_sync_download,
+                    &mut new_shard_sync_download,
+                )?;
             }
             _ => {
                 //println!("NO REQUEST {:?}", shard_id);  /* TODO MOO */
@@ -697,6 +713,35 @@ impl StateSync {
         } else {
             StateSyncResult::Unchanged
         })
+    }
+
+    pub fn apply_download_strategy(
+        &mut self,
+        shard_id: ShardId,
+        hash: CryptoHash,
+        shard_bps: &Vec<AccountId>,
+        download_strategy: Vec<Vec<Range>>,
+        shard_sync_download: &ShardSyncDownload,
+        new_shard_sync_download: &mut ShardSyncDownload,
+    ) -> Result<(), near_chain::Error> {
+        let state_num_parts = shard_sync_download.downloads.len();
+        assert_eq!(state_num_parts, new_shard_sync_download.downloads.len());
+        for parts_range in download_strategy {
+            for Range(from, to) in parts_range.iter() {
+                for i in *from as usize..*to as usize {
+                    assert!(new_shard_sync_download.downloads[i].run_me);
+                    new_shard_sync_download.downloads[i].run_me = false;
+                }
+            }
+            self.network_adapter.send(NetworkRequests::StateRequest {
+                shard_id,
+                hash,
+                need_header: false,
+                parts_range,
+                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+            });
+        }
+        Ok(())
     }
 }
 
