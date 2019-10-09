@@ -499,6 +499,7 @@ fn test_invalid_approvals() {
     let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
+    b1.header.inner.approval_mask = vec![true];
     b1.header.inner.approval_sigs = (0..100).fold(BlsSignature::empty(), |mut acc, i| {
         let signature = InMemoryBlsSigner::from_seed(&format!("test{}", i), &format!("test{}", i))
             .sign(genesis.hash().as_ref());
