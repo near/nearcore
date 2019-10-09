@@ -42,6 +42,9 @@ impl AsRef<[u8]> for EpochId {
     }
 }
 
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+pub struct Range(pub u64, pub u64);
+
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ValidatorStake {

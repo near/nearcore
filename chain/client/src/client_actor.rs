@@ -13,7 +13,9 @@ use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{AcceptedBlock, ValidatorSignatureVerificationResult};
+use near_chain::types::{
+    AcceptedBlock, ShardStateSyncResponse, ValidatorSignatureVerificationResult,
+};
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
@@ -28,7 +30,7 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockIndex, EpochId, Range};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -283,14 +285,38 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
-                if let Ok(shard_state) = self.client.chain.get_state_for_shard(shard_id, hash) {
+                let parts_range = vec![Range(0, 1)]; /* TODO MOO */
+                let need_header = true; /* TODO MOO */
+                let mut parts = vec![];
+                for Range(from, to) in parts_range {
+                    for part_id in from..to {
+                        if let Ok(part) =
+                            self.client.chain.get_state_response_part(shard_id, part_id, hash)
+                        {
+                            parts.push(part);
+                        } else {
+                            return NetworkClientResponses::NoResponse;
+                        }
+                    }
+                }
+                if need_header {
+                    if let Ok(header) = self.client.chain.get_state_response_header(shard_id, hash)
+                    {
+                        return NetworkClientResponses::StateResponse(StateResponseInfo {
+                            shard_id,
+                            hash,
+                            shard_state: ShardStateSyncResponse { header: Some(header), parts },
+                        });
+                    } else {
+                        return NetworkClientResponses::NoResponse;
+                    }
+                } else {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
                         shard_id,
                         hash,
-                        shard_state,
+                        shard_state: ShardStateSyncResponse { header: None, parts },
                     });
                 }
-                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
@@ -334,10 +360,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                             shard_id,
                             hash,
-                            shard_state.clone(),
+                            shard_state.header.unwrap(),
                         )
                         .is_ok()
-                        && self.client.chain.set_state_part(shard_id, hash, shard_state).is_ok()
+                        && self
+                            .client
+                            .chain
+                            .set_state_part(shard_id, hash, shard_state.parts[0].clone()) /* TODO MOO */
+                            .is_ok()
                         && self.client.chain.set_state_finalize(shard_id, hash).is_ok()
                     {
                         for shard_statuses in shard_statuseses {

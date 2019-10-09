@@ -461,16 +461,8 @@ pub struct ShardStateSyncResponsePart {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponse {
-    /*pub header: Option<ShardStateSyncResponseHeader>,
-    pub parts: Vec<ShardStateSyncResponsePart>,*/
-    pub chunk: ShardChunk,
-    pub chunk_proof: MerklePath,
-    pub prev_chunk_header: ShardChunkHeader,
-    pub prev_chunk_proof: MerklePath,
-    pub state_part: StatePart,
-    pub state_part_proof: MerklePath,
-    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-    pub root_proofs: Vec<Vec<RootProof>>,
+    pub header: Option<ShardStateSyncResponseHeader>,
+    pub parts: Vec<ShardStateSyncResponsePart>,
 }
 
 #[cfg(test)]
