@@ -844,7 +844,7 @@ impl Runtime {
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
             root: trie_changes.new_root,
-            num_parts: 1, // TODO MOO trie_changes.new_num_parts,
+            num_parts: 9, // TODO MOO trie_changes.new_num_parts,
             trie_changes,
             validator_proposals,
             new_receipts,
@@ -997,7 +997,7 @@ impl Runtime {
             .into(trie)
             .expect("Genesis state update failed");
         // TODO MOO
-        (state_update_state.0, state_update_state.1, 1)
+        (state_update_state.0, state_update_state.1, 9)
     }
 }
 

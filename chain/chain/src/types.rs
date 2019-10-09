@@ -480,7 +480,7 @@ mod tests {
         let num_shards = 32;
         let genesis = Block::genesis(
             vec![StateRoot::default()],
-            vec![1], /* TODO MOO */
+            vec![9], /* TODO MOO */
             Utc::now(),
             num_shards,
             1_000_000,

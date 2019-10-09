@@ -285,7 +285,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
-                let parts_range = vec![Range(0, 1)]; /* TODO MOO */
+                let parts_range = vec![Range(0, 7)]; /* TODO MOO */
                 let need_header = true; /* TODO MOO */
                 let mut parts = vec![];
                 for Range(from, to) in parts_range {
@@ -363,11 +363,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             shard_state.header.unwrap(),
                         )
                         .is_ok()
-                        && self
-                            .client
-                            .chain
-                            .set_state_part(shard_id, hash, shard_state.parts[0].clone()) /* TODO MOO */
-                            .is_ok()
+                        && {
+                            for part in shard_state.parts {
+                                self.client
+                                    .chain
+                                    .set_state_part(shard_id, hash, part) /* TODO MOO */
+                                    .is_ok();
+                            }
+                            true
+                        }
                         && self.client.chain.set_state_finalize(shard_id, hash).is_ok()
                     {
                         for shard_statuses in shard_statuseses {

@@ -949,7 +949,6 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root;
         let state_num_parts = sync_prev_block.chunks[shard_id as usize].inner.prev_state_num_parts;
-        assert_eq!(state_num_parts, 1); /* TODO MOO */
 
         if part_id >= state_num_parts {
             return Err(ErrorKind::Other(
@@ -1144,7 +1143,6 @@ impl Chain {
         } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
         let state_num_parts = chunk.header.inner.prev_state_num_parts;
-        assert_eq!(state_num_parts, 1); /* TODO MOO */
         self.runtime_adapter
             .accept_state_part(state_root, &part.state_part, &part.proof)
             .map_err(|_| ErrorKind::InvalidStatePayload)?;
@@ -1179,7 +1177,6 @@ impl Chain {
         let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
 
         // Applying chunk is started here.
-        assert_eq!(state_num_parts, 1);
         self.runtime_adapter.confirm_state(state_root, state_num_parts)?;
 
         // Getting actual incoming receipts.

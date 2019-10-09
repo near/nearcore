@@ -740,7 +740,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         state_num_parts: u64,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
-        assert_eq!(state_num_parts, 1); /* TODO MOO */
+        if part_id > 0 {
+            /* TODO MOO */
+            return Ok((StatePart { shard_id, part_id, data: vec![] }, MerklePath::new()));
+        }
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
         let mut result = vec![];
@@ -764,6 +767,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         part: &StatePart,
         _proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if part.part_id > 0 {
+            /* TODO MOO */
+            return Ok(());
+        }
         debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root, part.data.len());
         // TODO prove that the part is valid
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());

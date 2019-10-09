@@ -36,7 +36,7 @@ use crate::{Chain, ChainGenesis, ValidTransaction};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 
-pub const DEFAULT_STATE_NUM_PARTS: u64 = 1; /* TODO MOO */
+pub const DEFAULT_STATE_NUM_PARTS: u64 = 7; /* TODO MOO */
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -249,7 +249,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         (
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
-            vec![1; self.num_shards() as usize], // TODO MOO
+            vec![7; self.num_shards() as usize], // TODO MOO
         )
     }
 
