@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use actix::System;
 use futures::{future, Future};
+use log::error;
 
 use borsh::BorshSerialize;
 use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
@@ -512,8 +513,14 @@ fn test_invalid_approvals() {
     match tip {
         Err(e) => match e.kind() {
             ErrorKind::InvalidApprovals => {}
-            _ => assert!(false),
+            _ => {
+                error!("wrong error: {}", e);
+                assert!(false);
+            }
         },
-        _ => assert!(false),
+        _ => {
+            error!("succeeded, tip: {:?}", tip);
+            assert!(false);
+        }
     }
 }
