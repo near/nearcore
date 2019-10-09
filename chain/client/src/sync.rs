@@ -640,7 +640,7 @@ impl StateSync {
                 self.network_adapter.send(NetworkRequests::StateRequest {
                     shard_id,
                     hash,
-                    need_header: true,
+                    need_header: false,
                     parts_range: vec![Range(0, state_num_parts)],
                     account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
                 });
