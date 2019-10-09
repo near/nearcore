@@ -34,7 +34,7 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncStatus};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -718,7 +718,7 @@ impl Client {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
         let tx_header = unwrap_or_return!(
             self.chain.get_block_header(&tx.transaction.block_hash),
-            NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string(),)
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
@@ -728,7 +728,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx("Transaction has expired".to_string());
+            return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
         }
         let gas_price = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
@@ -793,7 +793,7 @@ impl Client {
             }
             Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err.to_string())
+                NetworkClientResponses::InvalidTx(err)
             }
             Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
         }

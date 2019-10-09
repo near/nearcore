@@ -24,7 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, ExecutionErrorView};
 
 pub mod test_utils;
 
@@ -179,10 +179,13 @@ impl JsonRpcHandler {
                     }
                 })
                     .await
-                    .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
+                    .map_err(|_| RpcError::server_error(Some(ExecutionErrorView{
+                        error_message: "send_tx_commit has timed out".to_string(),
+                        error_type: "TimeoutError".to_string(),
+                    })))?
             },
             NetworkClientResponses::InvalidTx(err) => {
-                Err(RpcError::server_error(Some(err)))
+                Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
             _ => unreachable!(),
         }

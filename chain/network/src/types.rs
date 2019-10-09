@@ -24,6 +24,7 @@ use near_primitives::utils::{from_timestamp, to_timestamp};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
+use near_primitives::errors::InvalidTxError;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -759,7 +760,7 @@ pub enum NetworkClientResponses {
     /// Valid transaction inserted into mempool as response to Transaction.
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
-    InvalidTx(String),
+    InvalidTx(InvalidTxError),
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.

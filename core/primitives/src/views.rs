@@ -9,7 +9,7 @@ use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::errors::{ActionError, ExecutionError};
+use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -680,6 +680,45 @@ impl From<ExecutionError> for ExecutionErrorView {
                         "ActionError::FunctionCallError".to_string()
                     }
                 },
+                ExecutionError::InvalidTx(e) => match e {
+                    InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),
+                    InvalidTxError::SignerDoesNotExist(_) => {
+                        "InvalidTxError::SignerDoesNotExist".to_string()
+                    }
+                    InvalidTxError::InvalidAccessKey(e) => match e {
+                        InvalidAccessKeyError::AccessKeyNotFound(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
+                        }
+                        InvalidAccessKeyError::ReceiverMismatch(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::MethodNameMismatch(_) => {
+                            "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::ActionError => {
+                            "InvalidTxError::InvalidAccessKey::ActionError".to_string()
+                        }
+                        InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
+                            "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
+                        }
+                    },
+                    InvalidTxError::InvalidNonce(_, _) => {
+                        "InvalidTxError::InvalidNonce".to_string()
+                    }
+                    InvalidTxError::InvalidReceiver(_) => {
+                        "InvalidTxError::InvalidReceiver".to_string()
+                    }
+                    InvalidTxError::InvalidSignature => {
+                        "InvalidTxError::InvalidSignature".to_string()
+                    }
+                    InvalidTxError::NotEnoughBalance(_, _, _) => {
+                        "InvalidTxError::NotEnoughBalance".to_string()
+                    }
+                    InvalidTxError::RentUnpaid(_, _) => "InvalidTxError::RentUnpaid".to_string(),
+                    InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
+                    InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
+                    InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
+                },
             },
         }
     }
@@ -688,6 +727,12 @@ impl From<ExecutionError> for ExecutionErrorView {
 impl From<ActionError> for ExecutionErrorView {
     fn from(error: ActionError) -> Self {
         ExecutionError::Action(error).into()
+    }
+}
+
+impl From<InvalidTxError> for ExecutionErrorView {
+    fn from(error: InvalidTxError) -> Self {
+        ExecutionError::InvalidTx(error).into()
     }
 }
 

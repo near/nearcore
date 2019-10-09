@@ -45,6 +45,8 @@ pub enum InvalidTxError {
     NotEnoughBalance(AccountId, Balance, Balance),
     RentUnpaid(AccountId, Balance),
     CostOverflow,
+    InvalidChain,
+    Expired,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -103,6 +105,12 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high") 
+            }
+            InvalidTxError::InvalidChain => {
+                write!(f, "Transaction parent block hash doesn't belong to the current chain")
+            }
+            InvalidTxError::Expired => {
+                write!(f, "Transaction has expired")
             }
         }
     }
@@ -237,17 +245,17 @@ impl Display for ActionError {
 }
 
 /// Error returned in the ExecutionOutcome in case of failure.
-/// Currently it's can only be an ActionError, but potentially there can be more errors from
-/// Runtime. That's why we use ExecutionError instead of ActionError directly.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     Action(ActionError),
+    InvalidTx(InvalidTxError),
 }
 
 impl Display for ExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
             ExecutionError::Action(e) => write!(f, "{}", e),
+            ExecutionError::InvalidTx(e) => write!(f, "{}", e),
         }
     }
 }
@@ -255,5 +263,11 @@ impl Display for ExecutionError {
 impl From<ActionError> for ExecutionError {
     fn from(error: ActionError) -> Self {
         ExecutionError::Action(error)
+    }
+}
+
+impl From<InvalidTxError> for ExecutionError {
+    fn from(error: InvalidTxError) -> Self {
+        ExecutionError::InvalidTx(error)
     }
 }
