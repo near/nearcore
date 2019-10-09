@@ -280,6 +280,30 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
+    fn verify_approval_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        approval_mask: &[bool],
+        approval_sig: &BlsSignature,
+        data: &[u8],
+    ) -> Result<bool, Error> {
+        let public_keys: Vec<_> = self
+            .validators
+            .iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(i, validate_stake)| {
+                if approval_mask[i] {
+                    Some(validate_stake.public_key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(approval_sig.verify_aggregate(data, &public_keys))
+    }
+
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
         Ok(true)
     }

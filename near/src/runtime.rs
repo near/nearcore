@@ -350,6 +350,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn verify_approval_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        approval_mask: &[bool],
+        approval_sig: &BlsSignature,
+        data: &[u8],
+    ) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let info = epoch_manager
+            .get_all_block_producer_info(epoch_id, last_known_block_hash)
+            .map_err(|err| Error::from(err))?;
+        let mut all_keys = vec![];
+        for (i, (validator, is_slashed)) in info.into_iter().enumerate() {
+            if approval_mask[i] && !is_slashed {
+                all_keys.push(validator.public_key);
+            }
+        }
+        Ok(approval_sig.verify_aggregate(data, &all_keys))
+    }
+
     fn get_epoch_block_producers(
         &self,
         epoch_id: &EpochId,
