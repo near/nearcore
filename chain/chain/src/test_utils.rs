@@ -447,8 +447,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -634,7 +635,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .get(&state_root)
                     .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
                 locked: 0,
-                desired_stake: 0,
                 code_hash: CryptoHash::default(),
                 storage_usage: 0,
                 storage_paid_at: 0,

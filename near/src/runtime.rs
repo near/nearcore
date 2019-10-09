@@ -132,11 +132,16 @@ impl NightshadeRuntime {
         &self,
         shard_id: ShardId,
         block_hash: &CryptoHash,
+        last_validator_proposals: &[ValidatorStake],
         state_update: &mut TrieUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let (stake_info, validator_reward, kickout) =
-            epoch_manager.compute_stake_return_info(block_hash)?;
+        let (stake_info, validator_reward) = epoch_manager.compute_stake_return_info(block_hash)?;
+        let account_to_stake =
+            last_validator_proposals.iter().fold(HashMap::new(), |mut acc, v| {
+                acc.insert(v.account_id.clone(), v.amount);
+                acc
+            });
 
         for (account_id, max_of_stakes) in stake_info {
             if self.account_id_to_shard_id(&account_id) == shard_id {
@@ -145,11 +150,6 @@ impl NightshadeRuntime {
                     if let Some(reward) = validator_reward.get(&account_id) {
                         debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked);
                         account.locked += *reward;
-                        // if one unstakes/gets kicked out we don't add reward to desired stake
-                        // otherwise this amount will be locked.
-                        if account.desired_stake != 0 {
-                            account.desired_stake += *reward;
-                        }
                     }
 
                     debug!(target: "runtime",
@@ -162,19 +162,11 @@ impl NightshadeRuntime {
                         account.locked,
                         max_of_stakes
                     );
-                    assert!(
-                        account.locked >= account.desired_stake,
-                        "FATAL: staking invariant does not hold. Account locked {} is less than desired stake {}",
-                        account.locked,
-                        account.desired_stake
-                    );
-                    let return_stake = account.locked - max(max_of_stakes, account.desired_stake);
-                    debug!(target: "runtime", "account {} return stake {} desired stake {}", account_id, return_stake, account.desired_stake);
+                    let last_stake = *account_to_stake.get(&account_id).unwrap_or(&0);
+                    let return_stake = account.locked - max(max_of_stakes, last_stake);
+                    debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
                     account.locked -= return_stake;
                     account.amount += return_stake;
-                    if kickout.contains(&account_id) {
-                        account.desired_stake = 0;
-                    }
 
                     set_account(state_update, &account_id, &account);
                 }
@@ -571,8 +563,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -594,14 +587,18 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update).map_err(
-                |e| {
-                    if let Some(e) = e.downcast_ref::<StorageError>() {
-                        panic!(e.to_string())
-                    }
-                    Error::from(ErrorKind::ValidatorError(e.to_string()))
-                },
-            )?;
+            self.update_validator_accounts(
+                shard_id,
+                prev_block_hash,
+                last_validator_proposals,
+                &mut state_update,
+            )
+            .map_err(|e| {
+                if let Some(e) = e.downcast_ref::<StorageError>() {
+                    panic!(e.to_string())
+                }
+                Error::from(ErrorKind::ValidatorError(e.to_string()))
+            })?;
         }
 
         let apply_state = ApplyState {
@@ -912,8 +909,9 @@ mod test {
             block_timestamp: u64,
             prev_block_hash: &CryptoHash,
             block_hash: &CryptoHash,
-            receipts: &Vec<Receipt>,
-            transactions: &Vec<SignedTransaction>,
+            receipts: &[Receipt],
+            transactions: &[SignedTransaction],
+            last_proposals: &[ValidatorStake],
             gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
@@ -926,6 +924,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    last_proposals,
                     gas_price,
                 )
                 .unwrap();
@@ -941,6 +940,7 @@ mod test {
         pub head: Tip,
         state_roots: Vec<MerkleHash>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
+        pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
     }
 
@@ -1000,8 +1000,9 @@ mod test {
                     total_weight: Weight::default(),
                 },
                 state_roots,
-                last_receipts: HashMap::new(),
+                last_receipts: HashMap::default(),
                 last_proposals: vec![],
+                last_shard_proposals: HashMap::default(),
             }
         }
 
@@ -1012,7 +1013,7 @@ mod test {
             let mut all_proposals = vec![];
             let mut new_receipts = HashMap::new();
             for i in 0..num_shards {
-                let (state_root, mut proposals, receipts) = self.runtime.update(
+                let (state_root, proposals, receipts) = self.runtime.update(
                     &self.state_roots[i as usize],
                     i,
                     self.head.height + 1,
@@ -1021,6 +1022,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
                     self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
@@ -1030,7 +1032,8 @@ mod test {
                         .or_insert_with(|| vec![])
                         .append(&mut shard_receipts);
                 }
-                all_proposals.append(&mut proposals);
+                all_proposals.append(&mut proposals.clone());
+                self.last_shard_proposals.insert(i as ShardId, proposals);
             }
             self.runtime
                 .add_validator_proposals(
@@ -1120,7 +1123,6 @@ mod test {
         env.step_default(vec![]);
         let account = env.view_account(&block_producers[0].account_id);
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
-        assert_eq!(account.desired_stake, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
         // NOTE: The Runtime doesn't take invalid transactions anymore (e.g. one with a bad nonce),
@@ -1205,7 +1207,6 @@ mod test {
         let account = env.view_account(&block_producers[0].account_id);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE);
-        assert_eq!(account.desired_stake, desired_stake);
         for _ in 2..=4 {
             env.step_default(vec![]);
         }
@@ -1216,7 +1217,6 @@ mod test {
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward
         );
         assert_eq!(account.locked, TESTING_INIT_STAKE);
-        assert_eq!(account.desired_stake, desired_stake + per_epoch_per_validator_reward);
 
         for _ in 5..=7 {
             env.step_default(vec![]);
@@ -1225,7 +1225,6 @@ mod test {
         let account = env.view_account(&block_producers[0].account_id);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - desired_stake);
         assert_eq!(account.locked, desired_stake + per_epoch_per_validator_reward * 3);
-        assert_eq!(account.desired_stake, desired_stake + per_epoch_per_validator_reward * 3);
     }
 
     #[test]
@@ -1398,7 +1397,6 @@ mod test {
             TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2 + 3 * per_epoch_per_validator_reward
                 - return_stake
         );
-        assert_eq!(account.desired_stake, TESTING_INIT_STAKE + per_epoch_per_validator_reward);
     }
 
     #[test]
@@ -1523,7 +1521,6 @@ mod test {
         }
         let account = env.view_account(&block_producers[3].account_id);
         assert_eq!(account.locked, TESTING_INIT_STAKE);
-        assert_eq!(account.desired_stake, 0);
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward

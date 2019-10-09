@@ -219,7 +219,6 @@ pub(crate) fn action_stake(
             account.amount -= increment;
             account.locked = stake.stake;
         }
-        account.desired_stake = stake.stake;
     } else {
         result.result = Err(ActionError::TriesToStake(
             account_id.clone(),

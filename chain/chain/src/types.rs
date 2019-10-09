@@ -250,8 +250,9 @@ pub trait RuntimeAdapter: Send + Sync {
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
@@ -263,6 +264,7 @@ pub trait RuntimeAdapter: Send + Sync {
             block_hash,
             receipts,
             transactions,
+            last_validator_proposals,
             gas_price,
             false,
         )
@@ -276,8 +278,9 @@ pub trait RuntimeAdapter: Send + Sync {
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
