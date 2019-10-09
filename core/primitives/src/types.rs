@@ -8,6 +8,8 @@ use crate::hash::CryptoHash;
 pub type AccountId = String;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
+/// Hash used by to store state root.
+pub type StateRoot = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = usize;
 /// Mask which validators participated in multi sign.

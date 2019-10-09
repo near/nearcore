@@ -9,18 +9,19 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::debug;
 
-use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
+use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -732,11 +733,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn dump_state(
+    fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        state_root: MerkleHash,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        part_id: u64,
+        state_root: StateRoot,
+        state_num_parts: u64,
+    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
+        assert_eq!(state_num_parts, 1); /* TODO MOO */
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
         let mut result = vec![];
@@ -749,21 +753,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_all(value.as_ref())?;
         }
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        debug!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
-        Ok(result)
+        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root, result.len());
+        // TODO add proof in Nightshade Runtime
+        Ok((StatePart { shard_id, part_id, data: result }, MerklePath::new()))
     }
 
-    fn set_state(
+    fn accept_state_part(
         &self,
-        shard_id: ShardId,
-        state_root: MerkleHash,
-        payload: Vec<u8>,
+        state_root: StateRoot,
+        part: &StatePart,
+        _proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        debug!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
+        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root, part.data.len());
+        // TODO prove that the part is valid
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
-        let payload_len = payload.len();
-        let mut cursor = Cursor::new(payload);
-        while cursor.position() < payload_len as u64 {
+        let state_part_len = part.data.len();
+        let mut cursor = Cursor::new(part.data.clone());
+        while cursor.position() < state_part_len as u64 {
             let key_len = cursor.read_u32::<LittleEndian>()? as usize;
             let mut key = vec![0; key_len];
             cursor.read_exact(&mut key)?;
@@ -778,6 +784,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         store_update.commit()?;
         Ok(())
+    }
+
+    fn confirm_state(&self, _state_root: StateRoot, _state_num_parts: u64) -> Result<bool, Error> {
+        // TODO approve that all parts are here
+        Ok(true)
     }
 }
 
@@ -1443,7 +1454,8 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_dump = env.runtime.dump_state(0, env.state_roots[0]).unwrap();
+        let (state_part, proof) =
+            env.runtime.obtain_state_part(0, 0, env.state_roots[0], 1).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1478,7 +1490,7 @@ mod test {
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
         }
-        new_env.runtime.set_state(0, env.state_roots[0], state_dump).unwrap();
+        new_env.runtime.accept_state_part(env.state_roots[0], &state_part, &proof).unwrap();
         new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {
             new_env.step_default(vec![]);

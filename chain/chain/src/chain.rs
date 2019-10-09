@@ -22,7 +22,7 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, StateKey, Tip,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, StateHeaderKey, Tip,
     ValidatorSignatureVerificationResult,
 };
 
@@ -872,9 +872,10 @@ impl Chain {
 
         let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
         let prev_chunk_height_included = prev_chunk_header.height_included;
-        let prev_payload = self
+        let (state_part, state_part_proof) = self
             .runtime_adapter
-            .dump_state(shard_id, chunk.header.inner.prev_state_root)
+            //.dump_state(shard_id, chunk.header.inner.prev_state_root)
+            .obtain_state_part(shard_id, 0, chunk.header.inner.prev_state_root, 1)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
@@ -920,15 +921,16 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        Ok(ShardStateSyncResponse::new(
+        Ok(ShardStateSyncResponse {
             chunk,
             chunk_proof,
             prev_chunk_header,
             prev_chunk_proof,
-            prev_payload,
+            state_part,
+            state_part_proof,
             incoming_receipts_proofs,
             root_proofs,
-        ))
+        })
     }
 
     pub fn set_state_header(
@@ -955,7 +957,8 @@ impl Chain {
             chunk_proof,
             prev_chunk_header,
             prev_chunk_proof,
-            prev_payload,
+            state_part,
+            state_part_proof,
             incoming_receipts_proofs,
             root_proofs,
         } = &shard_state_header;
@@ -1079,7 +1082,7 @@ impl Chain {
 
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
-        let key = StateKey(shard_id, sync_hash).try_to_vec()?;
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -1097,7 +1100,8 @@ impl Chain {
             chunk_proof: _,
             prev_chunk_header: _,
             prev_chunk_proof: _,
-            prev_payload,
+            state_part,
+            state_part_proof,
             incoming_receipts_proofs: _,
             root_proofs: _,
         } = shard_state_part;
@@ -1105,8 +1109,9 @@ impl Chain {
         let state_root = chunk.header.inner.prev_state_root;
         let state_num_parts = chunk.header.inner.prev_state_num_parts;
         self.runtime_adapter
+            .accept_state_part(state_root, &state_part, &state_part_proof)
             //.accept_state_part(state_root, &part.state_part, &part.proof)
-            .set_state(shard_id, state_root, prev_payload)
+            //.set_state(shard_id, state_root, prev_payload)
             .map_err(|_| ErrorKind::InvalidStatePayload)?;
         Ok(())
     }
@@ -1117,7 +1122,7 @@ impl Chain {
         sync_hash: CryptoHash,
         //shard_state: ShardStateSyncResponse,
     ) -> Result<(), Error> {
-        let key = StateKey(shard_id, sync_hash).try_to_vec()?;
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         let shard_state_header =
             /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
                 return Err(
@@ -1131,7 +1136,8 @@ impl Chain {
             chunk_proof: _,
             prev_chunk_header: _,
             prev_chunk_proof: _,
-            prev_payload: _,
+            state_part: _,
+            state_part_proof: _,
             incoming_receipts_proofs,
             root_proofs: _,
         } = shard_state_header;
@@ -1143,7 +1149,8 @@ impl Chain {
         let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
 
         // Applying chunk is started here.
-        //self.runtime_adapter.confirm_state(&state_root, state_num_parts)?;
+        assert_eq!(state_num_parts, 1);
+        self.runtime_adapter.confirm_state(state_root, state_num_parts)?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
