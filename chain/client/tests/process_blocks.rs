@@ -7,7 +7,7 @@ use actix::System;
 use futures::{future, Future};
 
 use borsh::BorshSerialize;
-use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
+use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
@@ -509,5 +509,11 @@ fn test_invalid_approvals() {
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
     let (_, tip) = client.process_block(b1, Provenance::NONE);
-    assert!(tip.is_err());
+    match tip {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidApprovals => {}
+            _ => assert!(false),
+        },
+        _ => assert!(false),
+    }
 }

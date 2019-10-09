@@ -363,7 +363,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .get_all_block_producer_info(epoch_id, last_known_block_hash)
             .map_err(|err| Error::from(err))?;
         let mut all_keys = vec![];
-        for (i, (validator, is_slashed)) in info.into_iter().enumerate() {
+        for (i, (validator, is_slashed)) in info.into_iter().enumerate().take(approval_mask.len()) {
             if approval_mask[i] && !is_slashed {
                 all_keys.push(validator.public_key);
             }
