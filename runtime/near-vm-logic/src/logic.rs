@@ -293,8 +293,8 @@ impl<'a> VMLogic<'a> {
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
-            Self::try_fit_mem(self.memory, ptr, max_len)?;
             for i in 0..=max_len {
+                Self::try_fit_mem(self.memory, ptr, ptr + i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
@@ -328,19 +328,17 @@ impl<'a> VMLogic<'a> {
                 u16_buffer.push(hi + lo);
             }
         } else {
-            input = Self::memory_get(self.memory, ptr, max_len)?;
-            Self::try_fit_mem(self.memory, ptr, max_len)?;
-            for i in 0..=input.len() {
-                if (i == max_len as usize) {
+            for i in 0..=(max_len / 2) {
+                Self::try_fit_mem(self.memory, ptr, ptr + i)?;
+                if (i == max_len) {
                     return Err(HostError::BadUTF16.into());
                 }
-                let hi = input[i * 2 + 1] as u16 * 0x100;
-                let lo = input[i * 2] as u16;
+                let hi = self.memory.read_memory_u8(ptr + i * 2 + 1) as u16 * 0x100;
+                let lo = self.memory.read_memory_u8(ptr + i * 2) as u16;
                 if (hi, lo) == (0, 0) {
                     break;
-                } else {
-                    u16_buffer.push(hi + lo);
                 }
+                u16_buffer.push(hi + lo);
             }
         }
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
