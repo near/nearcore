@@ -123,7 +123,7 @@ impl HeaderList {
     /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
     /// from higher height to lower height.
     /// Returns true if `hash` is in the cache and false otherwise.
-    fn update(&mut self, hash: &CryptoHash, new_list: Vec<BlockHeader>) -> bool {
+    fn update(&mut self, hash: &CryptoHash, new_list: &[BlockHeader]) -> bool {
         if !self.headers.contains_key(hash) {
             return false;
         }
@@ -141,7 +141,7 @@ impl HeaderList {
             }
         }
         for header in new_list.into_iter().rev() {
-            self.push_front(header);
+            self.push_front(header.clone());
         }
         true
     }
@@ -341,7 +341,7 @@ impl ChainStore {
         }
         let mut prev_block_hash = cur_header.inner.prev_hash;
 
-        let contains_hash = self.header_history.update(&cur_header.hash, vec![]);
+        let contains_hash = self.header_history.update(&cur_header.hash, &[]);
         if !contains_hash {
             let mut header_list = vec![cur_header.clone()];
             let mut find_ancestor = false;
@@ -353,7 +353,7 @@ impl ChainStore {
                     return false;
                 };
                 self.header_history.pop_front();
-                if self.header_history.update(&prev_block_header.hash, header_list.clone()) {
+                if self.header_history.update(&prev_block_header.hash, &header_list) {
                     find_ancestor = true;
                     break;
                 }
