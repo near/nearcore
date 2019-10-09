@@ -138,8 +138,8 @@ impl NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let (stake_info, validator_reward) = epoch_manager.compute_stake_return_info(block_hash)?;
         let account_to_stake =
-            last_validator_proposals.iter().rev().fold(HashMap::new(), |mut acc, v| {
-                acc.entry(v.account_id.clone()).or_insert_with(|| v.amount);
+            last_validator_proposals.iter().fold(HashMap::new(), |mut acc, v| {
+                acc.insert(v.account_id.clone(), v.amount);
                 acc
             });
 
@@ -162,7 +162,7 @@ impl NightshadeRuntime {
                         account.locked,
                         max_of_stakes
                     );
-                    let last_stake = account_to_stake.get(&account_id).unwrap_or(&0).clone();
+                    let last_stake = *account_to_stake.get(&account_id).unwrap_or(&0);
                     let return_stake = account.locked - max(max_of_stakes, last_stake);
                     debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
                     account.locked -= return_stake;

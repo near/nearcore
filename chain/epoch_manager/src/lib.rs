@@ -484,6 +484,10 @@ impl EpochManager {
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
     /// return the hashmap of account id to max_of_stakes, which is used in the calculation of account
     /// updates.
+    ///
+    /// # Returns
+    /// If successful, a tuple of (hashmap of account id to max of stakes in the past three epochs,
+    /// validator rewards in the last epoch).
     pub fn compute_stake_return_info(
         &mut self,
         last_block_hash: &CryptoHash,
