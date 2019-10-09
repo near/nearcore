@@ -266,7 +266,7 @@ impl<'a> VMLogic<'a> {
 
     fn read_memory_u32(memory: &dyn MemoryLike, ptr: u64) -> Result<u32> {
         let mut slice = [0u8; size_of::<u32>()];
-        let buf = Self::memory_get(memory, ptr, 4)?;
+        let buf = Self::memory_get(memory, ptr, size_of::<u32>())?;
         slice.copy_from_slice(&buf);
         Ok(u32::from_le_bytes(slice))
     }
@@ -294,7 +294,7 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                Self::try_fit_mem(self.memory, ptr, ptr + i)?;
+                Self::try_fit_mem(self.memory, ptr, i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
@@ -329,7 +329,7 @@ impl<'a> VMLogic<'a> {
             }
         } else {
             for i in 0..=(max_len / 2) {
-                Self::try_fit_mem(self.memory, ptr, ptr + i)?;
+                Self::try_fit_mem(self.memory, ptr, i)?;
                 if (i == max_len) {
                     return Err(HostError::BadUTF16.into());
                 }
