@@ -1586,7 +1586,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let mut current_validators = env
+        let current_validators = env
             .runtime
             .epoch_manager
             .write()
@@ -1630,9 +1630,6 @@ mod test {
             .unwrap();
         match response {
             QueryResponse::Validators(info) => {
-                for p in current_validators.iter_mut() {
-                    p.amount += per_epoch_per_validator_reward;
-                }
                 let v: Vec<ValidatorStake> =
                     info.current_validators.clone().into_iter().map(Into::into).collect();
                 assert_eq!(v, current_validators);
