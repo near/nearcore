@@ -101,7 +101,7 @@ fn test_valid_log_utf16() {
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
-    let string = "$";
+    let string = "$ qò$`";
     let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
     let utf16_buf: Vec<u16> = string.encode_utf16().collect();
     for u16_ in string.encode_utf16() {
