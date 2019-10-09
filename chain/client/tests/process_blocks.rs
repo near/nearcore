@@ -500,8 +500,8 @@ fn test_invalid_approvals() {
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
     b1.header.inner.approval_sigs = (0..100).fold(BlsSignature::empty(), |mut acc, i| {
-        let signature =
-            InMemoryBlsSigner::from_random(format!("test{}", i)).sign(genesis.hash().as_ref());
+        let signature = InMemoryBlsSigner::from_seed(&format!("test{}", i), &format!("test{}", i))
+            .sign(genesis.hash().as_ref());
         acc.add(&signature);
         acc
     });
