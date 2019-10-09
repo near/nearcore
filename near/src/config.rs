@@ -570,7 +570,6 @@ fn state_records_account_with_key(
             account: AccountView {
                 amount,
                 locked: staked,
-                desired_stake: staked,
                 code_hash: code_hash.into(),
                 storage_usage: 0,
                 storage_paid_at: 0,
