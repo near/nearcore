@@ -273,7 +273,7 @@ pub fn setup_mock_all_validators(
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
+                                    if !drop_chunks || !sample_binary(1, 10) || true {
                                         connectors1.write().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkOnePartRequest(
                                                 one_part_request.clone(),
@@ -287,7 +287,9 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
+                                    if !drop_chunks || !sample_binary(1, 10)
+                                    /*MOO*/
+                                    {
                                         connectors1.write().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkOnePart(
                                                 header_and_part.clone(),
@@ -300,7 +302,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 if peer_info.id == *peer_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
+                                    if !drop_chunks || !sample_binary(1, 10) || true {
                                         connectors1.write().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkOnePart(
                                                 header_and_part.clone(),

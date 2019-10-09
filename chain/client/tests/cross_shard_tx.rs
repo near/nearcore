@@ -387,7 +387,13 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 75 },
+                if drop_chunks {
+                    400 // need to have time to re-request chunks
+                } else if rotate_validators {
+                    150
+                } else {
+                    75
+                },
                 drop_chunks,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
@@ -451,6 +457,11 @@ mod tests {
     #[test]
     fn test_cross_shard_tx() {
         test_cross_shard_tx_common(64, false, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_drop_chunks() {
+        test_cross_shard_tx_common(64, false, true);
     }
 
     #[test]

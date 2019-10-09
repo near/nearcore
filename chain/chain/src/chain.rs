@@ -20,6 +20,7 @@ use near_store::{Store, COL_CHUNKS, COL_STATE_HEADERS};
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
+use crate::test_utils::display_chain;
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
     ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
@@ -579,6 +580,10 @@ impl Chain {
     {
         if block.chunks.len() != self.runtime_adapter.num_shards() as usize {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
+        }
+
+        if block.header.inner.height % 5 == 0 {
+            display_chain(me, self, block.header.inner.height % 35 != 0);
         }
 
         let prev_head = self.store.head()?;
@@ -1587,20 +1592,23 @@ impl<'a> ChainUpdate<'a> {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();
-                if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
-                    || self.runtime_adapter.will_care_about_shard(
-                        me.as_ref(),
-                        &parent_hash,
-                        shard_id,
-                        true,
-                    )
-                {
+
+                if let Err(_) = self.chain_store_update.get_chunk_one_part(chunk_header) {
+                    missing.push(chunk_header.clone());
+                } else if self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                ) || self.runtime_adapter.will_care_about_shard(
+                    me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                ) {
                     if let Err(_) = self.chain_store_update.get_chunk(&chunk_hash) {
                         missing.push(chunk_header.clone());
                     }
-                }
-                if let Err(_) = self.chain_store_update.get_chunk_one_part(chunk_header) {
-                    missing.push(chunk_header.clone());
                 }
             }
         }

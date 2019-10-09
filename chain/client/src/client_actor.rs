@@ -620,7 +620,10 @@ impl ClientActor {
         match self.client.produce_block(next_height, elapsed_since_last_block) {
             Ok(Some(block)) => {
                 let res = self.process_block(block, Provenance::PRODUCED);
-                byzantine_assert!(res.is_ok());
+                if res.is_err() {
+                    error!("Failed to process freshly produced block: {:?}", res);
+                    byzantine_assert!(false);
+                }
                 res.map_err(|err| err.into())
             }
             Ok(None) => Ok(()),
