@@ -1,7 +1,6 @@
 //! Tools for creating a genesis block.
 
 use borsh::BorshSerialize;
-use byteorder::{LittleEndian, WriteBytesExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
@@ -227,7 +226,7 @@ impl GenesisBuilder {
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
-        const TESTING_INIT_STAKE: Balance = 50_000_000;
+        const TESTING_INIT_STAKE: Balance = 0;
         let shard_id = self.runtime.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
@@ -260,7 +259,6 @@ impl GenesisBuilder {
         if let (Some(wasm_binary), Some(wasm_binary_base64)) =
             (self.additional_accounts_code.as_ref(), self.additional_accounts_code_base64.as_ref())
         {
-            let tmp = wasm_binary.len();
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
             let contract_record = StateRecord::Contract {
