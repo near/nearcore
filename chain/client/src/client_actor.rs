@@ -284,9 +284,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash) => {
-                let parts_range = vec![Range(0, 7)]; /* TODO MOO */
-                let need_header = true; /* TODO MOO */
+            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_range) => {
                 let mut parts = vec![];
                 for Range(from, to) in parts_range {
                     for part_id in from..to {
