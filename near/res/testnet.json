@@ -48782,7 +48782,15 @@
         "signer_account_pk": 1,
         "signer_account_pk_byte": 1,
         "predecessor_account_id": 1,
-        "predecessor_account_id_byte": 1
+        "predecessor_account_id_byte": 1,
+        "promise_and_base": 1,
+        "promise_and_per_promise": 1,
+        "promise_result_base": 1,
+        "promise_result_byte": 1,
+        "promise_results_count": 1,
+        "promise_return": 1,
+        "log_base": 1,
+        "log_per_byte": 1
       },
       "action_receipt_creation_config": {
         "send_sir": 1,
@@ -48919,7 +48927,15 @@
           "signer_account_pk": 1,
           "signer_account_pk_byte": 1,
           "predecessor_account_id": 1,
-          "predecessor_account_id_byte": 1
+          "predecessor_account_id_byte": 1,
+          "promise_and_base": 1,
+          "promise_and_per_promise": 1,
+          "promise_result_base": 1,
+          "promise_result_byte": 1,
+          "promise_results_count": 1,
+          "promise_return": 1,
+          "log_base": 1,
+          "log_per_byte": 1
         },
         "action_receipt_creation_config": {
           "send_sir": 1,

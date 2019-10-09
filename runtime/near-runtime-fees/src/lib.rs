@@ -138,6 +138,22 @@ pub struct ExtCostsConfig {
     pub predecessor_account_id: Gas,
     /// Cost for getting a predecessor account per byte
     pub predecessor_account_id_byte: Gas,
+    /// Cost for calling promise_and
+    pub promise_and_base: Gas,
+    /// Cost for calling promise_and for each promise
+    pub promise_and_per_promise: Gas,
+    /// Cost for calling promise_result
+    pub promise_result_base: Gas,
+    /// Cost for calling promise_result per result byte
+    pub promise_result_byte: Gas,
+    /// Cost for calling promise_results_count
+    pub promise_results_count: Gas,
+    /// Cost for calling promise_return
+    pub promise_return: Gas,
+    /// Cost for calling logging
+    pub log_base: Gas,
+    /// Cost for logging per byte
+    pub log_per_byte: Gas,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -250,6 +266,14 @@ impl Default for RuntimeFeesConfig {
                 signer_account_pk_byte: 1,
                 predecessor_account_id: 1,
                 predecessor_account_id_byte: 1,
+                promise_and_base: 1,
+                promise_and_per_promise: 1,
+                promise_result_base: 1,
+                promise_result_byte: 1,
+                promise_results_count: 1,
+                promise_return: 1,
+                log_base: 1,
+                log_per_byte: 1,
             },
             action_receipt_creation_config: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             data_receipt_creation_config: DataReceiptCreationConfig {
@@ -337,6 +361,14 @@ impl RuntimeFeesConfig {
                 signer_account_pk_byte: 0,
                 predecessor_account_id: 0,
                 predecessor_account_id_byte: 0,
+                promise_and_base: 0,
+                promise_and_per_promise: 0,
+                promise_result_base: 0,
+                promise_result_byte: 0,
+                promise_results_count: 0,
+                promise_return: 0,
+                log_base: 0,
+                log_per_byte: 0,
             },
             action_receipt_creation_config: free.clone(),
             data_receipt_creation_config: DataReceiptCreationConfig {

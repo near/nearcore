@@ -7,7 +7,6 @@ use crate::types::{
     StorageUsage,
 };
 use crate::{HostError, HostErrorOrStorageError};
-use near_runtime_fees::ExtCostsConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
@@ -252,7 +251,10 @@ impl<'a> VMLogic<'a> {
         let Self { registers, memory, config, .. } = self;
         self.gas_counter.pay_base(config.runtime_fees.ext_costs.read_register_base)?;
         let register = registers.get(&register_id).ok_or(HostError::InvalidRegisterId)?;
-        self.gas_counter.pay_per_byte(config.runtime_fees.ext_costs.read_register_byte, register.len() as u64)?;
+        self.gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.read_register_byte,
+            register.len() as u64,
+        )?;
         Self::memory_set(*memory, ptr, register)
     }
 
@@ -665,6 +667,11 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
         }
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.promise_and_base)?;
+        self.gas_counter.pay_per_byte(
+            self.config.runtime_fees.ext_costs.promise_and_per_promise,
+            promise_idx_count,
+        )?;
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
 
@@ -708,6 +715,7 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("promise_batch_create".to_string()).into());
         }
+
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
@@ -1215,7 +1223,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `result_idx` does not correspond to an existing result returns `InvalidResultIndex`;
+    /// * If `result_id` does not correspond to an existing result returns `InvalidResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
@@ -1223,12 +1231,14 @@ impl<'a> VMLogic<'a> {
         if context.is_view {
             return Err(HostError::ProhibitedInView("promise_result".to_string()).into());
         }
+        gas_counter.pay_base(config.runtime_fees.ext_costs.promise_result_base)?;
         match promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex)?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
+                gas_counter.pay_per_byte(config.runtime_fees.ext_costs.promise_result_byte, data.len() as u64)?;
                 Self::internal_write_register(registers, gas_counter, config, register_id, data)?;
                 Ok(1)
             }
@@ -1247,6 +1257,7 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("promise_return".to_string()).into());
         }
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.promise_return)?;
         match self
             .promises
             .get(promise_idx as usize)
@@ -1327,6 +1338,8 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
+        self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
         let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
         self.logs.push(message);
         Ok(())
@@ -1396,8 +1409,7 @@ impl<'a> VMLogic<'a> {
             ..
         } = self;
         gas_counter.pay_base(config.runtime_fees.ext_costs.storage_write_base)?;
-        gas_counter
-            .pay_per_byte(config.runtime_fees.ext_costs.storage_write_key_byte, key_len)?;
+        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.storage_write_key_byte, key_len)?;
         gas_counter
             .pay_per_byte(config.runtime_fees.ext_costs.storage_write_value_byte, value_len)?;
         // All iterators that were valid now become invalid
