@@ -633,7 +633,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .unwrap()
                     .get(&state_root)
                     .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
-                staked: 0,
+                locked: 0,
+                desired_stake: 0,
                 code_hash: CryptoHash::default(),
                 storage_usage: 0,
                 storage_paid_at: 0,

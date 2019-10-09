@@ -29,7 +29,9 @@ pub fn test_ts_contract() {
         run(vec![], &code, b"try_panic", &mut fake_external, context, &config, &promise_results);
     assert_eq!(
         result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic)))
+        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
+            "explicit guest panic".to_string()
+        ))))
     );
 
     // Call method that writes something into storage.

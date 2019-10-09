@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::str;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use borsh::BorshSerialize;
@@ -15,17 +14,13 @@ use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{Config, ReturnData, VMContext};
 
 use crate::actions::get_code_with_cache;
-use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 
-#[allow(dead_code)]
-pub struct TrieViewer {
-    ethash_provider: Arc<Mutex<EthashProvider>>,
-}
+pub struct TrieViewer {}
 
 impl TrieViewer {
-    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Self { ethash_provider }
+    pub fn new() -> Self {
+        Self {}
     }
 
     pub fn view_account(
@@ -166,8 +161,6 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use kvdb::DBValue;
-    use tempdir::TempDir;
-
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -190,8 +183,15 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result =
-            viewer.call_function(root, 1, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &"bad!contract".to_string(),
+            "run_test",
+            &[],
+            &mut logs,
+        );
 
         assert!(result.is_err());
     }
@@ -233,9 +233,7 @@ mod tests {
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
-        let ethash_provider =
-            EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
-        let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
+        let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(
             result.values,

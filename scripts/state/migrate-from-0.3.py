@@ -9,8 +9,19 @@ import base64
 
 filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../near/res/testnet.json')
 q = json.loads(open(filename).read())
+new_records = []
 
-q['records'] = q['records'][0]
+# TODO: uncomment when we migrate from 0.3 to 0.4
+#q['records'] = q['records'][0]
+
+for value in q['records']:
+    if 'Account' in value:
+        staked = value['Account']['account'].pop('staked')
+        value['Account']['account']['locked'] = staked
+        value['Account']['account']['desired_stake'] = staked
+    new_records.append(value)
+
+q['records'] = new_records
 q['protocol_version'] = 4
 q['dynamic_resharding'] = False
 q['block_producers_per_shard'] = [50, 50, 50, 50]

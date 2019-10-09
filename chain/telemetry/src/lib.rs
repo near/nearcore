@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use actix::prelude::Future;
 use actix::{Actor, Addr, Context, Handler, Message};
-use actix_web::client::Client;
+use actix_web::client::{Client, Connector};
 use serde_derive::{Deserialize, Serialize};
 
 /// Timeout for establishing connection.
@@ -32,7 +32,11 @@ impl Default for TelemetryActor {
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
-        let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
+        let client = Client::build().timeout(CONNECT_TIMEOUT).connector(
+                Connector::new()
+                .conn_lifetime(Duration::from_secs(u64::max_value()))
+                .conn_keep_alive(Duration::from_secs(30))
+                .finish()).finish();
         Self { config, client }
     }
 }
