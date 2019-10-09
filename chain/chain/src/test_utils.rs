@@ -293,6 +293,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .iter()
             .flatten()
             .enumerate()
+            .take(approval_mask.len())
             .filter_map(|(i, validate_stake)| {
                 if approval_mask[i] {
                     Some(validate_stake.public_key.clone())
