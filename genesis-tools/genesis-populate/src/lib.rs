@@ -236,7 +236,6 @@ impl GenesisBuilder {
         let account = AccountView {
             amount: TESTING_INIT_BALANCE,
             locked: TESTING_INIT_STAKE,
-            desired_stake: TESTING_INIT_STAKE,
             code_hash: self.additional_accounts_code_hash.clone().into(),
             storage_usage: 0,
             storage_paid_at: 0,

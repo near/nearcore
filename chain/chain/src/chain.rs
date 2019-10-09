@@ -1099,6 +1099,7 @@ impl Chain {
                 &block_header.hash,
                 &receipts,
                 &chunk.transactions,
+                &chunk.header.inner.validator_proposals,
                 block_header.inner.gas_price,
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -1170,6 +1171,7 @@ impl Chain {
                     &block_header.hash(),
                     &vec![],
                     &vec![],
+                    &chunk_extra.validator_proposals,
                     block_header.inner.gas_price,
                 )
                 .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -1594,6 +1596,12 @@ impl<'a> ChainUpdate<'a> {
                         byzantine_assert!(false);
                         return Err(ErrorKind::InvalidStateRoot.into());
                     }
+                    if prev_chunk_extra.validator_proposals
+                        != chunk_header.inner.validator_proposals
+                    {
+                        byzantine_assert!(false);
+                        return Err(ErrorKind::InvalidValidatorProposals.into());
+                    }
 
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
@@ -1650,6 +1658,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
+                            &chunk.header.inner.validator_proposals,
                             block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -1703,6 +1712,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &vec![],
                             &vec![],
+                            &new_extra.validator_proposals,
                             block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
