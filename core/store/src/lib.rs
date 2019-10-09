@@ -51,7 +51,8 @@ pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded
 pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
 pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
-const NUM_COLS: u32 = 17;
+pub const COL_STATE_HEADERS: Option<u32> = Some(17);
+const NUM_COLS: u32 = 18;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

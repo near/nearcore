@@ -28,6 +28,16 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateKey(pub u64, pub CryptoHash);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StatePart {
+    pub shard_id: ShardId,
+    pub part_id: u64,
+    pub data: Vec<u8>,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.

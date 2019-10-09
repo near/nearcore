@@ -327,27 +327,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
 
                 if !shard_statuseses.is_empty() {
-                    match self.client.chain.set_shard_state(
-                        &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id,
-                        hash,
-                        shard_state,
-                    ) {
-                        Ok(()) => {
-                            for shard_statuses in shard_statuseses {
-                                shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
-                            }
+                    if self
+                        .client
+                        .chain
+                        .set_state_header(
+                            &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                            shard_id,
+                            hash,
+                            shard_state.clone(),
+                        )
+                        .is_ok()
+                        && self.client.chain.set_state_part(shard_id, hash, shard_state).is_ok()
+                        && self.client.chain.set_state_finalize(shard_id, hash).is_ok()
+                    {
+                        for shard_statuses in shard_statuseses {
+                            shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
                         }
-                        Err(err) => {
-                            for shard_statuses in shard_statuseses {
-                                shard_statuses.insert(
-                                    shard_id,
-                                    ShardSyncStatus::Error(format!(
-                                        "Failed to set state for {} @ {}: {}",
-                                        shard_id, hash, err
-                                    )),
-                                );
-                            }
+                    } else {
+                        for shard_statuses in shard_statuseses {
+                            shard_statuses.insert(
+                                shard_id,
+                                ShardSyncStatus::Error(format!(
+                                    "Failed to set state for {} @ {}",
+                                    shard_id, hash
+                                )),
+                            );
                         }
                     }
                 }

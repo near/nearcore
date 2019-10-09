@@ -15,14 +15,14 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::{check_tx_history, ExecutionOutcome};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
-use near_store::{Store, COL_CHUNKS};
+use near_store::{Store, COL_CHUNKS, COL_STATE_HEADERS};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, Tip,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, StateKey, Tip,
     ValidatorSignatureVerificationResult,
 };
 
@@ -931,12 +931,12 @@ impl Chain {
         ))
     }
 
-    pub fn set_shard_state(
+    pub fn set_state_header(
         &mut self,
         _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state: ShardStateSyncResponse,
+        shard_state_header: ShardStateSyncResponse,
     ) -> Result<(), Error> {
         // Ensure that sync_hash block is included into the canonical chain
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
@@ -958,7 +958,7 @@ impl Chain {
             prev_payload,
             incoming_receipts_proofs,
             root_proofs,
-        } = shard_state;
+        } = &shard_state_header;
 
         // 1-2. Checking chunk validity
         self.runtime_adapter.check_chunk_validity(&chunk)?;
@@ -1077,13 +1077,73 @@ impl Chain {
             .into());
         }
 
-        // 5. Proving prev_payload validity and setting it
-        // Its hash should be equal to chunk prev_state_root. It is checked in set_state.
+        // Saving the header data.
+        let mut store_update = self.store.store().store_update();
+        let key = StateKey(shard_id, sync_hash).try_to_vec()?;
+        store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
+        store_update.commit()?;
+
+        Ok(())
+    }
+
+    pub fn set_state_part(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_state_part: ShardStateSyncResponse,
+    ) -> Result<(), Error> {
+        let ShardStateSyncResponse {
+            chunk,
+            chunk_proof: _,
+            prev_chunk_header: _,
+            prev_chunk_proof: _,
+            prev_payload,
+            incoming_receipts_proofs: _,
+            root_proofs: _,
+        } = shard_state_part;
+        //let (state_root, num_parts) = self.get_syncing_state_root(shard_id, sync_hash)?;
+        let state_root = chunk.header.inner.prev_state_root;
+        let state_num_parts = chunk.header.inner.prev_state_num_parts;
         self.runtime_adapter
-            .set_state(shard_id, chunk.header.inner.prev_state_root, prev_payload)
+            //.accept_state_part(state_root, &part.state_part, &part.proof)
+            .set_state(shard_id, state_root, prev_payload)
             .map_err(|_| ErrorKind::InvalidStatePayload)?;
+        Ok(())
+    }
+
+    pub fn set_state_finalize(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        //shard_state: ShardStateSyncResponse,
+    ) -> Result<(), Error> {
+        let key = StateKey(shard_id, sync_hash).try_to_vec()?;
+        let shard_state_header =
+            /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
+                return Err(
+                ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
+                    .into(),
+            ));*/
+            // TODO achtung, line above compiles weirdly, remove unwrap 
+            self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap();
+        let ShardStateSyncResponse {
+            chunk,
+            chunk_proof: _,
+            prev_chunk_header: _,
+            prev_chunk_proof: _,
+            prev_payload: _,
+            incoming_receipts_proofs,
+            root_proofs: _,
+        } = shard_state_header;
+
+        //let (state_root, num_parts) = self.get_syncing_state_root(shard_id, sync_hash)?;
+        let state_root = chunk.header.inner.prev_state_root;
+        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+
+        let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
 
         // Applying chunk is started here.
+        //self.runtime_adapter.confirm_state(&state_root, state_num_parts)?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
@@ -1113,7 +1173,6 @@ impl Chain {
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
-        // Saving the state.
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(COL_CHUNKS, chunk.chunk_hash.as_ref(), &chunk)?;
         store_update.commit()?;
