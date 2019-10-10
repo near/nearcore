@@ -398,7 +398,8 @@ pub fn call_promise_batch_create_promise_batch_action_create_account() {
     let (n, blob) = read_u64input(&mut buffer);
     for _ in 0..n {
         unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
+            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
+            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
             promise_batch_action_create_account(id);
         }
     }
@@ -406,12 +407,15 @@ pub fn call_promise_batch_create_promise_batch_action_create_account() {
 }
 
 #[no_mangle]
-pub fn call_promise_batch_create_promise_batch_action_deploy_contract() {
+pub fn call_promise_batch_create_promise_batch_action_create_account_batch_action_deploy_contract()
+{
     let mut buffer = [0u8; BUFFER_SIZE];
     let (n, blob) = read_u64input(&mut buffer);
     for _ in 0..n {
         unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
+            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
+            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
+            promise_batch_action_create_account(id);
             promise_batch_action_deploy_contract(id, blob.len() as _, blob.as_ptr() as _);
         }
     }
