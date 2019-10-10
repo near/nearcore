@@ -1931,7 +1931,7 @@ impl<'a> ChainUpdate<'a> {
             let prev_header = self.get_previous_header(header)?.clone();
             if !self.runtime_adapter.verify_approval_signature(
                 &prev_header.inner.epoch_id,
-                &prev_header.inner.prev_hash,
+                &prev_header.hash,
                 &header.inner.approval_mask,
                 &header.inner.approval_sigs,
                 prev_header.hash.as_ref(),
