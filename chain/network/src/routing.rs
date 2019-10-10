@@ -198,16 +198,10 @@ impl RoutingTable {
         self.account_peers.get(account_id).cloned().ok_or_else(|| FindRouteError::AccountNotFound)
     }
 
-    pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.peer_forwarding.entry(peer_id).or_insert_with(HashSet::new);
-    }
-
     /// Add (account id, peer id) to routing table.
     /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) -> bool {
-        self.add_peer(peer_id.clone());
-
         match self.account_peers.entry(account_id) {
             Entry::Occupied(_) => false,
             Entry::Vacant(entry) => {

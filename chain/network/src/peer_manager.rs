@@ -13,7 +13,7 @@ use actix::{
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use futures::future;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use rand::{thread_rng, Rng};
 use tokio::codec::FramedRead;
 use tokio::io::AsyncRead;
@@ -159,6 +159,7 @@ impl PeerManagerActor {
         ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
             let _ = addr.do_send(SendMessage { message: PeerMessage::Edges(known_edges) });
 
+            // TODO(MarX): Only broadcast new message from the inbound connection.
             // Wait a time out before broadcasting this new edge to let the other party finish handshake.
             act.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
         });
@@ -710,7 +711,7 @@ impl Handler<Consolidate> for PeerManagerActor {
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
-            debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
+            trace!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
             return ConsolidateResponse(false, None);
         }
         // This is incoming connection but we have this peer already in outgoing.
@@ -718,7 +719,7 @@ impl Handler<Consolidate> for PeerManagerActor {
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
             // We pick connection that has lower id.
             if msg.peer_info.id > self.peer_id {
-                debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
+                trace!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse(false, None);
             }
         }
@@ -729,7 +730,7 @@ impl Handler<Consolidate> for PeerManagerActor {
 
         // Check that the received nonce is greater than the current nonce of this connection.
         if current_nonce >= msg.other_edge_info.nonce {
-            debug!(target: "network", "Dropping handshake (Invalid nonce). {:?} {:?}", self.peer_id, msg.peer_info.id);
+            trace!(target: "network", "Dropping handshake (Invalid nonce). {:?} {:?}", self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
             return ConsolidateResponse(false, None);
         }

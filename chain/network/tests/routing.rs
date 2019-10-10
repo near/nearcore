@@ -138,8 +138,8 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    //                                    println!("\nROUTING TABLE: {:?}\n", routing_table);
-                                    //                                    println!("\nEXPECTED: {:?}\n", expected1);
+                                    // println!("\nROUTING TABLE: {:?}\n", routing_table);
+                                    // println!("\nEXPECTED: {:?}\n", expected1);
 
                                     if expected_routing_tables(routing_table, expected1) {
                                         flag.store(true, Ordering::Relaxed);
@@ -219,8 +219,8 @@ impl Runner {
                     action(info.clone(), flag.clone());
                 }
             }),
-            10,
-            25000,
+            50,
+            15000,
         )
         .start();
     }
