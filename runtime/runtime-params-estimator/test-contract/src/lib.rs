@@ -345,6 +345,7 @@ pub fn call_log_utf8() {
     let mut buffer = [0u8; BUFFER_SIZE];
     let (n, blob) = read_u64input(&mut buffer);
     for _ in 0..n {
+        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
         unsafe { log_utf8(blob.len() as _, blob.as_ptr() as _) }
     }
     return_u64(n);
@@ -355,6 +356,7 @@ pub fn call_log_utf16() {
     let mut buffer = [0u8; BUFFER_SIZE];
     let (n, blob) = read_u64input(&mut buffer);
     for _ in 0..n {
+        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
         unsafe { log_utf16(blob.len() as _, blob.as_ptr() as _) }
     }
     return_u64(n);
