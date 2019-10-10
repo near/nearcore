@@ -270,7 +270,7 @@ pub fn run(config: Config) {
         ("call_sha256", 20),
         ("call_value_return", 20),
         ("call_log_utf8", 20),
-        ("call_log_utf206", 20),
+        ("call_log_utf16", 20),
         ("call_promise_batch_create", 100),
         ("call_promise_batch_create_promise_batch_then", 100),
         ("call_promise_batch_create_promise_batch_action_create_account", 20),
