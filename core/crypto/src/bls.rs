@@ -215,15 +215,11 @@ impl BlsSignature {
     }
 
     pub fn verify_aggregate(&self, data: &[u8], public_keys: &[BlsPublicKey]) -> bool {
-        if !cfg!(feature = "fake_crypto") {
-            let mut agg_pk = AggregatePublicKey::new();
-            for public_key in public_keys.iter() {
-                agg_pk.add(&public_key.0);
-            }
-            self.0.verify(data, BLS_DOMAIN, &agg_pk)
-        } else {
-            true
+        let mut agg_pk = AggregatePublicKey::new();
+        for public_key in public_keys.iter() {
+            agg_pk.add(&public_key.0);
         }
+        self.0.verify(data, BLS_DOMAIN, &agg_pk)
     }
 }
 

@@ -509,7 +509,6 @@ fn test_invalid_approvals() {
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
-    println!("before");
     let (_, tip) = client.process_block(b1, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {

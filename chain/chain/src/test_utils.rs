@@ -301,13 +301,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }
                 })
                 .collect();
-        println!(
-            "all keys: {:?} approval_sig: {:?}, data {:?} result {:?}",
-            public_keys,
-            approval_sig,
-            data,
-            approval_sig.verify_aggregate(data, &public_keys)
-        );
         Ok(approval_sig.verify_aggregate(data, &public_keys))
     }
 
