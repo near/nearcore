@@ -738,7 +738,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 shard_id,
                 hash,
                 need_header,
-                parts_range,
+                parts_ranges,
                 account_id,
             } => {
                 self.send_message_to_account(
@@ -749,7 +749,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             shard_id,
                             hash,
                             need_header,
-                            parts_range,
+                            parts_ranges,
                         ),
                     }),
                 );

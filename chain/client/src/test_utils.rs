@@ -369,7 +369,7 @@ pub fn setup_mock_all_validators(
                             shard_id,
                             hash,
                             need_header,
-                            parts_range,
+                            parts_ranges,
                             account_id: target_account_id,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
@@ -382,7 +382,7 @@ pub fn setup_mock_all_validators(
                                                 *shard_id,
                                                 *hash,
                                                 *need_header,
-                                                parts_range.to_vec(),
+                                                parts_ranges.to_vec(),
                                             ))
                                             .then(move |response| {
                                                 let response = response.unwrap();

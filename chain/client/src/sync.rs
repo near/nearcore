@@ -676,7 +676,7 @@ impl StateSync {
                     shard_id,
                     hash,
                     need_header: true,
-                    parts_range: vec![],
+                    parts_ranges: vec![],
                     account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
                 });
                 assert!(new_shard_sync_download.downloads[0].run_me);
@@ -756,8 +756,8 @@ impl StateSync {
     ) -> Result<(), near_chain::Error> {
         let state_num_parts = shard_sync_download.downloads.len();
         assert_eq!(state_num_parts, new_shard_sync_download.downloads.len());
-        for parts_range in download_strategy {
-            for Range(from, to) in parts_range.iter() {
+        for parts_ranges in download_strategy {
+            for Range(from, to) in parts_ranges.iter() {
                 for i in *from as usize..*to as usize {
                     assert!(new_shard_sync_download.downloads[i].run_me);
                     new_shard_sync_download.downloads[i].run_me = false;
@@ -767,7 +767,7 @@ impl StateSync {
                 shard_id,
                 hash,
                 need_header: false,
-                parts_range,
+                parts_ranges,
                 account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
             });
         }

@@ -652,7 +652,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         hash: CryptoHash,
         need_header: bool,
-        parts_range: Vec<Range>,
+        parts_ranges: Vec<Range>,
         account_id: AccountId,
     },
     /// Ban given peer.

@@ -284,9 +284,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_range) => {
+            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges) => {
                 let mut parts = vec![];
-                for Range(from, to) in parts_range {
+                for Range(from, to) in parts_ranges {
                     for part_id in from..to {
                         if let Ok(part) =
                             self.client.chain.get_state_response_part(shard_id, part_id, hash)
@@ -322,14 +322,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 shard_state,
             }) => {
                 // Populate the hashmaps with shard statuses that might be interested in this state
-                let mut shard_to_downloads_vec = vec![];
+                let mut shards_to_download_vec = vec![];
 
                 // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shard_to_downloads) =
+                if let SyncStatus::StateSync(sync_hash, shards_to_download) =
                     &mut self.client.sync_status
                 {
                     if hash == *sync_hash {
-                        shard_to_downloads_vec.push(shard_to_downloads);
+                        shards_to_download_vec.push(shards_to_download);
                     }
                 }
 
@@ -339,19 +339,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 {
                     if hash == sync_hash {
                         assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-                        if let Some((_, shard_to_downloads)) =
+                        if let Some((_, shards_to_download)) =
                             self.client.catchup_state_syncs.get_mut(&sync_hash)
                         {
-                            shard_to_downloads_vec.push(shard_to_downloads);
+                            shards_to_download_vec.push(shards_to_download);
                         }
                         // We should not be requesting the same state twice.
                         break;
                     }
                 }
 
-                for shard_to_downloads in shard_to_downloads_vec {
-                    let shard_sync_download = if shard_to_downloads.contains_key(&shard_id) {
-                        &shard_to_downloads[&shard_id]
+                for shards_to_download in shards_to_download_vec {
+                    let shard_sync_download = if shards_to_download.contains_key(&shard_id) {
+                        &shards_to_download[&shard_id]
                     } else {
                         // TODO is this correct behavior?
                         continue;
@@ -410,7 +410,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                     }
 
-                    shard_to_downloads.insert(shard_id, new_shard_download);
+                    shards_to_download.insert(shard_id, new_shard_download);
                 }
 
                 NetworkClientResponses::NoResponse
