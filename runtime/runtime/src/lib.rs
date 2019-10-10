@@ -996,8 +996,7 @@ impl Runtime {
             .expect("Genesis state update failed")
             .into(trie)
             .expect("Genesis state update failed");
-        // TODO MOO
-        (state_update_state.0, state_update_state.1, 9)
+        (state_update_state.0, state_update_state.1, 9 /* TODO MOO */)
     }
 }
 

@@ -249,7 +249,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         (
             self.store.store_update(),
             ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
-            vec![17; self.num_shards() as usize], // TODO MOO
+            vec![DEFAULT_STATE_NUM_PARTS; self.num_shards() as usize],
         )
     }
 
@@ -490,7 +490,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        //println!("HERE! {:?}", state_root); // TODO MOO
         let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
@@ -638,13 +637,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         let (new_state_root, proofs) = merklize(&parts);
 
         self.state.write().unwrap().insert(new_state_root, state);
-        /*println!( TODO MOO
-            "QQQ {:?} datalen={:?} {:?} {:?}",
-            shard_id,
-            data.len(),
-            new_state_root,
-            state_num_parts
-        );*/
         self.state_num_parts.write().unwrap().insert(new_state_root, state_num_parts as u64);
         for i in 0..state_num_parts {
             let key = hash(&StatePartKey(i as u64, new_state_root).try_to_vec().unwrap());
@@ -749,7 +741,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
-        // println!("HERE RE! {:?} {:?}", state_root, state); // TODO MOO
         self.state.write().unwrap().insert(state_root, state);
         Ok(true)
     }

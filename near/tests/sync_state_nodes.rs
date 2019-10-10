@@ -90,7 +90,6 @@ fn sync_state_nodes() {
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-#[ignore]
 fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
@@ -205,7 +204,7 @@ fn sync_state_nodes_multishard() {
                 }
             }),
             100,
-            120000,
+            600000,
         )
         .start();
 
