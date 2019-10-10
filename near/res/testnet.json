@@ -48743,7 +48743,8 @@
     "storage_cost_byte_per_block": "1",
     "transaction_costs": {
       "ext_costs": {
-        "input_byte": 1,
+        "input_base": 1,
+        "input_per_byte": 1,
         "storage_read_base": 1,
         "storage_read_key_byte": 1,
         "storage_read_value_byte": 1,
@@ -48768,7 +48769,8 @@
         "account_balance": 1,
         "prepaid_gas": 1,
         "used_gas": 1,
-        "random_seed": 1,
+        "random_seed_base": 1,
+        "random_seed_per_byte": 1,
         "sha256": 1,
         "sha256_byte": 1,
         "attached_deposit": 1,
@@ -48888,7 +48890,8 @@
     "wasm_config": {
       "runtime_fees": {
         "ext_costs": {
-          "input_byte": 1,
+          "input_base": 1,
+          "input_per_byte": 1,
           "storage_read_base": 1,
           "storage_read_key_byte": 1,
           "storage_read_value_byte": 1,
@@ -48913,7 +48916,8 @@
           "account_balance": 1,
           "prepaid_gas": 1,
           "used_gas": 1,
-          "random_seed": 1,
+          "random_seed_base": 1,
+          "random_seed_per_byte": 1,
           "sha256": 1,
           "sha256_byte": 1,
           "attached_deposit": 1,

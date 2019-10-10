@@ -59,7 +59,10 @@ pub struct RuntimeFeesConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    pub input_byte: Gas,
+    /// Pay for reading contract input base
+    pub input_base: Gas,
+    /// Pay for reading contract input per byte
+    pub input_per_byte: Gas,
     /// Storage trie read key base cost
     pub storage_read_base: Gas,
     /// Storage trie read key per byte cost
@@ -109,7 +112,9 @@ pub struct ExtCostsConfig {
     /// Get used gas cost
     pub used_gas: Gas,
     /// Cost of getting random seed
-    pub random_seed: Gas,
+    pub random_seed_base: Gas,
+    /// Cost of getting random seed
+    pub random_seed_per_byte: Gas,
     /// Cost of getting sha256
     pub sha256: Gas,
     /// Cost of getting sha256
@@ -226,7 +231,8 @@ impl Default for RuntimeFeesConfig {
     fn default() -> Self {
         Self {
             ext_costs: ExtCostsConfig {
-                input_byte: 1,
+                input_base: 1,
+                input_per_byte: 1,
                 storage_read_base: 1,
                 storage_read_key_byte: 1,
                 storage_read_value_byte: 1,
@@ -251,7 +257,8 @@ impl Default for RuntimeFeesConfig {
                 account_balance: 1,
                 prepaid_gas: 1,
                 used_gas: 1,
-                random_seed: 1,
+                random_seed_base: 1,
+                random_seed_per_byte: 1,
                 sha256: 1,
                 sha256_byte: 1,
                 attached_deposit: 1,
@@ -321,7 +328,8 @@ impl RuntimeFeesConfig {
         let free = Fee { send_sir: 0, send_not_sir: 0, execution: 0 };
         RuntimeFeesConfig {
             ext_costs: ExtCostsConfig {
-                input_byte: 0,
+                input_base: 0,
+                input_per_byte: 0,
                 storage_read_base: 0,
                 storage_read_key_byte: 0,
                 storage_read_value_byte: 0,
@@ -346,7 +354,8 @@ impl RuntimeFeesConfig {
                 account_balance: 0,
                 prepaid_gas: 0,
                 used_gas: 0,
-                random_seed: 0,
+                random_seed_base: 0,
+                random_seed_per_byte: 0,
                 sha256: 0,
                 sha256_byte: 0,
                 attached_deposit: 0,

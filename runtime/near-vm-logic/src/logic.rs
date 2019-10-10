@@ -404,6 +404,11 @@ impl<'a> VMLogic<'a> {
     /// not provided makes the register "not used", i.e. `register_len` now returns `u64::MAX`.
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.input_base)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.input_per_byte,
+            context.input.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, &context.input)
     }
 
@@ -493,7 +498,11 @@ impl<'a> VMLogic<'a> {
     /// If the size of the registers exceed the set limit `MemoryAccessViolation`.
     pub fn random_seed(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.runtime_fees.ext_costs.random_seed)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.random_seed_base)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.random_seed_per_byte,
+            context.random_seed.len() as u64,
+        )?;
         Self::internal_write_register(
             registers,
             gas_counter,
@@ -670,7 +679,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.promise_and_base)?;
         self.gas_counter.pay_per_byte(
             self.config.runtime_fees.ext_costs.promise_and_per_promise,
-            promise_idx_count,
+            promise_idx_count * size_of::<u64>() as u64,
         )?;
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
@@ -1238,7 +1247,10 @@ impl<'a> VMLogic<'a> {
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                gas_counter.pay_per_byte(config.runtime_fees.ext_costs.promise_result_byte, data.len() as u64)?;
+                gas_counter.pay_per_byte(
+                    config.runtime_fees.ext_costs.promise_result_byte,
+                    data.len() as u64,
+                )?;
                 Self::internal_write_register(registers, gas_counter, config, register_id, data)?;
                 Ok(1)
             }
