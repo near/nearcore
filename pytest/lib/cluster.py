@@ -1,5 +1,17 @@
-import threading, subprocess, json, os, atexit, shutil, requests, time, base58, base64
+import threading
+import subprocess
+import json
+import os
+import atexit
+import shutil
+import requests
+import time
+import base58
+import base64
 import retry
+from .gcloud import compute, create_instance
+import uuid
+
 
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
@@ -8,6 +20,7 @@ def atexit_cleanup(node):
     except:
         print("Cleaning failed!")
         pass
+
 
 class Key(object):
     def __init__(self, account_id, pk, sk):
@@ -42,8 +55,8 @@ class BaseNode(object):
             boot_key = boot_key.split(':')[1]
             return [os.path.join(near_root, 'near'), "--verbose", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
 
-    def wait_for_rpc(self):
-        retry.retry(lambda: self.get_status(), timeout=1)
+    def wait_for_rpc(self, timeout=1):
+        retry.retry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params):
         j = {
@@ -87,14 +100,16 @@ class LocalNode(BaseNode):
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
 
-        self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer_key.json"))
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "signer_key.json"))
 
         self.handle = None
 
         atexit.register(atexit_cleanup, self)
-
 
     def addr(self):
         return ("0.0.0.0", self.port)
@@ -108,8 +123,10 @@ class LocalNode(BaseNode):
 
         self.stdout = open(os.path.join(self.node_dir, 'stdout'), 'a')
         self.stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
-        cmd = self._get_command_line(self.near_root, self.node_dir, boot_key, boot_node_addr)
-        self.handle = subprocess.Popen(cmd, stdout=self.stdout, stderr=self.stderr, env=env)
+        cmd = self._get_command_line(
+            self.near_root, self.node_dir, boot_key, boot_node_addr)
+        self.handle = subprocess.Popen(
+            cmd, stdout=self.stdout, stderr=self.stderr, env=env)
         self.wait_for_rpc()
 
     def kill(self):
@@ -130,14 +147,46 @@ class BotoNode(BaseNode):
     pass
 
 
+class GCloudNode(BaseNode):
+    def __init__(self, zone, instance_name):
+        self.zone = zone
+        self.instance_name = instance_name
+        self.resource = compute.instances().get(project='near-core', zone=zone,
+                                                instance=instance_name).execute()
+        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+
+    def addr(self):
+        return (self.ip, self.port)
+
+    def rpc_addr(self):
+        return (self.ip, self.rpc_port)
+
+    def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
+        subprocess.Popen(
+            """gcloud compute ssh --zone={zone} {instance_name} -- <<GCLOUD
+export RUSTUP_HOME=/opt
+export CARGO_HOME=/opt
+tmux new -s node -d
+tmux send-keys -t node '{cmd}' C-m
+GCLOUD """).format(zone=self.zone,
+                   instance_name=self.instance_name,
+                   cmd=self._get_command_line('/opt/nearcore/target/debug/near', '/opt/.near', boot, boot_node_addr))
+        self.wait_for_rpc(timeout=10)
+
+
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
     is_local = config['local']
 
-    print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else ("with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
+    print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else (
+        "with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
     if is_local:
-        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root, node_dir)
+        node = LocalNode(24567 + 10 + ordinal, 3030 +
+                         10 + ordinal, near_root, node_dir)
     else:
-        node = BotoNode()
+        zone = config['remote']['zones'][i]
+        instance_name = config['remote'].get(
+            'instance_name', 'near-pytest-{}'.format(ordinal))
+        node = GCloudNode(zone, instance_name)
 
     node.start(boot_key, boot_addr)
 
@@ -145,16 +194,22 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
 
 
 def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+    """
+    Create cluster configuration, if it's remote cluster, also launch instance and build near
+    """
     is_local = config['local']
     near_root = config['near_root']
 
-    print("Starting %s cluster with %s nodes" % ("LOCAL" if is_local else "REMOTE", num_nodes));
+    print("Creating %s cluster configuration with %s nodes" %
+          ("LOCAL" if is_local else "REMOTE", num_nodes))
 
-    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(
+        num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
-    node_dirs = [line.split()[-1] for line in err.decode('utf8').split('\n') if '/test' in line]
+    node_dirs = [line.split()[-1]
+                 for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers
 
     # apply config changes
@@ -185,15 +240,65 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
         with open(fname, 'w') as f:
             f.write(json.dumps(config_json, indent=2))
 
+    if not is_local:
+        _launch_and_deploy_on_remote_instances(config, node_dirs)
+
     return near_root, node_dirs
 
 
+def _launch_and_deploy_on_remote_instances(config, node_dirs):
+    def instance_ready(zone, instance_name):
+        res = compute.instances().get('near-core', zone, instance_name).execute()
+        if res.status != "RUNNING":
+            raise "Instance Not Ready"
+
+    def _launch_and_deploy_on_remote_instance(config, i, node_dir):
+        zone = config['remote']['zones'][i]
+        instance_name = config['remote'].get(
+            'instance_name', 'near-pytest-{}'.format(i))
+        _ = create_instance(compute, 'near-core', zone, instance_name, config['remote'].get('machine_type', 'n1-standard-1'),
+                            """
+#!/bin/bash
+sudo apt update
+sudo apt install -y pkg-config libssl-dev build-essential cmake
+sudo chmod 777 /opt
+cd /opt
+mkdir .near
+export RUSTUP_HOME=/opt
+export CARGO_HOME=/opt
+curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-05-22
+source $CARGO_HOME/.cargo/env
+git clone --single-branch --branch staging https://github.com/nearprotocol/nearcore.git nearcore
+git checkout {}
+cd nearcore
+cargo build -p near
+""".format(config['remote'].get('commit', 'staging')))
+
+        retry.retry(lambda: instance_ready(zone, instance_name), 60)
+
+        subprocess.Popen(
+            "gcloud compute scp --zone={zone} node_dir/* {instance_name}:/opt/.near/")
+
+    handles = []
+    for i, node_dir in enumerate(node_dirs):
+        handle = threading.Thread(target=_launch_and_deploy_on_remote_instance,
+                                  args=(config, i, node_dir))
+        handle.start()
+        handles.append(handle)
+
+    for handle in handles:
+        handle.join()
+
+
 def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
-    near_root, node_dirs = init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
+    near_root, node_dirs = init_cluster(
+        num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
 
     ret = []
+
     def spin_up_node_and_push(i, boot_key, boot_addr):
-        node = spin_up_node(config, near_root, node_dirs[i], i, boot_key, boot_addr)
+        node = spin_up_node(config, near_root,
+                            node_dirs[i], i, boot_key, boot_addr)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
@@ -203,7 +308,8 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
 
     handles = []
     for i in range(1, num_nodes + num_observers):
-        handle = threading.Thread(target = spin_up_node_and_push, args=(i, boot_node.node_key.pk, boot_node.addr()))
+        handle = threading.Thread(target=spin_up_node_and_push, args=(
+            i, boot_node.node_key.pk, boot_node.addr()))
         handle.start()
         handles.append(handle)
 
@@ -211,4 +317,3 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
         handle.join()
 
     return ret
-
