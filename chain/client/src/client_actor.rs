@@ -707,7 +707,7 @@ impl ClientActor {
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1043,7 +1043,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                         }
 
                         self.client.sync_status =
