@@ -32,7 +32,7 @@ use near_primitives::utils::to_timestamp;
 use near_store::Store;
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncStatus};
+use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
 use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 
@@ -57,7 +57,7 @@ pub struct Client {
     pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncStatus>)>,
+    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -357,6 +357,7 @@ impl Client {
         let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
+            chunk_extra.state_num_parts,
             next_height,
             shard_id,
             chunk_extra.gas_used,

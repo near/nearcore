@@ -38,6 +38,7 @@ pub struct GenesisBuilder {
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, MerkleHash>,
+    num_parts: BTreeMap<ShardId, u64>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
 
     // Things that can be set.
@@ -73,6 +74,7 @@ impl GenesisBuilder {
             runtime,
             unflushed_records: Default::default(),
             roots: Default::default(),
+            num_parts: Default::default(),
             state_updates: Default::default(),
             additional_accounts_num: 0,
             additional_accounts_code: None,
@@ -106,9 +108,10 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (store_update, roots) = self.runtime.genesis_state();
+        let (store_update, roots, num_parts) = self.runtime.genesis_state();
         store_update.commit()?;
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
+        self.num_parts = num_parts.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
             .iter()
@@ -181,6 +184,7 @@ impl GenesisBuilder {
     fn write_genesis_block(&mut self) -> Result<()> {
         let genesis = Block::genesis(
             self.roots.values().cloned().collect(),
+            self.num_parts.values().cloned().collect(),
             self.config.genesis_time.clone(),
             self.runtime.num_shards(),
             self.config.gas_limit.clone(),
@@ -208,11 +212,20 @@ impl GenesisBuilder {
         store_update.save_block_header(genesis.header.clone());
         store_update.save_block(genesis.clone());
 
-        for (chunk_header, state_root) in genesis.chunks.iter().zip(self.roots.values()) {
+        for (chunk_header, (state_root, state_num_parts)) in
+            genesis.chunks.iter().zip(self.roots.values().zip(self.num_parts.values()))
+        {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
-                ChunkExtra::new(state_root, vec![], 0, self.config.gas_limit.clone(), 0),
+                ChunkExtra::new(
+                    state_root,
+                    *state_num_parts,
+                    vec![],
+                    0,
+                    self.config.gas_limit.clone(),
+                    0,
+                ),
             );
         }
 
