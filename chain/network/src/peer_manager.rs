@@ -645,7 +645,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     .collect();
 
                 if !edges.is_empty() {
-                    println!("\nASD NEW DIRECT CONNECTIONS: {:?} {:?}\n", self.peer_id, edges);
                     self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(edges) });
                 }
 
@@ -667,7 +666,6 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
-        println!("\nASD RECEIVE OUTBOUND\n");
         if let Some(addr) = msg.peer_info.addr {
             Resolver::from_registry()
                 .send(ConnectAddr(addr))

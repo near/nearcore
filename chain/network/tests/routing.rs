@@ -138,7 +138,6 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    println!("\nASD NODE: {} {:?}\n", u, routing_table);
                                     if expected_routing_tables(routing_table, expected1) {
                                         flag.store(true, Ordering::Relaxed);
                                     }
@@ -196,12 +195,6 @@ impl Runner {
 
     fn run(&mut self) {
         let info = self.build();
-
-        println!("\nTEST PEERS");
-        for (ix, peer_info) in info.peer_info.iter().enumerate() {
-            println!("ASD {} {}", ix, peer_info.id);
-        }
-        println!("");
 
         let mut pointer = None;
         let mut flag = Arc::new(AtomicBool::new(true));
