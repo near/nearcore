@@ -364,7 +364,7 @@ impl EpochManager {
         Ok(result)
     }
 
-    /// Returns all block producers in current epoch, with indicator is they are slashed or not.
+    /// Returns all block producers in current epoch, with indicator on whether they are slashed or not.
     pub fn get_all_block_producers(
         &mut self,
         epoch_id: &EpochId,
