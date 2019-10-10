@@ -25,11 +25,12 @@ impl RuntimeNode {
     pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
         let bls_signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
-        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
+        let (runtime, trie, root, num_parts) = get_runtime_and_trie_from_genesis(&genesis_config);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
             trie,
             state_root: root,
+            state_num_parts: num_parts,
             epoch_length: genesis_config.epoch_length,
         }));
         RuntimeNode { signer, client, bls_signer }
@@ -83,13 +84,13 @@ mod tests {
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
-        let transaction_result = node_user.send_money(alice_account(), bob_account(), 1);
+        let transaction_result = node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let transfer_cost = transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
-        node_user.send_money(alice_account(), bob_account(), 1);
+        node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let (alice2, bob2) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),

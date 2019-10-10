@@ -562,11 +562,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, account_id } => {
+            NetworkRequests::StateRequest {
+                shard_id,
+                hash,
+                need_header,
+                parts_ranges,
+                account_id,
+            } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::StateRequest(shard_id, hash),
+                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
                 );
                 NetworkResponses::NoResponse
             }

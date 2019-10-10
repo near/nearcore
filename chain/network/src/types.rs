@@ -13,15 +13,15 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::{ReceiptProofResponse, RootProof};
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
 pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
@@ -288,7 +288,7 @@ pub struct Pong {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, BlsSignature),
     ForwardTx(SignedTransaction),
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
@@ -405,7 +405,7 @@ pub enum PeerMessage {
 
     Transaction(SignedTransaction),
 
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
     Routed(RoutedMessage),
@@ -430,13 +430,13 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
+            PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
-                RoutedMessageBody::StateRequest(_, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
@@ -656,6 +656,8 @@ pub enum NetworkRequests {
     StateRequest {
         shard_id: ShardId,
         hash: CryptoHash,
+        need_header: bool,
+        parts_ranges: Vec<Range>,
         account_id: AccountId,
     },
     /// Ban given peer.
@@ -752,11 +754,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub chunk: ShardChunk,
-    pub chunk_proof: MerklePath,
-    pub prev_payload: Vec<u8>,
-    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-    pub root_proofs: Vec<Vec<RootProof>>,
+    pub shard_state: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]
@@ -780,7 +778,7 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcement that needs to be validated before being processed
@@ -805,7 +803,7 @@ pub enum NetworkClientResponses {
     /// Valid transaction inserted into mempool as response to Transaction.
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
-    InvalidTx(String),
+    InvalidTx(InvalidTxError),
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.

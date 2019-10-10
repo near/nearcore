@@ -8,7 +8,7 @@ use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -18,6 +18,7 @@ use near_primitives::views::{
 };
 
 use crate::user::User;
+use near_jsonrpc_client::BlockId;
 
 pub struct RpcUser {
     signer: Arc<dyn Signer>,
@@ -77,7 +78,9 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, index: u64) -> Option<BlockView> {
-        System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
+        System::new("actix")
+            .block_on(self.client.write().unwrap().block(BlockId::Height(index)))
+            .ok()
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
@@ -90,11 +93,6 @@ impl User for RpcUser {
 
     fn get_state_root(&self) -> CryptoHashView {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
-    }
-
-    fn get_receipt_info(&self, _hash: &CryptoHash) -> Option<ReceiptInfo> {
-        // TDDO: figure out if rpc will support this
-        unimplemented!()
     }
 
     fn get_access_key(

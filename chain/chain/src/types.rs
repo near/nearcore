@@ -4,19 +4,20 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{BlsSignature, BlsSigner};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
-use crate::error::Error;
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use crate::byzantine_assert;
+use crate::error::{Error, ErrorKind};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -26,6 +27,19 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StatePartKey(pub u64, pub StateRoot);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StatePart {
+    pub shard_id: ShardId,
+    pub part_id: u64,
+    pub data: Vec<u8>,
+}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -87,7 +101,8 @@ pub enum ValidatorSignatureVerificationResult {
 
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
-    pub new_root: MerkleHash,
+    pub new_root: StateRoot,
+    pub new_num_parts: u64,
     pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
@@ -102,7 +117,7 @@ pub struct ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>, Vec<u64>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -117,7 +132,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
 
@@ -128,7 +143,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction>;
 
@@ -244,13 +259,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRoot,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
@@ -262,6 +278,7 @@ pub trait RuntimeAdapter: Send + Sync {
             block_hash,
             receipts,
             transactions,
+            last_validator_proposals,
             gas_price,
             false,
         )
@@ -270,13 +287,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRoot,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
@@ -284,7 +302,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -292,21 +310,30 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
-    /// Read state as byte array from given state root.
-    fn dump_state(
+    /// Get the part of the state from given state root + proof.
+    fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        state_root: MerkleHash,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+        part_id: u64,
+        state_root: StateRoot,
+        state_num_parts: u64,
+    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
 
-    /// Set state that expected to be given state root with provided payload.
-    /// Returns error if failed to parse or if the resulting tree doesn't match the expected root.
-    fn set_state(
+    /// Set state part that expected to be given state root with provided data.
+    /// Returns error if:
+    /// 1. Failed to parse, or
+    /// 2. The proof is invalid, or
+    /// 3. The resulting part doesn't match the expected one.
+    fn accept_state_part(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
-        payload: Vec<u8>,
+        state_root: StateRoot,
+        part: &StatePart,
+        proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Should be executed after accepting all the parts.
+    /// Returns `true` if state is set successfully.
+    fn confirm_state(&self, state_root: StateRoot, num_parts: u64) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
@@ -318,14 +345,50 @@ pub trait RuntimeAdapter: Send + Sync {
                 .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash(&ReceiptList(shard_receipts).try_to_vec()?));
+            receipts_hashes.push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec()?));
         }
         Ok(receipts_hashes)
+    }
+
+    /// Check chunk validity.
+    fn check_chunk_validity(&self, chunk: &ShardChunk) -> Result<(), Error> {
+        // 1. Checking that chunk header is valid
+        // 1a. Checking chunk.header.hash
+        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
+        }
+        // 1b. Checking signature
+        if !self.verify_chunk_header_signature(&chunk.header)? {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk signature".to_string()).into());
+        }
+        // 2. Checking that chunk body is valid
+        // 2a. Checking chunk hash
+        if chunk.chunk_hash != chunk.header.hash {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
+        }
+        // 2b. Checking that chunk transactions are valid
+        let (tx_root, _) = merklize(&chunk.transactions);
+        if tx_root != chunk.header.inner.tx_root {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk tx_root".to_string()).into());
+        }
+        // 2c. Checking that chunk receipts are valid
+        let outgoing_receipts_hashes = self.build_receipts_hashes(&chunk.receipts)?;
+        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk receipts root".to_string()).into());
+        }
+
+        Ok(())
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
-struct ReceiptList(Vec<Receipt>);
+pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
@@ -380,6 +443,28 @@ impl BlockApproval {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponseHeader {
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_chunk_header: ShardChunkHeader,
+    pub prev_chunk_proof: MerklePath,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponsePart {
+    pub state_part: StatePart,
+    pub proof: MerklePath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponse {
+    pub header: Option<ShardStateSyncResponseHeader>,
+    pub parts: Vec<ShardStateSyncResponsePart>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -394,7 +479,8 @@ mod tests {
     fn test_block_produce() {
         let num_shards = 32;
         let genesis = Block::genesis(
-            vec![MerkleHash::default()],
+            vec![StateRoot::default()],
+            vec![9], /* TODO MOO */
             Utc::now(),
             num_shards,
             1_000_000,

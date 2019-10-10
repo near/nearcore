@@ -1,13 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use tempdir::TempDir;
-
-use lazy_static::lazy_static;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
@@ -16,12 +13,12 @@ use near_primitives::views::{
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{Trie, TrieUpdate};
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near::config::INITIAL_GAS_PRICE;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -30,6 +27,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
+    pub state_num_parts: u64,
     pub epoch_length: BlockIndex,
 }
 
@@ -50,18 +48,11 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
 
-lazy_static! {
-    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
-        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
-    ));
-}
-
 impl RuntimeUser {
     pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
-        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new(ethash_provider),
+            trie_viewer: TrieViewer::new(),
             account_id: account_id.to_string(),
             client,
             transaction_results: Default::default(),
@@ -74,14 +65,19 @@ impl RuntimeUser {
         apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-    ) {
+    ) -> Result<(), String> {
         let mut receipts = prev_receipts;
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let state_update = TrieUpdate::new(client.trie.clone(), client.state_root);
-            let apply_result =
-                client.runtime.apply(state_update, &apply_state, &receipts, &txs).unwrap();
+            let apply_result = client
+                .runtime
+                .apply(state_update, &apply_state, &receipts, &txs)
+                .map_err(|e| match e {
+                    InvalidTxErrorOrStorageError::InvalidTxError(e) => format!("{}", e),
+                    InvalidTxErrorOrStorageError::StorageError(_) => panic!("Storage error"),
+                })?;
             for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results
                     .borrow_mut()
@@ -90,7 +86,7 @@ impl RuntimeUser {
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.root;
             if apply_result.new_receipts.is_empty() {
-                return;
+                return Ok(());
             }
             for receipt in apply_result.new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
@@ -127,13 +123,19 @@ impl RuntimeUser {
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = (*hash).into();
+        let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Pending => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
+                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
                         ExecutionStatusView::SuccessValue(v) => {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
@@ -169,7 +171,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
 
@@ -177,12 +179,12 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, String> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])?;
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
-        self.apply_all(self.apply_state(), vec![receipt], vec![]);
+        self.apply_all(self.apply_state(), vec![receipt], vec![])?;
         Ok(())
     }
 
@@ -209,16 +211,6 @@ impl User for RuntimeUser {
 
     fn get_state_root(&self) -> CryptoHashView {
         self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
-    }
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
-        let receipt = self.receipts.borrow().get(hash).cloned()?;
-        let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
-        Some(ReceiptInfo {
-            receipt,
-            result: transaction_result.into(),
-            block_index: Default::default(),
-        })
     }
 
     fn get_access_key(

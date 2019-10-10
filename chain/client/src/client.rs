@@ -32,9 +32,9 @@ use near_primitives::utils::to_timestamp;
 use near_store::Store;
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
-use crate::types::{Error, ShardSyncStatus};
+use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -57,7 +57,7 @@ pub struct Client {
     pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncStatus>)>,
+    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -332,7 +332,7 @@ impl Client {
             shard_id
         );
 
-        let ReceiptResponse(_, receipts) = self.chain.get_outgoing_receipts_for_shard(
+        let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
             last_header.height_included,
@@ -350,12 +350,14 @@ impl Client {
         // 2. anyone who just asks for one's incoming receipts
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
-        let (receipts_root, _) = merklize(&receipts_hashes);
+        let outgoing_receipts_hashes =
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
+        let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
+            chunk_extra.state_num_parts,
             next_height,
             shard_id,
             chunk_extra.gas_used,
@@ -363,8 +365,8 @@ impl Client {
             chunk_extra.rent_paid,
             chunk_extra.validator_proposals.clone(),
             &filtered_transactions,
-            &receipts,
-            receipts_root,
+            &outgoing_receipts,
+            outgoing_receipts_root,
             tx_root,
             block_producer.signer.clone(),
         )?;
@@ -375,12 +377,12 @@ impl Client {
             next_height,
             shard_id,
             filtered_transactions.len(),
-            receipts.len(),
+            outgoing_receipts.len(),
             block_producer.account_id,
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts);
+        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, outgoing_receipts);
 
         Ok(())
     }
@@ -717,7 +719,7 @@ impl Client {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
         let tx_header = unwrap_or_return!(
             self.chain.get_block_header(&tx.transaction.block_hash),
-            NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string(),)
+            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
@@ -727,7 +729,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx("Transaction has expired".to_string());
+            return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
         }
         let gas_price = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
@@ -792,7 +794,7 @@ impl Client {
             }
             Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err.to_string())
+                NetworkClientResponses::InvalidTx(err)
             }
             Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
         }

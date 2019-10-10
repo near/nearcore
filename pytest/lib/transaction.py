@@ -15,6 +15,9 @@ class Transaction:
 class PublicKey:
     pass
 
+class BlsPublicKey:
+    pass
+
 class AccessKey:
     pass
 
@@ -74,6 +77,9 @@ tx_schema = dict([[Signature, { 'kind': 'struct', 'fields': [
             ['keyType', 'u8'],
             ['data', [32]]
         ] }],
+[BlsPublicKey, { 'kind': 'struct', 'fields': [
+            ['data', [48]]
+        ] }],
 [AccessKey, { 'kind': 'struct', 'fields': [
             ['nonce', 'u64'],
             ['permission', AccessKeyPermission],
@@ -113,7 +119,7 @@ tx_schema = dict([[Signature, { 'kind': 'struct', 'fields': [
         ] }],
 [Stake, { 'kind': 'struct', 'fields': [
             ['stake', 'u128'],
-            ['publicKey', PublicKey]
+            ['publicKey', BlsPublicKey]
         ] }],
 [AddKey, { 'kind': 'struct', 'fields': [
             ['publicKey', PublicKey],
@@ -159,8 +165,21 @@ def create_payment_action(amount):
     action.transfer = transfer
     return action
 
-def sign_payment_tx(account, to, amount, nonce, blockHash):
-    action = create_payment_action(amount)
-    return sign_and_serialize_transaction(to, nonce, [action], blockHash, account.account_id, account.decoded_pk(), account.decoded_sk())
+def create_staking_action(amount, pk):
+    stake = Stake()
+    stake.stake = amount
+    stake.publicKey = BlsPublicKey()
+    stake.publicKey.data = pk
+    action = Action()
+    action.enum = 'stake'
+    action.stake = stake
+    return action
 
+def sign_payment_tx(key, to, amount, nonce, blockHash):
+    action = create_payment_action(amount)
+    return sign_and_serialize_transaction(to, nonce, [action], blockHash, key.account_id, key.decoded_pk(), key.decoded_sk())
+
+def sign_staking_tx(signer_key, validator_key, amount, nonce, blockHash):
+    action = create_staking_action(amount, validator_key.decoded_pk())
+    return sign_and_serialize_transaction(signer_key.account_id, nonce, [action], blockHash, signer_key.account_id, signer_key.decoded_pk(), signer_key.decoded_sk())
 

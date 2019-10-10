@@ -1407,6 +1407,7 @@ impl<'a> Iterator for TrieIterator<'a> {
 mod tests {
     use rand::seq::SliceRandom;
     use rand::{rngs::ThreadRng, Rng};
+    use tempdir::TempDir;
 
     use crate::test_utils::{create_test_store, create_trie};
 
@@ -1776,5 +1777,23 @@ mod tests {
             // record extension and branch, but not leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
+    }
+
+    #[test]
+    fn test_dump_load_trie() {
+        let store = create_test_store();
+        let trie1 = Arc::new(Trie::new(store.clone()));
+        let empty_root = Trie::empty_root();
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        let dir = TempDir::new("test_dump_load_trie").unwrap();
+        store.save_to_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        let store2 = create_test_store();
+        store2.load_from_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        let trie2 = Arc::new(Trie::new(store2.clone()));
+        assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }
 }

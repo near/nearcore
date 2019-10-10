@@ -97,7 +97,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             let account = AccountView {
                 amount: TESTING_INIT_BALANCE,
-                staked: TESTING_INIT_STAKE,
+                locked: TESTING_INIT_STAKE,
                 code_hash: code_hash.clone().into(),
                 storage_usage: 0,
                 storage_paid_at: 0,
@@ -205,7 +205,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                 ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {
                     _successful_transactions += 1
                 }
-                ExecutionStatus::Failure => failed_transactions += 1,
+                ExecutionStatus::Failure(_) => failed_transactions += 1,
                 _ => {}
             }
         }

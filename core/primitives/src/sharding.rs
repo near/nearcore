@@ -9,7 +9,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHash(pub CryptoHash);
@@ -24,7 +24,8 @@ impl AsRef<[u8]> for ChunkHash {
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
-    pub prev_state_root: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -73,6 +74,7 @@ impl ShardChunkHeader {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -88,6 +90,7 @@ impl ShardChunkHeader {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
@@ -117,7 +120,11 @@ pub struct ChunkOnePart {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ShardProof(pub ShardId, pub MerklePath);
+pub struct ShardProof {
+    pub from_shard_id: ShardId,
+    pub to_shard_id: ShardId,
+    pub proof: MerklePath,
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 // For each Merkle proof there is a subset of receipts which may be proven.
@@ -185,6 +192,7 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -195,12 +203,12 @@ impl EncodedShardChunk {
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
-        receipts: &Vec<Receipt>,
-        receipts_root: CryptoHash,
+        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts_root: CryptoHash,
         signer: Arc<dyn BlsSigner>,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
-            TransactionReceipt(transactions.to_vec(), receipts.to_vec()).try_to_vec()?;
+            TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
         let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];
@@ -225,12 +233,13 @@ impl EncodedShardChunk {
         let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             height,
             shard_id,
             gas_used,
             gas_limit,
             rent_paid,
-            receipts_root,
+            outgoing_receipts_root,
             tx_root,
             validator_proposals,
             encoded_length as u64,
@@ -245,12 +254,13 @@ impl EncodedShardChunk {
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
-        receipts_root: CryptoHash,
+        outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
 
@@ -268,6 +278,7 @@ impl EncodedShardChunk {
         let header = ShardChunkHeader::new(
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             encoded_merkle_root,
             encoded_length,
             height,
@@ -275,7 +286,7 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
-            receipts_root,
+            outgoing_receipts_root,
             tx_root,
             validator_proposals,
             signer,
