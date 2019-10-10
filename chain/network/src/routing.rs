@@ -348,7 +348,7 @@ impl Graph {
             }
         }
 
-        routes
+        routes.into_iter().filter(|(_, hops)| !hops.is_empty()).collect()
     }
 }
 
