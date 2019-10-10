@@ -43,30 +43,6 @@ pub fn run(config: Config) {
         false,
     );
 
-    // Measure the speed of processing function calls.
-    const KV_PER_CONTRACT: usize = 10;
-    let mut arg = [0u8; std::mem::size_of::<u64>() * 2];
-    arg[..std::mem::size_of::<u64>()].copy_from_slice(&KV_PER_CONTRACT.to_le_bytes());
-    arg[std::mem::size_of::<u64>()..]
-        .copy_from_slice(&(rand::thread_rng().gen::<u64>() % 1000000000).to_le_bytes());
-    let function_call = Action::FunctionCall(FunctionCallAction {
-        method_name: "benchmark_storage_8b".to_string(),
-        args: (&arg).to_vec(),
-        gas: 10_000_000,
-        deposit: 0,
-    });
-    measure_actions(
-        "function call",
-        1,
-        None,
-        &mut measurements,
-        &config,
-        None,
-        vec![function_call],
-        false,
-        false,
-    );
-
     // Measure the speed of creating account.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut f = || {

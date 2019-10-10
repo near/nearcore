@@ -10,8 +10,6 @@ pub struct Account {
     pub amount: Balance,
     /// The amount locked due to staking
     pub locked: Balance,
-    /// The latest desired stake
-    pub desired_stake: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
@@ -22,14 +20,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockIndex) -> Self {
-        Account {
-            amount,
-            locked: 0,
-            desired_stake: 0,
-            code_hash,
-            storage_usage: 0,
-            storage_paid_at,
-        }
+        Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
 }
 
@@ -104,12 +95,11 @@ mod tests {
         let acc = Account {
             amount: 1_000_000,
             locked: 1_000_000,
-            desired_stake: 1_000_000,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
             storage_paid_at: 1_123_321,
         };
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "rxgqPSQ2r3cBDr2txUsMYAAaMi9UUZHmAzdN4gy7rLQ");
+        assert_eq!(to_base(&hash(&bytes)), "DzpbYEwBoiKa3DRTgK2L8fBq3QRfGSoUkTXrTYxwBt17");
     }
 }

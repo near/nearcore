@@ -34,7 +34,15 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), 1, 1_000, 1_000, 1_000);
+    let genesis = Block::genesis(
+        vec![MerkleHash::default()],
+        vec![1], /* TODO MOO */
+        Utc::now(),
+        1,
+        1_000,
+        1_000,
+        1_000,
+    );
     let signer = Arc::new(InMemoryBlsSigner::from_random("".to_string()));
     Block::produce(
         &genesis.header,

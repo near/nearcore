@@ -250,8 +250,8 @@ impl Peer {
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
-            PeerMessage::StateRequest(shard_id, hash) => {
-                NetworkClientMessages::StateRequest(shard_id, hash)
+            PeerMessage::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+                NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
@@ -270,8 +270,8 @@ impl Peer {
                 RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)
                 }
-                RoutedMessageBody::StateRequest(shard_id, hash) => {
-                    NetworkClientMessages::StateRequest(shard_id, hash)
+                RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+                    NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
                 }
                 RoutedMessageBody::ChunkPartRequest(request) => {
                     NetworkClientMessages::ChunkPartRequest(request, peer_id)

@@ -75,6 +75,7 @@ pub struct VerificationResult {
 
 pub struct ApplyResult {
     pub root: MerkleHash,
+    pub num_parts: u64,
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
@@ -843,6 +844,7 @@ impl Runtime {
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
             root: trie_changes.new_root,
+            num_parts: 9, // TODO MOO trie_changes.new_num_parts,
             trie_changes,
             validator_proposals,
             new_receipts,
@@ -903,7 +905,7 @@ impl Runtime {
         mut state_update: TrieUpdate,
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
-    ) -> (StoreUpdate, MerkleHash) {
+    ) -> (StoreUpdate, MerkleHash, u64) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
             match record.clone() {
@@ -989,11 +991,13 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        state_update
+        let state_update_state = state_update
             .finalize()
             .expect("Genesis state update failed")
             .into(trie)
-            .expect("Genesis state update failed")
+            .expect("Genesis state update failed");
+        // TODO MOO
+        (state_update_state.0, state_update_state.1, 9)
     }
 }
 
