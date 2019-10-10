@@ -132,6 +132,26 @@ fn test_valid_log_utf16_null_terminated() {
 }
 
 #[test]
+fn test_invalid_log_utf16() {
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let string = "$ qò$`";
+    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    for u16_ in string.encode_utf16() {
+        utf16_bytes.push(0);
+        utf16_bytes.push(u16_ as u8);
+    }
+    assert_eq!(
+        logic.log_utf8(utf16_bytes.len() as _, utf16_bytes.as_ptr() as _),
+        Err(HostError::BadUTF8.into())
+    );
+}
+
+#[test]
 fn test_valid_log_utf16_null_terminated_fail() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
