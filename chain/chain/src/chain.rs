@@ -2023,7 +2023,17 @@ impl<'a> ChainUpdate<'a> {
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures to check that total weight is correct.
         if *provenance != Provenance::PRODUCED {
+            // first verify aggregated signature
             let prev_header = self.get_previous_header(header)?.clone();
+            if !self.runtime_adapter.verify_approval_signature(
+                &prev_header.inner.epoch_id,
+                &prev_header.hash,
+                &header.inner.approval_mask,
+                &header.inner.approval_sigs,
+                prev_header.hash.as_ref(),
+            )? {
+                return Err(ErrorKind::InvalidApprovals.into());
+            };
             let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
             if weight != header.inner.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());

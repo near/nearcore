@@ -36,6 +36,9 @@ use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
 use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 
+/// Number of blocks we keep approvals for.
+const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
+
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
     gas_price_adjustment_rate: u8,
@@ -51,8 +54,8 @@ pub struct Client {
     network_adapter: Arc<dyn NetworkAdapter>,
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
-    /// Set of approvals for the next block.
-    pub approvals: HashMap<usize, BlsSignature>,
+    /// Set of approvals for blocks.
+    pub approvals: SizedCache<CryptoHash, HashMap<usize, BlsSignature>>,
     /// Approvals for which we do not have the block yet
     pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
@@ -97,7 +100,7 @@ impl Client {
             shards_mgr,
             network_adapter,
             block_producer,
-            approvals: HashMap::new(),
+            approvals: SizedCache::with_size(NUM_BLOCKS_FOR_APPROVAL),
             pending_approvals: SizedCache::with_size(num_block_producers),
             catchup_state_syncs: HashMap::new(),
             header_sync,
@@ -203,12 +206,13 @@ impl Client {
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
             total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
+        let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
         if head.height > 0
-            && self.approvals.len() < total_approvals
+            && num_approvals < total_approvals
             && elapsed_since_last_block < self.config.max_block_production_delay
         {
             // Will retry after a `block_production_tracking_delay`.
-            debug!(target: "client", "Produce block: approvals {}, expected: {}", self.approvals.len(), total_approvals);
+            debug!(target: "client", "Produce block: approvals {}, expected: {}", num_approvals, total_approvals);
             return Ok(None);
         }
 
@@ -230,7 +234,7 @@ impl Client {
             chunks[shard_id as usize] = chunk_header;
         }
 
-        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
+        let prev_header = &prev_block.header;
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
@@ -246,12 +250,15 @@ impl Client {
             None
         };
 
+        let approval =
+            self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
+
         let block = Block::produce(
             &prev_header,
             next_height,
             chunks,
             epoch_id,
-            self.approvals.drain().collect(),
+            approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
             block_producer.signer.clone(),
@@ -489,21 +496,21 @@ impl Client {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
-                let _ = self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+                self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
             } else {
-                let approval = self.pending_approvals.cache_get(&block_hash).cloned();
+                let approval = self.pending_approvals.cache_remove(&block_hash);
                 if let Some(approval) = approval {
                     for (account_id, (sig, peer_id)) in approval {
                         if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
-                            let _ = self.network_adapter.send(NetworkRequests::BanPeer {
+                            self.network_adapter.send(NetworkRequests::BanPeer {
                                 peer_id,
                                 ban_reason: ReasonForBan::BadBlockApproval,
                             });
                         }
                     }
                 }
-                let approval = self.get_block_approval(&block);
-                let _ = self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
+                let approval = self.create_block_approval(&block);
+                self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
                     header: block.header.clone(),
                     approval,
                 });
@@ -619,18 +626,17 @@ impl Client {
     }
 
     /// Create approval for given block or return none if not a block producer.
-    fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
-        let mut epoch_hash =
-            self.runtime_adapter.get_epoch_id_from_prev_block(&block.hash()).ok()?;
+    fn create_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&block.hash()).ok()?;
         let next_block_producer_account =
-            self.runtime_adapter.get_block_producer(&epoch_hash, block.header.inner.height + 1);
+            self.runtime_adapter.get_block_producer(&epoch_id, block.header.inner.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                epoch_hash = block.header.inner.epoch_id.clone();
-                if let Ok(validators) =
-                    self.runtime_adapter.get_epoch_block_producers(&epoch_hash, &block.hash())
+                if let Ok(validators) = self
+                    .runtime_adapter
+                    .get_epoch_block_producers(&block.header.inner.epoch_id, &block.hash())
                 {
                     if let Some((_, is_slashed)) =
                         validators.into_iter().find(|v| v.0 == block_producer.account_id)
@@ -657,9 +663,6 @@ impl Client {
         signature: &BlsSignature,
         peer_id: &PeerId,
     ) -> bool {
-        // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
-        // TODO: This header is missing, should collect for later? should have better way to verify then.
-
         let header = match self.chain.get_block_header(&hash) {
             Ok(h) => h.clone(),
             Err(e) => {
@@ -708,7 +711,9 @@ impl Client {
             return false;
         }
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
-        self.approvals.insert(position, signature.clone());
+        let mut entry = self.approvals.cache_remove(hash).unwrap_or_else(|| HashMap::default());
+        entry.insert(position, signature.clone());
+        self.approvals.cache_set(*hash, entry);
         true
     }
 
