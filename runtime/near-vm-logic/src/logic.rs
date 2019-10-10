@@ -266,7 +266,7 @@ impl<'a> VMLogic<'a> {
 
     fn read_memory_u32(memory: &dyn MemoryLike, ptr: u64) -> Result<u32> {
         let mut slice = [0u8; size_of::<u32>()];
-        let buf = Self::memory_get(memory, ptr, size_of::<u32>())?;
+        let buf = Self::memory_get(memory, ptr, size_of::<u32>() as u64)?;
         slice.copy_from_slice(&buf);
         Ok(u32::from_le_bytes(slice))
     }
@@ -294,13 +294,13 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                Self::try_fit_mem(self.memory, ptr, i)?;
+                if i == max_len {
+                    return Err(HostError::BadUTF8.into());
+                }
+                Self::try_fit_mem(self.memory, ptr + i, 1)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
-                }
-                if i == max_len {
-                    return Err(HostError::BadUTF8.into());
                 }
                 buf.push(el);
             }
@@ -314,31 +314,31 @@ impl<'a> VMLogic<'a> {
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        let input: Vec<u8>;
         let mut u16_buffer = Vec::new();
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
-            input = Self::memory_get(self.memory, ptr, len as u64)?;
+            let input = Self::memory_get(self.memory, ptr, len as u64)?;
             if len % 2 != 0 || len > max_len {
                 return Err(HostError::BadUTF16.into());
             }
             for i in 0..((len / 2) as usize) {
-                let hi = input[i as usize * 2 + 1] as u16 * 0x100;
-                let lo = input[i as usize * 2] as u16;
-                u16_buffer.push(hi + lo);
+                u16_buffer.push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
             }
         } else {
-            for i in 0..=(max_len / 2) {
-                Self::try_fit_mem(self.memory, ptr, i)?;
-                if (i == max_len) {
+            // Takes 2 bytes each iter
+            for i in 0..=(max_len / size_of::<u16>() as u64) {
+                if i * size_of::<u16>() as u64 == max_len {
                     return Err(HostError::BadUTF16.into());
                 }
-                let hi = self.memory.read_memory_u8(ptr + i * 2 + 1) as u16 * 0x100;
-                let lo = self.memory.read_memory_u8(ptr + i * 2) as u16;
-                if (hi, lo) == (0, 0) {
+                // Self::try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                let start = ptr + i * size_of::<u16>() as u64;
+                Self::try_fit_mem(self.memory, start, size_of::<u16>() as u64)?;
+                let lo = self.memory.read_memory_u8(start);
+                let hi = self.memory.read_memory_u8(start + 1);
+                if (lo, hi) == (0, 0) {
                     break;
                 }
-                u16_buffer.push(hi + lo);
+                u16_buffer.push(u16::from_le_bytes([lo, hi]));
             }
         }
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
