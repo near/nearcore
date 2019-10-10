@@ -7,11 +7,13 @@ use actix::System;
 use futures::{future, Future};
 
 use borsh::BorshSerialize;
-use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
+use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
-use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{
+    BlsSignature, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer,
+};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -482,4 +484,35 @@ fn test_time_attack() {
 
     let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
     assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
+}
+
+#[test]
+fn test_invalid_approvals() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
+    b1.header.inner.approval_mask = vec![true];
+    b1.header.inner.approval_sigs = (0..100).fold(BlsSignature::empty(), |mut acc, i| {
+        let signature = InMemoryBlsSigner::from_seed(&format!("test{}", i), &format!("test{}", i))
+            .sign(genesis.hash().as_ref());
+        acc.add(&signature);
+        acc
+    });
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+    let (_, tip) = client.process_block(b1, Provenance::NONE);
+    match tip {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidApprovals => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    }
 }

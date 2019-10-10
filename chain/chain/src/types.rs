@@ -159,6 +159,16 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
+    /// Verify aggregated bls signature
+    fn verify_approval_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        approval_mask: &[bool],
+        approval_sig: &BlsSignature,
+        data: &[u8],
+    ) -> Result<bool, Error>;
+
     /// Epoch block producers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_producers(

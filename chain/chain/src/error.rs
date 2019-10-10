@@ -84,6 +84,9 @@ pub enum ErrorKind {
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
+    /// Invalid Approvals
+    #[fail(display = "Invalid Approvals")]
+    InvalidApprovals,
     /// Validator error.
     #[fail(display = "Validator Error")]
     ValidatorError(String),
@@ -164,7 +167,8 @@ impl Error {
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals
-            | ErrorKind::InvalidSignature => true,
+            | ErrorKind::InvalidSignature
+            | ErrorKind::InvalidApprovals => true,
         }
     }
 
