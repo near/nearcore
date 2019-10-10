@@ -191,23 +191,29 @@ impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DownloadStatus {
+    pub part_id: u64,
+    pub start_time: DateTime<Utc>,
+    pub prev_update_time: DateTime<Utc>,
+    pub run_me: bool,
+    pub error: bool,
+    pub done: bool,
+}
+
 /// Various status of syncing a specific shard.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ShardSyncStatus {
-    /// Downloading state for fast sync.
-    StateDownload {
-        start_time: DateTime<Utc>,
-        prev_update_time: DateTime<Utc>,
-        prev_downloaded_size: u64,
-        downloaded_size: u64,
-        total_size: u64,
-    },
-    /// Validating the full state.
-    StateValidation,
-    /// Finalizing state sync.
-    StateDone,
-    /// Syncing errored out, restart.
-    Error(String),
+    StateDownloadHeader,
+    StateDownloadParts,
+    StateDownloadFinalize,
+    StateDownloadComplete,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShardSyncDownload {
+    pub downloads: Vec<DownloadStatus>,
+    pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
@@ -220,7 +226,7 @@ pub enum SyncStatus {
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockIndex, highest_height: BlockIndex },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncStatus>),
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.

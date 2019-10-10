@@ -20,6 +20,7 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use near_primitives::block::BlockHeader;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
@@ -445,10 +446,7 @@ fn test_process_invalid_tx() {
         },
     );
     produce_blocks(&mut client, 12);
-    assert_eq!(
-        client.process_tx(tx),
-        NetworkClientResponses::InvalidTx("Transaction has expired".to_string())
-    );
+    assert_eq!(client.process_tx(tx), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -462,7 +460,7 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         client.process_tx(tx2),
-        NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string())
+        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
     );
 }
 

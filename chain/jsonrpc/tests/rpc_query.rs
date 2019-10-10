@@ -5,6 +5,7 @@ use futures::future::Future;
 use near_crypto::BlsSignature;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
+use near_jsonrpc_client::BlockId;
 use near_primitives::test_utils::init_test_logger;
 
 /// Retrieve blocks via json rpc
@@ -16,7 +17,8 @@ fn test_block() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.block(0).then(|res| {
+
+        actix::spawn(client.block(BlockId::Height(0)).then(|res| {
             let res = res.unwrap();
             assert_eq!(res.header.height, 0);
             assert_eq!(res.header.epoch_id.0, &[0; 32]);
@@ -35,7 +37,30 @@ fn test_block() {
             assert_eq!(res.header.total_weight, 0);
             assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();
-            future::result(Ok(()))
+            future::ok(())
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve blocks via json rpc
+#[test]
+fn test_block_by_hash() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.block(BlockId::Height(0)).then(move |res| {
+            let res = res.unwrap();
+            let mut client = new_client(&format!("http://{}", addr));
+            client.block(BlockId::Hash(res.header.hash)).then(move |res| {
+                let res = res.unwrap();
+                assert_eq!(res.header.height, 0);
+                System::current().stop();
+                future::ok(())
+            })
         }));
     })
     .unwrap();
