@@ -99,10 +99,7 @@ test_nearlib:
     before_script:
     - *setup_rust
     - *setup_cache
-    # Install latest Node
-    - npx n latest
     script:
-    - export PATH=$HOME/n/bin:$PATH
     - ./scripts/test_nearlib.sh
 
     after_script:
@@ -115,10 +112,8 @@ test_nearlib_release:
     before_script:
     - *setup_rust
     - *setup_cache
-    # Install latest Node
-    - npx n latest
     script:
-    - export PATH=$HOME/n/bin:$PATH
+    - export NEARLIB_RELEASE=true
     - ./scripts/test_nearlib_release.sh
 
     after_script:

@@ -31,6 +31,8 @@ core/wasm/**/Cargo.lock
 
 # Integration tests
 nearlib/
+near-shell/
+nearlib_release_test/
 test-keys/
 tmp/
 
