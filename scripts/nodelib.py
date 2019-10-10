@@ -10,6 +10,8 @@ try:
 except NameError:
     pass
 
+rust_version = open(os.path.join(os.path.dirname(__file__), '../rust-toolchain'), 'r').read().strip()
+
 """Installs cargo/Rust."""
 def install_cargo():
     try:
@@ -17,7 +19,7 @@ def install_cargo():
     except OSError:
         print("Installing Rust...")
         subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y', shell=True)
-        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'), 'default', 'nightly'])
+        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'), 'default', rust_version])
 
 
 """Inits the node configuration using docker."""
@@ -46,7 +48,7 @@ def get_chain_id_from_flags(flags):
 def check_and_setup(is_local, is_release, image, home_dir, init_flags):
     if is_local:
         subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
-            'default', 'nightly'])
+            'default', rust_version])
         flags = ['-p', 'near']
         if is_release:
             flags = ['--release'] + flags
