@@ -344,25 +344,37 @@ impl EpochManager {
         Ok(epoch_info.validators[self.block_producer_from_info(&epoch_info, index)].clone())
     }
 
-    /// Returns all block producers in current epoch, with indicator is they are slashed or not.
-    pub fn get_all_block_producers(
+    pub fn get_all_block_producer_info(
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, EpochError> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
         for validator_id in epoch_info.block_producers.iter() {
-            let account_id = epoch_info.validators[*validator_id].account_id.clone();
-            if !validators.contains(&account_id) {
-                let is_slashed = slashed.contains(&account_id);
-                validators.insert(account_id.clone());
-                result.push((account_id, is_slashed));
+            let validator_stake = epoch_info.validators[*validator_id].clone();
+            if !validators.contains(&validator_stake.account_id) {
+                let is_slashed = slashed.contains(&validator_stake.account_id);
+                validators.insert(validator_stake.account_id.clone());
+                result.push((validator_stake, is_slashed));
             }
         }
         Ok(result)
+    }
+
+    /// Returns all block producers in current epoch, with indicator on whether they are slashed or not.
+    pub fn get_all_block_producers(
+        &mut self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, EpochError> {
+        Ok(self
+            .get_all_block_producer_info(epoch_id, last_known_block_hash)?
+            .into_iter()
+            .map(|(v, is_slashed)| (v.account_id, is_slashed))
+            .collect())
     }
 
     /// Given epoch id, index and shard id return validator that is chunk producer.
