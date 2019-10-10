@@ -18,24 +18,14 @@ use std::path::PathBuf;
 pub fn run(config: Config) {
     let mut m = Measurements::new();
     // Measure the speed of processing empty receipts.
-    measure_actions(
-        "receipt only",
-        1,
-        None,
-        &mut measurements,
-        &config,
-        None,
-        vec![],
-        false,
-        false,
-    );
+    measure_actions("receipt only", 1, None, &mut m, &config, None, vec![], false, false);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
         "transfer",
         1,
         None,
-        &mut measurements,
+        &mut m,
         &config,
         None,
         vec![Action::Transfer(TransferAction { deposit: 1 })],
@@ -60,7 +50,7 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("create_account", 1, None, &mut measurements, &config, None, &mut f);
+    measure_transactions("create_account", 1, None, &mut m, &config, None, &mut f);
 
     // Measure the speed of deleting an account.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
@@ -94,14 +84,14 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("delete_account", 1, None, &mut measurements, &config, None, &mut f);
+    measure_transactions("delete_account", 1, None, &mut m, &config, None, &mut f);
 
     // Measure the speed of adding a full access key.
     measure_actions(
         "add access key full",
         1,
         None,
-        &mut measurements,
+        &mut m,
         &config,
         None,
         vec![Action::AddKey(AddKeyAction {
@@ -120,7 +110,7 @@ pub fn run(config: Config) {
         "add access key full",
         1,
         None,
-        &mut measurements,
+        &mut m,
         &config,
         None,
         vec![Action::AddKey(AddKeyAction {
@@ -169,14 +159,14 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("delete_access_key", 1, None, &mut measurements, &config, None, &mut f);
+    measure_transactions("delete_access_key", 1, None, &mut m, &config, None, &mut f);
 
     // Measure the speed of staking.
     measure_actions(
         "stake",
         1,
         None,
-        &mut measurements,
+        &mut m,
         &config,
         None,
         vec![Action::Stake(StakeAction { stake: 1, public_key: BlsPublicKey::empty() })],
@@ -219,7 +209,7 @@ pub fn run(config: Config) {
         "deploy",
         1,
         Some(medium_code.len()),
-        &mut measurements,
+        &mut m,
         &config,
         Some(testbed),
         &mut f,
@@ -229,7 +219,7 @@ pub fn run(config: Config) {
         "deploy",
         1,
         Some(large_code.len()),
-        &mut measurements,
+        &mut m,
         &config,
         Some(testbed),
         &mut f,
