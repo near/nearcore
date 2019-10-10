@@ -417,7 +417,7 @@ impl Client {
             )
         };
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
@@ -435,30 +435,32 @@ impl Client {
         &mut self,
         one_part_msg: ChunkOnePart,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        let has_all_one_parts = self.shards_mgr.process_chunk_one_part(one_part_msg.clone())?;
+
+        // After processing one part we might need to request more parts or one parts.
+        // If we are missing some of our own one parts, we need to request them no matter what, since
+        //    nightshade data availability relies on it. Otherwise only request parts if this chunk
+        //    builds on the current head.
+        // TODO: if the bp receives the chunk before they receive the prev block, they will
+        //     not collect the parts currently. It will result in chunk not included
+        //     in the next block.
+
         let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
-        let ret = self.shards_mgr.process_chunk_one_part(one_part_msg.clone())?;
-        if ret {
-            // If the chunk builds on top of the current head, get all the remaining parts
-            // TODO: if the bp receives the chunk before they receive the block, they will
-            //     not collect the parts currently. It will result in chunk not included
-            //     in the next block.
-            if self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                self.block_producer.as_ref().map(|x| &x.account_id),
-                &prev_block_hash,
-                one_part_msg.shard_id,
-                true,
-            ) && self
-                .chain
-                .head()
-                .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
-                .unwrap_or(false)
-            {
-                self.shards_mgr.request_chunks(vec![one_part_msg.header]).unwrap();
-            } else {
-                // We are getting here either because we don't care about the shard, or
-                //    because we see the one part before we see the block.
-                // In the latter case we will request parts once the block is received
-            }
+        let builds_on_head = self
+            .chain
+            .head()
+            .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
+            .unwrap_or(false);
+        let care_about_shard = self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            self.block_producer.as_ref().map(|x| &x.account_id),
+            &prev_block_hash,
+            one_part_msg.shard_id,
+            true,
+        );
+        if !has_all_one_parts || (care_about_shard && builds_on_head) {
+            self.shards_mgr.request_chunks(vec![one_part_msg.header], true).unwrap();
+        }
+        if has_all_one_parts {
             return Ok(self.process_blocks_with_missing_chunks(prev_block_hash));
         }
         Ok(vec![])
@@ -618,7 +620,7 @@ impl Client {
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
@@ -872,7 +874,7 @@ impl Client {
                     )?;
 
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
+                        self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                     }
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();
