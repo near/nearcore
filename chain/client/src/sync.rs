@@ -530,7 +530,7 @@ impl StateSync {
                         let shard_state_header =
                             chain.get_received_state_header(shard_id, sync_hash)?;
                         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-                        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+                        let state_num_parts = chunk.header.inner.prev_state_root.num_parts;
                         new_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {

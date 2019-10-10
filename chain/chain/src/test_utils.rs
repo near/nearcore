@@ -20,7 +20,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
@@ -58,8 +59,7 @@ pub struct KeyValueRuntime {
     num_shards: ShardId,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
-    state: RwLock<HashMap<StateRoot, KVState>>,
-    state_num_parts: RwLock<HashMap<StateRoot, u64>>,
+    state: RwLock<HashMap<MerkleHash, KVState>>,
     state_parts: RwLock<HashMap<CryptoHash, StatePart>>,
     state_proofs: RwLock<HashMap<CryptoHash, MerklePath>>,
 
@@ -111,15 +111,14 @@ impl KeyValueRuntime {
 
         let mut state = HashMap::new();
         state.insert(
-            StateRoot::default(),
+            MerkleHash::default(),
             KVState {
                 amounts: initial_amounts,
                 receipt_nonces: HashSet::default(),
                 tx_nonces: HashSet::default(),
             },
         );
-        // TODO initializing for StateRoot::default()?
-        let state_num_parts = HashMap::new();
+        // TODO MOO initializing for StateRoot::default()?
         let state_parts = HashMap::new();
         let state_proofs = HashMap::new();
         KeyValueRuntime {
@@ -142,7 +141,6 @@ impl KeyValueRuntime {
             validator_groups,
             num_shards,
             state: RwLock::new(state),
-            state_num_parts: RwLock::new(state_num_parts),
             state_parts: RwLock::new(state_parts),
             state_proofs: RwLock::new(state_proofs),
             hash_to_epoch: RwLock::new(HashMap::new()),
@@ -152,8 +150,8 @@ impl KeyValueRuntime {
         }
     }
 
-    pub fn get_root(&self) -> StateRoot {
-        self.root
+    pub fn get_root(&self) -> CryptoHash {
+        self.root.hash
     }
 
     fn get_prev_height(
@@ -245,11 +243,15 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>, Vec<u64>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
         (
             self.store.store_update(),
-            ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
-            vec![DEFAULT_STATE_NUM_PARTS; self.num_shards() as usize],
+            ((0..self.num_shards())
+                .map(|_| StateRoot {
+                    hash: CryptoHash::default(),
+                    num_parts: DEFAULT_STATE_NUM_PARTS, /* TODO MOO */
+                })
+                .collect()),
         )
     }
 
@@ -490,7 +492,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
+        let mut state = self.state.read().unwrap().get(&state_root.hash).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -634,13 +636,13 @@ impl RuntimeAdapter for KeyValueRuntime {
             let part = StatePart { shard_id, part_id: i as u64, data: data[begin..end].to_vec() };
             parts.push(part);
         }
-        let (new_state_root, proofs) = merklize(&parts);
+        let (state_hash, proofs) = merklize(&parts);
+        let new_state_root = StateRoot { hash: state_hash, num_parts: state_num_parts as u64 };
 
-        self.state.write().unwrap().insert(new_state_root, state);
-        self.state_num_parts.write().unwrap().insert(new_state_root, state_num_parts as u64);
+        self.state.write().unwrap().insert(new_state_root.hash, state);
         for i in 0..state_num_parts {
-            let key = hash(&StatePartKey(i as u64, new_state_root).try_to_vec().unwrap());
-            assert!(verify_path(new_state_root, &proofs[i], &parts[i]));
+            let key = hash(&StatePartKey(i as u64, new_state_root.clone()).try_to_vec().unwrap());
+            assert!(verify_path(new_state_root.hash, &proofs[i], &parts[i]));
             self.state_parts.write().unwrap().insert(key, parts[i].clone());
             self.state_proofs.write().unwrap().insert(key, proofs[i].clone());
         }
@@ -648,10 +650,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
-                TrieChanges::empty(*state_root),
+                TrieChanges::empty(state_root.hash),
             ),
             new_root: new_state_root,
-            new_num_parts: state_num_parts as u64,
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
@@ -678,7 +679,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .state
                     .read()
                     .unwrap()
-                    .get(&state_root)
+                    .get(&state_root.hash)
                     .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
                 locked: 0,
                 code_hash: CryptoHash::default(),
@@ -693,41 +694,40 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         part_id: u64,
-        state_root: StateRoot,
-        state_num_parts: u64,
+        state_root: &StateRoot,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
-        if part_id >= state_num_parts {
+        if part_id >= state_root.num_parts {
             return Err("Invalid part_id in obtain_state_part".to_string().into());
         }
         if shard_id >= self.num_shards() {
             return Err("Invalid shard_id in obtain_state_part".to_string().into());
         }
-        let key = hash(&StatePartKey(part_id, state_root).try_to_vec().unwrap());
+        let key = hash(&StatePartKey(part_id, state_root.clone()).try_to_vec().unwrap());
         let part = self.state_parts.read().unwrap().get(&key).unwrap().clone();
         let proof = self.state_proofs.read().unwrap().get(&key).unwrap().clone();
-        assert!(verify_path(state_root, &proof, &part));
+        assert!(verify_path(state_root.hash, &proof, &part));
         Ok((part, proof))
     }
 
     fn accept_state_part(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         part: &StatePart,
         proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !verify_path(state_root, proof, part) {
+        if !verify_path(state_root.hash, proof, part) {
             return Err("set_shard_state failed: invalid StatePart".into());
         }
-        let key = hash(&StatePartKey(part.part_id, state_root).try_to_vec().unwrap());
+        let key = hash(&StatePartKey(part.part_id, state_root.clone()).try_to_vec().unwrap());
         self.state_parts.write().unwrap().insert(key, part.clone());
         self.state_proofs.write().unwrap().insert(key, proof.to_vec());
         Ok(())
     }
 
-    fn confirm_state(&self, state_root: StateRoot, state_num_parts: u64) -> Result<bool, Error> {
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error> {
         let mut data = vec![];
-        for i in 0..state_num_parts as usize {
-            let key = hash(&StatePartKey(i as u64, state_root).try_to_vec().unwrap());
+        for i in 0..state_root.num_parts as usize {
+            let key = hash(&StatePartKey(i as u64, state_root.clone()).try_to_vec().unwrap());
             match self.state_parts.read().unwrap().get(&key) {
                 Some(part) => {
                     data.push(part.data.clone());
@@ -741,7 +741,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
-        self.state.write().unwrap().insert(state_root, state);
+        self.state.write().unwrap().insert(state_root.hash, state);
         Ok(true)
     }
 

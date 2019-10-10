@@ -189,7 +189,7 @@ impl NightshadeRuntime {
         Ok(())
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
+    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -201,17 +201,19 @@ impl NightshadeRuntime {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<MerkleHash> =
+        let state_root_hashes: Vec<MerkleHash> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        let state_num_parts = vec![1; state_roots.len()];
         // TODO MOO read new_state_num_parts
-        (store_update, state_roots, state_num_parts)
+        let mut state_roots = vec![];
+        for hash in state_root_hashes {
+            state_roots.push(StateRoot { hash, num_parts: 1 /* TODO MOO */ })
+        }
+        (store_update, state_roots)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
+    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
-        let mut state_num_parts = vec![];
         let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
@@ -243,16 +245,15 @@ impl NightshadeRuntime {
                 })
                 .collect::<Vec<_>>();
             let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
-            let (shard_store_update, state_root, num_parts) = self.runtime.apply_genesis_state(
+            let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
                 state_update,
                 &validators,
                 &shard_records[shard_id as usize],
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
-            state_num_parts.push(num_parts);
         }
-        (store_update, state_roots, state_num_parts)
+        (store_update, state_roots)
     }
 }
 
@@ -281,7 +282,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>, Vec<u64>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let has_records = !self.genesis_config.records.is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -492,10 +493,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -519,10 +520,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -584,7 +585,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRoot,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -600,7 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             self.trie.clone()
         };
-        let mut state_update = TrieUpdate::new(trie.clone(), *state_root);
+        let mut state_update = TrieUpdate::new(trie.clone(), state_root.hash);
         let should_update_account = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
@@ -657,8 +658,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
-            new_root: apply_result.root,
-            new_num_parts: apply_result.num_parts,
+            new_root: apply_result.state_root,
             transaction_results: apply_result.tx_result,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
@@ -672,7 +672,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -683,14 +683,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             return Err("Path must contain at least single token".into());
         }
         match path_parts[0] {
-            "account" => match self.view_account(state_root, &AccountId::from(path_parts[1])) {
-                Ok(r) => Ok(QueryResponse::ViewAccount(r.into())),
-                Err(e) => Err(e),
-            },
+            "account" => {
+                match self.view_account(state_root.hash, &AccountId::from(path_parts[1])) {
+                    Ok(r) => Ok(QueryResponse::ViewAccount(r.into())),
+                    Err(e) => Err(e),
+                }
+            }
             "call" => {
                 let mut logs = vec![];
                 match self.call_function(
-                    state_root,
+                    state_root.hash,
                     height,
                     block_timestamp,
                     &AccountId::from(path_parts[1]),
@@ -705,7 +707,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             "contract" => {
-                match self.view_state(state_root, &AccountId::from(path_parts[1]), data) {
+                match self.view_state(state_root.hash, &AccountId::from(path_parts[1]), data) {
                     Ok(result) => Ok(QueryResponse::ViewState(result)),
                     Err(err) => Ok(QueryResponse::Error(QueryError {
                         error: err.to_string(),
@@ -715,19 +717,21 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             "access_key" => {
                 let result = if path_parts.len() == 2 {
-                    self.view_access_keys(state_root, &AccountId::from(path_parts[1])).map(|r| {
-                        QueryResponse::AccessKeyList(
-                            r.into_iter()
-                                .map(|(public_key, access_key)| AccessKeyInfoView {
-                                    public_key: public_key.into(),
-                                    access_key: access_key.into(),
-                                })
-                                .collect(),
-                        )
-                    })
+                    self.view_access_keys(state_root.hash, &AccountId::from(path_parts[1])).map(
+                        |r| {
+                            QueryResponse::AccessKeyList(
+                                r.into_iter()
+                                    .map(|(public_key, access_key)| AccessKeyInfoView {
+                                        public_key: public_key.into(),
+                                        access_key: access_key.into(),
+                                    })
+                                    .collect(),
+                            )
+                        },
+                    )
                 } else {
                     self.view_access_key(
-                        state_root,
+                        state_root.hash,
                         &AccountId::from(path_parts[1]),
                         &ReadablePublicKey::new(path_parts[2]).try_into()?,
                     )
@@ -758,8 +762,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         part_id: u64,
-        state_root: StateRoot,
-        _state_num_parts: u64,
+        state_root: &StateRoot,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
         if part_id > 0 {
             /* TODO MOO */
@@ -769,7 +772,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // create snapshot.
         let mut result = vec![];
         let mut cursor = Cursor::new(&mut result);
-        for item in self.trie.iter(&state_root)? {
+        for item in self.trie.iter(&state_root.hash)? {
             let (key, value) = item?;
             cursor.write_u32::<LittleEndian>(key.len() as u32)?;
             cursor.write_all(&key)?;
@@ -777,14 +780,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_all(value.as_ref())?;
         }
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root, result.len());
+        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root.hash, result.len());
         // TODO add proof in Nightshade Runtime
         Ok((StatePart { shard_id, part_id, data: result }, MerklePath::new()))
     }
 
     fn accept_state_part(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         part: &StatePart,
         _proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -792,7 +795,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             /* TODO MOO */
             return Ok(());
         }
-        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root, part.data.len());
+        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root.hash, part.data.len());
         // TODO prove that the part is valid
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let state_part_len = part.data.len();
@@ -807,14 +810,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             state_update.set(key, DBValue::from_slice(&value));
         }
         let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
-        if root != state_root {
+        if root != state_root.hash {
             return Err("Invalid state root".into());
         }
         store_update.commit()?;
         Ok(())
     }
 
-    fn confirm_state(&self, _state_root: StateRoot, _state_num_parts: u64) -> Result<bool, Error> {
+    fn confirm_state(&self, _state_root: &StateRoot) -> Result<bool, Error> {
         // TODO approve that all parts are here
         Ok(true)
     }
@@ -913,7 +916,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRoot, ValidatorStake,
     };
     use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
     use near_store::create_store;
@@ -947,7 +950,7 @@ mod test {
     impl NightshadeRuntime {
         fn update(
             &self,
-            state_root: &CryptoHash,
+            state_root: &StateRoot,
             shard_id: ShardId,
             block_index: BlockIndex,
             block_timestamp: u64,
@@ -957,7 +960,7 @@ mod test {
             transactions: &[SignedTransaction],
             last_proposals: &[ValidatorStake],
             gas_price: Balance,
-        ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
+        ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
                 .apply_transactions(
                     shard_id,
@@ -982,8 +985,7 @@ mod test {
     struct TestEnv {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
-        state_roots: Vec<MerkleHash>,
-        state_num_parts: Vec<u64>,
+        state_roots: Vec<StateRoot>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
         pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
         pub last_proposals: Vec<ValidatorStake>,
@@ -1018,7 +1020,7 @@ mod test {
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
-            let (store_update, state_roots, state_num_parts) = runtime.genesis_state();
+            let (store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
             runtime
@@ -1045,7 +1047,6 @@ mod test {
                     total_weight: Weight::default(),
                 },
                 state_roots,
-                state_num_parts,
                 last_receipts: HashMap::default(),
                 last_proposals: vec![],
                 last_shard_proposals: HashMap::default(),
@@ -1114,7 +1115,7 @@ mod test {
         pub fn view_account(&self, account_id: &str) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
             self.runtime
-                .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
+                .view_account(self.state_roots[shard_id as usize].hash, &account_id.to_string())
                 .unwrap()
                 .into()
         }
@@ -1482,8 +1483,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let (state_part, proof) =
-            env.runtime.obtain_state_part(0, 0, env.state_roots[0], 1).unwrap();
+        let (state_part, proof) = env.runtime.obtain_state_part(0, 0, &env.state_roots[0]).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1518,8 +1518,8 @@ mod test {
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
         }
-        new_env.runtime.accept_state_part(env.state_roots[0], &state_part, &proof).unwrap();
-        new_env.state_roots[0] = env.state_roots[0];
+        new_env.runtime.accept_state_part(&env.state_roots[0], &state_part, &proof).unwrap();
+        new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
         }
@@ -1620,7 +1620,14 @@ mod test {
             .clone();
         let response = env
             .runtime
-            .query(env.state_roots[0], 2, 0, &env.head.last_block_hash, vec!["validators"], &[])
+            .query(
+                env.state_roots[0].clone(),
+                2,
+                0,
+                &env.head.last_block_hash,
+                vec!["validators"],
+                &[],
+            )
             .unwrap();
         match response {
             QueryResponse::Validators(info) => assert_eq!(
@@ -1649,7 +1656,14 @@ mod test {
         env.step_default(vec![]);
         let response = env
             .runtime
-            .query(env.state_roots[0], 3, 0, &env.head.last_block_hash, vec!["validators"], &[])
+            .query(
+                env.state_roots[0].clone(),
+                3,
+                0,
+                &env.head.last_block_hash,
+                vec!["validators"],
+                &[],
+            )
             .unwrap();
         match response {
             QueryResponse::Validators(info) => {
