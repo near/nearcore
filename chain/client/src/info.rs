@@ -161,11 +161,11 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                     + format!(
                         "{}: {}",
                         shard_id,
-                        match shard_status {
-                            ShardSyncStatus::StateDownload { .. } => format!("download"),
-                            ShardSyncStatus::StateValidation => format!("validation"),
-                            ShardSyncStatus::StateDone => format!("done"),
-                            ShardSyncStatus::Error(error) => format!("error {}", error),
+                        match shard_status.status {
+                            ShardSyncStatus::StateDownloadHeader => format!("header"),
+                            ShardSyncStatus::StateDownloadParts => format!("parts"),
+                            ShardSyncStatus::StateDownloadFinalize => format!("finalization"),
+                            ShardSyncStatus::StateDownloadComplete => format!("done"),
                         }
                     )
                     .as_str();

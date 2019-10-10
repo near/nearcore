@@ -9,7 +9,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHash(pub CryptoHash);
@@ -24,7 +24,8 @@ impl AsRef<[u8]> for ChunkHash {
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
-    pub prev_state_root: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -73,6 +74,7 @@ impl ShardChunkHeader {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -88,6 +90,7 @@ impl ShardChunkHeader {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
@@ -189,6 +192,7 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -229,6 +233,7 @@ impl EncodedShardChunk {
         let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             height,
             shard_id,
             gas_used,
@@ -249,6 +254,7 @@ impl EncodedShardChunk {
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -272,6 +278,7 @@ impl EncodedShardChunk {
         let header = ShardChunkHeader::new(
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             encoded_merkle_root,
             encoded_length,
             height,

@@ -26,6 +26,7 @@ pub struct StandaloneRuntime {
     pub trie: Arc<Trie>,
     pub signer: InMemorySigner,
     pub root: MerkleHash,
+    pub num_parts: u64,
 }
 
 impl StandaloneRuntime {
@@ -39,7 +40,8 @@ impl StandaloneRuntime {
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
 
-        let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
+        let (store_update, root, num_parts) =
+            runtime.apply_genesis_state(trie_update, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -51,7 +53,7 @@ impl StandaloneRuntime {
             block_timestamp: 0,
         };
 
-        Self { apply_state, runtime, trie, signer, root }
+        Self { apply_state, runtime, trie, signer, root, num_parts }
     }
 
     pub fn process_block(
@@ -131,7 +133,6 @@ impl RuntimeGroup {
                     account: AccountView {
                         amount: TESTING_INIT_BALANCE,
                         locked: TESTING_INIT_STAKE,
-                        desired_stake: TESTING_INIT_STAKE,
                         code_hash: code_hash.clone().into(),
                         storage_usage: 0,
                         storage_paid_at: 0,

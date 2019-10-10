@@ -9,7 +9,7 @@ use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::errors::{ActionError, ExecutionError};
+use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -87,8 +87,6 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
-    #[serde(with = "u128_dec_format")]
-    pub desired_stake: Balance,
     pub code_hash: CryptoHashView,
     pub storage_usage: StorageUsage,
     pub storage_paid_at: BlockIndex,
@@ -99,7 +97,6 @@ impl From<Account> for AccountView {
         AccountView {
             amount: account.amount,
             locked: account.locked,
-            desired_stake: account.desired_stake,
             code_hash: account.code_hash.into(),
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
@@ -112,7 +109,6 @@ impl From<AccountView> for Account {
         Self {
             amount: view.amount,
             locked: view.locked,
-            desired_stake: view.desired_stake,
             code_hash: view.code_hash.into(),
             storage_usage: view.storage_usage,
             storage_paid_at: view.storage_paid_at,
@@ -378,6 +374,7 @@ impl From<BlockHeaderView> for BlockHeader {
 pub struct ChunkHeaderView {
     pub prev_block_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
+    pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHashView,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -398,6 +395,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             prev_block_hash: chunk.inner.prev_block_hash.into(),
             prev_state_root: chunk.inner.prev_state_root.into(),
+            prev_state_num_parts: chunk.inner.prev_state_num_parts,
             encoded_merkle_root: chunk.inner.encoded_merkle_root.into(),
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -425,6 +423,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash.into(),
                 prev_state_root: view.prev_state_root.into(),
+                prev_state_num_parts: view.prev_state_num_parts,
                 encoded_merkle_root: view.encoded_merkle_root.into(),
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
@@ -684,6 +683,45 @@ impl From<ExecutionError> for ExecutionErrorView {
                         "ActionError::FunctionCallError".to_string()
                     }
                 },
+                ExecutionError::InvalidTx(e) => match e {
+                    InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),
+                    InvalidTxError::SignerDoesNotExist(_) => {
+                        "InvalidTxError::SignerDoesNotExist".to_string()
+                    }
+                    InvalidTxError::InvalidAccessKey(e) => match e {
+                        InvalidAccessKeyError::AccessKeyNotFound(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
+                        }
+                        InvalidAccessKeyError::ReceiverMismatch(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::MethodNameMismatch(_) => {
+                            "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::ActionError => {
+                            "InvalidTxError::InvalidAccessKey::ActionError".to_string()
+                        }
+                        InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
+                            "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
+                        }
+                    },
+                    InvalidTxError::InvalidNonce(_, _) => {
+                        "InvalidTxError::InvalidNonce".to_string()
+                    }
+                    InvalidTxError::InvalidReceiver(_) => {
+                        "InvalidTxError::InvalidReceiver".to_string()
+                    }
+                    InvalidTxError::InvalidSignature => {
+                        "InvalidTxError::InvalidSignature".to_string()
+                    }
+                    InvalidTxError::NotEnoughBalance(_, _, _) => {
+                        "InvalidTxError::NotEnoughBalance".to_string()
+                    }
+                    InvalidTxError::RentUnpaid(_, _) => "InvalidTxError::RentUnpaid".to_string(),
+                    InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
+                    InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
+                    InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
+                },
             },
         }
     }
@@ -692,6 +730,12 @@ impl From<ExecutionError> for ExecutionErrorView {
 impl From<ActionError> for ExecutionErrorView {
     fn from(error: ActionError) -> Self {
         ExecutionError::Action(error).into()
+    }
+}
+
+impl From<InvalidTxError> for ExecutionErrorView {
+    fn from(error: InvalidTxError) -> Self {
+        ExecutionError::InvalidTx(error).into()
     }
 }
 

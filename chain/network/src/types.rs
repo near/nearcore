@@ -19,11 +19,12 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
+use near_primitives::errors::InvalidTxError;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -320,7 +321,7 @@ pub enum HandshakeFailureReason {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, BlsSignature),
     ForwardTx(SignedTransaction),
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
@@ -422,7 +423,7 @@ pub enum PeerMessage {
 
     Transaction(SignedTransaction),
 
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
     Routed(RoutedMessage),
@@ -446,13 +447,13 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
+            PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
-                RoutedMessageBody::StateRequest(_, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
@@ -647,7 +648,13 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
-    StateRequest { shard_id: ShardId, hash: CryptoHash, account_id: AccountId },
+    StateRequest {
+        shard_id: ShardId,
+        hash: CryptoHash,
+        need_header: bool,
+        parts_ranges: Vec<Range>,
+        account_id: AccountId,
+    },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -734,7 +741,7 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcement that needs to be validated before being processed
@@ -759,7 +766,7 @@ pub enum NetworkClientResponses {
     /// Valid transaction inserted into mempool as response to Transaction.
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
-    InvalidTx(String),
+    InvalidTx(InvalidTxError),
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.
