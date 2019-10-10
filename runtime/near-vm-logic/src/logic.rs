@@ -294,13 +294,13 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                if i == max_len {
-                    return Err(HostError::BadUTF8.into());
-                }
                 Self::try_fit_mem(self.memory, ptr + i, 1)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
+                }
+                if i == max_len {
+                    return Err(HostError::BadUTF8.into());
                 }
                 buf.push(el);
             }
@@ -325,11 +325,9 @@ impl<'a> VMLogic<'a> {
                 u16_buffer.push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
             }
         } else {
+            let limit = max_len / size_of::<u16>() as u64;
             // Takes 2 bytes each iter
-            for i in 0..=(max_len / size_of::<u16>() as u64) {
-                if i * size_of::<u16>() as u64 == max_len {
-                    return Err(HostError::BadUTF16.into());
-                }
+            for i in 0..=limit {
                 // Self::try_fit_mem will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
                 Self::try_fit_mem(self.memory, start, size_of::<u16>() as u64)?;
@@ -337,6 +335,9 @@ impl<'a> VMLogic<'a> {
                 let hi = self.memory.read_memory_u8(start + 1);
                 if (lo, hi) == (0, 0) {
                     break;
+                }
+                if i == limit {
+                    return Err(HostError::BadUTF16.into());
                 }
                 u16_buffer.push(u16::from_le_bytes([lo, hi]));
             }
@@ -1402,6 +1403,7 @@ impl<'a> VMLogic<'a> {
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
+        dbg!(message.clone());
         self.logs.push(message);
         Ok(())
     }
