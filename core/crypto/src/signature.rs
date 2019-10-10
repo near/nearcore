@@ -123,13 +123,13 @@ impl PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", String::from(self))
     }
 }
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", String::from(self))
     }
 }
 
