@@ -1,20 +1,21 @@
 use std::cmp;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
+use near_chain::types::ShardStateSyncResponseHeader;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_chunks::NetworkAdapter;
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, Range, ShardId};
 use near_primitives::unwrap_or_return;
 
-use crate::types::{ShardSyncStatus, SyncStatus};
+use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -401,11 +402,63 @@ pub enum StateSyncResult {
     Completed,
 }
 
+pub struct StateSyncStrategy {}
+
+impl StateSyncStrategy {
+    pub fn download_all_from_one(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
+        let mut strategy = vec![];
+        let mut len = 1;
+        let downloads: Vec<DownloadStatus> =
+            downloads.iter().filter(|d| d.run_me).cloned().collect();
+        for i in 1..downloads.len() {
+            if downloads[i].part_id != downloads[i - len].part_id + len as u64 {
+                strategy.push(Range(downloads[i - len].part_id, downloads[i - 1].part_id + 1));
+                len = 1;
+            } else {
+                len += 1;
+            }
+        }
+        strategy.push(Range(
+            downloads[downloads.len() - len].part_id,
+            downloads[downloads.len() - 1].part_id + 1,
+        ));
+        vec![strategy]
+    }
+
+    pub fn download_one_from_all(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
+        let mut strategy = vec![];
+        for download in downloads {
+            if download.run_me {
+                strategy.push(vec![Range(download.part_id, download.part_id + 1)]);
+            }
+        }
+        strategy
+    }
+
+    pub fn download_mixed(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
+        let len = downloads.len();
+        let mut strategy =
+            StateSyncStrategy::download_one_from_all(&downloads[0..(len / 4)].to_vec());
+        strategy.extend(StateSyncStrategy::download_all_from_one(
+            &downloads[(len / 4)..(2 * len / 4)].to_vec(),
+        ));
+        strategy.extend(StateSyncStrategy::download_one_from_all(
+            &downloads[(2 * len / 4)..(3 * len / 4)].to_vec(),
+        ));
+        strategy.extend(StateSyncStrategy::download_all_from_one(
+            &downloads[(3 * len / 4)..len].to_vec(),
+        ));
+        // TODO MOO
+        //println!("??? {:?}", strategy);
+        strategy
+    }
+}
+
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn NetworkAdapter>,
 
-    prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
+    state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 }
 
@@ -413,39 +466,252 @@ impl StateSync {
     pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
         StateSync {
             network_adapter,
-            prev_state_sync: Default::default(),
+            state_sync_time: Default::default(),
             last_time_block_requested: None,
         }
     }
 
-    pub fn run(
+    pub fn sync_block_status(
         &mut self,
         sync_hash: CryptoHash,
-        new_shard_sync: &mut HashMap<u64, ShardSyncStatus>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        tracking_shards: Vec<ShardId>,
-    ) -> Result<StateSyncResult, near_chain::Error> {
-        let mut sync_need_restart = HashSet::new();
-
+        now: DateTime<Utc>,
+    ) -> Result<(bool, bool), near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash.clone();
-
-        let now = Utc::now();
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
-                    error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, STATE_SYNC_TIMEOUT);
-                    (now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT), false)
+                    if now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT) {
+                        error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, STATE_SYNC_TIMEOUT);
+                        (true, false)
+                    } else {
+                        (false, false)
+                    }
                 }
             }
         } else {
             (false, true)
         };
-
         if request_block {
             self.last_time_block_requested = Some(now);
+        };
+        Ok((request_block, have_block))
+    }
+
+    pub fn sync_shards_status(
+        &mut self,
+        sync_hash: CryptoHash,
+        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        chain: &mut Chain,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        tracking_shards: Vec<ShardId>,
+        now: DateTime<Utc>,
+    ) -> Result<(bool, bool), near_chain::Error> {
+        let mut all_done = false;
+        let mut update_sync_status = false;
+
+        for shard_id in tracking_shards {
+            let mut download_timeout = false;
+            let mut need_shard = false;
+            let mut shard_sync_download = &ShardSyncDownload {
+                downloads: vec![
+                    DownloadStatus {
+                        part_id: 0,
+                        start_time: now,
+                        prev_update_time: now,
+                        run_me: true,
+                        error: false,
+                        done: false,
+                    };
+                    1
+                ],
+                status: ShardSyncStatus::StateDownloadHeader,
+            };
+            if new_shard_sync.contains_key(&shard_id) {
+                shard_sync_download = &new_shard_sync[&shard_id];
+            } else {
+                need_shard = true;
+            };
+            let mut new_sync_download = shard_sync_download.clone();
+            match shard_sync_download.status {
+                ShardSyncStatus::StateDownloadHeader => {
+                    if shard_sync_download.downloads[0].done {
+                        let shard_state_header =
+                            chain.get_received_state_header(shard_id, sync_hash)?;
+                        let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
+                        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+                        new_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateDownloadParts,
+                        };
+                        for i in 0..state_num_parts {
+                            new_sync_download.downloads.push(DownloadStatus {
+                                part_id: i,
+                                start_time: now,
+                                prev_update_time: now,
+                                run_me: true,
+                                error: false,
+                                done: false,
+                            })
+                        }
+                        update_sync_status = true;
+                        need_shard = true;
+                    } else {
+                        let prev = shard_sync_download.downloads[0].prev_update_time;
+                        let error = shard_sync_download.downloads[0].error;
+                        if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
+                            download_timeout = true;
+                            new_sync_download.downloads[0].run_me = true;
+                            new_sync_download.downloads[0].error = false;
+                            new_sync_download.downloads[0].prev_update_time = now;
+                            update_sync_status = true;
+                            need_shard = true;
+                        }
+                    }
+                }
+                ShardSyncStatus::StateDownloadParts => {
+                    let mut parts_done = true;
+                    for (i, part_download) in shard_sync_download.downloads.iter().enumerate() {
+                        if !part_download.done {
+                            parts_done = false;
+                            let prev = shard_sync_download.downloads[i].prev_update_time;
+                            let error = shard_sync_download.downloads[i].error;
+                            if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
+                                download_timeout = true;
+                                new_sync_download.downloads[i].run_me = true;
+                                new_sync_download.downloads[i].error = false;
+                                new_sync_download.downloads[i].prev_update_time = now;
+                                update_sync_status = true;
+                                need_shard = true;
+                            }
+                        }
+                    }
+                    if parts_done {
+                        update_sync_status = true;
+                        new_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateDownloadFinalize,
+                        };
+                    }
+                }
+                ShardSyncStatus::StateDownloadFinalize => {
+                    chain.set_state_finalize(shard_id, sync_hash)?;
+                    update_sync_status = true;
+                    new_sync_download = ShardSyncDownload {
+                        downloads: vec![],
+                        status: ShardSyncStatus::StateDownloadComplete,
+                    };
+                }
+                ShardSyncStatus::StateDownloadComplete => {
+                    all_done = true;
+                }
+            }
+            // Execute syncing for shard `shard_id`
+            if need_shard {
+                new_sync_download = self.request_shard(
+                    shard_id,
+                    chain,
+                    runtime_adapter,
+                    sync_hash,
+                    new_sync_download,
+                )?;
+            }
+
+            new_shard_sync.insert(shard_id, new_sync_download);
+
+            if download_timeout {
+                error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
+            }
         }
+
+        Ok((update_sync_status, all_done))
+    }
+
+    /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
+    pub fn request_shard(
+        &mut self,
+        shard_id: ShardId,
+        chain: &mut Chain,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        hash: CryptoHash,
+        shard_sync_download: ShardSyncDownload,
+    ) -> Result<ShardSyncDownload, near_chain::Error> {
+        let prev_block_hash =
+            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
+                .inner
+                .prev_hash;
+        let epoch_hash = unwrap_or_return!(
+            runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
+            Ok(shard_sync_download)
+        );
+        let shard_bps = unwrap_or_return!(
+            runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash),
+            Ok(shard_sync_download)
+        )
+        .iter()
+        .filter_map(|(account_id, _slashed)| {
+            if runtime_adapter.cares_about_shard(
+                Some(account_id),
+                &prev_block_hash,
+                shard_id,
+                false,
+            ) {
+                Some(account_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+        if shard_bps.len() == 0 {
+            return Ok(shard_sync_download);
+        }
+
+        // Downloading strategy starts here
+        let mut new_shard_sync_download = shard_sync_download.clone();
+        match shard_sync_download.status {
+            ShardSyncStatus::StateDownloadHeader => {
+                //println!("REQUEST HEADER {:?}", shard_id); /* TODO MOO */
+                self.network_adapter.send(NetworkRequests::StateRequest {
+                    shard_id,
+                    hash,
+                    need_header: true,
+                    parts_ranges: vec![],
+                    account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+                });
+                assert!(new_shard_sync_download.downloads[0].run_me);
+                new_shard_sync_download.downloads[0].run_me = false;
+            }
+            ShardSyncStatus::StateDownloadParts => {
+                //println!("REQUEST PARTS {:?}", shard_id);  /* TODO MOO */
+                let download_strategy =
+                    StateSyncStrategy::download_one_from_all(&shard_sync_download.downloads);
+                self.apply_download_strategy(
+                    shard_id,
+                    hash,
+                    &shard_bps,
+                    download_strategy,
+                    &shard_sync_download,
+                    &mut new_shard_sync_download,
+                )?;
+            }
+            _ => {
+                //println!("NO REQUEST {:?}", shard_id);  /* TODO MOO */
+            }
+        }
+        Ok(new_shard_sync_download)
+    }
+
+    pub fn run(
+        &mut self,
+        sync_hash: CryptoHash,
+        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        chain: &mut Chain,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        tracking_shards: Vec<ShardId>,
+    ) -> Result<StateSyncResult, near_chain::Error> {
+        let now = Utc::now();
+        let (request_block, have_block) = self.sync_block_status(sync_hash, chain, now)?;
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
@@ -458,81 +724,20 @@ impl StateSync {
             };
         }
 
-        // Check for errors
-        let mut all_done = false;
-        if !new_shard_sync.is_empty() {
-            all_done = true;
-            for (shard_id, shard_status) in new_shard_sync.iter() {
-                all_done = all_done && ShardSyncStatus::StateDone == *shard_status;
-                if let ShardSyncStatus::Error(error) = shard_status {
-                    error!(target: "sync", "State sync: shard {} sync failed: {}", shard_id, error);
-                    sync_need_restart.insert(*shard_id);
-                }
-            }
-        }
+        let (update_sync_status, all_done) = self.sync_shards_status(
+            sync_hash,
+            new_shard_sync,
+            chain,
+            runtime_adapter,
+            tracking_shards,
+            now,
+        )?;
 
-        if !have_block {
-            all_done = false
-        };
-
-        if all_done {
-            self.prev_state_sync.clear();
+        if have_block && all_done {
+            self.state_sync_time.clear();
             return Ok(StateSyncResult::Completed);
         }
 
-        let mut update_sync_status = false;
-        for shard_id in tracking_shards {
-            let (go, download_timeout) = match self.prev_state_sync.get(&shard_id) {
-                None => {
-                    self.prev_state_sync.insert(shard_id, now);
-                    (true, false)
-                }
-                Some(prev) => {
-                    if new_shard_sync.contains_key(&shard_id)
-                        && new_shard_sync[&shard_id] != ShardSyncStatus::StateDone
-                    {
-                        (
-                            sync_need_restart.contains(&shard_id),
-                            now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT),
-                        ) // This needs to be in config, and properly configured for the production (i.e. not 10 minutes). #1237 tracks it
-                    } else {
-                        (false, false)
-                    }
-                }
-            };
-
-            if download_timeout {
-                error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
-            }
-
-            if go || download_timeout {
-                match self.request_state(shard_id, chain, runtime_adapter, sync_hash) {
-                    Some(_) => {
-                        self.prev_state_sync.insert(shard_id, now);
-                        new_shard_sync.insert(
-                            shard_id,
-                            ShardSyncStatus::StateDownload {
-                                start_time: now,
-                                prev_update_time: now,
-                                prev_downloaded_size: 0,
-                                downloaded_size: 0,
-                                total_size: 0,
-                            },
-                        );
-                    }
-                    None => {
-                        new_shard_sync.insert(
-                            shard_id,
-                            ShardSyncStatus::Error(format!(
-                                "Failed to find peer with state for shard {}",
-                                shard_id
-                            )),
-                        );
-                    }
-                }
-                update_sync_status = true;
-            }
-        }
         Ok(if update_sync_status || request_block {
             StateSyncResult::Changed(request_block)
         } else {
@@ -540,42 +745,33 @@ impl StateSync {
         })
     }
 
-    fn request_state(
+    pub fn apply_download_strategy(
         &mut self,
         shard_id: ShardId,
-        chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
         hash: CryptoHash,
-    ) -> Option<()> {
-        let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&hash), None).inner.prev_hash;
-        let epoch_hash =
-            unwrap_or_return!(runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash), None);
-        let shard_bps =
-            unwrap_or_return!(runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash), None)
-                .iter()
-                .filter_map(|(account_id, _slashed)| {
-                    if runtime_adapter.cares_about_shard(
-                        Some(account_id),
-                        &prev_block_hash,
-                        shard_id,
-                        false,
-                    ) {
-                        Some(account_id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-        if shard_bps.len() == 0 {
-            return None;
+        shard_bps: &Vec<AccountId>,
+        download_strategy: Vec<Vec<Range>>,
+        shard_sync_download: &ShardSyncDownload,
+        new_shard_sync_download: &mut ShardSyncDownload,
+    ) -> Result<(), near_chain::Error> {
+        let state_num_parts = shard_sync_download.downloads.len();
+        assert_eq!(state_num_parts, new_shard_sync_download.downloads.len());
+        for parts_ranges in download_strategy {
+            for Range(from, to) in parts_ranges.iter() {
+                for i in *from as usize..*to as usize {
+                    assert!(new_shard_sync_download.downloads[i].run_me);
+                    new_shard_sync_download.downloads[i].run_me = false;
+                }
+            }
+            self.network_adapter.send(NetworkRequests::StateRequest {
+                shard_id,
+                hash,
+                need_header: false,
+                parts_ranges,
+                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+            });
         }
-        self.network_adapter.send(NetworkRequests::StateRequest {
-            shard_id,
-            hash,
-            account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
-        });
-        Some(())
+        Ok(())
     }
 }
 

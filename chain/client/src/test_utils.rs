@@ -368,6 +368,8 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateRequest {
                             shard_id,
                             hash,
+                            need_header,
+                            parts_ranges,
                             account_id: target_account_id,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
@@ -377,7 +379,10 @@ pub fn setup_mock_all_validators(
                                         connectors1.write().unwrap()[i]
                                             .0
                                             .send(NetworkClientMessages::StateRequest(
-                                                *shard_id, *hash,
+                                                *shard_id,
+                                                *hash,
+                                                *need_header,
+                                                parts_ranges.to_vec(),
                                             ))
                                             .then(move |response| {
                                                 let response = response.unwrap();

@@ -18,13 +18,12 @@ use message::{Request, RpcError};
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor, GetNetworkInfo};
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::message as message;
+use near_jsonrpc_client::{message as message, BlockId};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockIndex;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, ExecutionErrorView};
 
 pub mod test_utils;
 
@@ -179,10 +178,13 @@ impl JsonRpcHandler {
                     }
                 })
                     .await
-                    .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
+                    .map_err(|_| RpcError::server_error(Some(ExecutionErrorView{
+                        error_message: "send_tx_commit has timed out".to_string(),
+                        error_type: "TimeoutError".to_string(),
+                    })))?
             },
             NetworkClientResponses::InvalidTx(err) => {
-                Err(RpcError::server_error(Some(err)))
+                Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
             _ => unreachable!(),
         }
@@ -213,8 +215,11 @@ impl JsonRpcHandler {
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (height,) = parse_params::<(BlockIndex,)>(params)?;
-        jsonify(self.view_client_addr.send(GetBlock::Height(height)).compat().await)
+        let (block_id,) = parse_params::<(BlockId,)>(params)?;
+        jsonify(self.view_client_addr.send(match block_id {
+            BlockId::Height(height) => GetBlock::Height(height),
+            BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
+        }).compat().await)
     }
 
     async fn network_info(&self) -> Result<Value, RpcError> {

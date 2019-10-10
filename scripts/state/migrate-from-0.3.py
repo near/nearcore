@@ -18,7 +18,6 @@ for value in q['records']:
     if 'Account' in value:
         staked = value['Account']['account'].pop('staked')
         value['Account']['account']['locked'] = staked
-        value['Account']['account']['desired_stake'] = staked
     new_records.append(value)
 
 q['records'] = new_records

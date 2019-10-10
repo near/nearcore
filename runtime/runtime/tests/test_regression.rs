@@ -98,7 +98,6 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             let account = AccountView {
                 amount: TESTING_INIT_BALANCE,
                 locked: TESTING_INIT_STAKE,
-                desired_stake: TESTING_INIT_STAKE,
                 code_hash: code_hash.clone().into(),
                 storage_usage: 0,
                 storage_paid_at: 0,
