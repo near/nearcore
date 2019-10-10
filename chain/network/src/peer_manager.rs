@@ -148,10 +148,7 @@ impl PeerManagerActor {
             },
         );
 
-        println!("\nASD NEW DIRECT CONNECTION: {:?} {:?}\n", self.peer_id, new_edge);
-        self.routing_table.process_edge(new_edge.clone());
-
-        self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
+        assert!(self.routing_table.process_edge(new_edge.clone()));
 
         // TODO(MarX, #1363): Implement sync service. Right now all edges are sent during handshake.
         // Start syncing network point of view. Wait until both parties are connected before start
@@ -159,8 +156,11 @@ impl PeerManagerActor {
         let known_edges = self.routing_table.get_edges();
         let wait_for_sync = 1;
 
-        ctx.run_later(Duration::from_secs(wait_for_sync), move |_act, _ctx| {
+        ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
             let _ = addr.do_send(SendMessage { message: PeerMessage::Edges(known_edges) });
+
+            // Wait a time out before broadcasting this new edge to let the other party finish handshake.
+            act.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
         });
     }
 
@@ -630,6 +630,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::Edges(edges) => {
                 // If this is a new edge broadcast it.
                 // TODO(MarX): Don't add edges if it is between us and another peer
+                //  Send evidence that we are not already connected to that peer
+                //  Handle this case properly (maybe we are on the middle of a handshake, so wait
+                //  before saying we are not connected).
                 let edges: Vec<_> = edges
                     .into_iter()
                     .filter(|edge| self.routing_table.process_edge(edge.clone()))
@@ -703,6 +706,7 @@ impl Handler<Consolidate> for PeerManagerActor {
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
+            debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
             return ConsolidateResponse(false, None);
         }
         // This is incoming connection but we have this peer already in outgoing.
@@ -710,14 +714,18 @@ impl Handler<Consolidate> for PeerManagerActor {
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
             // We pick connection that has lower id.
             if msg.peer_info.id > self.peer_id {
+                debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse(false, None);
             }
         }
 
+        let current_nonce = self
+            .routing_table
+            .find_nonce(&Edge::key(self.peer_id.clone(), msg.peer_info.id.clone()));
+
         // Check that the received nonce is greater than the current nonce of this connection.
-        if self.routing_table.find_nonce(&Edge::key(self.peer_id.clone(), msg.peer_info.id.clone()))
-            >= msg.other_edge_info.nonce
-        {
+        if current_nonce >= msg.other_edge_info.nonce {
+            debug!(target: "network", "Dropping handshake (Invalid nonce). {:?} {:?}", self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
             return ConsolidateResponse(false, None);
         }

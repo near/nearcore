@@ -193,8 +193,6 @@ impl Peer {
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
-        println!("SENDING HANDSHAKE: {:?} {:?}", self.node_info.id, self.edge_info);
-
         self.client_addr
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
@@ -432,6 +430,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
                         ),
                     });
+                    return;
+                    // Connection will be closed by a handshake timeout
                 }
 
                 if handshake.peer_id == self.node_info.id {
