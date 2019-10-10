@@ -715,6 +715,7 @@ impl ShardsManager {
         &mut self,
         prev_block_hash: CryptoHash,
         prev_state_root: CryptoHash,
+        prev_state_num_parts: u64,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -732,6 +733,7 @@ impl ShardsManager {
         let (new_chunk, merkle_paths) = EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
+            prev_state_num_parts,
             height,
             shard_id,
             total_parts,

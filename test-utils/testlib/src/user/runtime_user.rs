@@ -27,6 +27,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
+    pub state_num_parts: u64,
     pub epoch_length: BlockIndex,
 }
 

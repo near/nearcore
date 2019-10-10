@@ -78,6 +78,7 @@ fn create_block_with_invalid_chunk(
     let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
         prev_block_header.hash,
         CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+        9, /* TODO MOO */
         1,
         0,
         20,

@@ -3645,6 +3645,7 @@ dependencies = [
  "near-client 0.1.0",
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
+ "near-jsonrpc-client 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
  "near-runtime-fees 0.3.0",
