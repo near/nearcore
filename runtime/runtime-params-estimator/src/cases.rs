@@ -313,7 +313,7 @@ fn measure_function(
     nonces: &mut HashMap<usize, u64>,
     config: &Config,
 ) -> RuntimeTestbed {
-    for blob_size in &[10000] {
+    for blob_size in &[10, 10000] {
         testbed = measure_function_with_blob_size(
             method_name,
             n,
