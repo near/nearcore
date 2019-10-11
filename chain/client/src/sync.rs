@@ -35,7 +35,7 @@ const BLOCK_REQUEST_TIMEOUT: i64 = 6;
 const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 1;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 
-/// Sync state download timeout in minutes.
+/// Sync state download timeout in seconds.
 const STATE_SYNC_TIMEOUT: i64 = 10;
 
 /// Get random peer from the most weighted peers.
@@ -86,9 +86,10 @@ impl HeaderSync {
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
-                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
+                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}. Current status: {:?}",
                     sync_head.last_block_hash, sync_head.height,
                     header_head.last_block_hash, header_head.height,
+                    sync_status,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
