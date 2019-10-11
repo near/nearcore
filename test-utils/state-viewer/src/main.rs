@@ -15,7 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockIndex, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, DBValue, Store, TrieIterator};
@@ -128,7 +128,7 @@ fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<CryptoHash>, BlockIndex) {
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockIndex) {
     let mut chain_store = ChainStore::new(store.clone());
 
     let runtime = NightshadeRuntime::new(
@@ -142,7 +142,7 @@ fn load_trie(
     let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
     let mut state_roots = vec![];
     for chunk in last_block.chunks.iter() {
-        state_roots.push(chunk.inner.prev_state_root);
+        state_roots.push(chunk.inner.prev_state_root.clone());
     }
     (runtime, state_roots, last_block.header.inner.height)
 }
@@ -327,7 +327,7 @@ fn main() {
             let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, height);
             for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     print_state_entry(key, value);
@@ -345,7 +345,7 @@ fn main() {
             );
             near_config.genesis_config.records = vec![];
             for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(sr) = kv_to_state_record(key, value) {

@@ -148,7 +148,7 @@ wrapped_imports! {
     // #######################
     promise_results_count<[] -> [u64]>,
     promise_result<[result_idx: u64, register_id: u64] -> [u64]>,
-    promise_return<[promise_id: u64] -> []>,
+    promise_return<[promise_idx: u64] -> []>,
     // ###############
     // # Storage API #
     // ###############

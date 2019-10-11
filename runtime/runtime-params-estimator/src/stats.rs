@@ -3,100 +3,99 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+/// A single measurement data point -- we ran a block that performed a certain operation multiple
+/// times by processing multiple transactions, also a single transaction might have performed the
+/// same operation multiple times.
+pub struct DataPoint {
+    /// The name of the metric that we are measuring.
+    metric_name: &'static str,
+    /// What is the block size in terms of number of transactions per block (excluding receipts from
+    /// the previous blocks).
+    block_size: usize,
+    /// How much time did it take to process this block.
+    block_duration: Duration,
+    /// How many times this operation was repeated within a single transaction.
+    operation_repetitions: usize,
+    /// If operation is parametrized how much did we try to load this operation in bytes?
+    operation_load: Option<usize>,
+}
+
 /// Stores measurements per block.
 #[derive(Default)]
 pub struct Measurements {
-    data: BTreeMap<usize, Vec<Duration>>,
-    title: &'static str,
+    data: Vec<DataPoint>,
 }
 
 impl Measurements {
-    pub fn new(title: &'static str) -> Self {
-        Self { title, data: Default::default() }
-    }
-    /// Record measurement.
-    pub fn record_measurement(&mut self, block_size: usize, value: Duration) {
-        self.data.entry(block_size).or_insert_with(Vec::new).push(value)
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Flatten all measurements into nanosec per operation.
-    fn flat_nanosec(&self) -> Vec<u128> {
-        self.data
-            .iter()
-            .map(|(block_size, times)| {
-                let block_size = *block_size;
-                times.iter().map(move |t| t.as_nanos() / (block_size as u128))
+    pub fn record_measurement(
+        &mut self,
+        metric_name: &'static str,
+        block_size: usize,
+        block_duration: Duration,
+        operation_repetitions: usize,
+        operation_load: Option<usize>,
+    ) {
+        self.data.push(DataPoint {
+            metric_name,
+            block_size,
+            block_duration,
+            operation_repetitions,
+            operation_load,
+        });
+    }
+
+    /// Groups measurements into stats by:
+    /// `metric_name`, `operation_repetitions`, `operation_load`.
+    pub fn group(&self) -> Vec<(&'static str, usize, Option<usize>, DataStats)> {
+        let mut grouped: BTreeMap<(&'static str, usize, Option<usize>), Vec<u128>> =
+            Default::default();
+        for point in &self.data {
+            grouped
+                .entry((point.metric_name, point.operation_repetitions, point.operation_load))
+                .or_insert_with(Vec::new)
+                .push(point.block_duration.as_nanos() / point.block_size as u128);
+        }
+        grouped
+            .into_iter()
+            .map(|((metric_name, operation_repetitions, operation_load), v)| {
+                (metric_name, operation_repetitions, operation_load, DataStats::from_nanos(v))
             })
-            .flatten()
             .collect()
     }
 
-    pub fn stats(&self) -> DataStats {
-        DataStats::from_nanos(self.flat_nanosec())
-    }
-
-    pub fn plot(measurements: &[Self]) {
-        const COLORS: &[&str] = &["red", "orange", "cyan", "blue", "violet"];
-        const POINTS: &[char] = &['o', 'x', '*', 's', 't', 'd', 'r'];
-        if measurements.len() > COLORS.len() {
-            println!("Not enough hardcoded colors.");
-        }
-
-        let mut fg = Figure::new();
-        let axes = fg
-            .axes2d()
-            .set_title("A plot", &[])
-            .set_legend(Graph(0.5), Graph(0.9), &[], &[])
-            .set_x_label("Block size", &[])
-            .set_y_label("Duration micros", &[])
-            .set_grid_options(true, &[LineStyle(DotDotDash), Color("black")])
-            .set_x_log(Some(2.0))
-            .set_x_grid(true)
-            .set_y_log(Some(2.0))
-            .set_y_grid(true);
-
-        for (i, measurement) in measurements.iter().enumerate() {
-            let mut xs = vec![];
-            let mut ys = vec![];
-            let mut mean_xs = vec![];
-            let mut mean_ys = vec![];
-            for (block_size, durations) in &measurement.data {
-                for duration in durations {
-                    xs.push(*block_size as u64);
-                    ys.push(duration.as_micros() as u64 / *block_size as u64);
-                }
-                mean_xs.push(*block_size as u64);
-                mean_ys.push(
-                    durations.iter().map(|d| d.as_micros() as u64).sum::<u64>()
-                        / durations.len() as u64
-                        / *block_size as u64,
-                );
-            }
-            axes.points(
-                xs.as_slice(),
-                ys.as_slice(),
-                &[
-                    Color(COLORS[i % COLORS.len()]),
-                    PointSymbol(POINTS[i % POINTS.len()]),
-                    Caption(measurement.title),
-                ],
-            )
-            .lines_points(
-                mean_xs.as_slice(),
-                mean_ys.as_slice(),
-                &[Color(COLORS[i % COLORS.len()]), PointSymbol('.')],
+    pub fn print(&self) {
+        println!("metrics_name\t\toperation_repetitions\t\toperation_load\t\tstats");
+        for (metric_name, operation_repetitions, operation_load, stats) in self.group() {
+            println!(
+                "{}\t\t{}\t\t{:?}\t\t{}",
+                metric_name, operation_repetitions, operation_load, stats
             );
         }
-        fg.show().unwrap();
     }
 
-    pub fn save_to_csv(measurements: &[Self], path: &Path) {
+    pub fn save_to_csv(&self, path: &Path) {
         let mut writer = csv::Writer::from_path(path).unwrap();
-        writer.write_record(&["measurement", "mean", "stddev", "5-ile", "95-ile"]).unwrap();
-        for measurement in measurements {
-            let stats = measurement.stats();
+        writer
+            .write_record(&[
+                "metric_name",
+                "operation_repetitions",
+                "operation_load",
+                "mean_micros",
+                "stddev_micros",
+                "5ile_micros",
+                "95ile_micros",
+            ])
+            .unwrap();
+        for (metric_name, operation_repetitions, operation_load, stats) in self.group() {
             writer
                 .write_record(&[
+                    format!("{}", metric_name),
+                    format!("{}", operation_repetitions),
+                    format!("{:?}", operation_load),
                     format!("{}", stats.mean.as_micros()),
                     format!("{}", stats.stddev.as_micros()),
                     format!("{}", stats.ile5.as_micros()),
@@ -105,6 +104,88 @@ impl Measurements {
                 .unwrap();
         }
         writer.flush().unwrap();
+    }
+
+    pub fn plot(&self, path: &Path) {
+        // metric_name -> (operation_repetitions, operation_size -> [block_size -> Vec<block duration>])
+        let mut grouped_by_metric: BTreeMap<
+            &'static str,
+            BTreeMap<(usize, Option<usize>), BTreeMap<usize, Vec<Duration>>>,
+        > = Default::default();
+
+        for point in &self.data {
+            grouped_by_metric
+                .entry(point.metric_name)
+                .or_insert_with(Default::default)
+                .entry((point.operation_repetitions, point.operation_load))
+                .or_insert_with(Default::default)
+                .entry(point.block_size)
+                .or_insert_with(Default::default)
+                .push(point.block_duration);
+        }
+
+        // Different metrics are displayed with different graph windows.
+
+        for (metric_name, data) in grouped_by_metric {
+            const COLORS: &[&str] = &["red", "orange", "green", "blue", "violet"];
+            const POINTS: &[char] = &['o', 'x', '*', 's', 't', 'd', 'r'];
+
+            let mut fg = Figure::new();
+            let axes = fg
+                .axes2d()
+                .set_title(metric_name, &[])
+                .set_legend(Graph(0.5), Graph(0.9), &[], &[])
+                .set_x_label("Block size", &[])
+                .set_y_label("Duration micros", &[])
+                .set_grid_options(true, &[LineStyle(DotDotDash), Color("black")])
+                .set_x_log(Some(2.0))
+                .set_x_grid(true)
+                .set_y_log(Some(2.0))
+                .set_y_grid(true);
+
+            for (i, ((operation_repetitions, operation_load), points)) in
+                data.into_iter().enumerate()
+            {
+                let line_caption = if let Some(operation_load) = operation_load {
+                    format!("{}b x {}", operation_load, operation_repetitions)
+                } else {
+                    format!("x {}", operation_repetitions)
+                };
+                let mut xs = vec![];
+                let mut ys = vec![];
+                let mut mean_xs = vec![];
+                let mut mean_ys = vec![];
+                for (block_size, durations) in points {
+                    for duration in &durations {
+                        xs.push(block_size as u64);
+                        ys.push(duration.as_micros() as u64 / block_size as u64);
+                    }
+                    mean_xs.push(block_size as u64);
+                    mean_ys.push(
+                        durations.iter().map(|d| d.as_micros() as u64).sum::<u64>()
+                            / durations.len() as u64
+                            / block_size as u64,
+                    );
+                }
+                axes.points(
+                    xs.as_slice(),
+                    ys.as_slice(),
+                    &[Color(COLORS[i % COLORS.len()]), PointSymbol(POINTS[i % POINTS.len()])],
+                )
+                .lines_points(
+                    mean_xs.as_slice(),
+                    mean_ys.as_slice(),
+                    &[
+                        Color(COLORS[i % COLORS.len()]),
+                        PointSymbol('.'),
+                        Caption(line_caption.as_str()),
+                    ],
+                );
+            }
+            let mut buf = path.to_path_buf();
+            buf.push(format!("{}.svg", metric_name));
+            fg.save_to_svg(buf.to_str().unwrap(), 800, 800).unwrap();
+        }
     }
 }
 

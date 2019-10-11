@@ -25,6 +25,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_network::routing::EdgeInfo;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -220,6 +221,7 @@ pub fn setup_mock_all_validators(
                                         height: last_height_weight1[i].0,
                                         total_weight: last_height_weight1[i].1,
                                     },
+                                    edge_info: EdgeInfo::default(),
                                 })
                                 .collect();
                             let peers2 = peers.clone();
@@ -420,6 +422,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::Edges(_edges) => {}
+                        NetworkRequests::FetchRoutingTable => {}
                         NetworkRequests::BanPeer { .. } => {}
                         NetworkRequests::BlockHeaderAnnounce { .. } => {}
                     };

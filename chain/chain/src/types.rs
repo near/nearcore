@@ -102,7 +102,6 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
-    pub new_num_parts: u64,
     pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
@@ -117,7 +116,7 @@ pub struct ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>, Vec<u64>);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -158,6 +157,16 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
+
+    /// Verify aggregated bls signature
+    fn verify_approval_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        approval_mask: &[bool],
+        approval_sig: &BlsSignature,
+        data: &[u8],
+    ) -> Result<bool, Error>;
 
     /// Epoch block producers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
@@ -302,7 +311,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -315,9 +324,8 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         part_id: u64,
-        state_root: StateRoot,
-        state_num_parts: u64,
-    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
+        state_root: &StateRoot,
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>>;
 
     /// Set state part that expected to be given state root with provided data.
     /// Returns error if:
@@ -326,14 +334,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// 3. The resulting part doesn't match the expected one.
     fn accept_state_part(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         part: &StatePart,
-        proof: &MerklePath,
+        proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Should be executed after accepting all the parts.
     /// Returns `true` if state is set successfully.
-    fn confirm_state(&self, state_root: StateRoot, num_parts: u64) -> Result<bool, Error>;
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
@@ -456,7 +464,7 @@ pub struct ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponsePart {
     pub state_part: StatePart,
-    pub proof: MerklePath,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -479,8 +487,7 @@ mod tests {
     fn test_block_produce() {
         let num_shards = 32;
         let genesis = Block::genesis(
-            vec![StateRoot::default()],
-            vec![9], /* TODO MOO */
+            vec![StateRoot { hash: CryptoHash::default(), num_parts: 9 /* TODO MOO */ }],
             Utc::now(),
             num_shards,
             1_000_000,

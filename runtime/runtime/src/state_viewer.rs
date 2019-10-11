@@ -226,8 +226,8 @@ mod tests {
 
     #[test]
     fn test_view_state() {
-        let (_, trie, root, _num_parts) = get_runtime_and_trie();
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let (_, trie, root) = get_runtime_and_trie();
+        let mut state_update = TrieUpdate::new(trie.clone(), root.hash);
         state_update.set(key_for_data(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
