@@ -15,7 +15,6 @@ use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
@@ -763,10 +762,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         part_id: u64,
         state_root: &StateRoot,
-    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
         if part_id > 0 {
             /* TODO MOO */
-            return Ok((StatePart { shard_id, part_id, data: vec![] }, MerklePath::new()));
+            return Ok((StatePart { shard_id, part_id, data: vec![] }, vec![]));
         }
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
@@ -782,14 +781,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
         debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root.hash, result.len());
         // TODO add proof in Nightshade Runtime
-        Ok((StatePart { shard_id, part_id, data: result }, MerklePath::new()))
+        Ok((StatePart { shard_id, part_id, data: result }, vec![]))
     }
 
     fn accept_state_part(
         &self,
         state_root: &StateRoot,
         part: &StatePart,
-        _proof: &MerklePath,
+        _proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if part.part_id > 0 {
             /* TODO MOO */

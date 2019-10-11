@@ -695,7 +695,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         part_id: u64,
         state_root: &StateRoot,
-    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
         if part_id >= state_root.num_parts {
             return Err("Invalid part_id in obtain_state_part".to_string().into());
         }
@@ -706,21 +706,22 @@ impl RuntimeAdapter for KeyValueRuntime {
         let part = self.state_parts.read().unwrap().get(&key).unwrap().clone();
         let proof = self.state_proofs.read().unwrap().get(&key).unwrap().clone();
         assert!(verify_path(state_root.hash, &proof, &part));
-        Ok((part, proof))
+        Ok((part, proof.try_to_vec()?))
     }
 
     fn accept_state_part(
         &self,
         state_root: &StateRoot,
         part: &StatePart,
-        proof: &MerklePath,
+        proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !verify_path(state_root.hash, proof, part) {
+        let merkle_proof = MerklePath::try_from_slice(&proof)?;
+        if !verify_path(state_root.hash, &merkle_proof, part) {
             return Err("set_shard_state failed: invalid StatePart".into());
         }
         let key = hash(&StatePartKey(part.part_id, state_root.clone()).try_to_vec().unwrap());
         self.state_parts.write().unwrap().insert(key, part.clone());
-        self.state_proofs.write().unwrap().insert(key, proof.to_vec());
+        self.state_proofs.write().unwrap().insert(key, merkle_proof);
         Ok(())
     }
 

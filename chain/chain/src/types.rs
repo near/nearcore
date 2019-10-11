@@ -325,7 +325,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         part_id: u64,
         state_root: &StateRoot,
-    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>>;
 
     /// Set state part that expected to be given state root with provided data.
     /// Returns error if:
@@ -336,7 +336,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: &StateRoot,
         part: &StatePart,
-        proof: &MerklePath,
+        proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Should be executed after accepting all the parts.
@@ -464,7 +464,7 @@ pub struct ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponsePart {
     pub state_part: StatePart,
-    pub proof: MerklePath,
+    pub proof: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
