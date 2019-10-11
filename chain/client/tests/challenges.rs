@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{MerkleHash, StateRoot};
 use near_store::test_utils::create_test_store;
 
 #[test]
@@ -77,8 +77,10 @@ fn create_block_with_invalid_chunk(
     let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
     let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
         prev_block_header.hash,
-        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
-        9, /* TODO MOO */
+        StateRoot {
+            hash: CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+            num_parts: 9, /* TODO MOO */
+        },
         1,
         0,
         20,

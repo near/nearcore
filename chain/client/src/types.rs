@@ -193,7 +193,6 @@ impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DownloadStatus {
-    pub part_id: u64,
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
     pub run_me: bool,

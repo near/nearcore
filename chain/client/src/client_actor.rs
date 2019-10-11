@@ -9,7 +9,6 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
-use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
@@ -22,14 +21,11 @@ use near_chain::{
 };
 use near_chunks::{NetworkAdapter, NetworkRecipient};
 use near_crypto::BlsSignature;
-use near_network::types::{
-    AccountOrPeerSignature, AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId,
-    ReasonForBan, StateResponseInfo,
-};
+use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, EpochId, Range};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -125,72 +121,25 @@ impl ClientActor {
             info_helper,
         })
     }
-
     fn check_signature_account_announce(
         &self,
         announce_account: &AnnounceAccount,
     ) -> AccountAnnounceVerificationResult {
-        // Check header is correct.
-        let header_hash = announce_account.header_hash();
-        let header = announce_account.header();
+        let announce_hash = announce_account.hash();
 
-        // hash must match announcement hash ...
-        if header_hash != header.hash {
-            return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidHash);
-        }
-
-        // ... and signature should be valid.
-        let signature = header.signature.account_signature();
-        if None == signature {
-            return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature);
-        }
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
             &announce_account.account_id,
-            header_hash.as_ref(),
-            signature.unwrap(),
+            announce_hash.as_ref(),
+            &announce_account.signature,
         ) {
-            ValidatorSignatureVerificationResult::Valid => {}
+            ValidatorSignatureVerificationResult::Valid => AccountAnnounceVerificationResult::Valid,
             ValidatorSignatureVerificationResult::Invalid => {
-                return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature);
+                AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature)
             }
             ValidatorSignatureVerificationResult::UnknownEpoch => {
-                return AccountAnnounceVerificationResult::UnknownEpoch;
+                AccountAnnounceVerificationResult::UnknownEpoch
             }
-        }
-
-        // Check intermediates hops are correct.
-        // Skip first element (header)
-        match announce_account.route.iter().skip(1).fold(Ok(header_hash), |previous_hash, hop| {
-            // Folding function will return None if at least one hop checking fail,
-            // otherwise it will return hash from last hop.
-            if let Ok(previous_hash) = previous_hash {
-                let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
-
-                let real_current_hash = &hash(
-                    [
-                        previous_hash.as_ref(),
-                        peer_id.try_to_vec().expect("Failed to serialize").as_ref(),
-                    ]
-                    .concat()
-                    .as_slice(),
-                );
-
-                if real_current_hash != current_hash {
-                    return Err(ReasonForBan::InvalidHash);
-                }
-
-                if signature.verify_peer(current_hash.as_ref(), &peer_id.public_key()) {
-                    Ok(current_hash.clone())
-                } else {
-                    return Err(ReasonForBan::InvalidSignature);
-                }
-            } else {
-                previous_hash
-            }
-        }) {
-            Ok(_) => AccountAnnounceVerificationResult::Valid,
-            Err(reason_for_ban) => AccountAnnounceVerificationResult::Invalid(reason_for_ban),
         }
     }
 }
@@ -515,7 +464,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<(CryptoHash, BlsSignature), ()> {
+    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<BlsSignature, ()> {
         if let Some(block_producer) = self.client.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
                 &block_producer.account_id,
@@ -523,7 +472,7 @@ impl ClientActor {
                 epoch_id,
             );
             let signature = block_producer.signer.sign(hash.as_ref());
-            Ok((hash, signature))
+            Ok(signature)
         } else {
             Err(())
         }
@@ -583,15 +532,14 @@ impl ClientActor {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
-                let (hash, signature) = self.sign_announce_account(&next_epoch_id).unwrap();
+                let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
-                    block_producer.account_id.clone(),
-                    next_epoch_id,
-                    self.node_id.clone(),
-                    hash,
-                    AccountOrPeerSignature::AccountSignature(signature),
-                )));
+                self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: block_producer.account_id.clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }));
             }
         }
     }
@@ -817,12 +765,8 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
@@ -920,9 +864,7 @@ impl ClientActor {
                 Ok(accepted_blocks) => {
                     self.process_accepted_blocks(accepted_blocks);
                 }
-                Err(err) => {
-                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
-                }
+                Err(err) => error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err),
             }
 
             ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
@@ -1108,9 +1050,11 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Ok(NetworkResponses::NoResponse) => actix::fut::ok(()),
+                Ok(NetworkResponses::RoutingTableInfo(_)) | Ok(NetworkResponses::NoResponse) => {
+                    actix::fut::ok(())
+                }
                 Err(e) => {
-                    error!(target: "client", "Sync: recieved error or incorrect result: {}", e);
+                    error!(target: "client", "Sync: received error or incorrect result: {}", e);
                     actix::fut::err(())
                 }
             })
