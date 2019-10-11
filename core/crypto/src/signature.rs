@@ -443,6 +443,12 @@ impl Signature {
     }
 }
 
+impl Default for Signature {
+    fn default() -> Self {
+        Signature::empty(KeyType::ED25519)
+    }
+}
+
 #[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
