@@ -238,8 +238,8 @@ impl GenesisBuilder {
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
-        const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
-        const TESTING_INIT_STAKE: Balance = 0;
+        let testing_init_balance: Balance = 10u128.pow(30);
+        let testing_init_stake: Balance = 0;
         let shard_id = self.runtime.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
@@ -247,8 +247,8 @@ impl GenesisBuilder {
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let account = AccountView {
-            amount: TESTING_INIT_BALANCE,
-            locked: TESTING_INIT_STAKE,
+            amount: testing_init_balance,
+            locked: testing_init_stake,
             code_hash: self.additional_accounts_code_hash.clone().into(),
             storage_usage: 0,
             storage_paid_at: 0,
