@@ -15,6 +15,7 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6.5"
 reed-solomon-erasure = "3.1.1"
+byteorder = "1.2"
 
 borsh = "0.2.2"
 
@@ -25,7 +26,12 @@ near-chain = { path = "../chain" }
 
 [dev-dependencies]
 tempdir = "0.3.7"
+bencher = "0.1.5"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
 testlib = { path = "../../test-utils/testlib" }
+
+[[bench]]
+name = "graph"
+harness = false
