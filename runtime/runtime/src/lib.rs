@@ -19,7 +19,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_pending_data_count,
@@ -74,7 +74,7 @@ pub struct VerificationResult {
 }
 
 pub struct ApplyResult {
-    pub root: MerkleHash,
+    pub state_root: StateRoot,
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
@@ -842,7 +842,7 @@ impl Runtime {
         }
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
-            root: trie_changes.new_root,
+            state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
             trie_changes,
             validator_proposals,
             new_receipts,
@@ -903,7 +903,7 @@ impl Runtime {
         mut state_update: TrieUpdate,
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
-    ) -> (StoreUpdate, MerkleHash) {
+    ) -> (StoreUpdate, StateRoot) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
             match record.clone() {
@@ -989,11 +989,15 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        state_update
+        let state_update_state = state_update
             .finalize()
             .expect("Genesis state update failed")
             .into(trie)
-            .expect("Genesis state update failed")
+            .expect("Genesis state update failed");
+        (
+            state_update_state.0,
+            StateRoot { hash: state_update_state.1, num_parts: 9 /* TODO MOO */ },
+        )
     }
 }
 

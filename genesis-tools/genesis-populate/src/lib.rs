@@ -9,7 +9,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, Balance, ChunkExtra, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
@@ -37,7 +37,7 @@ pub struct GenesisBuilder {
     store: Arc<Store>,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
-    roots: BTreeMap<ShardId, MerkleHash>,
+    roots: BTreeMap<ShardId, StateRoot>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
 
     // Things that can be set.
@@ -113,7 +113,7 @@ impl GenesisBuilder {
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root.clone()))
+                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root.hash))
             })
             .collect();
         self.unflushed_records =
@@ -173,7 +173,7 @@ impl GenesisBuilder {
         let (store_update, root) = state_update.finalize()?.into(trie)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
+        self.roots.insert(shard_idx, StateRoot { hash: root, num_parts: 9 /* TODO MOO */ });
         self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
         Ok(())
     }
@@ -225,8 +225,8 @@ impl GenesisBuilder {
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
-        const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
-        const TESTING_INIT_STAKE: Balance = 0;
+        let testing_init_balance: Balance = 10u128.pow(30);
+        let testing_init_stake: Balance = 0;
         let shard_id = self.runtime.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
@@ -234,9 +234,8 @@ impl GenesisBuilder {
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let account = AccountView {
-            amount: TESTING_INIT_BALANCE,
-            locked: TESTING_INIT_STAKE,
-            desired_stake: TESTING_INIT_STAKE,
+            amount: testing_init_balance,
+            locked: testing_init_stake,
             code_hash: self.additional_accounts_code_hash.clone().into(),
             storage_usage: 0,
             storage_paid_at: 0,

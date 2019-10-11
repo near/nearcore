@@ -25,6 +25,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_network::routing::EdgeInfo;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -220,6 +221,7 @@ pub fn setup_mock_all_validators(
                                         height: last_height_weight1[i].0,
                                         total_weight: last_height_weight1[i].1,
                                     },
+                                    edge_info: EdgeInfo::default(),
                                 })
                                 .collect();
                             let peers2 = peers.clone();
@@ -368,6 +370,8 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateRequest {
                             shard_id,
                             hash,
+                            need_header,
+                            parts_ranges,
                             account_id: target_account_id,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
@@ -377,7 +381,10 @@ pub fn setup_mock_all_validators(
                                         connectors1.write().unwrap()[i]
                                             .0
                                             .send(NetworkClientMessages::StateRequest(
-                                                *shard_id, *hash,
+                                                *shard_id,
+                                                *hash,
+                                                *need_header,
+                                                parts_ranges.to_vec(),
                                             ))
                                             .then(move |response| {
                                                 let response = response.unwrap();
@@ -415,6 +422,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::Edges(_edges) => {}
+                        NetworkRequests::FetchRoutingTable => {}
                         NetworkRequests::BanPeer { .. } => {}
                         NetworkRequests::BlockHeaderAnnounce { .. } => {}
                     };

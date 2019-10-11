@@ -25,7 +25,7 @@ pub struct StandaloneRuntime {
     pub runtime: Runtime,
     pub trie: Arc<Trie>,
     pub signer: InMemorySigner,
-    pub root: MerkleHash,
+    pub root: CryptoHash,
 }
 
 impl StandaloneRuntime {
@@ -51,7 +51,7 @@ impl StandaloneRuntime {
             block_timestamp: 0,
         };
 
-        Self { apply_state, runtime, trie, signer, root }
+        Self { apply_state, runtime, trie, signer, root: root.hash }
     }
 
     pub fn process_block(
@@ -131,7 +131,6 @@ impl RuntimeGroup {
                     account: AccountView {
                         amount: TESTING_INIT_BALANCE,
                         locked: TESTING_INIT_STAKE,
-                        desired_stake: TESTING_INIT_STAKE,
                         code_hash: code_hash.clone().into(),
                         storage_usage: 0,
                         storage_paid_at: 0,

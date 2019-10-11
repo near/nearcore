@@ -5,7 +5,7 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 use near::GenesisConfig;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, MerkleHash};
+use near_primitives::types::{AccountId, MerkleHash, StateRoot};
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use node_runtime::{state_viewer::TrieViewer, Runtime};
@@ -29,7 +29,7 @@ pub fn default_code_hash() -> CryptoHash {
 
 pub fn get_runtime_and_trie_from_genesis(
     genesis_config: &GenesisConfig,
-) -> (Runtime, Arc<Trie>, MerkleHash) {
+) -> (Runtime, Arc<Trie>, StateRoot) {
     let trie = create_trie();
     let runtime = Runtime::new(genesis_config.runtime_config.clone());
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -52,7 +52,7 @@ pub fn get_runtime_and_trie_from_genesis(
     (runtime, trie, genesis_root)
 }
 
-pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
+pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, StateRoot) {
     let genesis_config =
         GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
     get_runtime_and_trie_from_genesis(&genesis_config)
@@ -61,7 +61,7 @@ pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, trie, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = TrieUpdate::new(trie, root);
+    let state_update = TrieUpdate::new(trie, root.hash);
     (trie_viewer, state_update)
 }
 

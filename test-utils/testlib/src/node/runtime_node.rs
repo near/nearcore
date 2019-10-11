@@ -29,7 +29,7 @@ impl RuntimeNode {
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
             trie,
-            state_root: root,
+            state_root: root.hash,
             epoch_length: genesis_config.epoch_length,
         }));
         RuntimeNode { signer, client, bls_signer }
