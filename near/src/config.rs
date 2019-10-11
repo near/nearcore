@@ -17,8 +17,7 @@ use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_crypto::{
-    BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey,
-    Signer,
+    BlsPublicKey, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyFile, KeyType, PublicKey, Signer,
 };
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
@@ -337,10 +336,11 @@ impl NearConfig {
     }
 }
 
+/// Account info for validators
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
     pub account_id: AccountId,
-    pub public_key: ReadablePublicKey,
+    pub public_key: BlsPublicKey,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
