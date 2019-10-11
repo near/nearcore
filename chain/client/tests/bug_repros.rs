@@ -114,7 +114,7 @@ fn repro_1183() {
         );
         *connectors.write().unwrap() = conn;
 
-        near_network::test_utils::wait_or_panic(30000);
+        near_network::test_utils::wait_or_panic(60000);
     })
     .unwrap();
 }
