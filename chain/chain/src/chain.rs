@@ -183,10 +183,9 @@ impl Chain {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_roots, state_num_parts) = runtime_adapter.genesis_state();
+        let (state_store_update, state_roots) = runtime_adapter.genesis_state();
         let genesis = Block::genesis(
             state_roots.clone(),
-            state_num_parts.clone(),
             chain_genesis.time,
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
@@ -242,20 +241,12 @@ impl Chain {
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
 
-                    for (chunk_header, (state_root, state_num_parts)) in
-                        genesis.chunks.iter().zip(state_roots.iter().zip(state_num_parts.iter()))
+                    for (chunk_header, state_root) in genesis.chunks.iter().zip(state_roots.iter())
                     {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(
-                                state_root,
-                                *state_num_parts,
-                                vec![],
-                                0,
-                                chain_genesis.gas_limit,
-                                0,
-                            ),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0),
                         );
                     }
 
@@ -947,10 +938,9 @@ impl Chain {
             )
             .into());
         }
-        let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root;
-        let state_num_parts = sync_prev_block.chunks[shard_id as usize].inner.prev_state_num_parts;
+        let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
 
-        if part_id >= state_num_parts {
+        if part_id >= state_root.num_parts {
             return Err(ErrorKind::Other(
                 "get_state_response_part fail: part_id out of bound".to_string(),
             )
@@ -958,7 +948,7 @@ impl Chain {
         }
         let (state_part, proof) = self
             .runtime_adapter
-            .obtain_state_part(shard_id, part_id, state_root, state_num_parts)
+            .obtain_state_part(shard_id, part_id, &state_root)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         Ok(ShardStateSyncResponsePart { state_part, proof })
@@ -1141,8 +1131,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-        let state_root = chunk.header.inner.prev_state_root;
-        let _state_num_parts = chunk.header.inner.prev_state_num_parts;
+        let state_root = &chunk.header.inner.prev_state_root;
         self.runtime_adapter
             .accept_state_part(state_root, &part.state_part, &part.proof)
             .map_err(|_| ErrorKind::InvalidStatePayload)?;
@@ -1163,13 +1152,12 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs: _,
         } = shard_state_header;
-        let state_root = chunk.header.inner.prev_state_root;
-        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+        let state_root = &chunk.header.inner.prev_state_root;
 
         let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
 
         // Applying chunk is started here.
-        self.runtime_adapter.confirm_state(state_root, state_num_parts)?;
+        self.runtime_adapter.confirm_state(&state_root)?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
@@ -1207,7 +1195,6 @@ impl Chain {
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
-            apply_result.new_num_parts,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
@@ -1765,7 +1752,6 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         ChunkExtra::new(
                             &apply_result.new_root,
-                            apply_result.new_num_parts,
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,

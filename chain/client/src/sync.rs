@@ -405,51 +405,42 @@ pub enum StateSyncResult {
 pub struct StateSyncStrategy {}
 
 impl StateSyncStrategy {
-    pub fn download_all_from_one(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
+    pub fn download_by_one(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
         let mut strategy = vec![];
-        let mut len = 1;
-        let downloads: Vec<DownloadStatus> =
-            downloads.iter().filter(|d| d.run_me).cloned().collect();
-        for i in 1..downloads.len() {
-            if downloads[i].part_id != downloads[i - len].part_id + len as u64 {
-                strategy.push(Range(downloads[i - len].part_id, downloads[i - 1].part_id + 1));
-                len = 1;
-            } else {
-                len += 1;
-            }
-        }
-        strategy.push(Range(
-            downloads[downloads.len() - len].part_id,
-            downloads[downloads.len() - 1].part_id + 1,
-        ));
-        vec![strategy]
-    }
-
-    pub fn download_one_from_all(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
-        let mut strategy = vec![];
-        for download in downloads {
+        for (i, download) in downloads.iter().enumerate() {
             if download.run_me {
-                strategy.push(vec![Range(download.part_id, download.part_id + 1)]);
+                strategy.push(vec![Range(i as u64, i as u64 + 1)]);
             }
         }
         strategy
     }
 
-    pub fn download_mixed(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
+    pub fn download_sqrt(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
         let len = downloads.len();
-        let mut strategy =
-            StateSyncStrategy::download_one_from_all(&downloads[0..(len / 4)].to_vec());
-        strategy.extend(StateSyncStrategy::download_all_from_one(
-            &downloads[(len / 4)..(2 * len / 4)].to_vec(),
-        ));
-        strategy.extend(StateSyncStrategy::download_one_from_all(
-            &downloads[(2 * len / 4)..(3 * len / 4)].to_vec(),
-        ));
-        strategy.extend(StateSyncStrategy::download_all_from_one(
-            &downloads[(3 * len / 4)..len].to_vec(),
-        ));
-        // TODO MOO
-        //println!("??? {:?}", strategy);
+        let run_count = downloads.iter().filter(|d| d.run_me).count();
+        if run_count * 5 < len {
+            // We downloaded more than 80% of the state.
+            // Let's distribute all small pieces between all nodes.
+            return StateSyncStrategy::download_by_one(downloads);
+        }
+        let mut strategy = vec![];
+        let mut begin = 0;
+        for (i, download) in downloads.iter().enumerate() {
+            if download.run_me {
+                if i - begin >= (len as f64).sqrt() as usize {
+                    strategy.push(vec![Range(begin as u64, i as u64)]);
+                    begin = i;
+                }
+            } else {
+                if begin != i {
+                    strategy.push(vec![Range(begin as u64, i as u64)]);
+                }
+                begin = i + 1;
+            }
+        }
+        if begin != len {
+            strategy.push(vec![Range(begin as u64, len as u64)]);
+        }
         strategy
     }
 }
@@ -517,7 +508,6 @@ impl StateSync {
             let mut shard_sync_download = &ShardSyncDownload {
                 downloads: vec![
                     DownloadStatus {
-                        part_id: 0,
                         start_time: now,
                         prev_update_time: now,
                         run_me: true,
@@ -540,21 +530,20 @@ impl StateSync {
                         let shard_state_header =
                             chain.get_received_state_header(shard_id, sync_hash)?;
                         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-                        let state_num_parts = chunk.header.inner.prev_state_num_parts;
+                        let state_num_parts = chunk.header.inner.prev_state_root.num_parts;
                         new_sync_download = ShardSyncDownload {
-                            downloads: vec![],
+                            downloads: vec![
+                                DownloadStatus {
+                                    start_time: now,
+                                    prev_update_time: now,
+                                    run_me: true,
+                                    error: false,
+                                    done: false,
+                                };
+                                state_num_parts as usize
+                            ],
                             status: ShardSyncStatus::StateDownloadParts,
                         };
-                        for i in 0..state_num_parts {
-                            new_sync_download.downloads.push(DownloadStatus {
-                                part_id: i,
-                                start_time: now,
-                                prev_update_time: now,
-                                run_me: true,
-                                error: false,
-                                done: false,
-                            })
-                        }
                         update_sync_status = true;
                         need_shard = true;
                     } else {
@@ -671,7 +660,6 @@ impl StateSync {
         let mut new_shard_sync_download = shard_sync_download.clone();
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
-                //println!("REQUEST HEADER {:?}", shard_id); /* TODO MOO */
                 self.network_adapter.send(NetworkRequests::StateRequest {
                     shard_id,
                     hash,
@@ -683,9 +671,8 @@ impl StateSync {
                 new_shard_sync_download.downloads[0].run_me = false;
             }
             ShardSyncStatus::StateDownloadParts => {
-                //println!("REQUEST PARTS {:?}", shard_id);  /* TODO MOO */
                 let download_strategy =
-                    StateSyncStrategy::download_one_from_all(&shard_sync_download.downloads);
+                    StateSyncStrategy::download_sqrt(&shard_sync_download.downloads);
                 self.apply_download_strategy(
                     shard_id,
                     hash,
@@ -695,9 +682,7 @@ impl StateSync {
                     &mut new_shard_sync_download,
                 )?;
             }
-            _ => {
-                //println!("NO REQUEST {:?}", shard_id);  /* TODO MOO */
-            }
+            _ => {}
         }
         Ok(new_shard_sync_download)
     }
