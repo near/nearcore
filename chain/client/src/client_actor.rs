@@ -761,7 +761,6 @@ impl ClientActor {
     }
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        debug!(target: "client", "send_block_request_to_peer: requesting block {}", hash);
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
             Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
@@ -948,51 +947,10 @@ impl ClientActor {
             if sync_state {
                 let (sync_hash, mut new_shard_sync) = match &self.client.sync_status {
                     SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        let mut need_to_restart = false;
-
-                        /*if let Ok(sync_block_header) =
-                            self.client.chain.get_block_header(&sync_hash)
-                        {
-                            let prev_hash = sync_block_header.inner.prev_hash;
-
-                            if let Ok(current_epoch) =
-                                self.client.runtime_adapter.get_epoch_id_from_prev_block(&prev_hash)
-                            {
-                                if let Ok(next_epoch) = self
-                                    .client
-                                    .runtime_adapter
-                                    .get_next_epoch_id_from_prev_block(&prev_hash)
-                                {
-                                    if let Ok(header_head) = self.client.chain.header_head() {
-                                        let header_head_epoch = header_head.epoch_id;
-
-                                        if current_epoch != header_head_epoch
-                                            && next_epoch != header_head_epoch
-                                        {
-                                            error!(target: "client", "Header head is not within two epochs of state sync hash, restarting state sync");
-                                            debug!(target: "client", "Current epoch: {:?}, Next epoch: {:?}, Header head epoch: {:?}", current_epoch, next_epoch, header_head_epoch);
-                                            need_to_restart = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }*/
-
-                        if need_to_restart {
-                            (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default())
-                        } else {
-                            (sync_hash.clone(), shard_sync.clone())
-                        }
+                        (sync_hash.clone(), shard_sync.clone())
                     }
-                    other => {
-                        let other = other.clone();
+                    _ => {
                         let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
-                        debug!(
-                            "{:?} moo transitions to state sync at {:?}. Current sync status: {:?}",
-                            self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
-                            sync_hash,
-                            other
-                        );
                         (sync_hash, HashMap::default())
                     }
                 };
