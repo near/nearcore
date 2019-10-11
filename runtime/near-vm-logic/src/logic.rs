@@ -186,9 +186,11 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut buf;
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             if len > max_len {
                 return Err(HostError::BadUTF8.into());
             }
@@ -196,6 +198,8 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
+                self.gas_counter
+                    .pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, 1)?;
                 Self::try_fit_mem(self.memory, ptr + i, 1)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
@@ -216,20 +220,27 @@ impl<'a> VMLogic<'a> {
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut u16_buffer = Vec::new();
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             let input = Self::memory_get(self.memory, ptr, len as u64)?;
             if len % 2 != 0 || len > max_len {
                 return Err(HostError::BadUTF16.into());
             }
             for i in 0..((len / 2) as usize) {
-                u16_buffer.push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
+                u16_buffer
+                    .push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
             }
         } else {
             let limit = max_len / size_of::<u16>() as u64;
             // Takes 2 bytes each iter
             for i in 0..=limit {
+                self.gas_counter.pay_per_byte(
+                    self.config.runtime_fees.ext_costs.log_per_byte,
+                    size_of::<u16>() as u64,
+                )?;
                 // Self::try_fit_mem will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
                 Self::try_fit_mem(self.memory, start, size_of::<u16>() as u64)?;
@@ -1370,10 +1381,7 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
-        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
-        self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
         let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
-        dbg!(message.clone());
         self.logs.push(message);
         Ok(())
     }

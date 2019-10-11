@@ -80,7 +80,7 @@ fn test_log_max_limit() {
 }
 
 #[test]
-fn test_log_max_limit_null_terminated() {
+fn test_log_utf8_max_limit_null_terminated() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
     let mut config = Config::default();
