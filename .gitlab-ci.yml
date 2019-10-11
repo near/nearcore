@@ -16,6 +16,7 @@ test_cargo:
     before_script:
     - *setup_cache
     script:
+    - echo "_____${CARGO_HOME}"
     - rustc --version && cargo --version
     - cargo check --all --tests --benches
     - cargo test --all --verbose
