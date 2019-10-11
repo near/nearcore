@@ -328,7 +328,7 @@ impl Client {
             next_height,
             prev_block_timestamp,
             block_header.inner.gas_price,
-            chunk_extra.state_root,
+            chunk_extra.state_root.clone(),
             transactions,
         );
         let (tx_root, _) = merklize(&filtered_transactions);
@@ -364,7 +364,6 @@ impl Client {
         let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
-            chunk_extra.state_num_parts,
             next_height,
             shard_id,
             chunk_extra.gas_used,
@@ -772,8 +771,8 @@ impl Client {
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                     NetworkClientResponses::ValidTx
                 } else {
-                    // TODO(MarX): Forward tx even if I am a validator.
-                    // TODO(MarX): How many validators ahead of current time should we forward tx?
+                    // TODO(MarX, #1366): Forward tx even if I am a validator.
+                    //  How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
 
                     debug!(target: "client",

@@ -83,7 +83,7 @@ fn test_max_register_size() {
 fn test_max_register_memory_limit() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = Config::free();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);

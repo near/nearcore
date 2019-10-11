@@ -25,7 +25,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
 };
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
@@ -714,8 +714,7 @@ impl ShardsManager {
     pub fn create_encoded_shard_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
-        prev_state_root: CryptoHash,
-        prev_state_num_parts: u64,
+        prev_state_root: StateRoot,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -733,7 +732,6 @@ impl ShardsManager {
         let (new_chunk, merkle_paths) = EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
-            prev_state_num_parts,
             height,
             shard_id,
             total_parts,

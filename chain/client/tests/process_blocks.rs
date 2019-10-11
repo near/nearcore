@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::System;
+use borsh::BorshSerialize;
 use futures::{future, Future};
 
-use borsh::BorshSerialize;
 use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
@@ -14,6 +14,7 @@ use near_client::{Client, GetBlock};
 use near_crypto::{
     BlsSignature, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer,
 };
+use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -378,6 +379,7 @@ fn client_sync_headers() {
                             height: 5,
                             total_weight: 100.into(),
                         },
+                        edge_info: EdgeInfo::default(),
                     }],
                     num_active_peers: 1,
                     peer_max_count: 1,
@@ -388,6 +390,7 @@ fn client_sync_headers() {
                             height: 5,
                             total_weight: 100.into(),
                         },
+                        edge_info: EdgeInfo::default(),
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
