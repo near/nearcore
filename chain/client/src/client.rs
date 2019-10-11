@@ -17,7 +17,7 @@ use near_chain::{
     BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
     Tip,
 };
-use near_chunks::{NetworkAdapter, ShardsManager};
+use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
 use near_crypto::BlsSignature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
@@ -85,7 +85,6 @@ impl Client {
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
             network_adapter.clone(),
-            store.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_adapter.clone());
@@ -388,7 +387,11 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, outgoing_receipts);
+        self.shards_mgr.distribute_encoded_chunk(
+            encoded_chunk,
+            outgoing_receipts,
+            self.chain.mut_store(),
+        );
 
         Ok(())
     }
@@ -424,7 +427,9 @@ impl Client {
     }
 
     pub fn process_chunk_part(&mut self, part: ChunkPartMsg) -> Result<Vec<AcceptedBlock>, Error> {
-        if let Some(block_hash) = self.shards_mgr.process_chunk_part(part)? {
+        if let Some(block_hash) =
+            self.shards_mgr.process_chunk_part(part, self.chain.mut_store())?
+        {
             Ok(self.process_blocks_with_missing_chunks(block_hash))
         } else {
             Ok(vec![])
@@ -435,7 +440,14 @@ impl Client {
         &mut self,
         one_part_msg: ChunkOnePart,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        let has_all_one_parts = self.shards_mgr.process_chunk_one_part(one_part_msg.clone())?;
+        let process_result =
+            self.shards_mgr.process_chunk_one_part(one_part_msg.clone(), self.chain.mut_store())?;
+
+        let has_all_one_parts = match process_result {
+            ProcessChunkOnePartResult::Known => return Ok(vec![]),
+            ProcessChunkOnePartResult::HaveAllOneParts => true,
+            ProcessChunkOnePartResult::NeedMoreOneParts => false,
+        };
 
         // After processing one part we might need to request more parts or one parts.
         // If we are missing some of our own one parts, we need to request them no matter what, since
@@ -458,7 +470,7 @@ impl Client {
             true,
         );
         if !has_all_one_parts || (care_about_shard && builds_on_head) {
-            self.shards_mgr.request_chunks(vec![one_part_msg.header], true).unwrap();
+            self.shards_mgr.request_chunks(vec![one_part_msg.header], !has_all_one_parts).unwrap();
         }
         if has_all_one_parts {
             return Ok(self.process_blocks_with_missing_chunks(prev_block_hash));
@@ -565,13 +577,17 @@ impl Client {
                     }
 
                     for to_reintroduce_hash in to_reintroduce {
-                        let block = self.chain.get_block(&to_reintroduce_hash).unwrap().clone();
-                        self.reintroduce_transactions_for_block(bp.account_id.clone(), &block);
+                        if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
+                            let block = block.clone();
+                            self.reintroduce_transactions_for_block(bp.account_id.clone(), &block);
+                        }
                     }
 
                     for to_remove_hash in to_remove {
-                        let block = self.chain.get_block(&to_remove_hash).unwrap().clone();
-                        self.remove_transactions_for_block(bp.account_id.clone(), &block);
+                        if let Ok(block) = self.chain.get_block(&to_remove_hash) {
+                            let block = block.clone();
+                            self.remove_transactions_for_block(bp.account_id.clone(), &block);
+                        }
                     }
                 }
             };

@@ -373,10 +373,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_chunk_one_part_request(part_request_msg, peer_id);
+                let _ = self.client.shards_mgr.process_chunk_one_part_request(
+                    part_request_msg,
+                    peer_id,
+                    self.client.chain.mut_store(),
+                );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPart(part_msg) => {
@@ -640,13 +641,6 @@ impl ClientActor {
                 accepted_block.provenance,
             );
 
-            // Process orphaned chunk_one_parts
-            if self.client.shards_mgr.process_orphaned_one_parts(accepted_block.hash) {
-                let accepted_blocks =
-                    self.client.process_blocks_with_missing_chunks(accepted_block.hash);
-                self.process_accepted_blocks(accepted_blocks);
-            }
-
             self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
             self.check_send_announce_account(accepted_block.hash);
         }
@@ -692,9 +686,7 @@ impl ClientActor {
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
-                    if !self.client.chain.is_orphan(&prev_hash)
-                        && !self.client.sync_status.is_syncing()
-                    {
+                    if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                     NetworkClientResponses::NoResponse
@@ -769,6 +761,7 @@ impl ClientActor {
     }
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
+        debug!(target: "client", "send_block_request_to_peer: requesting block {}", hash);
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
             Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
@@ -913,6 +906,10 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
+                debug!(
+                    "{:?} moo transitions to no sync",
+                    self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
+                );
                 self.client.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.
@@ -953,7 +950,7 @@ impl ClientActor {
                     SyncStatus::StateSync(sync_hash, shard_sync) => {
                         let mut need_to_restart = false;
 
-                        if let Ok(sync_block_header) =
+                        /*if let Ok(sync_block_header) =
                             self.client.chain.get_block_header(&sync_hash)
                         {
                             let prev_hash = sync_block_header.inner.prev_hash;
@@ -979,7 +976,7 @@ impl ClientActor {
                                     }
                                 }
                             }
-                        }
+                        }*/
 
                         if need_to_restart {
                             (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default())
@@ -987,7 +984,17 @@ impl ClientActor {
                             (sync_hash.clone(), shard_sync.clone())
                         }
                     }
-                    _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
+                    other => {
+                        let other = other.clone();
+                        let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                        debug!(
+                            "{:?} moo transitions to state sync at {:?}. Current sync status: {:?}",
+                            self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
+                            sync_hash,
+                            other
+                        );
+                        (sync_hash, HashMap::default())
+                    }
                 };
 
                 let me = &self.client.block_producer.as_ref().map(|x| x.account_id.clone());

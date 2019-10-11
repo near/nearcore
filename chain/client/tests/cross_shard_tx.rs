@@ -32,6 +32,7 @@ fn test_keyvalue_runtime_balances() {
             true,
             100,
             false,
+            5,
             Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             })),
@@ -388,13 +389,14 @@ mod tests {
                 validator_groups,
                 true,
                 if drop_chunks {
-                    400 // need to have time to re-request chunks
+                    250 // need to have time to re-request chunks
                 } else if rotate_validators {
-                    150
+                    250
                 } else {
-                    75
+                    200
                 },
                 drop_chunks,
+                20,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -448,8 +450,8 @@ mod tests {
                 );
             }
 
-            // On X1 it takes ~5m 40s
-            near_network::test_utils::wait_or_panic(600000);
+            // After recent slow downs, on X1 it takes ~15m
+            near_network::test_utils::wait_or_panic(1000 * 60 * 15 * 2);
         })
         .unwrap();
     }
