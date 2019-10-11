@@ -54,6 +54,6 @@ fn test_allowed_view_method() {
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     assert_eq!(logic.block_index().unwrap(), block_index);
 }
