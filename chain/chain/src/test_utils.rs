@@ -664,7 +664,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         _height: BlockIndex,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,

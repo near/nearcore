@@ -311,7 +311,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,

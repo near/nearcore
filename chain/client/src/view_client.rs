@@ -133,7 +133,7 @@ impl Handler<Query> for ViewClientActor {
 
         self.runtime_adapter
             .query(
-                state_root,
+                &state_root,
                 header.inner.height,
                 header.inner.timestamp,
                 &header.hash,

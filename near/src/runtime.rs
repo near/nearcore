@@ -671,7 +671,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn query(
         &self,
-        state_root: StateRoot,
+        state_root: &StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -1619,14 +1619,7 @@ mod test {
             .clone();
         let response = env
             .runtime
-            .query(
-                env.state_roots[0].clone(),
-                2,
-                0,
-                &env.head.last_block_hash,
-                vec!["validators"],
-                &[],
-            )
+            .query(&env.state_roots[0], 2, 0, &env.head.last_block_hash, vec!["validators"], &[])
             .unwrap();
         match response {
             QueryResponse::Validators(info) => assert_eq!(
@@ -1655,14 +1648,7 @@ mod test {
         env.step_default(vec![]);
         let response = env
             .runtime
-            .query(
-                env.state_roots[0].clone(),
-                3,
-                0,
-                &env.head.last_block_hash,
-                vec!["validators"],
-                &[],
-            )
+            .query(&env.state_roots[0], 3, 0, &env.head.last_block_hash, vec!["validators"], &[])
             .unwrap();
         match response {
             QueryResponse::Validators(info) => {
