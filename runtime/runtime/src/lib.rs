@@ -1000,7 +1000,6 @@ impl Runtime {
             + stats.total_balance_burnt;
         if initial_balance != final_balance {
             panic!(
-                // target: "runtime",
                 "Runtime Apply initial balance sum {} doesn't match final balance sum {}\n\
                  \tInitial account balance sum: {}\n\
                  \tFinal account balance sum: {}\n\
