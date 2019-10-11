@@ -347,6 +347,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn verify_approval_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        approval_mask: &[bool],
+        approval_sig: &BlsSignature,
+        data: &[u8],
+    ) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let info = epoch_manager
+            .get_all_block_producer_info(epoch_id, last_known_block_hash)
+            .map_err(|err| Error::from(err))?;
+        let mut all_keys = vec![];
+        for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
+            if *is_approved && !is_slashed {
+                all_keys.push(validator.public_key);
+            }
+        }
+        Ok(approval_sig.verify_aggregate(data, &all_keys))
+    }
+
     fn get_epoch_block_producers(
         &self,
         epoch_id: &EpochId,
@@ -1588,7 +1609,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let mut current_validators = env
+        let current_validators = env
             .runtime
             .epoch_manager
             .write()
@@ -1632,9 +1653,6 @@ mod test {
             .unwrap();
         match response {
             QueryResponse::Validators(info) => {
-                for p in current_validators.iter_mut() {
-                    p.amount += per_epoch_per_validator_reward;
-                }
                 let v: Vec<ValidatorStake> =
                     info.current_validators.clone().into_iter().map(Into::into).collect();
                 assert_eq!(v, current_validators);

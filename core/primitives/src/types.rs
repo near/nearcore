@@ -46,7 +46,7 @@ impl AsRef<[u8]> for EpochId {
 pub struct Range(pub u64, pub u64);
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -61,14 +61,6 @@ impl ValidatorStake {
         ValidatorStake { account_id, public_key, amount }
     }
 }
-
-impl PartialEq for ValidatorStake {
-    fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id && self.public_key == other.public_key
-    }
-}
-
-impl Eq for ValidatorStake {}
 
 /// Information after chunk was processed, used to produce or check next chunk.
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
