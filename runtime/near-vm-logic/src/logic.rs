@@ -190,10 +190,10 @@ impl<'a> VMLogic<'a> {
         let mut buf;
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
-            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             if len > max_len {
                 return Err(HostError::BadUTF8.into());
             }
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
@@ -224,11 +224,11 @@ impl<'a> VMLogic<'a> {
         let mut u16_buffer = Vec::new();
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
-            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             let input = Self::memory_get(self.memory, ptr, len as u64)?;
             if len % 2 != 0 || len > max_len {
                 return Err(HostError::BadUTF16.into());
             }
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             for i in 0..((len / 2) as usize) {
                 u16_buffer
                     .push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
