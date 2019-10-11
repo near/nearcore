@@ -27,6 +27,7 @@ For more information, see the README.md under /compute.
 import argparse
 import os
 import time
+import subprocess
 
 import googleapiclient.discovery
 from six.moves import input
@@ -40,14 +41,14 @@ def list_instances(compute, project, zone):
 
 
 # [START create_instance]
-def create_instance(compute, project, zone, name, machine_type='n1-standard-1', startup_script=''):
+def create_instance(compute, project, zone, name, machine_type='n1-standard-1'):
     # Get the latest Debian Jessie image.
     image_response = compute.images().getFromFamily(
         project='gce-uefi-images', family='ubuntu-1804-lts').execute()
     source_disk_image = image_response['selfLink']
 
     # Configure the machine
-    machine_type = "zones/%s/machineTypes/%s" % zone % machine_type
+    machine_type = "zones/{}/machineTypes/{}".format(zone, machine_type)
     startup_script = open(
         os.path.join(
             os.path.dirname(__file__), 'startup-script.sh'), 'r').read()
@@ -84,17 +85,6 @@ def create_instance(compute, project, zone, name, machine_type='n1-standard-1', 
                 'https://www.googleapis.com/auth/logging.write'
             ]
         }],
-
-        # Metadata is readable from the instance and allows you to
-        # pass configuration from deployment scripts to instances.
-        'metadata': {
-            'items': [{
-                # Startup script is automatically executed by the
-                # instance upon startup.
-                'key': 'startup-script',
-                'value': startup_script
-            }]
-        }
     }
 
     return compute.instances().insert(
@@ -131,8 +121,8 @@ def wait_for_operation(compute, project, zone, operation):
         time.sleep(1)
 # [END wait_for_operation]
 
-
-compute = googleapiclient.discovery.build('compute', 'v1')
+def compute():
+    return googleapiclient.discovery.build('compute', 'v1')
 
 # [START run]
 
@@ -183,3 +173,12 @@ if __name__ == '__main__':
 
     main(args.project_id, args.bucket_name, args.zone, args.name)
 # [END run]
+
+def ssh(zone, instance, command):
+    return subprocess.check_output(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command])
+
+def copy_to_instance(zone, instance, src, tgt):
+    subprocess.check_output("gcloud compute scp --zone " + zone + " " + src + " " + instance + ":" + tgt, shell=True)
+
+def copy_from_instance(zone, instance, src, tgt):
+    subprocess.check_output("gcloud compute scp --zone", + zone + " " + instance + ":" + src + " " + tgt, shell=True)

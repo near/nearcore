@@ -9,7 +9,7 @@ import time
 import base58
 import base64
 import retry
-from .gcloud import compute, create_instance
+from gcloud import compute, create_instance, ssh, copy_to_instance
 import uuid
 
 
@@ -151,7 +151,9 @@ class GCloudNode(BaseNode):
     def __init__(self, zone, instance_name):
         self.zone = zone
         self.instance_name = instance_name
-        self.resource = compute.instances().get(project='near-core', zone=zone,
+        self.port = 24567
+        self.rpc_port = 3000
+        self.resource = compute().instances().get(project='near-core', zone=zone,
                                                 instance=instance_name).execute()
         self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
 
@@ -160,18 +162,24 @@ class GCloudNode(BaseNode):
 
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
+    
+    def exec(self, command):
+        return ssh(self.zone, self.instance_name, command)
 
     def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
-        subprocess.Popen(
-            """gcloud compute ssh --zone={zone} {instance_name} -- <<GCLOUD
-export RUSTUP_HOME=/opt
-export CARGO_HOME=/opt
+        self.exec("""export RUSTUP_HOME=/opt/rustup
+export CARGO_HOME=/opt/cargo
 tmux new -s node -d
 tmux send-keys -t node '{cmd}' C-m
-GCLOUD """).format(zone=self.zone,
-                   instance_name=self.instance_name,
-                   cmd=self._get_command_line('/opt/nearcore/target/debug/near', '/opt/.near', boot, boot_node_addr))
+""".format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)))
+        )
         self.wait_for_rpc(timeout=10)
+    
+    def kill(self):
+        ssh(self.zone, self.instance_name, "tmux send-keys -t node C-c")
+
+    def cleanup(self):
+        ssh(self.zone, )
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -183,7 +191,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
         node = LocalNode(24567 + 10 + ordinal, 3030 +
                          10 + ordinal, near_root, node_dir)
     else:
-        zone = config['remote']['zones'][i]
+        zone = config['remote']['zones'][ordinal % len(config['remote']['zones'])]
         instance_name = config['remote'].get(
             'instance_name', 'near-pytest-{}'.format(ordinal))
         node = GCloudNode(zone, instance_name)
@@ -201,7 +209,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     near_root = config['near_root']
 
     print("Creating %s cluster configuration with %s nodes" %
-          ("LOCAL" if is_local else "REMOTE", num_nodes))
+          ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(
         num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -248,37 +256,34 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
 
 def _launch_and_deploy_on_remote_instances(config, node_dirs):
     def instance_ready(zone, instance_name):
-        res = compute.instances().get('near-core', zone, instance_name).execute()
-        if res.status != "RUNNING":
+        res = compute().instances().get(project='near-core', zone=zone, instance=instance_name).execute()
+        if res["status"] != "RUNNING":
             raise "Instance Not Ready"
 
     def _launch_and_deploy_on_remote_instance(config, i, node_dir):
-        zone = config['remote']['zones'][i]
+        zone = config['remote']['zones'][i % len(config['remote']['zones'])]
         instance_name = config['remote'].get(
             'instance_name', 'near-pytest-{}'.format(i))
-        _ = create_instance(compute, 'near-core', zone, instance_name, config['remote'].get('machine_type', 'n1-standard-1'),
-                            """
-#!/bin/bash
+        res = create_instance(compute(), 'near-core', zone, instance_name, config['remote'].get('machine_type', 'n1-standard-1'))
+        retry.retry(lambda: instance_ready(zone, instance_name), 60)
+        ssh(zone, instance_name, """sudo chmod 777 /opt
+cd /opt
+mkdir near
 sudo apt update
 sudo apt install -y pkg-config libssl-dev build-essential cmake
-sudo chmod 777 /opt
-cd /opt
-mkdir .near
-export RUSTUP_HOME=/opt
-export CARGO_HOME=/opt
+export RUSTUP_HOME=/opt/rustup
+export CARGO_HOME=/opt/cargo
 curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-05-22
-source $CARGO_HOME/.cargo/env
+source $CARGO_HOME/env
 git clone --single-branch --branch staging https://github.com/nearprotocol/nearcore.git nearcore
 git checkout {}
 cd nearcore
 cargo build -p near
-""".format(config['remote'].get('commit', 'staging')))
-
-        retry.retry(lambda: instance_ready(zone, instance_name), 60)
-
-        subprocess.Popen(
-            "gcloud compute scp --zone={zone} node_dir/* {instance_name}:/opt/.near/")
-
+""".format(config['remote'].get('commit', 'staging'))
+        )
+        
+        copy_to_instance(zone, instance_name, node_dir + "/*", "/opt/.near/")
+    
     handles = []
     for i, node_dir in enumerate(node_dirs):
         handle = threading.Thread(target=_launch_and_deploy_on_remote_instance,

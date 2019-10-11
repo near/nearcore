@@ -11,10 +11,9 @@ requests = "*"
 ed25519 = "*"
 base58 = "*"
 google-api-python-client = "*"
-six = "*"
+six = "*" # requires by gcloud.py
 
 [dev-packages]
-autopep8 = "*"
 
 [requires]
 python_version = "3.7"
