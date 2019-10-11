@@ -20,7 +20,6 @@ use near_store::{Store, COL_CHUNKS, COL_STATE_HEADERS};
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
-use crate::test_utils::display_chain;
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
     ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
@@ -580,10 +579,6 @@ impl Chain {
     {
         if block.chunks.len() != self.runtime_adapter.num_shards() as usize {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
-        }
-
-        if block.header.inner.height % 5 == 0 {
-            display_chain(me, self, block.header.inner.height % 35 != 0);
         }
 
         let prev_head = self.store.head()?;

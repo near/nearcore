@@ -368,7 +368,7 @@ impl ShardsManager {
                 None => true,
             };
 
-            // TODO: remove !delay_requests
+            // TODO: remove !delay_requests, should be done as part of #1434
             let need_to_request_parts = !delay_requests
                 && self.encoded_chunks.contains_key(&chunk_hash)
                 && self.cares_about_shard_this_or_next_epoch(
@@ -771,7 +771,6 @@ impl ShardsManager {
         Ok(None)
     }
 
-    /// Returns true if all the chunk one parts are known
     pub fn process_chunk_one_part(
         &mut self,
         one_part: ChunkOnePart,

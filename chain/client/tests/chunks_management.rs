@@ -63,7 +63,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
             key_pairs.clone(),
             validator_groups,
             true,
-            10000,
+            1500,
             false,
             5,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
