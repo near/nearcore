@@ -166,7 +166,6 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
-        debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
