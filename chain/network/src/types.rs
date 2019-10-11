@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
@@ -10,21 +10,22 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
-use near_primitives::errors::InvalidTxError;
+use crate::routing::{Edge, EdgeInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -174,11 +175,18 @@ pub struct Handshake {
     pub listen_port: Option<u16>,
     /// Peer's chain information.
     pub chain_info: PeerChainInfo,
+    /// Info for new edge.
+    pub edge_info: EdgeInfo,
 }
 
 impl Handshake {
-    pub fn new(peer_id: PeerId, listen_port: Option<u16>, chain_info: PeerChainInfo) -> Self {
-        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info }
+    pub fn new(
+        peer_id: PeerId,
+        listen_port: Option<u16>,
+        chain_info: PeerChainInfo,
+        edge_info: EdgeInfo,
+    ) -> Self {
+        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info, edge_info }
     }
 }
 
@@ -229,34 +237,17 @@ pub struct AnnounceAccountRoute {
 /// Account announcement information
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
-    /// AccountId to be announced
+    /// AccountId to be announced.
     pub account_id: AccountId,
-    /// This announcement is only valid for this `epoch`
+    /// PeerId from the owner of the account.
+    pub peer_id: PeerId,
+    /// This announcement is only valid for this `epoch`.
     pub epoch_id: EpochId,
-    /// Complete route description to account id
-    /// First element of the route (header) contains:
-    ///     peer_id owner of the account_id
-    ///     hash of the announcement
-    ///     signature with account id secret key
-    /// Subsequent elements of the route contain:
-    ///     peer_id of intermediates hop in the route
-    ///     hash built using previous hash and peer_id
-    ///     signature with peer id secret key
-    pub route: Vec<AnnounceAccountRoute>,
+    /// Signature using AccountId associated secret key.
+    pub signature: BlsSignature,
 }
 
 impl AnnounceAccount {
-    pub fn new(
-        account_id: AccountId,
-        epoch_id: EpochId,
-        peer_id: PeerId,
-        hash: CryptoHash,
-        signature: AccountOrPeerSignature,
-    ) -> Self {
-        let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
-        Self { account_id, epoch_id, route }
-    }
-
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,
@@ -270,42 +261,8 @@ impl AnnounceAccount {
         hash(&header.try_to_vec().unwrap())
     }
 
-    pub fn header_hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(
-            &self.account_id,
-            &self.route.first().unwrap().peer_id,
-            &self.epoch_id,
-        )
-    }
-
-    pub fn header(&self) -> &AnnounceAccountRoute {
-        self.route.first().unwrap()
-    }
-
-    /// Peer Id sending this announcement.
-    pub fn peer_id(&self) -> PeerId {
-        self.route.last().unwrap().peer_id.clone()
-    }
-
-    /// Peer Id of the originator of this announcement.
-    pub fn original_peer_id(&self) -> PeerId {
-        self.route.first().unwrap().peer_id.clone()
-    }
-
-    pub fn num_hops(&self) -> usize {
-        self.route.len() - 1
-    }
-
-    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
-        let last_hash = self.route.last().unwrap().hash;
-        let new_hash =
-            hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
-        let signature = secret_key.sign(new_hash.as_ref());
-        self.route.push(AnnounceAccountRoute {
-            peer_id,
-            hash: new_hash,
-            signature: AccountOrPeerSignature::PeerSignature(signature),
-        })
+    pub fn hash(&self) -> CryptoHash {
+        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
     }
 }
 
@@ -316,7 +273,17 @@ pub enum HandshakeFailureReason {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct Ping {
+    nonce: usize,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct Pong {
+    nonce: usize,
+}
+
 // TODO(#1313): Use Box
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, BlsSignature),
@@ -325,76 +292,88 @@ pub enum RoutedMessageBody {
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
+    /// Ping and Pong are used for testing networking and routing
+    Ping(Ping),
+    Pong(Pong),
 }
 
-#[derive(Message)]
-pub struct RawRoutedMessage {
-    pub account_id: AccountId,
-    pub body: RoutedMessageBody,
+pub enum AccountOrPeerId {
+    AccountId(AccountId),
+    PeerId(PeerId),
 }
 
-impl RawRoutedMessage {
-    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
-        let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
-        let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage {
-            account_id: self.account_id,
-            author,
-            signature: AccountOrPeerSignature::PeerSignature(signature),
-            body: self.body,
+impl AccountOrPeerId {
+    fn peer_id(&self) -> Option<PeerId> {
+        match self {
+            AccountOrPeerId::AccountId(_) => None,
+            AccountOrPeerId::PeerId(peer_id) => Some(peer_id.clone()),
         }
     }
 }
 
+#[derive(Message)]
+pub struct RawRoutedMessage {
+    pub target: AccountOrPeerId,
+    pub body: RoutedMessageBody,
+}
+
+impl RawRoutedMessage {
+    /// Add signature to the message.
+    /// Panics if the target is an AccountId instead of a PeerId.
+    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+        let target = self.target.peer_id().unwrap();
+        let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
+        let signature = secret_key.sign(hash.as_ref());
+        RoutedMessage { target, author, signature, body: self.body }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutedMessageMsg {
-    account_id: AccountId,
+pub struct RoutedMessageNoSignature {
+    target: PeerId,
     author: PeerId,
     body: RoutedMessageBody,
 }
 
-/// RoutedMessage represent a package that will travel the network towards a specific account id.
+// TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
+/// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
 /// be banned. If the final receiver of this package finds that the body is invalid the original
-/// sender of the package should be banned instead. (Notice that this peer might not be connected
-/// to us)
+/// sender of the package should be banned instead.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Account id which is directed this message
-    pub account_id: AccountId,
+    pub target: PeerId,
     /// Original sender of this message
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: AccountOrPeerSignature,
+    pub signature: Signature,
     /// Message
     pub body: RoutedMessageBody,
 }
 
 impl RoutedMessage {
-    pub fn build_hash(
-        account_id: &AccountId,
-        author: &PeerId,
-        body: &RoutedMessageBody,
-    ) -> CryptoHash {
+    pub fn build_hash(target: PeerId, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
         hash(
-            &RoutedMessageMsg {
-                account_id: account_id.clone(),
-                author: author.clone(),
-                body: body.clone(),
-            }
-            .try_to_vec()
-            .expect("Failed to serialize"),
+            &RoutedMessageNoSignature { target, author: source, body }
+                .try_to_vec()
+                .expect("Failed to serialize"),
         )
     }
 
     fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.account_id, &self.author, &self.body)
+        RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify_peer(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+    }
+
+    pub fn expect_response(&self) -> bool {
+        // TODO(MarX, #1368): Mark some message as requiring response
+        false
     }
 }
 
@@ -402,14 +381,17 @@ impl Message for RoutedMessage {
     type Result = bool;
 }
 
-// TODO(MarX): We have duplicated types of messages for now while routing between non-validators
+// TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
+// TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
+//  the client messages are routed.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
+    Edges(Vec<Edge>),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -439,6 +421,7 @@ impl fmt::Display for PeerMessage {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
+            PeerMessage::Edges(_) => f.write_str("Edges"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -457,6 +440,8 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+                RoutedMessageBody::Ping(_) => f.write_str("Ping"),
+                RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
             PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
@@ -570,11 +555,20 @@ pub struct Consolidate {
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfo,
+    // Edge information from this node.
+    // If this is None it implies we are outbound connection, so we need to create our
+    // EdgeInfo part and send it to the other peer.
+    pub this_edge_info: Option<EdgeInfo>,
+    // Edge information from other node.
+    pub other_edge_info: EdgeInfo,
 }
 
 impl Message for Consolidate {
-    type Result = bool;
+    type Result = ConsolidateResponse;
 }
+
+#[derive(MessageResponse)]
+pub struct ConsolidateResponse(pub bool, pub Option<EdgeInfo>);
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
@@ -632,21 +626,32 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug, Clone, PartialEq)]
 // TODO(#1313): Use Box
+#[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block {
+        block: Block,
+    },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
+    BlockHeaderAnnounce {
+        header: BlockHeader,
+        approval: Option<BlockApproval>,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
@@ -656,20 +661,50 @@ pub enum NetworkRequests {
         account_id: AccountId,
     },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
-    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    ChunkPartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
     /// Request chunk part and receipts
-    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
+    ChunkOnePartRequest {
+        account_id: AccountId,
+        one_part_request: ChunkOnePartRequestMsg,
+    },
     /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    ChunkOnePartResponse {
+        peer_id: PeerId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk header and one part for another validator.
-    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
+    ChunkOnePartMessage {
+        account_id: AccountId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk part
-    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+    ChunkPart {
+        peer_id: PeerId,
+        part: ChunkPartMsg,
+    },
+
+    // The following types of requests are used to trigger actions in the Peer Manager for testing.
+    // Fetch current routing table
+    FetchRoutingTable,
+    // New edge from the network.
+    Edges(Vec<Edge>),
+}
+
+/// Messages from PeerManager to Peer
+#[derive(Message)]
+pub enum PeerManagerRequest {
+    BanPeer(ReasonForBan),
 }
 
 /// Combines peer address info and chain information.
@@ -677,6 +712,7 @@ pub enum NetworkRequests {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
 }
 
 #[derive(Debug)]
@@ -695,6 +731,7 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
+    RoutingTableInfo(HashMap<PeerId, HashSet<PeerId>>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses

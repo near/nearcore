@@ -785,9 +785,9 @@ mod test {
     use near_network::PeerInfo;
     use near_primitives::block::Block;
 
-    use crate::test_utils::MockNetworkAdapter;
-
     use super::*;
+    use crate::test_utils::MockNetworkAdapter;
+    use near_network::routing::EdgeInfo;
 
     #[test]
     fn test_get_locator_heights() {
@@ -833,6 +833,7 @@ mod test {
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
             },
+            edge_info: EdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync

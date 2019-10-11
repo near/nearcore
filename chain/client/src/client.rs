@@ -772,8 +772,8 @@ impl Client {
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                     NetworkClientResponses::ValidTx
                 } else {
-                    // TODO(MarX): Forward tx even if I am a validator.
-                    // TODO(MarX): How many validators ahead of current time should we forward tx?
+                    // TODO(MarX, #1366): Forward tx even if I am a validator.
+                    //  How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
 
                     debug!(target: "client",

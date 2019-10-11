@@ -71,9 +71,9 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::EpochId;
 
+    use crate::routing::EdgeInfo;
     use crate::types::{
-        AccountOrPeerSignature, AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage,
-        RoutedMessageBody,
+        AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
     };
 
     use super::*;
@@ -98,6 +98,7 @@ mod test {
                 height: 0,
                 total_weight: 0.into(),
             },
+            edge_info: EdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
@@ -116,30 +117,32 @@ mod test {
         let sk = BlsSecretKey::from_random();
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
-            "test1".to_string(),
-            EpochId::default(),
-            network_sk.public_key().into(),
-            CryptoHash::default(),
-            AccountOrPeerSignature::AccountSignature(signature),
-        ));
+        let msg = PeerMessage::AnnounceAccount(AnnounceAccount {
+            account_id: "test1".to_string(),
+            peer_id: network_sk.public_key().into(),
+            epoch_id: EpochId::default(),
+            signature,
+        });
         test_codec(msg);
     }
 
     #[test]
     fn test_peer_message_announce_routed_block_approval() {
-        let sk = BlsSecretKey::from_random();
-        let network_sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = SecretKey::from_random(KeyType::ED25519);
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
+
+        let bls_sk = BlsSecretKey::from_random();
+        let bls_signature = bls_sk.sign(hash.as_ref());
+
         let msg = PeerMessage::Routed(RoutedMessage {
-            account_id: "test1".to_string(),
-            author: network_sk.public_key().into(),
-            signature: AccountOrPeerSignature::AccountSignature(signature.clone()),
+            target: sk.public_key().into(),
+            author: sk.public_key().into(),
+            signature: signature.clone(),
             body: RoutedMessageBody::BlockApproval(
                 "test2".to_string(),
                 CryptoHash::default(),
-                signature,
+                bls_signature,
             ),
         });
         test_codec(msg);

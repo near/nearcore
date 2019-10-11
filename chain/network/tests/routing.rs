@@ -1,5 +1,5 @@
 use std::iter::Iterator;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,11 +11,12 @@ use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_crypto::InMemoryBlsSigner;
-use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
-use near_network::types::NetworkInfo;
-use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_network::test_utils::{
+    convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
+};
+use near_network::types::OutboundTcpConnect;
+use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 
@@ -74,248 +75,248 @@ pub fn setup_network_node(
     peer_manager
 }
 
-fn wait_routing_table_state(
-    peer_managers: Vec<Addr<PeerManagerActor>>,
-    counters: Vec<Arc<AtomicUsize>>,
-    flag: Arc<AtomicBool>,
-    accounts_id: Vec<AccountId>,
-    expected_accounts: Vec<AccountId>,
-) {
-    for ((pm, count), cur_acc_id) in peer_managers.iter().zip(counters.iter()).zip(accounts_id) {
-        let pm = pm.clone();
-        let count = count.clone();
+enum Action {
+    AddEdge(usize, usize),
+    CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
+}
 
-        let counters = counters.clone();
-        let flag = flag.clone();
-        let expected_accounts = expected_accounts.clone();
+#[derive(Clone)]
+struct RunningInfo {
+    pm_addr: Vec<Addr<PeerManagerActor>>,
+    peer_info: Vec<PeerInfo>,
+}
 
-        if count.load(Ordering::Relaxed) == 0 {
-            actix::spawn(pm.send(NetworkRequests::FetchInfo).then(move |res| {
-                if let NetworkResponses::Info(NetworkInfo {
-                    known_producers: account_peers, ..
-                }) = res.unwrap()
-                {
-                    let mut count_expected = 0;
+struct StateMachine {
+    actions: Vec<Box<dyn FnMut(RunningInfo, Arc<AtomicBool>)>>,
+}
 
-                    for acc_id in expected_accounts.into_iter() {
-                        if acc_id == cur_acc_id {
-                            assert!(!account_peers.contains(&acc_id));
-                        } else {
-                            if account_peers.contains(&acc_id) {
-                                count_expected += 1;
-                            } else {
-                                // missing somme account id in routes yet.
-                                return future::result(Ok(()));
+impl StateMachine {
+    fn new() -> Self {
+        Self { actions: vec![] }
+    }
+
+    pub fn push(&mut self, action: Action) {
+        match action {
+            Action::AddEdge(u, v) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    let addr = info.pm_addr[u].clone();
+                    let peer_info = info.peer_info[v].clone();
+                    actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(move |res| {
+                        match res {
+                            Ok(_) => {
+                                flag.store(true, Ordering::Relaxed);
+                                future::ok(())
+                            }
+                            Err(e) => {
+                                panic!("Error adding edge. {:?}", e);
                             }
                         }
-                    }
-
-                    if count_expected == account_peers.len() {
-                        count.fetch_add(1, Ordering::Relaxed);
-                        if counters.iter().all(|counter| counter.load(Ordering::Relaxed) == 1) {
-                            flag.store(true, Ordering::Relaxed);
-                        }
-                    }
-                }
-                future::result(Ok(()))
-            }));
-        }
-    }
-}
-
-enum States<F>
-where
-    F: FnMut(),
-{
-    CheckpointRoutingTableState(Vec<AccountId>),
-    Action(Option<F>),
-}
-
-impl<F> States<F>
-where
-    F: FnMut(),
-{
-    fn get(&mut self) -> States<F> {
-        match self {
-            States::CheckpointRoutingTableState(expected_accounts) => {
-                States::CheckpointRoutingTableState(expected_accounts.clone())
+                    }));
+                }));
             }
-            States::Action(action) => States::Action(action.take()),
-        }
-    }
-}
+            Action::CheckRoutingTable(u, expected) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    let expected1 = expected
+                        .clone()
+                        .into_iter()
+                        .map(|(target, routes)| {
+                            (
+                                info.peer_info[target].id.clone(),
+                                routes
+                                    .into_iter()
+                                    .map(|hop| info.peer_info[hop].id.clone())
+                                    .collect(),
+                            )
+                        })
+                        .collect();
 
-struct StateMachine<F>
-where
-    F: FnMut(),
-{
-    peer_managers: Vec<Addr<PeerManagerActor>>,
-    accounts_id: Vec<AccountId>,
-    flag: Arc<AtomicBool>,
-    counters: Vec<Arc<AtomicUsize>>,
-    states: Vec<States<F>>,
-    pointer: usize,
-}
+                    actix::spawn(
+                        info.pm_addr
+                            .get(u)
+                            .unwrap()
+                            .send(NetworkRequests::FetchRoutingTable)
+                            .map_err(|_| ())
+                            .and_then(move |res| {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                    // println!("\nROUTING TABLE: {:?}\n", routing_table);
+                                    // println!("\nEXPECTED: {:?}\n", expected1);
 
-impl<F> StateMachine<F>
-where
-    F: FnMut(),
-{
-    fn new(peer_managers: Vec<Addr<PeerManagerActor>>, accounts_id: Vec<AccountId>) -> Self {
-        let counters = (0..peer_managers.len()).map(|_| Arc::new(AtomicUsize::new(0))).collect();
-        Self {
-            peer_managers,
-            accounts_id,
-            flag: Arc::new(AtomicBool::new(false)),
-            counters,
-            states: Vec::new(),
-            pointer: 0,
-        }
-    }
-
-    fn add_checkpoint(&mut self, expected_accounts: Vec<AccountId>) {
-        self.states.push(States::CheckpointRoutingTableState(expected_accounts));
-    }
-
-    fn add_action(&mut self, action: F) {
-        self.states.push(States::Action(Some(action)));
-    }
-
-    fn step(&mut self) -> bool {
-        if self.flag.load(Ordering::Relaxed) {
-            self.flag.store(false, Ordering::Relaxed);
-            for counter in self.counters.iter() {
-                counter.store(0, Ordering::Relaxed);
-            }
-            self.pointer += 1;
-        }
-
-        if self.pointer == self.states.len() {
-            return true;
-        }
-
-        let state = self.states.get_mut(self.pointer).unwrap();
-
-        match state.get() {
-            States::Action(action) => {
-                let mut action = action.unwrap();
-                action();
-                self.flag.store(true, Ordering::Relaxed);
-            }
-            States::CheckpointRoutingTableState(expected_accounts) => {
-                wait_routing_table_state(
-                    self.peer_managers.clone(),
-                    self.counters.clone(),
-                    self.flag.clone(),
-                    self.accounts_id.clone(),
-                    expected_accounts.clone(),
-                );
+                                    if expected_routing_tables(routing_table, expected1) {
+                                        flag.store(true, Ordering::Relaxed);
+                                    }
+                                }
+                                future::ok(())
+                            }),
+                    );
+                }))
             }
         }
-
-        false
     }
 }
 
-fn check_routing_table(
-    accounts_id: Vec<String>,
-    adjacency_list: Vec<Vec<usize>>,
-    peer_max_count: u32,
-    max_wait_ms: u64,
-    validator_mask: Vec<bool>,
-) {
-    init_test_logger();
+struct Runner {
+    num_nodes: usize,
+    num_validators: usize,
+    state_machine: Option<StateMachine>,
+}
 
-    System::run(move || {
-        let total_nodes = accounts_id.len();
+impl Runner {
+    fn new(num_nodes: usize, num_validators: usize) -> Self {
+        Self { num_nodes, num_validators, state_machine: Some(StateMachine::new()) }
+    }
 
-        let ports: Vec<_> = (0..total_nodes).map(|_| open_port()).collect();
+    fn push(&mut self, action: Action) {
+        self.state_machine.as_mut().unwrap().push(action);
+    }
+
+    fn build(&self) -> RunningInfo {
         let genesis_time = Utc::now();
 
-        let boot_nodes = adjacency_list
-            .into_iter()
-            .map(|adj| adj.into_iter().map(|u| (accounts_id[u].clone(), ports[u])).collect());
+        let accounts_id: Vec<_> = (0..self.num_nodes).map(|ix| format!("test{}", ix)).collect();
+        let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
-        let validators: Vec<_> = accounts_id
-            .iter()
-            .zip(validator_mask.iter())
-            .filter_map(|(acc_id, is_val)| if *is_val { Some(acc_id.clone()) } else { None })
-            .collect();
+        let validators: Vec<_> =
+            accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
 
-        // Peer managers with its counters
-        let peer_managers: Vec<_> = accounts_id
-            .iter()
-            .zip(boot_nodes)
-            .enumerate()
-            .map(|(ix, (account_id, boot_nodes))| {
+        let peer_info =
+            convert_boot_nodes(accounts_id.iter().map(|x| x.as_str()).zip(ports.clone()).collect());
+        let pm_addr: Vec<_> = (0..self.num_nodes)
+            .map(|ix| {
                 setup_network_node(
-                    account_id.clone(),
-                    ports[ix],
-                    boot_nodes,
+                    accounts_id[ix].clone(),
+                    ports[ix].clone(),
+                    vec![],
                     validators.clone(),
                     genesis_time,
-                    peer_max_count,
+                    0,
                 )
             })
             .collect();
 
-        let mut state_machine = StateMachine::new(peer_managers, accounts_id.clone());
+        RunningInfo { pm_addr, peer_info }
+    }
 
-        state_machine.add_checkpoint(validators.clone());
-        // Dummy closure
-        state_machine.add_action(|| {});
+    fn run(&mut self) {
+        let info = self.build();
 
-        //        let mut accounts_without_1 = accounts_id.clone();
-        //        accounts_without_1.remove(1);
-        //        state_machine.add_checkpoint(accounts_without_1);
+        let mut pointer = None;
+        let mut flag = Arc::new(AtomicBool::new(true));
+        let mut state_machine = self.state_machine.take().unwrap();
 
+        // TODO(MarX, #1312): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
+        //  instead of using fixed `check_interval_ms`.
         WaitOrTimeout::new(
             Box::new(move |_| {
-                if state_machine.step() {
+                if flag.load(Ordering::Relaxed) {
+                    pointer = Some(pointer.map_or(0, |x| x + 1));
+                    flag = Arc::new(AtomicBool::new(false));
+                }
+
+                if pointer.unwrap() == state_machine.actions.len() {
                     System::current().stop();
+                } else {
+                    let action = state_machine.actions.get_mut(pointer.unwrap()).unwrap();
+                    action(info.clone(), flag.clone());
                 }
             }),
-            100,
-            max_wait_ms,
+            50,
+            15000,
         )
         .start();
+    }
+}
+
+#[test]
+fn simple() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(2, 1);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+
+        runner.run();
     })
     .unwrap();
 }
 
 #[test]
-fn three_nodes_two_validators() {
-    check_routing_table(
-        vec_ref_to_str(vec!["test0", "test1", "test2"]),
-        vec![vec![], vec![0], vec![0]],
-        10,
-        3000,
-        vec![true, true, false],
-    );
+fn three_nodes_path() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
+
+        runner.run();
+    })
+    .unwrap();
 }
 
 #[test]
-fn long_path() {
-    let num_peers = 7;
-    let max_peer_connections = 2;
+fn three_nodes_star() {
+    init_test_logger();
 
-    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
-    let adjacency_list = (0..num_peers)
-        .map(|ix| {
-            let mut neigs = vec![];
-            if ix > 0 {
-                neigs.push(ix - 1);
-            }
-            if ix + 1 < num_peers {
-                neigs.push(ix + 1);
-            }
-            neigs
-        })
-        .collect();
+    System::run(|| {
+        let mut runner = Runner::new(3, 2);
 
-    let mut validator_mask = vec![false; num_peers];
-    validator_mask[0] = true;
-    validator_mask[num_peers - 1] = true;
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
+        runner.push(Action::AddEdge(0, 2));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
 
-    check_routing_table(accounts_id, adjacency_list, max_peer_connections, 3000, validator_mask);
+        runner.run();
+    })
+    .unwrap();
 }
+
+#[test]
+fn join_components() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3])]));
+        runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2])]));
+        runner.push(Action::AddEdge(0, 2));
+        runner.push(Action::AddEdge(3, 1));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2]), (3, vec![1, 2])]));
+        runner
+            .push(Action::CheckRoutingTable(3, vec![(1, vec![1]), (2, vec![2]), (0, vec![1, 2])]));
+        runner
+            .push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (3, vec![3]), (2, vec![0, 3])]));
+        runner
+            .push(Action::CheckRoutingTable(2, vec![(0, vec![0]), (3, vec![3]), (1, vec![0, 3])]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+// TODO(Marx, #1312): Test handshake nonce after Added -> Removed -> Added
+
+// TODO(MarX, #1312): What happens with Outbound connection if it doesn't receive the Handshake.
+//      In this case new edge will be broadcasted but will be unusable from this node POV.
+//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
+//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
+//      higher nonce, forget this new connection.
+
+// TODO(MarX, #1312): Test routing (between peers / between validator)
