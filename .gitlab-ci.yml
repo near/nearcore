@@ -114,7 +114,7 @@ test_nearlib_release:
     - *setup_cache
     script:
     - export NEARLIB_RELEASE=true
-    - ./scripts/test_nearlib_release.sh
+    - ./scripts/test_nearlib.sh
 
     after_script:
     - *cleanup_obsolete_cache
