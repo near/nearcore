@@ -220,13 +220,15 @@ cargo build -p near
     def cleanup(self):
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
-        target_path = '/opt/near_finished'
         self.exec("""
 rm -rf /opt/near_finished
 cp -r /opt/near /opt/near_finished
 rm -rf /opt/near/data
 """
         )
+
+    def update_config_files(self, local_config_dir):
+        copy_to_instance(self.zone, self.instance_name, os.path.join(local_config_dir, '*.json'), "/opt/near/")
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
