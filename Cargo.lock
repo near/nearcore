@@ -1389,6 +1389,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-mainnet"
+version = "0.1.0"
+dependencies = [
+ "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near 0.4.0",
+ "node-runtime 0.0.1",
+]
+
+[[package]]
 name = "genesis-populate"
 version = "0.1.0"
 dependencies = [
