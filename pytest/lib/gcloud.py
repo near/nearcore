@@ -22,6 +22,8 @@ an image.
     https://cloud.google.com/compute/docs/tutorials/python-guide
 
 For more information, see the README.md under /compute.
+
+API Spec: http://googleapis.github.io/google-api-python-client/docs/dyn/compute_v1.instances.html
 """
 
 import argparse
@@ -175,10 +177,10 @@ if __name__ == '__main__':
 # [END run]
 
 def get_zone(instance):
-    return subprocess.check_output(["gcloud", "compute", "instances", "list", "--format='value(zone)'", "--filter='name="+instance+"'"]).strip()
+    return subprocess.check_output(["gcloud", "compute", "instances", "list", "--format", 'value(zone)', "--filter", 'name='+instance]).decode('utf-8').strip()
 
 def ssh(zone, instance, command):
-    return subprocess.check_output(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command])
+    return subprocess.check_output(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command]).decode('utf-8')
 
 def copy_to_instance(zone, instance, src, tgt):
     subprocess.check_output("gcloud compute scp --zone " + zone + " " + src + " " + instance + ":" + tgt, shell=True)

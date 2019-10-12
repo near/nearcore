@@ -153,9 +153,12 @@ class GCloudNode(BaseNode):
         self.zone = get_zone(instance_name)
         self.port = 24567
         self.rpc_port = 3000
-        self.resource = compute().instances().get(project='near-core', zone=self.zone,
-                                                instance=instance_name).execute()
+        self.resource = self.get_gcloud()
         self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+
+    def get_gcloud(self):
+        return compute().instances().get(project='near-core', zone=self.zone,
+                                         instance=self.instance_name).execute()
 
     def addr(self):
         return (self.ip, self.port)
@@ -166,32 +169,64 @@ class GCloudNode(BaseNode):
     def exec(self, command):
         return ssh(self.zone, self.instance_name, command)
 
+    def machine_status(self):
+        return self.get_gcloud()['status']
+
     def is_ready(self):
         """
         Raise exception if it's not ready. Ready means instance fully created. compilation
         finishes and binary exists
         """
-
-    def is_started(self):
-        self.exec("lsof -i tcp:3030")
-
-    def is_killed(self):
-        self.exec("! lsof -i tcp:3030")
+        assert self.machine_status() == 'RUNNING'
+        assert self.exec("ls /opt/nearcore/target/debug/near")
     
     def turn_on_machine(self):
-        compute().instances().start(project='near-core', zone=self.zone, instance=self.instance_name)    
+        """
+        Turn on gcloud instance, wait until it's on.
+        """
+        compute().instances().start(project='near-core', zone=self.zone, instance=self.instance_name)
+        retry.retry(lambda: self.machine_status() == 'RUNNING', 60)
+        self.exec("tmux new -s node -d")
     
     def turn_off_machine(self):
-        compute().instances().stop(project='near-core', zone=self.zone, instance=self.instance_name)    
+        """
+        Turn off gcloud instance, wait until it's off.
+        """
+        compute().instances().stop(project='near-core', zone=self.zone, instance=self.instance_name)
+        retry.retry(lambda: self.machine_status() == 'STOPPED', 60) 
 
     def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
         self.exec("""tmux send-keys -t node '{cmd}' C-m
 """.format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)))
         )
         self.wait_for_rpc(timeout=10)
+
+    def change_version(self, commit):
+        """
+        Fetch and checkout to a different commit or git branch, then recompile
+        """
+        self.kill()
+        self.exec("""
+cd /opt/nearcore
+git fetch
+git checkout {}
+cargo build -p near
+""".format(commit)
+        )
     
     def kill(self):
-        ssh(self.zone, self.instance_name, "tmux send-keys -t node C-c")
+        self.exec("tmux send-keys -t node C-c")
+
+    def cleanup(self):
+        self.kill()
+        # move the node dir to avoid weird interactions with multiple serial test invocations
+        target_path = '/opt/near_finished'
+        self.exec("""
+rm -rf /opt/near_finished
+cp -r /opt/near /opt/near_finished
+rm -rf /opt/near/data
+"""
+        )
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -265,7 +300,9 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     if not os.path.exists(os.path.expanduser("~/.near/test0")):
         near_root, node_dirs = init_cluster(
             num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
-
+    else:
+        near_root = config['near_root']
+        node_dirs = subprocess.check_output("find ~/.near/* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):

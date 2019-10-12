@@ -45,9 +45,7 @@ gcloud compute instances create ${MACHINE_NAME}-${NODE_ID} \
 until gcloud compute ssh --zone=${ZONE} ${MACHINE_NAME}-${NODE_ID} -- sudo lsblk; do sleep 1; done
 
 # Copy the genesis and key pair into the instance
-if [[ ! ${DISK_EXISTS} -eq 0 ]]; then
 gcloud compute scp --zone=${ZONE} ${NEAR_HOME}/${PREFIX}${NODE_ID}/* ${MACHINE_NAME}-${NODE_ID}:/opt/near/
-fi
 
 # Start image inside.
 gcloud compute ssh --zone=${ZONE} ${MACHINE_NAME}-${NODE_ID} -- <<GCLOUD
