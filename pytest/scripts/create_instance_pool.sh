@@ -44,9 +44,6 @@ gcloud compute instances create ${MACHINE_NAME}-${NODE_ID} \
 # Wait for SSH.
 until gcloud compute ssh --zone=${ZONE} ${MACHINE_NAME}-${NODE_ID} -- sudo lsblk; do sleep 1; done
 
-# Copy the genesis and key pair into the instance
-gcloud compute scp --zone=${ZONE} ${NEAR_HOME}/${PREFIX}${NODE_ID}/* ${MACHINE_NAME}-${NODE_ID}:/opt/near/
-
 # Start image inside.
 gcloud compute ssh --zone=${ZONE} ${MACHINE_NAME}-${NODE_ID} -- <<GCLOUD
 sudo chmod 777 /opt
@@ -65,6 +62,9 @@ cargo build -p near
 
 tmux new -s node -d
 GCLOUD
+
+# Copy the genesis and key pair into the instance
+gcloud compute scp --zone=${ZONE} ${NEAR_HOME}/${PREFIX}${NODE_ID}/* ${MACHINE_NAME}-${NODE_ID}:/opt/near/
 
 ) &
 done

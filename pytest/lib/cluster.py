@@ -148,13 +148,19 @@ class BotoNode(BaseNode):
 
 
 class GCloudNode(BaseNode):
-    def __init__(self, instance_name):
+    def __init__(self, instance_name, node_dir):
         self.instance_name = instance_name
         self.zone = get_zone(instance_name)
         self.port = 24567
-        self.rpc_port = 3000
+        self.rpc_port = 3030
         self.resource = self.get_gcloud()
         self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        # self.signer_key = Key.from_json_file(
+        #     os.path.join(node_dir, "signer_key.json"))
 
     def get_gcloud(self):
         return compute().instances().get(project='near-core', zone=self.zone,
@@ -224,8 +230,14 @@ class GCloudNode(BaseNode):
         self.exec("cp -r /opt/near /opt/near_finished")
         self.exec("rm -rf /opt/near/data")
 
-    def update_config_files(self, local_config_dir):
-        copy_to_instance(self.zone, self.instance_name, os.path.join(local_config_dir, '*.json'), "/opt/near/")
+    def update_config_files(self, node_dir):
+        copy_to_instance(self.zone, self.instance_name, os.path.join(node_dir, '*.json'), "/opt/near/")
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "signer_key.json"))
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -238,7 +250,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
                          10 + ordinal, near_root, node_dir)
     else:
         instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'),ordinal)
-        node = GCloudNode(instance_name)
+        node = GCloudNode(instance_name, node_dir)
 
     node.start(boot_key, boot_addr)
 
