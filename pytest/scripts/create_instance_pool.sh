@@ -59,7 +59,7 @@ export CARGO_HOME=/opt/cargo
 curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-05-22
 source /opt/cargo/env
 
-git clone --single-branch --branch staging https://github.com/nearprotocol/nearcore.git nearcore
+git clone https://github.com/nearprotocol/nearcore.git
 cd nearcore
 cargo build -p near
 

@@ -180,7 +180,7 @@ def get_zone(instance):
     return subprocess.check_output(["gcloud", "compute", "instances", "list", "--format", 'value(zone)', "--filter", 'name='+instance]).decode('utf-8').strip()
 
 def ssh(zone, instance, command):
-    return subprocess.check_output(' '.join(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command]), shell=True).decode('utf-8')
+    return subprocess.check_output(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command]).decode('utf-8')
 
 def copy_to_instance(zone, instance, src, tgt):
     subprocess.check_output("gcloud compute scp --zone " + zone + " " + src + " " + instance + ":" + tgt, shell=True)

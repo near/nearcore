@@ -199,6 +199,8 @@ class GCloudNode(BaseNode):
         self.exec("""tmux send-keys -t node '{cmd}' C-m
 """.format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)))
         )
+        self.resource = self.get_gcloud()
+        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
         self.wait_for_rpc(timeout=10)
 
     def change_version(self, commit):
@@ -206,13 +208,11 @@ class GCloudNode(BaseNode):
         Fetch and checkout to a different commit or git branch, then recompile
         """
         self.kill()
-        self.exec("""
-cd /opt/nearcore
-git fetch
-git checkout {}
-cargo build -p near
-""".format(commit)
-        )
+        self.exec("tmux send-keys -t node 'cd /opt/nearcore' C-m")
+        self.exec("tmux send-keys -t node 'rm /opt/nearcore/target/debug/near' C-m")
+        self.exec("tmux send-keys -t node 'git fetch' C-m")
+        self.exec("tmux send-keys -t node 'git checkout {}' C-m".format(commit))
+        self.exec("tmux send-keys -t node 'cargo build -p near' C-m")
     
     def kill(self):
         self.exec("tmux send-keys -t node C-c")
@@ -220,12 +220,9 @@ cargo build -p near
     def cleanup(self):
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
-        self.exec("""
-rm -rf /opt/near_finished
-cp -r /opt/near /opt/near_finished
-rm -rf /opt/near/data
-"""
-        )
+        self.exec("rm -rf /opt/near_finished")
+        self.exec("cp -r /opt/near /opt/near_finished")
+        self.exec("rm -rf /opt/near/data")
 
     def update_config_files(self, local_config_dir):
         copy_to_instance(self.zone, self.instance_name, os.path.join(local_config_dir, '*.json'), "/opt/near/")
