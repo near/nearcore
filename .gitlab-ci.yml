@@ -93,17 +93,28 @@ test_cases_testnet_rpc:
 #    - *code_coverage
 #
 test_nearlib:
-   stage: test
-   tags:
-   - gcloud
-   before_script:
-   - *setup_rust
-   - *setup_cache
-   # Install latest Node
-   - npx n latest
-   script:
-   - export PATH=$HOME/n/bin:$PATH
-   - ./scripts/test_nearlib.sh
+    stage: test
+    tags:
+    - gcloud
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    script:
+    - ./scripts/test_nearlib.sh
 
-   after_script:
-   - *cleanup_obsolete_cache
+    after_script:
+    - *cleanup_obsolete_cache
+
+test_nearlib_release:
+    stage: test
+    tags:
+    - gcloud
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    script:
+    - export NEARLIB_RELEASE=true
+    - ./scripts/test_nearlib.sh
+
+    after_script:
+    - *cleanup_obsolete_cache
