@@ -278,7 +278,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
 
-    use near_crypto::{InMemorySigner, KeyType, ReadablePublicKey, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signature};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;
@@ -314,9 +314,7 @@ mod tests {
     #[test]
     fn test_serialize_transaction() {
         let public_key: PublicKey =
-            ReadablePublicKey::new("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV")
-                .try_into()
-                .unwrap();
+            "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
         let bls_public_key: BlsPublicKey = serde_json::from_str(
             "\"7NU5dMDJy8P1mhvDJyKGprjVBWXmXyonqc6N6XcWkvKF7jtwcwzkEdfAM8nDWZhq8M\"",
         )
