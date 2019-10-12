@@ -1,4 +1,4 @@
-image: parity/rust:a811bb14-20190522 
+image: parity/rust:a811bb14-20190522
 
 variables:
     CI_SERVER_NAME:  "GitLab CI"
@@ -44,7 +44,7 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     - cargo check --all --tests --benches
-    - cargo test --all --verbose --features fake_crypto
+    - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
 
@@ -74,7 +74,7 @@ test_cases_testnet_rpc:
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests,fake_crypto"
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests"
     tags:
         - expensive_tests
     after_script:
@@ -105,7 +105,7 @@ release_build:
 #    - *code_coverage
 #
 test_nearlib:
-   stage: rust 
+   stage: rust
    tags:
    - gcloud
    before_script:

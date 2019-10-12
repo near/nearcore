@@ -24,8 +24,8 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StorageUsage, ValidatorStake,
-    Version,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
+    ValidatorStake, Version,
 };
 
 #[derive(PartialEq, Eq, Clone)]
@@ -373,7 +373,7 @@ impl From<BlockHeaderView> for BlockHeader {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChunkHeaderView {
     pub prev_block_hash: CryptoHashView,
-    pub prev_state_root: CryptoHashView,
+    pub prev_state_root_hash: CryptoHashView,
     pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHashView,
     pub encoded_length: u64,
@@ -394,8 +394,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
         ChunkHeaderView {
             prev_block_hash: chunk.inner.prev_block_hash.into(),
-            prev_state_root: chunk.inner.prev_state_root.into(),
-            prev_state_num_parts: chunk.inner.prev_state_num_parts,
+            prev_state_root_hash: chunk.inner.prev_state_root.hash.into(),
+            prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
             encoded_merkle_root: chunk.inner.encoded_merkle_root.into(),
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -422,8 +422,10 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
         let mut header = ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash.into(),
-                prev_state_root: view.prev_state_root.into(),
-                prev_state_num_parts: view.prev_state_num_parts,
+                prev_state_root: StateRoot {
+                    hash: view.prev_state_root_hash.into(),
+                    num_parts: view.prev_state_num_parts,
+                },
                 encoded_merkle_root: view.encoded_merkle_root.into(),
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,

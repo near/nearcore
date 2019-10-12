@@ -4,9 +4,6 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
-[features]
-fake_crypto = []
-
 [dependencies]
 sodiumoxide = "0.2.2"
 eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }

@@ -5,8 +5,6 @@ use std::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 use milagro_bls::AggregatePublicKey;
 
-use crate::ReadablePublicKey;
-
 const BLS_DOMAIN: u64 = 42;
 const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const BLS_SECRET_KEY_LENGTH: usize = 48;
@@ -54,17 +52,17 @@ impl std::fmt::Debug for BlsPublicKey {
     }
 }
 
-impl TryFrom<ReadablePublicKey> for BlsPublicKey {
+impl TryFrom<String> for BlsPublicKey {
     type Error = String;
 
-    fn try_from(pk: ReadablePublicKey) -> Result<Self, Self::Error> {
-        str_to_public_key(&pk.0)
+    fn try_from(pk: String) -> Result<Self, Self::Error> {
+        str_to_public_key(&pk)
     }
 }
 
-impl From<BlsPublicKey> for ReadablePublicKey {
+impl From<BlsPublicKey> for String {
     fn from(pk: BlsPublicKey) -> Self {
-        ReadablePublicKey(bs58::encode(pk.0.as_bytes()).into_string())
+        bs58::encode(pk.0.as_bytes()).into_string()
     }
 }
 
@@ -120,13 +118,9 @@ impl BlsSecretKey {
     }
 
     pub fn sign(&self, data: &[u8]) -> BlsSignature {
-        if !cfg!(feature = "fake_crypto") {
-            let mut agg_sig = milagro_bls::AggregateSignature::new();
-            agg_sig.add(&milagro_bls::Signature::new(&data, BLS_DOMAIN, &self.0));
-            BlsSignature(agg_sig)
-        } else {
-            BlsSignature(milagro_bls::AggregateSignature::new())
-        }
+        let mut agg_sig = milagro_bls::AggregateSignature::new();
+        agg_sig.add(&milagro_bls::Signature::new(&data, BLS_DOMAIN, &self.0));
+        BlsSignature(agg_sig)
     }
 }
 
@@ -205,25 +199,17 @@ impl BlsSignature {
     }
 
     pub fn verify_single(&self, data: &[u8], public_key: &BlsPublicKey) -> bool {
-        if !cfg!(feature = "fake_crypto") {
-            let mut agg_pk = AggregatePublicKey::new();
-            agg_pk.add(&public_key.0);
-            self.0.verify(data, BLS_DOMAIN, &agg_pk)
-        } else {
-            true
-        }
+        let mut agg_pk = AggregatePublicKey::new();
+        agg_pk.add(&public_key.0);
+        self.0.verify(data, BLS_DOMAIN, &agg_pk)
     }
 
     pub fn verify_aggregate(&self, data: &[u8], public_keys: &[BlsPublicKey]) -> bool {
-        if !cfg!(feature = "fake_crypto") {
-            let mut agg_pk = AggregatePublicKey::new();
-            for public_key in public_keys.iter() {
-                agg_pk.add(&public_key.0);
-            }
-            self.0.verify(data, BLS_DOMAIN, &agg_pk)
-        } else {
-            true
+        let mut agg_pk = AggregatePublicKey::new();
+        for public_key in public_keys.iter() {
+            agg_pk.add(&public_key.0);
         }
+        self.0.verify(data, BLS_DOMAIN, &agg_pk)
     }
 }
 

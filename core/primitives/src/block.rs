@@ -9,7 +9,9 @@ use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
-use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{
+    Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+};
 use crate::utils::{from_timestamp, to_timestamp};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -230,8 +232,7 @@ pub struct Block {
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
-        state_roots: Vec<MerkleHash>,
-        state_num_parts: Vec<u64>,
+        state_roots: Vec<StateRoot>,
         timestamp: DateTime<Utc>,
         num_shards: ShardId,
         initial_gas_limit: Gas,
@@ -243,8 +244,7 @@ impl Block {
             .map(|i| {
                 ShardChunkHeader::new(
                     CryptoHash::default(),
-                    state_roots[i as usize % state_roots.len()],
-                    state_num_parts[i as usize % state_roots.len()],
+                    state_roots[i as usize % state_roots.len()].clone(),
                     CryptoHash::default(),
                     0,
                     0,
@@ -359,7 +359,10 @@ impl Block {
 
     pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
         merklize(
-            &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
+            &chunks
+                .iter()
+                .map(|chunk| chunk.inner.prev_state_root.hash)
+                .collect::<Vec<CryptoHash>>(),
         )
         .0
     }
