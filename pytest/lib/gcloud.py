@@ -174,6 +174,9 @@ if __name__ == '__main__':
     main(args.project_id, args.bucket_name, args.zone, args.name)
 # [END run]
 
+def get_zone(instance):
+    return subprocess.check_output(["gcloud", "compute", "instances", "list", "--format='value(zone)'", "--filter='name="+instance+"'"]).strip()
+
 def ssh(zone, instance, command):
     return subprocess.check_output(["gcloud", "compute", "ssh", "--zone", zone, instance, "--", command])
 
