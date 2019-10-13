@@ -388,13 +388,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if drop_chunks {
-                    250 // need to have time to re-request chunks
-                } else if rotate_validators {
-                    250
-                } else {
-                    200
-                },
+                600,
                 drop_chunks,
                 20,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
