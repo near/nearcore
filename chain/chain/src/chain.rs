@@ -345,6 +345,11 @@ impl Chain {
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let block_hash = block.hash();
+
+        /*if block.header.inner.height % 5 == 0 {
+            display_chain(me, self, block.header.inner.height % 35 != 0);
+        }*/
+
         let res =
             self.process_block_single(me, block, provenance, block_accepted, block_misses_chunks);
         if res.is_ok() {
@@ -1831,8 +1836,6 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header.inner.prev_hash == head.last_block_hash;
 
-        self.check_header_signature(&block.header)?;
-
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
@@ -1986,6 +1989,12 @@ impl<'a> ChainUpdate<'a> {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
+        }
+
+        if self.chain_store_update.get_block_header(&header.hash).is_ok() {
+            // We never save a header unless it was validated, so skip the unnecessary repetitive
+            //    validation
+            return Ok(());
         }
 
         // First I/O cost, delay as much as possible.
