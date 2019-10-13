@@ -241,6 +241,8 @@ fn test_valid_log_utf16_null_terminated_fail() {
     }
     utf16_bytes.push(0);
     utf16_bytes.push(123);
+    utf16_bytes.push(0);
+    utf16_bytes.push(0);
     logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
     assert_ne!(logic.outcome().logs[0], format!("LOG: {}", string));
 }
