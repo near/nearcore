@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_crypto::{BlsSignature, PublicKey, SecretKey, Signature};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
@@ -123,7 +123,7 @@ impl TryFrom<&str> for PeerInfo {
             return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
         }
         Ok(PeerInfo {
-            id: PeerId(ReadablePublicKey::new(chunks[0]).try_into()?),
+            id: PeerId(chunks[0].try_into()?),
             addr: Some(
                 chunks[1].parse().map_err(|err| {
                     format!("Invalid ip address format for {}: {}", chunks[1], err)

@@ -381,7 +381,7 @@ fn test_validator_join() {
                 }
             }),
             1000,
-            40000,
+            60000,
         )
         .start();
 
