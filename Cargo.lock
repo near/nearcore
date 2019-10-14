@@ -1392,8 +1392,11 @@ dependencies = [
 name = "genesis-mainnet"
 version = "0.1.0"
 dependencies = [
+ "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.0",
+ "near-crypto 0.1.0",
+ "near-primitives 0.1.0",
  "node-runtime 0.0.1",
 ]
 
