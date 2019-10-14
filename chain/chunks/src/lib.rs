@@ -29,6 +29,7 @@ use near_primitives::types::{
 };
 
 pub use crate::types::Error;
+use near_chain::types::validate_chunk_proofs;
 use std::time::{Duration, Instant};
 
 mod types;
@@ -660,27 +661,9 @@ impl ShardsManager {
             ChunkStatus::Incomplete
         }
     }
-    // Returns the hash of the enclosing block if a chunk part was not known previously, and the chunk is complete after receiving it
-    // Once it receives the last part necessary to reconstruct, the chunk gets reconstructed and fills in all the remaining parts,
-    //     thus once the remaining parts arrive, they do not trigger returning the hash again.
-    pub fn process_chunk_part(
-        &mut self,
-        part: ChunkPartMsg,
-        chain_store: &mut ChainStore,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let cares_about_shard = if let Some(chunk) = self.encoded_chunks.get(&part.chunk_hash) {
-            let prev_block_hash = chunk.header.inner.prev_block_hash;
-            let shard_id = part.shard_id;
-            self.cares_about_shard_this_or_next_epoch(
-                self.me.as_ref(),
-                &prev_block_hash,
-                shard_id,
-                true,
-            )
-        } else {
-            false
-        };
 
+    /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
+    fn add_part_to_encoded_chunk(&mut self, part: ChunkPartMsg) -> Result<ChunkStatus, Error> {
         if let Some(chunk) = self.encoded_chunks.get_mut(&part.chunk_hash) {
             let prev_block_hash = chunk.header.inner.prev_block_hash;
             if chunk.header.inner.shard_id != part.shard_id {
@@ -697,78 +680,62 @@ impl ShardsManager {
                     ) {
                         return Err(Error::InvalidMerkleProof);
                     }
-
                     chunk.content.parts[part.part_id as usize] = Some(part.part);
                     self.merkle_paths
                         .insert((part.chunk_hash.clone(), part.part_id), part.merkle_path);
-
-                    match ShardsManager::check_chunk_complete(
-                        self.runtime_adapter.num_data_parts(&prev_block_hash),
-                        self.runtime_adapter.num_total_parts(&prev_block_hash),
-                        chunk,
-                    ) {
-                        ChunkStatus::Complete(merkle_paths) => {
-                            if let Ok(shard_chunk) = chunk
-                                .decode_chunk(self.runtime_adapter.num_data_parts(&prev_block_hash))
-                            {
-                                debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk.header.chunk_hash().0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
-                                // Decoded a valid chunk, store it in the permanent store ...
-                                let mut store_update = chain_store.store_update();
-                                store_update.save_chunk(&part.chunk_hash, shard_chunk);
-                                store_update.commit()?;
-                                // ... and include into the block if we are the producer
-                                if cares_about_shard {
-                                    self.block_hash_to_chunk_headers
-                                        .entry(chunk.header.inner.prev_block_hash)
-                                        .or_insert_with(|| vec![])
-                                        .push((part.shard_id, chunk.header.clone()));
-                                }
-
-                                for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
-                                    let part_id = part_id as u64;
-                                    self.merkle_paths.insert(
-                                        (part.chunk_hash.clone(), part_id),
-                                        merkle_path.clone(),
-                                    );
-                                }
-                                self.requested_chunks.remove(&part.chunk_hash);
-
-                                return Ok(Some(chunk.header.inner.prev_block_hash));
-                            } else {
-                                error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk.header.chunk_hash().0);
-                                // Can't decode chunk, ignore it
-                                for i in 0..self
-                                    .runtime_adapter
-                                    .num_total_parts(&chunk.header.inner.prev_block_hash)
-                                {
-                                    self.merkle_paths.remove(&(part.chunk_hash.clone(), i as u64));
-                                }
-                                self.encoded_chunks.remove(&part.chunk_hash);
-                                self.requested_chunks.remove(&part.chunk_hash);
-                                return Ok(None);
-                            }
-                        }
-                        ChunkStatus::Incomplete => {
-                            return Ok(None);
-                        }
-                        ChunkStatus::Invalid => {
-                            for i in 0..self
-                                .runtime_adapter
-                                .num_total_parts(&chunk.header.inner.prev_block_hash)
-                            {
-                                self.merkle_paths.remove(&(part.chunk_hash.clone(), i as u64));
-                            }
-                            self.encoded_chunks.remove(&part.chunk_hash);
-                            self.requested_chunks.remove(&part.chunk_hash);
-                            return Ok(None);
-                        }
-                    };
                 }
+
+                Ok(ShardsManager::check_chunk_complete(
+                    self.runtime_adapter.num_data_parts(&prev_block_hash),
+                    self.runtime_adapter.num_total_parts(&prev_block_hash),
+                    chunk,
+                ))
+            } else {
+                Err(Error::InvalidChunkPartId)
             }
         } else {
-            debug!(target: "shards", "Received part {} for unknown chunk {:?}, declining", part.part_id, part.chunk_hash);
+            // We haven't received one part yet, so it's an unknown chunk.
+            Err(Error::UnknownChunk)
         }
-        Ok(None)
+    }
+
+    /// Returns the hash of the enclosing block if a chunk part was not known previously, and the chunk is complete after receiving it
+    /// Once it receives the last part necessary to reconstruct, the chunk gets reconstructed and fills in all the remaining parts,
+    ///     thus once the remaining parts arrive, they do not trigger returning the hash again.
+    pub fn process_chunk_part(
+        &mut self,
+        part: ChunkPartMsg,
+        chain_store: &mut ChainStore,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let part_id = part.part_id;
+        let chunk_hash = part.chunk_hash.clone();
+        match self.add_part_to_encoded_chunk(part) {
+            Ok(ChunkStatus::Complete(merkle_paths)) => {
+                let chunk = self
+                    .encoded_chunks
+                    .get(&chunk_hash)
+                    .map(std::clone::Clone::clone)
+                    .expect("Present if add_part returns Ok");
+                self.process_encoded_chunk(&chunk, merkle_paths, chain_store)
+            }
+            Ok(ChunkStatus::Incomplete) => Ok(None),
+            Ok(ChunkStatus::Invalid) => {
+                let chunk =
+                    self.encoded_chunks.get(&chunk_hash).expect("Present if add_part returns Ok");
+                for i in
+                    0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash)
+                {
+                    self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
+                }
+                self.encoded_chunks.remove(&chunk_hash);
+                Ok(None)
+            }
+            Err(Error::UnknownChunk) => {
+                debug!(target: "shards", "Received part {} for unknown chunk {:?}, declining", part_id, chunk_hash);
+                Ok(None)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub fn process_chunk_one_part(
@@ -808,7 +775,7 @@ impl ShardsManager {
             &one_part.merkle_path,
             &one_part.part,
         ) {
-            // TODO: this is a slashable behavior
+            // This is not slashable behvior, because we can't prove that merkle path is the one that validator signed.
             byzantine_assert!(false);
             return Err(Error::InvalidMerkleProof);
         }
@@ -944,10 +911,10 @@ impl ShardsManager {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn BlsSigner,
-    ) -> Result<EncodedShardChunk, Error> {
+    ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
-        let (new_chunk, merkle_paths) = EncodedShardChunk::new(
+        EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
             height,
@@ -963,19 +930,72 @@ impl ShardsManager {
             outgoing_receipts,
             outgoing_receipts_root,
             signer,
-        )?;
+        )
+        .map_err(|err| err.into())
+    }
 
-        for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
-            let part_id = part_id as u64;
-            self.merkle_paths.insert((new_chunk.chunk_hash(), part_id), merkle_path.clone());
+    pub fn process_encoded_chunk(
+        &mut self,
+        chunk: &EncodedShardChunk,
+        merkle_paths: Vec<MerklePath>,
+        chain_store: &mut ChainStore,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let chunk_hash = chunk.header.chunk_hash();
+        assert!(self.encoded_chunks.contains_key(&chunk_hash));
+        let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
+            self.me.as_ref(),
+            &chunk.header.inner.prev_block_hash,
+            chunk.header.inner.shard_id,
+            true,
+        );
+        let mut store_update = chain_store.store_update();
+        if let Ok(shard_chunk) = chunk
+            .decode_chunk(self.runtime_adapter.num_data_parts(&chunk.header.inner.prev_block_hash))
+            .map_err(|err| Error::from(err))
+            .and_then(|shard_chunk| {
+                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter)? {
+                    return Err(Error::InvalidChunk);
+                }
+                Ok(shard_chunk)
+            })
+        {
+            debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
+
+            // Decoded a valid chunk, store it in the permanent store ...
+            store_update.save_chunk(&chunk_hash, shard_chunk);
+            store_update.commit()?;
+            // ... and include into the block if we are the producer
+            if cares_about_shard {
+                self.block_hash_to_chunk_headers
+                    .entry(chunk.header.inner.prev_block_hash)
+                    .or_insert_with(|| vec![])
+                    .push((chunk.header.inner.shard_id, chunk.header.clone()));
+            }
+
+            for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
+                let part_id = part_id as u64;
+                self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
+            }
+            self.requested_chunks.remove(&chunk_hash);
+
+            return Ok(Some(chunk.header.inner.prev_block_hash));
+        } else {
+            // Can't decode chunk or has invalid proofs, ignore it
+            error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
+            // TODO: mark chunk invalid.
+            for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
+                self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
+            }
+            self.encoded_chunks.remove(&chunk_hash);
+            self.requested_chunks.remove(&chunk_hash);
+            return Ok(None);
         }
-
-        Ok(new_chunk)
     }
 
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
+        merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         chain_store: &mut ChainStore,
     ) {
@@ -1011,8 +1031,7 @@ impl ShardsManager {
             let one_part = encoded_chunk.create_chunk_one_part(
                 part_ord,
                 one_part_receipt_proofs,
-                // It should be impossible to have a part but not the merkle path
-                self.merkle_paths.get(&(chunk_hash.clone(), part_ord)).unwrap().clone(),
+                merkle_paths[part_ord as usize].clone(),
             );
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage
@@ -1026,18 +1045,23 @@ impl ShardsManager {
             }
         }
 
-        // 2/2 This is a weird way to introduce the chunk to the producer's storage
-        for (part_id, _) in encoded_chunk.content.parts.iter().enumerate() {
+        // Save merkle paths.
+        for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
             let part_id = part_id as u64;
-            self.process_chunk_part(
-                encoded_chunk.create_chunk_part_msg(
-                    part_id,
-                    // It should be impossible to have a part but not the merkle path
-                    self.merkle_paths.get(&(chunk_hash.clone(), part_id)).unwrap().clone(),
-                ),
-                chain_store,
-            )
-            .unwrap();
+            self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
         }
+
+        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        self.encoded_chunks.insert(chunk_hash.clone(), encoded_chunk.clone());
+        self.process_encoded_chunk(
+            &encoded_chunk,
+            (0..encoded_chunk.content.parts.len())
+                .map(|part_id| {
+                    self.merkle_paths.get(&(chunk_hash.clone(), part_id as u64)).unwrap().clone()
+                })
+                .collect(),
+            chain_store,
+        )
+        .expect("Failed to process just created chunk");
     }
 }

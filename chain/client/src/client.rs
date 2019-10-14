@@ -272,7 +272,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    fn produce_chunk(
+    pub fn produce_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
@@ -280,7 +280,7 @@ impl Client {
         next_height: BlockIndex,
         prev_block_timestamp: u64,
         shard_id: ShardId,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let block_producer = self
             .block_producer
             .as_ref()
@@ -360,7 +360,7 @@ impl Client {
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
-        let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
+        let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
             next_height,
@@ -387,13 +387,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(
-            encoded_chunk,
-            outgoing_receipts,
-            self.chain.mut_store(),
-        );
-
-        Ok(())
+        Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
     pub fn process_block(
@@ -605,7 +599,7 @@ impl Client {
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
-                        if let Err(err) = self.produce_chunk(
+                        match self.produce_chunk(
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
@@ -613,7 +607,18 @@ impl Client {
                             block.header.inner.timestamp,
                             shard_id,
                         ) {
-                            error!(target: "client", "Error producing chunk {:?}", err);
+                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                                self.shards_mgr.distribute_encoded_chunk(
+                                    encoded_chunk,
+                                    merkle_paths,
+                                    receipts,
+                                    self.chain.mut_store(),
+                                )
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                error!(target: "client", "Error producing chunk {:?}", err);
+                            }
                         }
                     }
                 }
