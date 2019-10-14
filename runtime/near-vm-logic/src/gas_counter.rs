@@ -1,4 +1,3 @@
-
 use crate::types::Gas;
 use crate::{HostError, HostErrorOrStorageError};
 use near_runtime_fees::Fee;
@@ -26,8 +25,7 @@ impl GasCounter {
         let new_burnt_gas =
             self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.max_gas_burnt
-            && (self.is_view || new_used_gas <= self.prepaid_gas)
+        if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
@@ -51,16 +49,13 @@ impl GasCounter {
     }
     /// A helper function to pay per byte gas
     pub fn pay_per_byte(&mut self, per_byte: Gas, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
-            .checked_mul(per_byte.checked_add(per_byte).ok_or(HostError::IntegerOverflow)?)
-            .ok_or(HostError::IntegerOverflow)?;
+        let use_gas = num_bytes.checked_mul(per_byte).ok_or(HostError::IntegerOverflow)?;
         self.deduct_gas(use_gas, use_gas)
     }
 
     /// A helper function to pay base cost gas
     pub fn pay_base(&mut self, base_fee: Gas) -> Result<()> {
-        let use_gas = base_fee.checked_add(base_fee).ok_or(HostError::IntegerOverflow)?;
-        self.deduct_gas(use_gas, use_gas)
+        self.deduct_gas(base_fee, base_fee)
     }
 
     /// A helper function to pay per byte gas fee for batching an action.
@@ -123,5 +118,4 @@ mod tests {
         let mut counter = GasCounter::new(100, 10, false);
         counter.deduct_gas(10, 5).unwrap();
     }
-
 }
