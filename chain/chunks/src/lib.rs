@@ -110,7 +110,7 @@ impl RequestPool {
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
             if chunk_request.added.elapsed() > self.max_duration {
-                debug!("Never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
+                debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
@@ -224,7 +224,6 @@ impl ShardsManager {
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
     ) -> Result<(), Error> {
-        debug!(target: "chunks", "Request chunk one parts {} {} {:?} {:?}", height, shard_id, chunk_hash, self.me); // RDX
         let tracking_shards = self.get_tracking_shards(&parent_hash);
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
         let mut requested_one_part = false;
@@ -284,8 +283,6 @@ impl ShardsManager {
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
     ) -> Result<(), Error> {
-        //debug!(target: "chunks", "Request chunk parts {} {} {:?}", height, shard_id, chunk_hash); // RDX
-
         let encoded_chunk = self
             .encoded_chunks
             .get(chunk_hash)
@@ -304,16 +301,8 @@ impl ShardsManager {
                     height,
                     shard_id,
                 )?;
-                /*debug!(
-                    "own part, me: {:?}, part_id: {}, requesting from: {}",
-                    self.me, part_id, ret
-                ); // RDX*/
                 ret
             } else {
-                /*debug!(
-                    "other part, me: {:?}, part_id: {}, requesting from: {}",
-                    self.me, part_id, to_whom
-                ); // RDX*/
                 to_whom
             };
             assert_ne!(Some(&to_whom), self.me.as_ref());
@@ -379,7 +368,6 @@ impl ShardsManager {
                 );
 
             if need_to_request_one_parts {
-                debug!("requesting one part {}, me: {:?}", chunk_hash.0, self.me); // RDX
                 if self.requested_one_parts.contains_key(&chunk_hash) {
                     continue;
                 }
@@ -400,7 +388,6 @@ impl ShardsManager {
 
             if need_to_request_parts {
                 assert!(!delay_requests);
-                //debug!("requesting parts {}, me: {:?}", chunk_hash.0, self.me); // RDX
                 if self.requested_chunks.contains_key(&chunk_hash) {
                     continue;
                 }
@@ -426,7 +413,6 @@ impl ShardsManager {
         // Process chunk one part requests.
         let requests = self.requested_one_parts.fetch();
         for (chunk_hash, chunk_request) in requests {
-            debug!("RESENDING ONE PART REQUEST"); // RDX
             match self.request_chunk_one_parts(
                 chunk_request.height,
                 &chunk_request.parent_hash,
@@ -443,7 +429,6 @@ impl ShardsManager {
         // Process chunk part requests.
         let requests = self.requested_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
-            //debug!("RESENDING PART REQUEST"); // RDX
             match self.request_chunk_parts(
                 chunk_request.height,
                 &chunk_request.parent_hash,
@@ -521,12 +506,6 @@ impl ShardsManager {
                 });
             }
         }
-        if !served {
-            debug!(
-                "part request for {}:{}, I'm {:?}, served: {}",
-                request.chunk_hash.0, request.part_id, self.me, served
-            ); // RDX
-        }
         if !served
         // TODO: uncomment and fix the get_part_owner
         /*&& Some(self.runtime_adapter.get_part_owner(request.height, request.part_id)?)
@@ -600,7 +579,7 @@ impl ShardsManager {
         peer_id: PeerId,
         chain_store: &mut ChainStore,
     ) -> Result<(), Error> {
-        debug!("Received one part request for {:?}, I'm {:?}", request.chunk_hash.0, self.me);
+        debug!(target:"chunks", "Received one part request for {:?}, I'm {:?}", request.chunk_hash.0, self.me);
         if let Some(encoded_chunk) = self.encoded_chunks.get(&request.chunk_hash) {
             if request.part_id as usize >= encoded_chunk.content.parts.len() {
                 return Err(Error::InvalidChunkPartId);
@@ -619,7 +598,7 @@ impl ShardsManager {
                 );
 
                 assert_eq!(chunk.header.inner.outgoing_receipts_root, receipts_root);
-                debug!(
+                debug!(target: "chunks",
                     "Responding to one part request for {:?}, I'm {:?}",
                     request.chunk_hash.0, self.me
                 );
@@ -777,7 +756,6 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
     ) -> Result<ProcessChunkOnePartResult, Error> {
         let chunk_hash = one_part.chunk_hash.clone();
-        debug!("received one part {}:{}, me: {:?}", chunk_hash.0, one_part.part_id, self.me); // RDX
         let prev_block_hash = one_part.header.inner.prev_block_hash;
 
         if let Some(ec) = self.encoded_chunks.get(&one_part.chunk_hash) {
@@ -897,10 +875,6 @@ impl ShardsManager {
                 .push((one_part.shard_id, one_part.header.clone()));
         }
 
-        debug!(
-            "received one part {}:{}, me: {:?}, have_all: {}",
-            chunk_hash.0, one_part.part_id, self.me, have_all_one_parts
-        ); // RDX
         self.encoded_chunks.get_mut(&one_part.chunk_hash).unwrap().content.parts
             [one_part.part_id as usize] = Some(one_part.part);
 
