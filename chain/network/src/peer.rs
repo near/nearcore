@@ -12,15 +12,17 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, SendMessage, Unregister, HandshakeFailureReason, PROTOCOL_VERSION
+    Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages, PeerChainInfo,
+    PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -211,6 +213,7 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => {
@@ -221,6 +224,7 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
+                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
@@ -237,6 +241,7 @@ impl Peer {
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
+                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockApproval(account_id, hash, signature) => {
@@ -315,6 +320,7 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);
 
@@ -334,6 +340,7 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
@@ -350,6 +357,8 @@ impl WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Vec<u8>, io::Error> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
@@ -363,7 +372,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
-                    },
+                    }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
                     }
@@ -378,7 +387,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis))
+                            HandshakeFailureReason::GenesisMismatch(self.genesis),
+                        ),
                     });
                     return;
                     // Connection will be closed by a handshake timeout
@@ -388,7 +398,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION))
+                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
+                        ),
                     });
                 }
                 if handshake.chain_info.genesis != self.genesis {

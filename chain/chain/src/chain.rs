@@ -13,6 +13,7 @@ use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
+use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
 
@@ -247,8 +248,12 @@ impl Chain {
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let hash = block.hash();
+        let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
         let res = self.process_block_single(block, provenance, block_accepted);
+        near_metrics::stop_timer(timer);
         if res.is_ok() {
+            near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL);
+
             if let Some(new_res) = self.check_orphans(hash, block_accepted) {
                 return Ok(Some(new_res));
             }
@@ -353,6 +358,8 @@ impl Chain {
     where
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
+        near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_TOTAL);
+
         let prev_head = self.store.head()?;
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
@@ -368,6 +375,24 @@ impl Chain {
 
         match maybe_new_head {
             Ok(head) => {
+                // Metrics
+                near_metrics::set_gauge(
+                    &metrics::VALIDATOR_ACTIVE_TOTAL,
+                    block.header.inner.validator_proposals.len() as i64,
+                );
+                // Sum validator balances into two i64's
+                let sum = block
+                    .header
+                    .inner
+                    .validator_proposals
+                    .iter()
+                    .map(|validator_stake| validator_stake.amount as u128)
+                    .sum::<u128>();
+                let low = (sum % 2u128.pow(63)) as i64;
+                let high = (sum.wrapping_shr(63) % 2u128.pow(63)) as i64;
+                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED_LOW, low);
+                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED_HIGH, high);
+
                 let status = self.determine_status(head.clone(), prev_head);
 
                 // Notify other parts of the system of the update.
@@ -427,10 +452,13 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.block.hash();
+                    let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
                     let res =
                         self.process_block_single(orphan.block, orphan.provenance, block_accepted);
+                    near_metrics::stop_timer(timer);
                     match res {
                         Ok(maybe_tip) => {
+                            near_metrics::inc_counter(&metrics::BLOCK_PROCESSED_SUCCESSFULLY_TOTAL);
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
@@ -904,6 +932,7 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip);
+            near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {
