@@ -934,7 +934,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "validators_amount_staked_low + validators_amount_staked_high * (2 ^ 63)",
+          "expr": "validators_amount_staked",
           "legendFormat": "Validator Staked Amount",
           "refId": "A"
         }

@@ -8,15 +8,19 @@ Alternatively, you can also use your favorite package manager. For example, in A
 
 `$ sudo pacman -S prometheus`
 
+Or on Mac OS:
+
+`$ brew install prometheus`
+
 ## Running
 
 First run Prometheus, using the `prometheus-near.yml` config file located in the `./conf` directory of this repository:
 
-`$ prometheus config.file=$PATH_TO_REPO/conf/prometheus-near.yml`
+`$ prometheus --config.file=$PATH_TO_REPO/conf/prometheus-near.yml`
 
 Build the NEARCore node:
 
-`$ cargo build --release --all`
+`$ cargo build -p near`
 
 Generate the initial configuration (genesis state, validator keys and node keys):
 
