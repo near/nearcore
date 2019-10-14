@@ -55,9 +55,10 @@
 //! }
 //! ```
 
+pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+use log::error;
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -96,7 +97,17 @@ pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
     if let Ok(histogram) = histogram {
         Some(histogram.start_timer())
     } else {
+        error!(target: "metrics", "Failed to fetch histogram");
         None
+    }
+}
+
+/// Sets the value of a `Histogram` manually.
+pub fn observe(histogram: &Result<Histogram>, value: f64) {
+    if let Ok(histogram) = histogram {
+        histogram.observe(value);
+    } else {
+        error!(target: "metrics", "Failed to fetch histogram");
     }
 }
 
@@ -108,36 +119,39 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
+    } else {
+        error!(target: "metrics", "Failed to fetch counter");
     }
 }
 
 pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
     if let Ok(counter) = counter {
         counter.inc_by(value);
+    } else {
+        error!(target: "metrics", "Failed to fetch histogram");
     }
 }
 
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);
+    } else {
+        error!(target: "metrics", "Failed to fetch gauge");
     }
 }
 
 pub fn inc_gauge(gauge: &Result<IntGauge>) {
     if let Ok(gauge) = gauge {
         gauge.inc();
+    } else {
+        error!(target: "metrics", "Failed to fetch gauge");
     }
 }
 
 pub fn dec_gauge(gauge: &Result<IntGauge>) {
     if let Ok(gauge) = gauge {
         gauge.dec();
-    }
-}
-
-/// Sets the value of a `Histogram` manually.
-pub fn observe(histogram: &Result<Histogram>, value: f64) {
-    if let Ok(histogram) = histogram {
-        histogram.observe(value);
+    } else {
+        error!(target: "metrics", "Failed to fetch gauge");
     }
 }
