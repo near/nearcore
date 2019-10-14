@@ -21,8 +21,8 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
+    validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList,
+    ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
     ShardStateSyncResponsePart, StateHeaderKey, Tip, ValidatorSignatureVerificationResult,
 };
 
@@ -961,7 +961,6 @@ impl Chain {
 
     pub fn set_state_header(
         &mut self,
-        _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
@@ -988,7 +987,14 @@ impl Chain {
         } = &shard_state_header;
 
         // 1-2. Checking chunk validity
-        self.runtime_adapter.check_chunk_validity(&chunk)?;
+        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other(
+                "set_shard_state failed: chunk header proofs are invalid".into(),
+            )
+            .into());
+        }
+
         // Consider chunk itself is valid.
 
         // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
@@ -1435,8 +1441,7 @@ impl Chain {
     /// Returns block header from the current chain for given height if present.
     #[inline]
     pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
-        let hash = self.store.get_block_hash_by_height(height)?;
-        self.store.get_block_header(&hash)
+        self.store.get_header_by_height(height)
     }
 
     /// Get previous block header.

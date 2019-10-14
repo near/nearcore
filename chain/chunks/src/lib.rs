@@ -943,7 +943,7 @@ impl ShardsManager {
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Result<EncodedShardChunk, Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);

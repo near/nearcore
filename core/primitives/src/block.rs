@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
@@ -142,7 +141,7 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -255,7 +254,7 @@ impl Block {
                     CryptoHash::default(),
                     CryptoHash::default(),
                     vec![],
-                    Arc::new(EmptyBlsSigner {}),
+                    &EmptyBlsSigner {},
                 )
             })
             .collect();
@@ -284,7 +283,7 @@ impl Block {
         approvals: HashMap<usize, BlsSignature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let mut approval_sig = BlsSignature::empty();
         let max_approver = approvals.keys().max().unwrap_or(&0);

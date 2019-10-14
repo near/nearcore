@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -83,7 +81,7 @@ impl ShardChunkHeader {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -201,7 +199,7 @@ impl EncodedShardChunk {
         transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
             TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
@@ -264,7 +262,7 @@ impl EncodedShardChunk {
         data_shards: usize,
         parity_shards: usize,
 
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(data_shards, parity_shards);

@@ -260,7 +260,7 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -373,7 +373,7 @@ impl Client {
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         )?;
 
         debug!(

@@ -9,7 +9,7 @@ fn chain_sync_headers() {
     assert_eq!(chain.sync_head().unwrap().height, 0);
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 0..4 {
-        blocks.push(Block::empty(&blocks[i], bls_signer.clone()));
+        blocks.push(Block::empty(&blocks[i], &*bls_signer));
     }
     chain.sync_block_headers(blocks.drain(1..).map(|block| block.header).collect()).unwrap();
     assert_eq!(chain.sync_head().unwrap().height, 4);
