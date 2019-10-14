@@ -376,22 +376,35 @@ impl Chain {
         match maybe_new_head {
             Ok(head) => {
                 // Metrics
-                near_metrics::set_gauge(
-                    &metrics::VALIDATOR_ACTIVE_TOTAL,
-                    block.header.inner.validator_proposals.len() as i64,
-                );
-                // Sum validator balances into two i64's
+                match &head {
+                    Some(tip) => {
+                        near_metrics::set_gauge(
+                            &metrics::VALIDATOR_ACTIVE_TOTAL,
+                            match self
+                                .runtime_adapter
+                                .get_epoch_block_proposers(&tip.epoch_hash, &tip.last_block_hash)
+                            {
+                                Ok(value) => value
+                                    .iter()
+                                    .map(|(_, is_slashed)| if *is_slashed { 0 } else { 1 })
+                                    .sum(),
+                                Err(_) => 0,
+                            },
+                        );
+                    }
+                    None => {}
+                }
+                // Sum validator balances in full NEARs (divided by 10**18)
                 let sum = block
                     .header
                     .inner
                     .validator_proposals
                     .iter()
-                    .map(|validator_stake| validator_stake.amount as u128)
-                    .sum::<u128>();
-                let low = (sum % 2u128.pow(63)) as i64;
-                let high = (sum.wrapping_shr(63) % 2u128.pow(63)) as i64;
-                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED_LOW, low);
-                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED_HIGH, high);
+                    .map(|validator_stake| {
+                        (validator_stake.amount / 1_000_000_000_000_000_000) as i64
+                    })
+                    .sum::<i64>();
+                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
                 let status = self.determine_status(head.clone(), prev_head);
 

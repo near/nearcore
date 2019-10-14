@@ -25,7 +25,7 @@
 //! extern crate lazy_static;
 //! use near_metrics::*;
 //!
-//! // These metrics are "magically" linked to the global registry PEER_CONNECTIONS_TOTALdefined in `lighthouse_metrics`.
+//! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
 //! lazy_static! {
 //!     pub static ref RUN_COUNT: Result<IntCounter> = try_create_int_counter(
 //!         "runs_total",
