@@ -869,7 +869,7 @@ impl Runtime {
             .for_each(|res| tx_result.push(res));
         }
 
-        self.balance_check(
+        self.check_balance(
             &initial_state,
             &state_update,
             prev_receipts,
@@ -891,7 +891,7 @@ impl Runtime {
 
     // TODO: Check for balance overflows
     // TODO: Fix StorageError for partial states when looking up something that doesn't exist.
-    fn balance_check(
+    fn check_balance(
         &self,
         initial_state: &TrieUpdate,
         final_state: &TrieUpdate,
@@ -1188,9 +1188,11 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::runtime_utils::bob_account;
+    use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::transaction::TransferAction;
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1216,5 +1218,143 @@ mod tests {
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
+    }
+
+    /***********************/
+    /* Balance check tests */
+    /***********************/
+
+    #[test]
+    fn test_check_balance_no_op() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let initial_state = TrieUpdate::new(trie.clone(), root);
+        let final_state = TrieUpdate::new(trie.clone(), root);
+        let runtime = Runtime::new(RuntimeConfig::default());
+        runtime
+            .check_balance(&initial_state, &final_state, &[], &[], &[], &ApplyStats::default())
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_check_balance_unaccounted_refund() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let initial_state = TrieUpdate::new(trie.clone(), root);
+        let final_state = TrieUpdate::new(trie.clone(), root);
+        let runtime = Runtime::new(RuntimeConfig::default());
+        runtime
+            .check_balance(
+                &initial_state,
+                &final_state,
+                &[Receipt::new_refund(&alice_account(), 1000)],
+                &[],
+                &[],
+                &ApplyStats::default(),
+            )
+            .unwrap_or_else(|_| ());
+    }
+
+    #[test]
+    fn test_check_balance_refund() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let account_id = alice_account();
+
+        let initial_balance = 1_000_000;
+        let refund_balance = 1000;
+
+        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let initial_account = Account::new(initial_balance, hash(&[]), 0);
+        set_account(&mut initial_state, &account_id, &initial_account);
+        initial_state.commit();
+
+        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
+        set_account(&mut final_state, &account_id, &final_account);
+        final_state.commit();
+
+        let runtime = Runtime::new(RuntimeConfig::default());
+        runtime
+            .check_balance(
+                &initial_state,
+                &final_state,
+                &[Receipt::new_refund(&account_id, refund_balance)],
+                &[],
+                &[],
+                &ApplyStats::default(),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn test_check_balance_tx_to_receipt() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let account_id = alice_account();
+
+        let initial_balance = 1_000_000_000;
+        let deposit = 500_000_000;
+        let gas_price = 100;
+        let runtime_config = RuntimeConfig::default();
+        let cfg = &runtime_config.transaction_costs;
+        let exec_gas = cfg.action_receipt_creation_config.exec_fee()
+            + cfg.action_creation_config.transfer_cost.exec_fee();
+        let send_gas = cfg.action_receipt_creation_config.send_fee(false)
+            + cfg.action_creation_config.transfer_cost.send_fee(false);
+        let contract_reward = (send_gas * cfg.burnt_gas_reward.numerator
+            / cfg.burnt_gas_reward.denominator) as Balance
+            * gas_price;
+        let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
+        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let initial_account = Account::new(initial_balance, hash(&[]), 0);
+        set_account(&mut initial_state, &account_id, &initial_account);
+        initial_state.commit();
+
+        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let final_account = Account::new(
+            initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
+                + contract_reward,
+            hash(&[]),
+            0,
+        );
+        set_account(&mut final_state, &account_id, &final_account);
+        final_state.commit();
+
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let tx = SignedTransaction::send_money(
+            1,
+            account_id.clone(),
+            bob_account(),
+            &signer,
+            deposit,
+            CryptoHash::default(),
+        );
+        let receipt = Receipt {
+            predecessor_id: tx.transaction.signer_id.clone(),
+            receiver_id: tx.transaction.receiver_id.clone(),
+            receipt_id: Default::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx.transaction.signer_id.clone(),
+                signer_public_key: tx.transaction.public_key.clone(),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit })],
+            }),
+        };
+
+        let runtime = Runtime::new(runtime_config);
+        runtime
+            .check_balance(
+                &initial_state,
+                &final_state,
+                &[],
+                &[tx],
+                &[receipt],
+                &ApplyStats { total_rent_paid: 0, total_validator_reward, total_balance_burnt: 0 },
+            )
+            .unwrap();
     }
 }
