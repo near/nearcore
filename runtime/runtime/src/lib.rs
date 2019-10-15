@@ -806,7 +806,7 @@ impl Runtime {
     /// receivers) and incoming action receipts.
     pub fn apply(
         &self,
-        mut state_update: TrieUpdate,
+        state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
@@ -819,7 +819,7 @@ impl Runtime {
 
         for signed_transaction in transactions {
             tx_result.push(self.process_transaction(
-                &mut state_update,
+                state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
@@ -830,7 +830,7 @@ impl Runtime {
 
         for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
             self.process_receipt(
-                &mut state_update,
+                state_update,
                 apply_state,
                 receipt,
                 &mut new_receipts,

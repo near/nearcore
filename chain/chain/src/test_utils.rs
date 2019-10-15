@@ -28,7 +28,9 @@ use near_primitives::types::{
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
+use near_store::{
+    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
@@ -675,6 +677,24 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_rent_paid: 0,
             proof: None,
         })
+    }
+
+    fn check_state_transition(
+        &self,
+        partial_storage: PartialStorage,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        challenges: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error> {
+        unimplemented!();
     }
 
     fn query(

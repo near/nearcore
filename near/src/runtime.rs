@@ -31,8 +31,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
-    TrieUpdate, WrappedTrieChanges, COL_STATE,
+    get_access_key_raw, get_account, set_account, PartialStorage, StorageError, Store, StoreUpdate,
+    Trie, TrieUpdate, WrappedTrieChanges, COL_STATE,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -257,7 +257,7 @@ impl NightshadeRuntime {
     }
 
     /// Processes challenges and slashes either validators or challenge sender.
-    pub fn process_challenges(
+    fn process_challenges(
         &self,
         shard_id: ShardId,
         challenges: &ChallengesResult,
@@ -275,6 +275,90 @@ impl NightshadeRuntime {
         }
         state_update.commit();
         Ok(())
+    }
+
+    /// Processes state update.
+    fn process_state_update(
+        &self,
+        state_update: &mut TrieUpdate,
+        shard_id: ShardId,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        challenges: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error> {
+        let should_update_account = {
+            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            debug!(target: "runtime",
+                   "block index: {}, is next_block_epoch_start {}",
+                   block_index,
+                   epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+            );
+            epoch_manager.is_next_block_epoch_start(prev_block_hash)?
+        };
+
+        // If we are starting to apply 1st block in the new epoch.
+        if should_update_account {
+            self.update_validator_accounts(
+                shard_id,
+                prev_block_hash,
+                last_validator_proposals,
+                &mut state_update,
+            )
+            .map_err(|e| {
+                if let Some(e) = e.downcast_ref::<StorageError>() {
+                    panic!(e.to_string())
+                }
+                Error::from(ErrorKind::ValidatorError(e.to_string()))
+            })?;
+        }
+
+        self.process_challenges(shard_id, challenges, &mut state_update).expect("Storage error");
+
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
+
+        let apply_result = self
+            .runtime
+            .apply(&mut state_update, &apply_state, &receipts, &transactions)
+            .map_err(|e| match e {
+                InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
+                InvalidTxErrorOrStorageError::StorageError(_) => {
+                    panic!("Storage error. Corrupted db or invalid state.");
+                }
+            })?;
+
+        // Sort the receipts into appropriate outgoing shards.
+        let mut receipt_result = HashMap::default();
+        for receipt in apply_result.new_receipts.into_iter() {
+            receipt_result
+                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                .or_insert_with(|| vec![])
+                .push(receipt);
+        }
+        let total_gas_burnt =
+            apply_result.tx_result.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+
+        let result = ApplyTransactionResult {
+            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
+            new_root: apply_result.state_root,
+            transaction_results: apply_result.tx_result,
+            receipt_result,
+            validator_proposals: apply_result.validator_proposals,
+            total_gas_burnt,
+            total_rent_paid: apply_result.total_rent_paid,
+            proof: state_update.trie.recorded_storage(),
+        };
+
+        Ok(result)
     }
 }
 
@@ -624,74 +708,49 @@ impl RuntimeAdapter for NightshadeRuntime {
             self.trie.clone()
         };
         let mut state_update = TrieUpdate::new(trie.clone(), state_root.hash);
-        let should_update_account = {
-            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            debug!(target: "runtime",
-                "block index: {}, is next_block_epoch_start {}",
-                block_index,
-                epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
-            );
-            epoch_manager.is_next_block_epoch_start(prev_block_hash)?
-        };
-
-        // If we are starting to apply 1st block in the new epoch.
-        if should_update_account {
-            self.update_validator_accounts(
-                shard_id,
-                prev_block_hash,
-                last_validator_proposals,
-                &mut state_update,
-            )
-            .map_err(|e| {
-                if let Some(e) = e.downcast_ref::<StorageError>() {
-                    panic!(e.to_string())
-                }
-                Error::from(ErrorKind::ValidatorError(e.to_string()))
-            })?;
-        }
-
-        self.process_challenges(shard_id, challenges, &mut state_update).expect("Storage error");
-
-        let apply_state = ApplyState {
+        self.process_state_update(
+            &mut state_update,
+            shard_id,
             block_index,
-            epoch_length: self.genesis_config.epoch_length,
-            gas_price,
             block_timestamp,
-        };
+            prev_block_hash,
+            receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            challenges,
+        )
+    }
 
-        let apply_result = self
-            .runtime
-            .apply(state_update, &apply_state, &receipts, &transactions)
-            .map_err(|e| match e {
-                InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                InvalidTxErrorOrStorageError::StorageError(_) => {
-                    panic!("Storage error. Corrupted db or invalid state.");
-                }
-            })?;
-
-        // Sort the receipts into appropriate outgoing shards.
-        let mut receipt_result = HashMap::default();
-        for receipt in apply_result.new_receipts.into_iter() {
-            receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
-                .or_insert_with(|| vec![])
-                .push(receipt);
-        }
-        let total_gas_burnt =
-            apply_result.tx_result.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
-
-        let result = ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
-            new_root: apply_result.state_root,
-            transaction_results: apply_result.tx_result,
-            receipt_result,
-            validator_proposals: apply_result.validator_proposals,
-            total_gas_burnt,
-            total_rent_paid: apply_result.total_rent_paid,
-            proof: trie.recorded_storage(),
-        };
-
-        Ok(result)
+    fn check_state_transition(
+        &self,
+        partial_storage: PartialStorage,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        challenges: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error> {
+        let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
+        let mut state_update = TrieUpdate::new(trie.clone(), state_root.hash);
+        self.process_state_update(
+            &mut state_update,
+            shard_id,
+            block_index,
+            block_timestamp,
+            prev_block_hash,
+            receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            challenges,
+        )
     }
 
     fn query(

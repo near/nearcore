@@ -322,6 +322,22 @@ pub trait RuntimeAdapter: Send + Sync {
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
+    fn check_state_transition(
+        &self,
+        partial_storage: PartialStorage,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        challenges: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error>;
+
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
@@ -522,7 +538,10 @@ fn verify_double_sign(
     }
 }
 
-fn verify_header_authorship(block_header: &BlockHeader) -> Result<(), Error> {
+fn verify_header_authorship(
+    runtime_adapter: &RuntimeAdapter,
+    block_header: &BlockHeader,
+) -> Result<(), Error> {
     let block_producer = runtime_adapter
         .get_block_producer(&block_header.inner.epoch_id, block_header.inner.height)?;
     match runtime_adapter.verify_validator_signature(
@@ -543,9 +562,10 @@ fn verify_header_authorship(block_header: &BlockHeader) -> Result<(), Error> {
 }
 
 fn verify_chunk_authorship(
+    runtime_adapter: &RuntimeAdapter,
     block_header: &BlockHeader,
     chunk_header: &ShardChunkHeader,
-) -> Result<(), Error> {
+) -> Result<AccountId, Error> {
     let chunk_producer = runtime_adapter.get_chunk_producer(
         &block_header.inner.epoch_id,
         chunk_header.inner.height_created,
@@ -565,7 +585,7 @@ fn verify_chunk_authorship(
             return Err(ErrorKind::EpochOutOfBounds.into())
         }
     };
-    Ok(())
+    Ok(chunk_producer)
 }
 
 fn verify_chunk_proofs_challenge(
@@ -573,8 +593,9 @@ fn verify_chunk_proofs_challenge(
     chunk_proofs: &ChunkProofs,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-    verify_header_authorship(&block_header)?;
-    verify_chunk_authorship(&block_header, &chunk_proofs.chunk.header)?;
+    verify_header_authorship(runtime_adapter, &block_header)?;
+    let chunk_producer =
+        verify_chunk_authorship(runtime_adapter, &block_header, &chunk_proofs.chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_proofs.chunk.header,
         &block_header.inner.chunk_headers_root,
@@ -601,23 +622,26 @@ fn verify_chunk_state_challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
 
-    verify_header_authorship(&block_header)?;
-    verify_chunk_authorship(&block_header, &chunk_state.prev_chunk.header)?;
-    verify_chunk_authorship(&block_header, &chunk_state.chunk_header)?;
+    verify_header_authorship(runtime_adapter, &block_header)?;
+    verify_chunk_authorship(runtime_adapter, &block_header, &chunk_state.prev_chunk.header)?;
+    let chunk_producer =
+        verify_chunk_authorship(runtime_adapter, &block_header, &chunk_state.chunk_header)?;
 
     // TODO: verify inclusion of prev_chunk into this chain.
-    runtime_adapter.apply_transactions(
+    let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
+    let result = runtime_adapter.check_state_transition(
+        partial_storage,
         chunk_state.chunk_header.inner.shard_id,
         &chunk_state.chunk_header.inner.prev_state_root,
         block_header.inner.height,
         block_header.inner.timestamp,
-        block_header.inner.prev_block_hash,
-        block_header.hash(),
-        &[],
-        &[],
+        &block_header.inner.prev_hash,
+        &block_header.hash(),
+        &chunk_state.prev_chunk.receipts,
+        &chunk_state.prev_chunk.transactions,
         &[],
         0,
-        &[],
+        &ChallengesResult::default(),
     )?;
     // runtime_adapter.check_transactions();
     // let trie =
