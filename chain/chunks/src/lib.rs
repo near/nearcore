@@ -722,6 +722,10 @@ impl ShardsManager {
     ) -> Result<Option<CryptoHash>, Error> {
         let part_id = part.part_id;
         let chunk_hash = part.chunk_hash.clone();
+        if !self.requested_chunks.contains_key(&chunk_hash) {
+            // Received chunk that wasn't requested.
+            return Ok(None);
+        }
         match self.add_part_to_encoded_chunk(part) {
             Ok(()) => {
                 let prev_block_hash = self
