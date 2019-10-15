@@ -250,15 +250,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 if need_header {
-                    if let Ok(header) = self.client.chain.get_state_response_header(shard_id, hash)
-                    {
-                        return NetworkClientResponses::StateResponse(StateResponseInfo {
-                            shard_id,
-                            hash,
-                            shard_state: ShardStateSyncResponse { header: Some(header), parts },
-                        });
-                    } else {
-                        return NetworkClientResponses::NoResponse;
+                    match self.client.chain.get_state_response_header(shard_id, hash) {
+                        Ok(header) => {
+                            return NetworkClientResponses::StateResponse(StateResponseInfo {
+                                shard_id,
+                                hash,
+                                shard_state: ShardStateSyncResponse { header: Some(header), parts },
+                            });
+                        }
+                        Err(e) => {
+                            return NetworkClientResponses::NoResponse;
+                        }
                     }
                 } else {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
@@ -861,20 +863,18 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        if let Some(_) = self.client.block_producer {
-            match self.client.run_catchup() {
-                Ok(accepted_blocks) => {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
-                Err(err) => {
-                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
-                }
+        match self.client.run_catchup() {
+            Ok(accepted_blocks) => {
+                self.process_accepted_blocks(accepted_blocks);
             }
-
-            ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
-                act.catchup(ctx);
-            });
+            Err(err) => {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
+            }
         }
+
+        ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
+            act.catchup(ctx);
+        });
     }
 
     /// Job to retry chunks that were requested but not received within expected time.

@@ -5,7 +5,7 @@ use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_integration_logger;
+use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use std::sync::Arc;
@@ -70,7 +70,7 @@ pub fn start_nodes(
     num_validators: usize,
     epoch_length: BlockIndex,
 ) -> Vec<(Addr<ClientActor>, Addr<ViewClientActor>)> {
-    init_integration_logger();
+    init_test_logger();
 
     let num_nodes = dirs.len();
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
