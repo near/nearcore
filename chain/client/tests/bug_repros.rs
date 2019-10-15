@@ -40,6 +40,8 @@ fn repro_1183() {
             validator_groups,
             true,
             200,
+            false,
+            5,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
@@ -114,7 +116,7 @@ fn repro_1183() {
         );
         *connectors.write().unwrap() = conn;
 
-        near_network::test_utils::wait_or_panic(30000);
+        near_network::test_utils::wait_or_panic(60000);
     })
     .unwrap();
 }

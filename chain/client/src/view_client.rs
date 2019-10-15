@@ -8,7 +8,7 @@ use actix::{Actor, Context, Handler};
 use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryResponse,
@@ -119,7 +119,7 @@ impl Handler<Query> for ViewClientActor {
         let state_root = {
             if path_parts[0] == "validators" && path_parts.len() == 1 {
                 // for querying validators we don't need state root
-                CryptoHash::default()
+                StateRoot { hash: CryptoHash::default(), num_parts: 0 }
             } else {
                 let account_id = AccountId::from(path_parts[1]);
                 let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
@@ -127,12 +127,13 @@ impl Handler<Query> for ViewClientActor {
                     .get_chunk_extra(&header.hash, shard_id)
                     .map_err(|_e| "Failed to fetch the chunk while executing request")?
                     .state_root
+                    .clone()
             }
         };
 
         self.runtime_adapter
             .query(
-                state_root,
+                &state_root,
                 header.inner.height,
                 header.inner.timestamp,
                 &header.hash,

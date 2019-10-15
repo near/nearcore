@@ -1,10 +1,10 @@
+mod fixtures;
+
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
 use std::mem::size_of;
-
-mod fixtures;
 
 #[test]
 fn test_one_register() {
@@ -83,7 +83,7 @@ fn test_max_register_size() {
 fn test_max_register_memory_limit() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = Config::free();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);

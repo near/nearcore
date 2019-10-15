@@ -27,7 +27,6 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
-    pub state_num_parts: u64,
     pub epoch_length: BlockIndex,
 }
 
@@ -84,7 +83,7 @@ impl RuntimeUser {
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
-            client.state_root = apply_result.root;
+            client.state_root = apply_result.state_root.hash;
             if apply_result.new_receipts.is_empty() {
                 return Ok(());
             }

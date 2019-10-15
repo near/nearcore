@@ -77,21 +77,22 @@ fn peers_connect_all() {
         let port = open_port();
         let _pm = make_peer_manager("test", port, vec![]).start();
         let mut peers = vec![];
-        for i in 0..5 {
-            peers.push(
-                make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)]).start(),
-            );
+
+        let num_peers = 5;
+        for i in 0..num_peers {
+            let pm = make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)]);
+            peers.push(pm.start());
         }
         let flags = Arc::new(AtomicUsize::new(0));
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for i in 0..5 {
+                for i in 0..num_peers {
                     let flags1 = flags.clone();
                     actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
                         if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
                             res.unwrap()
                         {
-                            if num_active_peers > 4
+                            if num_active_peers > num_peers - 1
                                 && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                             {
                                 println!("Peer {}: {}", i, num_active_peers);
@@ -103,12 +104,12 @@ fn peers_connect_all() {
                 }
                 // Stop if all connected to all after exchanging peers.
                 println!("Flags: {}", flags.load(Ordering::Relaxed));
-                if flags.load(Ordering::Relaxed) == 0b11111 {
+                if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
                     System::current().stop();
                 }
             }),
             100,
-            1000,
+            10000,
         )
         .start();
     })

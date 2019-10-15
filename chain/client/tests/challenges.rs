@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{MerkleHash, StateRoot};
 use near_store::test_utils::create_test_store;
 
 #[test]
@@ -49,7 +49,10 @@ fn test_request_chunk_restart() {
         part_id: 0,
         tracking_shards: HashSet::default(),
     };
-    client.shards_mgr.process_chunk_one_part_request(request.clone(), PeerId::random()).unwrap();
+    client
+        .shards_mgr
+        .process_chunk_one_part_request(request.clone(), PeerId::random(), client.chain.mut_store())
+        .unwrap();
     assert!(network_adapter.pop().is_some());
 
     let mut client2 = setup_client(
@@ -61,7 +64,10 @@ fn test_request_chunk_restart() {
         network_adapter.clone(),
         chain_genesis,
     );
-    client2.shards_mgr.process_chunk_one_part_request(request, PeerId::random()).unwrap();
+    client2
+        .shards_mgr
+        .process_chunk_one_part_request(request, PeerId::random(), client2.chain.mut_store())
+        .unwrap();
     // TODO: should be some() with the same chunk.
     assert!(network_adapter.pop().is_none());
 }
@@ -77,8 +83,10 @@ fn create_block_with_invalid_chunk(
     let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
     let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
         prev_block_header.hash,
-        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
-        9, /* TODO MOO */
+        StateRoot {
+            hash: CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+            num_parts: 9, /* TODO MOO */
+        },
         1,
         0,
         20,

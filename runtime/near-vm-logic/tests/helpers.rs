@@ -65,3 +65,4 @@ pub fn promise_batch_action_add_key_with_function_call(
         method_names.as_ptr() as _,
     )
 }
+
