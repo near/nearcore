@@ -346,10 +346,6 @@ impl Chain {
     {
         let block_hash = block.hash();
 
-        /*if block.header.inner.height % 5 == 0 {
-            display_chain(me, self, block.header.inner.height % 35 != 0);
-        }*/
-
         let res =
             self.process_block_single(me, block, provenance, block_accepted, block_misses_chunks);
         if res.is_ok() {

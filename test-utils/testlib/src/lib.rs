@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use actix::Addr;
+use tempdir::TempDir;
+
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis};
 use near_client::{ClientActor, ViewClientActor};
@@ -8,8 +12,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
-use std::sync::Arc;
-use tempdir::TempDir;
 
 pub mod actix_utils;
 pub mod fees_utils;

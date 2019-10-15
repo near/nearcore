@@ -1,6 +1,6 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{BlsSignature, BlsSigner};
 
 use crate::hash::{hash, CryptoHash};

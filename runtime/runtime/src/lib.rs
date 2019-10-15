@@ -9,7 +9,7 @@ use std::convert::TryInto;
 use borsh::BorshSerialize;
 use kvdb::DBValue;
 
-use near_crypto::{PublicKey, ReadablePublicKey};
+use near_crypto::{BlsPublicKey, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -901,7 +901,7 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         mut state_update: TrieUpdate,
-        validators: &[(AccountId, ReadablePublicKey, Balance)],
+        validators: &[(AccountId, BlsPublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
