@@ -23,6 +23,11 @@ near-vm-errors = { path = "../near-vm-errors" }
 serde_json = {version= "1.0", features= ["preserve_order"]}
 
 [[test]]
+name = "test_miscs"
+path = "tests/test_miscs.rs"
+required-features = ["mocks"]
+
+[[test]]
 name = "test_registers"
 path = "tests/test_registers.rs"
 required-features = ["mocks"]
