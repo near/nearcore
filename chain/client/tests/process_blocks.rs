@@ -439,8 +439,15 @@ fn test_process_invalid_tx() {
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.transaction_validity_period = 10;
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+    );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -479,8 +486,15 @@ fn test_time_attack() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+    );
     let signer = InMemoryBlsSigner::from_seed("test1", "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
@@ -500,8 +514,15 @@ fn test_invalid_approvals() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+    );
     let signer = InMemoryBlsSigner::from_seed("test1", "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
