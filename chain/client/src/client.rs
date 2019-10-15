@@ -23,8 +23,8 @@ use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -35,6 +35,7 @@ use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
 use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
+use near_primitives::receipt::Receipt;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -291,7 +292,7 @@ impl Client {
             self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if block_producer.account_id != chunk_proposer {
             debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
-            return Ok(());
+            return Ok(None);
         }
 
         debug!(
