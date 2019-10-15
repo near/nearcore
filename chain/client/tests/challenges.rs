@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use borsh::BorshSerialize;
 
-use near_chain::types::verify_challenge;
+use near_chain::types::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
@@ -46,7 +46,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     assert_eq!(
-        verify_challenge(&*env.clients[1].chain.runtime_adapter, &epoch_id, &valid_challenge)
+        validate_challenge(&*env.clients[1].chain.runtime_adapter, &epoch_id, &valid_challenge)
             .unwrap()
             .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
@@ -59,7 +59,7 @@ fn test_verify_block_double_sign_challenge() {
         signer.account_id.clone(),
         &signer,
     );
-    assert!(verify_challenge(
+    assert!(validate_challenge(
         &*env.clients[1].chain.runtime_adapter,
         &epoch_id,
         &invalid_challenge
@@ -74,7 +74,7 @@ fn test_verify_block_double_sign_challenge() {
         signer.account_id.clone(),
         &signer,
     );
-    assert!(verify_challenge(
+    assert!(validate_challenge(
         &*env.clients[1].chain.runtime_adapter,
         &epoch_id,
         &invalid_challenge
@@ -134,7 +134,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
         &*env.clients[0].block_producer.as_ref().unwrap().signer,
     );
     assert_eq!(
-        verify_challenge(
+        validate_challenge(
             &*env.clients[0].chain.runtime_adapter,
             &block.header.inner.epoch_id,
             &valid_challenge

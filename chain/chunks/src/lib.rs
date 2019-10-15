@@ -1010,6 +1010,7 @@ impl ShardsManager {
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
+
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
@@ -1053,8 +1054,10 @@ impl ShardsManager {
             self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
         }
 
-        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        // Save this chunk into encoded_chunks.
         self.encoded_chunks.insert(chunk_hash.clone(), encoded_chunk.clone());
+
+        // Process encoded chunk to add to the store.
         self.process_encoded_chunk(
             &encoded_chunk,
             (0..encoded_chunk.content.parts.len())

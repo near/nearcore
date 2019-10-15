@@ -21,7 +21,7 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    validate_chunk_proofs, verify_challenge, AcceptedBlock, Block, BlockHeader, BlockStatus,
+    validate_challenge, validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus,
     Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
     ShardStateSyncResponseHeader, ShardStateSyncResponsePart, StateHeaderKey, Tip,
     ValidatorSignatureVerificationResult,
@@ -2241,7 +2241,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<ChallengesResult, Error> {
         let mut result = vec![];
         for challenge in header.inner.challenges.iter() {
-            match verify_challenge(&*self.runtime_adapter, &header.inner.epoch_id, challenge) {
+            match validate_challenge(&*self.runtime_adapter, &header.inner.epoch_id, challenge) {
                 Ok((hash, account_ids)) => {
                     self.chain_store_update.save_challenged_block(hash);
                     result.push(ChallengeResult { account_ids, valid: true });
