@@ -7,6 +7,7 @@ pub enum Error {
     InvalidChunkSignature,
     InvalidChunk,
     UnknownChunk,
+    KnownPart,
     ChainError(near_chain::Error),
     IOError(std::io::Error),
     PoolError(near_pool::Error),

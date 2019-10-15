@@ -665,9 +665,11 @@ impl ShardsManager {
                     chunk.content.parts[part.part_id as usize] = Some(part.part);
                     self.merkle_paths
                         .insert((part.chunk_hash.clone(), part.part_id), part.merkle_path);
-                }
 
-                Ok(())
+                    Ok(())
+                } else {
+                    Err(Error::KnownPart)
+                }
             } else {
                 Err(Error::InvalidChunkPartId)
             }
@@ -737,6 +739,7 @@ impl ShardsManager {
                     .prev_block_hash;
                 self.persist_chunk_if_complete(&chunk_hash, &prev_block_hash, chain_store)
             }
+            Err(Error::KnownPart) => Ok(None),
             Err(Error::UnknownChunk) => {
                 debug!(target: "shards", "Received part {} for unknown chunk {:?}, declining", part_id, chunk_hash);
                 Ok(None)

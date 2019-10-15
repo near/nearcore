@@ -14,7 +14,7 @@ log = "0.4"
 kvdb = "0.1"
 rand = "0.6"
 rand_xorshift = "0.1"
-sodiumoxide = "0.2.2"
+sodiumoxide = "0.2.5"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
