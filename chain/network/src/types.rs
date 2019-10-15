@@ -245,12 +245,14 @@ pub enum HandshakeFailureReason {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
-    nonce: usize,
+    pub nonce: usize,
+    pub source: PeerId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
-    nonce: usize,
+    pub nonce: usize,
+    pub source: PeerId,
 }
 
 // TODO(#1313): Use Box
@@ -263,7 +265,7 @@ pub enum RoutedMessageBody {
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
-    /// Ping and Pong are used for testing networking and routing
+    /// Ping and Pong are used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
 }
@@ -692,6 +694,11 @@ pub enum NetworkRequests {
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
     Sync(SyncData),
+
+    // Start ping to `PeerId` with `nonce`.
+    PingTo(usize, PeerId),
+    // Fetch all received ping and pong so far.
+    FetchPingPongInfo,
 }
 
 /// Messages from PeerManager to Peer
@@ -725,6 +732,7 @@ pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
     RoutingTableInfo(RoutingTableInfo),
+    PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses

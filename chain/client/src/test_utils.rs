@@ -463,11 +463,13 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BlockHeaderAnnounce { header: _, approval: None } => {}
-                        NetworkRequests::ForwardTx(_, _) => {}
-                        NetworkRequests::Sync(_) => {}
-                        NetworkRequests::FetchRoutingTable => {}
-                        NetworkRequests::BanPeer { .. } => {}
+                        NetworkRequests::ForwardTx(_, _)
+                        | NetworkRequests::Sync(_)
+                        | NetworkRequests::FetchRoutingTable
+                        | NetworkRequests::PingTo(_, _)
+                        | NetworkRequests::FetchPingPongInfo
+                        | NetworkRequests::BanPeer { .. }
+                        | NetworkRequests::BlockHeaderAnnounce { .. } => {}
                     };
                 }
                 Box::new(Some(resp))

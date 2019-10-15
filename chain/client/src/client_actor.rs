@@ -1035,9 +1035,9 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Ok(NetworkResponses::RoutingTableInfo(_)) | Ok(NetworkResponses::NoResponse) => {
-                    actix::fut::ok(())
-                }
+                Ok(NetworkResponses::RoutingTableInfo(_))
+                | Ok(NetworkResponses::NoResponse)
+                | Ok(NetworkResponses::PingPongInfo { .. }) => actix::fut::ok(()),
                 Err(e) => {
                     error!(target: "client", "Sync: received error or incorrect result: {}", e);
                     actix::fut::err(())

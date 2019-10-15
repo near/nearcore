@@ -10,7 +10,7 @@ use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 
-use crate::types::PeerId;
+use crate::types::{PeerId, Ping, Pong};
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -197,6 +197,10 @@ pub struct RoutingTable {
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
+    /// Ping received by nonce. Used for testing only.
+    ping_info: Option<HashMap<usize, Ping>>,
+    /// Ping received by nonce. Used for testing only.
+    pong_info: Option<HashMap<usize, Pong>>,
 }
 
 #[derive(Debug)]
@@ -213,6 +217,8 @@ impl RoutingTable {
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
             raw_graph: Graph::new(peer_id),
+            ping_info: None,
+            pong_info: None,
         }
     }
 
@@ -289,6 +295,32 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn handle_ping(&mut self, ping: Ping) {
+        if self.ping_info.is_none() {
+            self.ping_info = Some(HashMap::new());
+        }
+
+        if let Some(ping_info) = self.ping_info.as_mut() {
+            ping_info.entry(ping.nonce).or_insert(ping);
+        }
+    }
+
+    pub fn handle_pong(&mut self, pong: Pong) {
+        if self.pong_info.is_none() {
+            self.pong_info = Some(HashMap::new());
+        }
+
+        if let Some(pong_info) = self.pong_info.as_mut() {
+            pong_info.entry(pong.nonce).or_insert(pong);
+        }
+    }
+
+    pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
+        let pings = self.ping_info.clone().unwrap_or_else(HashMap::new);
+        let pongs = self.pong_info.clone().unwrap_or_else(HashMap::new);
+        (pings, pongs)
     }
 
     pub fn info(&self) -> RoutingTableInfo {
@@ -510,7 +542,7 @@ mod test {
     /// Test the following graph
     ///     0 - 3 - 6
     ///   /   x   x
-    /// s - 1 - 4 - 7  
+    /// s - 1 - 4 - 7
     ///   \   x   x
     ///     2 - 5 - 8
     ///

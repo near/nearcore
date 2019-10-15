@@ -571,8 +571,13 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);
 
+                if let RoutedMessageBody::Ping(_) = &routed_message.body {
+                    println!("ASD PEER LEVEL RECEIVED PING: {:?}", routed_message);
+                }
+
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
+                    println!("ASD BANNING PEER!");
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr

@@ -19,6 +19,7 @@ use tokio::codec::FramedRead;
 use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, TcpStream};
 
+use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
 
@@ -36,7 +37,6 @@ use crate::types::{
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::types::AccountId;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -117,6 +117,7 @@ impl PeerManagerActor {
         &mut self,
         full_peer_info: FullPeerInfo,
         edge_info: EdgeInfo,
+        peer_type: PeerType,
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
@@ -165,12 +166,14 @@ impl PeerManagerActor {
                 }),
             });
 
-            // TODO(MarX): Only broadcast new message from the inbound connection.
-            // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-            act.broadcast_message(
-                ctx,
-                SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
-            );
+            if peer_type == PeerType::Outbound {
+                // Only broadcast new message from the outbound endpoint.
+                // Wait a time out before broadcasting this new edge to let the other party finish handshake.
+                act.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                );
+            }
         });
     }
 
@@ -427,9 +430,16 @@ impl PeerManagerActor {
     fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
+                if let RoutedMessageBody::Ping(ref _ping) = msg.body {
+                    println!(
+                        "\nASD ROUTED MESSAGE: {:?} {:?} {:?} {:?}\n",
+                        self.peer_id, msg.target, peer_id, msg
+                    );
+                }
                 self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
             }
             Err(find_route_error) => {
+                println!("ASD MESSAGE DROPPED");
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 trace!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
                       msg.target,
@@ -485,10 +495,32 @@ impl PeerManagerActor {
         EdgeInfo::new(key.0, key.1, nonce, &self.config.secret_key)
     }
 
-    // TODO(MarX, #1312): Store ping/pong for testing
-    fn handle_ping(&mut self, _ping: Ping) {}
+    // Ping pong useful functions.
 
-    fn handle_pong(&mut self, _pong: Pong) {}
+    fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
+        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.peer_id.clone() });
+        let raw = RawRoutedMessage { target: AccountOrPeerId::PeerId(target), body };
+        let msg = self.sign_routed_message(raw);
+        println!("ASD Send ping: {:?}", msg);
+        self.send_message_to_peer(ctx, msg);
+    }
+
+    fn send_pong(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
+        let body = RoutedMessageBody::Pong(Pong { nonce, source: self.peer_id.clone() });
+        let raw = RawRoutedMessage { target: AccountOrPeerId::PeerId(target), body };
+        let msg = self.sign_routed_message(raw);
+        self.send_message_to_peer(ctx, msg);
+    }
+
+    fn handle_ping(&mut self, ctx: &mut Context<Self>, ping: Ping) {
+        println!("ASD Handle ping {:?} {:?}", self.peer_id, ping);
+        self.send_pong(ctx, ping.nonce, ping.source.clone());
+        self.routing_table.handle_ping(ping);
+    }
+
+    fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
+        self.routing_table.handle_pong(pong);
+    }
 }
 
 impl Actor for PeerManagerActor {
@@ -694,6 +726,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::PingTo(nonce, target) => {
+                self.send_ping(ctx, nonce, target);
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::FetchPingPongInfo => {
+                let (pings, pongs) = self.routing_table.fetch_ping_pong();
+                NetworkResponses::PingPongInfo { pings, pongs }
+            }
         }
     }
 }
@@ -798,6 +838,7 @@ impl Handler<Consolidate> for PeerManagerActor {
                 edge_info: msg.other_edge_info,
             },
             edge_info,
+            msg.peer_type,
             msg.actor,
             ctx,
         );
@@ -850,8 +891,8 @@ impl Handler<RoutedMessage> for PeerManagerActor {
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match msg.body {
-                RoutedMessageBody::Ping(ping) => self.handle_ping(ping),
-                RoutedMessageBody::Pong(pong) => self.handle_pong(pong),
+                RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping),
+                RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong),
                 _ => return true,
             }
 
@@ -861,6 +902,8 @@ impl Handler<RoutedMessage> for PeerManagerActor {
             if msg.expect_response() {
                 // TODO(MarX, #1368): Handle route back for message that requires response.
             }
+
+            println!("ASD Route ping: {:?} {:?}", self.peer_id, msg);
             self.send_message_to_peer(ctx, msg);
             false
         }
