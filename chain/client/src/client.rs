@@ -17,7 +17,7 @@ use near_chain::{
     BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
     Tip,
 };
-use near_chunks::{NetworkAdapter, ShardsManager};
+use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
 use near_crypto::BlsSignature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
@@ -85,7 +85,6 @@ impl Client {
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
             network_adapter.clone(),
-            store.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_adapter.clone());
@@ -388,7 +387,11 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, outgoing_receipts);
+        self.shards_mgr.distribute_encoded_chunk(
+            encoded_chunk,
+            outgoing_receipts,
+            self.chain.mut_store(),
+        );
 
         Ok(())
     }
@@ -417,14 +420,16 @@ impl Client {
             )
         };
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
     }
 
     pub fn process_chunk_part(&mut self, part: ChunkPartMsg) -> Result<Vec<AcceptedBlock>, Error> {
-        if let Some(block_hash) = self.shards_mgr.process_chunk_part(part)? {
+        if let Some(block_hash) =
+            self.shards_mgr.process_chunk_part(part, self.chain.mut_store())?
+        {
             Ok(self.process_blocks_with_missing_chunks(block_hash))
         } else {
             Ok(vec![])
@@ -435,30 +440,39 @@ impl Client {
         &mut self,
         one_part_msg: ChunkOnePart,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        let process_result =
+            self.shards_mgr.process_chunk_one_part(one_part_msg.clone(), self.chain.mut_store())?;
+
+        let has_all_one_parts = match process_result {
+            ProcessChunkOnePartResult::Known => return Ok(vec![]),
+            ProcessChunkOnePartResult::HaveAllOneParts => true,
+            ProcessChunkOnePartResult::NeedMoreOneParts => false,
+        };
+
+        // After processing one part we might need to request more parts or one parts.
+        // If we are missing some of our own one parts, we need to request them no matter what, since
+        //    nightshade data availability relies on it. Otherwise only request parts if this chunk
+        //    builds on the current head.
+        // TODO: if the bp receives the chunk before they receive the prev block, they will
+        //     not collect the parts currently. It will result in chunk not included
+        //     in the next block.
+
         let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
-        let ret = self.shards_mgr.process_chunk_one_part(one_part_msg.clone())?;
-        if ret {
-            // If the chunk builds on top of the current head, get all the remaining parts
-            // TODO: if the bp receives the chunk before they receive the block, they will
-            //     not collect the parts currently. It will result in chunk not included
-            //     in the next block.
-            if self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                self.block_producer.as_ref().map(|x| &x.account_id),
-                &prev_block_hash,
-                one_part_msg.shard_id,
-                true,
-            ) && self
-                .chain
-                .head()
-                .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
-                .unwrap_or(false)
-            {
-                self.shards_mgr.request_chunks(vec![one_part_msg.header]).unwrap();
-            } else {
-                // We are getting here either because we don't care about the shard, or
-                //    because we see the one part before we see the block.
-                // In the latter case we will request parts once the block is received
-            }
+        let builds_on_head = self
+            .chain
+            .head()
+            .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
+            .unwrap_or(false);
+        let care_about_shard = self.shards_mgr.cares_about_shard_this_or_next_epoch(
+            self.block_producer.as_ref().map(|x| &x.account_id),
+            &prev_block_hash,
+            one_part_msg.shard_id,
+            true,
+        );
+        if !has_all_one_parts || (care_about_shard && builds_on_head) {
+            self.shards_mgr.request_chunks(vec![one_part_msg.header], !has_all_one_parts).unwrap();
+        }
+        if has_all_one_parts {
             return Ok(self.process_blocks_with_missing_chunks(prev_block_hash));
         }
         Ok(vec![])
@@ -563,13 +577,17 @@ impl Client {
                     }
 
                     for to_reintroduce_hash in to_reintroduce {
-                        let block = self.chain.get_block(&to_reintroduce_hash).unwrap().clone();
-                        self.reintroduce_transactions_for_block(bp.account_id.clone(), &block);
+                        if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
+                            let block = block.clone();
+                            self.reintroduce_transactions_for_block(bp.account_id.clone(), &block);
+                        }
                     }
 
                     for to_remove_hash in to_remove {
-                        let block = self.chain.get_block(&to_remove_hash).unwrap().clone();
-                        self.remove_transactions_for_block(bp.account_id.clone(), &block);
+                        if let Ok(block) = self.chain.get_block(&to_remove_hash) {
+                            let block = block.clone();
+                            self.remove_transactions_for_block(bp.account_id.clone(), &block);
+                        }
                     }
                 }
             };
@@ -618,7 +636,7 @@ impl Client {
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
@@ -872,7 +890,7 @@ impl Client {
                     )?;
 
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
+                        self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                     }
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();
