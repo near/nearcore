@@ -166,13 +166,12 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
-        debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
-            Err(err) => error!(target: "network", "Error converting proto to bytes: {}", err),
+            Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
         };
     }
 

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -11,7 +11,7 @@ use log::debug;
 
 use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
-use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey};
+use near_crypto::{BlsSignature, PublicKey};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -732,7 +732,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     self.view_access_key(
                         state_root.hash,
                         &AccountId::from(path_parts[1]),
-                        &ReadablePublicKey::new(path_parts[2]).try_into()?,
+                        &PublicKey::try_from(path_parts[2])?,
                     )
                     .map(|r| QueryResponse::AccessKey(r.map(|access_key| access_key.into())))
                 };
