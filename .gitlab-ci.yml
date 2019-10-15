@@ -43,7 +43,7 @@ test_cargo:
     - *setup_cache
     script:
     - rustc --version && cargo --version
-    - cargo check --all --tests --benches
+    - cargo check --all --tests --benches --all-features
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
