@@ -859,7 +859,7 @@ impl<'a> VMLogic<'a> {
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.create_account_cost,
             sir,
         )?;
@@ -896,11 +896,11 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = code.len() as u64;
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
@@ -948,11 +948,11 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = (method_name.len() + arguments.len()) as u64;
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.function_call_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
@@ -991,10 +991,8 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
-            &self.config.runtime_fees.action_creation_config.transfer_cost,
-            sir,
-        )?;
+        self.gas_counter
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.transfer_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1032,7 +1030,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.gas_counter
-            .pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1069,7 +1067,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
             sir,
         )?;
@@ -1131,11 +1129,11 @@ impl<'a> VMLogic<'a> {
 
         // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self
                 .config
                 .runtime_fees
@@ -1184,7 +1182,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.delete_key_cost,
             sir,
         )?;
@@ -1221,7 +1219,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.delete_account_cost,
             sir,
         )?;

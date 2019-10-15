@@ -539,6 +539,8 @@ impl Runtime {
         if receipt.predecessor_id == system_account() {
             result.gas_burnt = 0;
             result.gas_used = 0;
+            // If the refund fails, instead of just burning tokens, we report the total number of
+            // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
             if result.result.is_err() {
                 stats.total_balance_burnt +=
                     total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
@@ -571,6 +573,9 @@ impl Runtime {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
                 let reward = Balance::from(gas_reward) * action_receipt.gas_price;
+                // Validators receive the remaining execution reward that was not given to the
+                // account holder. If the account doesn't exist by the end of the execution, the
+                // validators receive the full reward.
                 validator_reward -= reward;
                 account.amount += reward;
                 set_account(state_update, account_id, account);
@@ -950,6 +955,8 @@ impl Runtime {
         let outgoing_receipts_balance = receipts_cost(new_receipts);
         // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
         // account ID when the input data is not received yet.
+        // We calculate all potential receipts IDs that might be postponed initially or after the
+        // execution.
         let all_potential_postponed_receipt_ids: HashSet<(AccountId, CryptoHash)> = prev_receipts
             .iter()
             .map(|receipt| {

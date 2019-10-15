@@ -62,8 +62,8 @@ impl GasCounter {
     /// # Args:
     /// * `per_byte_fee`: the fee per byte;
     /// * `num_bytes`: the number of bytes;
-    /// * `sir`: whether contract call is addressed to itself;
-    pub fn pay_per_byte_gas_fee(
+    /// * `sir`: whether the receiver_id is same as the current account ID;
+    pub fn pay_action_per_byte(
         &mut self,
         per_byte_fee: &Fee,
         num_bytes: u64,
@@ -83,8 +83,8 @@ impl GasCounter {
     /// A helper function to pay base cost gas fee for batching an action.
     /// # Args:
     /// * `base_fee`: base fee for the action;
-    /// * `sir`: whether contract call is addressed to itself;
-    pub fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
+    /// * `sir`: whether the receiver_id is same as the current account ID;
+    pub fn pay_action_base(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
         let burn_gas = base_fee.send_fee(sir);
         let use_gas =
             burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
