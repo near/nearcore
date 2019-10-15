@@ -4,18 +4,22 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{BlsSignature, BlsSigner};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::challenge::{Challenge, ChallengeBody, ChallengesResult};
+use near_primitives::challenge::{
+    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{
+    ChunkHash, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
-use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 use crate::{byzantine_assert, ErrorKind};
@@ -480,6 +484,152 @@ pub fn validate_chunk_proofs(
     Ok(true)
 }
 
+fn verify_double_sign(
+    runtime_adapter: &RuntimeAdapter,
+    block_double_sign: &BlockDoubleSign,
+) -> Result<(CryptoHash, Vec<AccountId>), Error> {
+    let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
+    let right_block_header = BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
+    let block_producer = runtime_adapter
+        .get_block_producer(&left_block_header.inner.epoch_id, left_block_header.inner.height)?;
+    if left_block_header.hash() != right_block_header.hash()
+        && left_block_header.inner.height == right_block_header.inner.height
+        && runtime_adapter
+            .verify_validator_signature(
+                &left_block_header.inner.epoch_id,
+                &block_producer,
+                left_block_header.hash().as_ref(),
+                &left_block_header.signature,
+            )
+            .valid()
+        && runtime_adapter
+            .verify_validator_signature(
+                &right_block_header.inner.epoch_id,
+                &block_producer,
+                right_block_header.hash().as_ref(),
+                &right_block_header.signature,
+            )
+            .valid()
+    {
+        // Deterministically return header with higher hash.
+        Ok(if left_block_header.hash() > right_block_header.hash() {
+            (left_block_header.hash(), vec![block_producer])
+        } else {
+            (right_block_header.hash(), vec![block_producer])
+        })
+    } else {
+        Err(ErrorKind::MaliciousChallenge.into())
+    }
+}
+
+fn verify_header_authorship(block_header: &BlockHeader) -> Result<(), Error> {
+    let block_producer = runtime_adapter
+        .get_block_producer(&block_header.inner.epoch_id, block_header.inner.height)?;
+    match runtime_adapter.verify_validator_signature(
+        &block_header.inner.epoch_id,
+        &block_producer,
+        block_header.hash().as_ref(),
+        &block_header.signature,
+    ) {
+        ValidatorSignatureVerificationResult::Valid => {}
+        ValidatorSignatureVerificationResult::Invalid => {
+            return Err(ErrorKind::InvalidChallenge.into())
+        }
+        ValidatorSignatureVerificationResult::UnknownEpoch => {
+            return Err(ErrorKind::EpochOutOfBounds.into())
+        }
+    }
+    Ok(())
+}
+
+fn verify_chunk_authorship(
+    block_header: &BlockHeader,
+    chunk_header: &ShardChunkHeader,
+) -> Result<(), Error> {
+    let chunk_producer = runtime_adapter.get_chunk_producer(
+        &block_header.inner.epoch_id,
+        chunk_header.inner.height_created,
+        chunk_header.inner.shard_id,
+    )?;
+    match runtime_adapter.verify_validator_signature(
+        &block_header.inner.epoch_id,
+        &chunk_producer,
+        chunk_header.chunk_hash().as_ref(),
+        &chunk_header.signature,
+    ) {
+        ValidatorSignatureVerificationResult::Valid => {}
+        ValidatorSignatureVerificationResult::Invalid => {
+            return Err(ErrorKind::InvalidChallenge.into())
+        }
+        ValidatorSignatureVerificationResult::UnknownEpoch => {
+            return Err(ErrorKind::EpochOutOfBounds.into())
+        }
+    };
+    Ok(())
+}
+
+fn verify_chunk_proofs_challenge(
+    runtime_adapter: &RuntimeAdapter,
+    chunk_proofs: &ChunkProofs,
+) -> Result<(CryptoHash, Vec<AccountId>), Error> {
+    let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+    verify_header_authorship(&block_header)?;
+    verify_chunk_authorship(&block_header, &chunk_proofs.chunk.header)?;
+    if !Block::validate_chunk_header_proof(
+        &chunk_proofs.chunk.header,
+        &block_header.inner.chunk_headers_root,
+        &chunk_proofs.merkle_proof,
+    ) {
+        return Err(ErrorKind::MaliciousChallenge.into());
+    }
+    match chunk_proofs
+        .chunk
+        .decode_chunk(
+            runtime_adapter.num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
+        )
+        .map_err(|err| err.into())
+        .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
+    {
+        Ok(true) => Err(ErrorKind::MaliciousChallenge.into()),
+        Ok(false) | Err(_) => Ok((block_header.hash(), vec![chunk_producer])),
+    }
+}
+
+fn verify_chunk_state_challenge(
+    runtime_adapter: &RuntimeAdapter,
+    chunk_state: &ChunkState,
+) -> Result<(CryptoHash, Vec<AccountId>), Error> {
+    let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
+
+    verify_header_authorship(&block_header)?;
+    verify_chunk_authorship(&block_header, &chunk_state.prev_chunk.header)?;
+    verify_chunk_authorship(&block_header, &chunk_state.chunk_header)?;
+
+    // TODO: verify inclusion of prev_chunk into this chain.
+    runtime_adapter.apply_transactions(
+        chunk_state.chunk_header.inner.shard_id,
+        &chunk_state.chunk_header.inner.prev_state_root,
+        block_header.inner.height,
+        block_header.inner.timestamp,
+        block_header.inner.prev_block_hash,
+        block_header.hash(),
+        &[],
+        &[],
+        &[],
+        0,
+        &[],
+    )?;
+    // runtime_adapter.check_transactions();
+    // let trie =
+    // Retrieve block, if it's missing return error to fetch it.
+    //                let prev_chunk_header =
+    //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
+    //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
+    // chunk_header.inner.
+    // TODO: TODO
+    Err(ErrorKind::MaliciousChallenge.into())
+}
+
 /// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
 pub fn verify_challenge(
     runtime_adapter: &RuntimeAdapter,
@@ -500,114 +650,13 @@ pub fn verify_challenge(
     }
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
-            let left_block_header =
-                BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
-            let right_block_header =
-                BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
-            let block_producer = runtime_adapter.get_block_producer(
-                &left_block_header.inner.epoch_id,
-                left_block_header.inner.height,
-            )?;
-            if left_block_header.hash() != right_block_header.hash()
-                && left_block_header.inner.height == right_block_header.inner.height
-                && runtime_adapter
-                    .verify_validator_signature(
-                        &left_block_header.inner.epoch_id,
-                        &block_producer,
-                        left_block_header.hash().as_ref(),
-                        &left_block_header.signature,
-                    )
-                    .valid()
-                && runtime_adapter
-                    .verify_validator_signature(
-                        &right_block_header.inner.epoch_id,
-                        &block_producer,
-                        right_block_header.hash().as_ref(),
-                        &right_block_header.signature,
-                    )
-                    .valid()
-            {
-                // Deterministically return header with higher hash.
-                Ok(if left_block_header.hash() > right_block_header.hash() {
-                    (left_block_header.hash(), vec![block_producer])
-                } else {
-                    (right_block_header.hash(), vec![block_producer])
-                })
-            } else {
-                Err(ErrorKind::MaliciousChallenge.into())
-            }
+            verify_double_sign(runtime_adapter, block_double_sign)
         }
         ChallengeBody::ChunkProofs(chunk_proofs) => {
-            let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-            let block_producer = runtime_adapter
-                .get_block_producer(&block_header.inner.epoch_id, block_header.inner.height)?;
-            match runtime_adapter.verify_validator_signature(
-                &block_header.inner.epoch_id,
-                &block_producer,
-                block_header.hash().as_ref(),
-                &block_header.signature,
-            ) {
-                ValidatorSignatureVerificationResult::Valid => {}
-                ValidatorSignatureVerificationResult::Invalid => {
-                    return Err(ErrorKind::InvalidChallenge.into())
-                }
-                ValidatorSignatureVerificationResult::UnknownEpoch => {
-                    return Err(ErrorKind::EpochOutOfBounds.into())
-                }
-            }
-            let chunk_producer = runtime_adapter.get_chunk_producer(
-                &block_header.inner.epoch_id,
-                chunk_proofs.chunk.header.inner.height_created,
-                chunk_proofs.chunk.header.inner.shard_id,
-            )?;
-            match runtime_adapter.verify_validator_signature(
-                &block_header.inner.epoch_id,
-                &chunk_producer,
-                chunk_proofs.chunk.chunk_hash().as_ref(),
-                &chunk_proofs.chunk.header.signature,
-            ) {
-                ValidatorSignatureVerificationResult::Valid => {}
-                ValidatorSignatureVerificationResult::Invalid => {
-                    return Err(ErrorKind::InvalidChallenge.into())
-                }
-                ValidatorSignatureVerificationResult::UnknownEpoch => {
-                    return Err(ErrorKind::EpochOutOfBounds.into())
-                }
-            };
-            if !Block::validate_chunk_header_proof(
-                &chunk_proofs.chunk.header,
-                &block_header.inner.chunk_headers_root,
-                &chunk_proofs.merkle_proof,
-            ) {
-                return Err(ErrorKind::MaliciousChallenge.into());
-            }
-            match chunk_proofs
-                .chunk
-                .decode_chunk(
-                    runtime_adapter
-                        .num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
-                )
-                .map_err(|err| err.into())
-                .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
-            {
-                Ok(true) => Err(ErrorKind::MaliciousChallenge.into()),
-                Ok(false) | Err(_) => Ok((block_header.hash(), vec![chunk_producer])),
-            }
+            verify_chunk_proofs_challenge(runtime_adapter, chunk_proofs)
         }
         ChallengeBody::ChunkState(chunk_state) => {
-            let _block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
-            // TODO: this requires actually having the block parent present in the chain.
-            match runtime_adapter.verify_chunk_header_signature(&chunk_state.chunk_header) {
-                Ok(true) => {}
-                Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
-            };
-            // Retrieve block, if it's missing return error to fetch it.
-            //                let prev_chunk_header =
-            //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
-            //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
-            // chunk_header.inner.
-            // TODO: TODO
-            Err(ErrorKind::MaliciousChallenge.into())
+            verify_chunk_state_challenge(runtime_adapter, chunk_state)
         }
     }
 }
