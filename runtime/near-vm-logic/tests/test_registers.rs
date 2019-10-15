@@ -1,10 +1,10 @@
+mod fixtures;
+
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
 use std::mem::size_of;
-
-mod fixtures;
 
 #[test]
 fn test_one_register() {

@@ -166,6 +166,13 @@ impl<'a> VMLogic<'a> {
             .collect())
     }
 
+    fn read_memory_u32(memory: &dyn MemoryLike, ptr: u64) -> Result<u32> {
+        let mut slice = [0u8; size_of::<u32>()];
+        let buf = Self::memory_get(memory, ptr, size_of::<u32>() as u64)?;
+        slice.copy_from_slice(&buf);
+        Ok(u32::from_le_bytes(slice))
+    }
+
     // ###################################
     // # String reading helper functions #
     // ###################################
@@ -179,21 +186,26 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut buf;
+        let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
-            if len > self.config.max_log_len {
+            if len > max_len {
                 return Err(HostError::BadUTF8.into());
             }
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
-            for i in 0..=self.config.max_log_len {
-                Self::try_fit_mem(self.memory, ptr, i)?;
+            for i in 0..=max_len {
+                self.gas_counter
+                    .pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, 1)?;
+                Self::try_fit_mem(self.memory, ptr + i, 1)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
                 }
-                if i == self.config.max_log_len {
+                if i == max_len {
                     return Err(HostError::BadUTF8.into());
                 }
                 buf.push(el);
@@ -202,27 +214,46 @@ impl<'a> VMLogic<'a> {
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
-    /// Helper function to read UTF-16 assembly script formatted string from guest memory.
+    /// Helper function to read UTF-16 formatted string from guest memory.
     /// # Errors
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    fn get_assembly_script_utf16_string(&mut self, ptr: u64) -> Result<String> {
-        if ptr < 4 {
-            return Err(HostError::BadUTF16.into());
-        }
-        let mut slice = [0u8; 4];
-        let buf = Self::memory_get(self.memory, ptr - 4, 4)?;
-        slice.copy_from_slice(&buf);
-        let len: u32 = u32::from_le_bytes(slice);
-        if len % 2 != 0 {
-            return Err(HostError::BadUTF16.into());
-        }
-        let buffer = Self::memory_get(self.memory, ptr, u64::from(len))?;
+    fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut u16_buffer = Vec::new();
-        for i in 0..((len / 2) as usize) {
-            let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
-            u16_buffer.push(c);
+        let max_len = self.config.max_log_len;
+        if len != std::u64::MAX {
+            let input = Self::memory_get(self.memory, ptr, len as u64)?;
+            if len % 2 != 0 || len > max_len {
+                return Err(HostError::BadUTF16.into());
+            }
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
+            for i in 0..((len / 2) as usize) {
+                u16_buffer
+                    .push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
+            }
+        } else {
+            let limit = max_len / size_of::<u16>() as u64;
+            // Takes 2 bytes each iter
+            for i in 0..=limit {
+                self.gas_counter.pay_per_byte(
+                    self.config.runtime_fees.ext_costs.log_per_byte,
+                    size_of::<u16>() as u64,
+                )?;
+                // Self::try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                let start = ptr + i * size_of::<u16>() as u64;
+                Self::try_fit_mem(self.memory, start, size_of::<u16>() as u64)?;
+                let lo = self.memory.read_memory_u8(start);
+                let hi = self.memory.read_memory_u8(start + 1);
+                if (lo, hi) == (0, 0) {
+                    break;
+                }
+                if i == limit {
+                    return Err(HostError::BadUTF16.into());
+                }
+                u16_buffer.push(u16::from_le_bytes([lo, hi]));
+            }
         }
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
@@ -1350,8 +1381,6 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
-        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
-        self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
         let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
         self.logs.push(message);
         Ok(())
@@ -1364,16 +1393,23 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    pub fn log_utf16(&mut self, _len: u64, _ptr: u64) -> Result<()> {
-        // TODO(#1419): Implement proper utf-16 string reading.
+    pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
+        let message = format!("LOG: {}", self.get_utf16_string(len, ptr)?);
+        self.logs.push(message);
         Ok(())
     }
 
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
     /// contracts directly, but instead called by the code generated by AssemblyScript.
     pub fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
-        let msg = self.get_assembly_script_utf16_string(u64::from(msg_ptr))?;
-        let filename = self.get_assembly_script_utf16_string(u64::from(filename_ptr))?;
+        if msg_ptr < 4 || filename_ptr < 4 {
+            return Err(HostError::BadUTF16.into());
+        }
+        let msg_len = Self::read_memory_u32(self.memory, (msg_ptr - 4) as u64)?;
+        let filename_len = Self::read_memory_u32(self.memory, (filename_ptr - 4) as u64)?;
+
+        let msg = self.get_utf16_string(msg_len as u64, msg_ptr as u64)?;
+        let filename = self.get_utf16_string(filename_len as u64, filename_ptr as u64)?;
 
         let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
         self.logs.push(format!("ABORT: {}", message));
