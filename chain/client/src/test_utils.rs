@@ -2,31 +2,33 @@ use std::cmp::max;
 use std::collections::{HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use chrono::{DateTime, Utc};
 use futures::future;
 use futures::future::Future;
+use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, Provenance};
 use near_chunks::NetworkAdapter;
-use near_crypto::{InMemoryBlsSigner, KeyType, PublicKey};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey};
+use near_network::routing::EdgeInfo;
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, Weight};
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
-use near_network::routing::EdgeInfo;
-use rand::{thread_rng, Rng};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -467,6 +469,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::Edges(_edges) => {}
                         NetworkRequests::FetchRoutingTable => {}
                         NetworkRequests::BanPeer { .. } => {}
+                        NetworkRequests::Challenge(_) => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -541,7 +544,7 @@ pub fn setup_client(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: ShardId,
-    account_id: &str,
+    account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
@@ -553,8 +556,81 @@ pub fn setup_client(
         num_shards,
         5,
     ));
-    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
+    let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
     let config = ClientConfig::test(true, 10, num_validators);
-    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, Some(signer.into()))
+    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
+}
+
+pub struct TestEnv {
+    chain_genesis: ChainGenesis,
+    validators: Vec<AccountId>,
+    pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
+    pub clients: Vec<Client>,
+}
+
+impl TestEnv {
+    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
+        let validators: Vec<AccountId> =
+            (0..num_validators).map(|i| format!("test{}", i)).collect();
+        let network_adapters =
+            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
+        let clients = (0..num_clients)
+            .map(|i| {
+                let store = create_test_store();
+                setup_client(
+                    store.clone(),
+                    vec![validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
+                    1,
+                    1,
+                    Some(&format!("test{}", i)),
+                    network_adapters[i].clone(),
+                    chain_genesis.clone(),
+                )
+            })
+            .collect();
+        TestEnv { chain_genesis, validators, network_adapters, clients }
+    }
+
+    pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
+        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+        let (mut accepted_blocks, result) =
+            self.clients[id].process_block(block.clone().unwrap(), Provenance::PRODUCED);
+        assert!(result.is_ok(), format!("{:?}", result));
+        let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
+        accepted_blocks.extend(more_accepted_blocks);
+        for accepted_block in accepted_blocks.into_iter() {
+            self.clients[id].on_block_accepted(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+            );
+        }
+    }
+
+    pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test1".to_string(),
+            &signer,
+            100,
+            self.clients[id].chain.head().unwrap().last_block_hash,
+        );
+        self.clients[id].process_tx(tx)
+    }
+
+    pub fn restart(&mut self, id: usize) {
+        let store = self.clients[id].chain.store().store().clone();
+        self.clients[id] = setup_client(
+            store,
+            vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
+            1,
+            1,
+            Some(&format!("test{}", id)),
+            self.network_adapters[id].clone(),
+            self.chain_genesis.clone(),
+        )
+    }
 }

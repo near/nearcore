@@ -9,6 +9,7 @@ use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::challenge::Challenge;
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
@@ -220,6 +221,17 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChallengeView {
+    // TODO: decide how to represent challenges in json.
+}
+
+impl From<Challenge> for ChallengeView {
+    fn from(_challenge: Challenge) -> Self {
+        Self {}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_id: CryptoHash,
@@ -245,6 +257,7 @@ pub struct BlockHeaderView {
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
+    pub challenges: Vec<ChallengeView>,
     pub signature: BlsSignature,
 }
 
@@ -276,6 +289,7 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
             total_supply: header.inner.total_supply,
+            challenges: header.inner.challenges.into_iter().map(|c| c.into()).collect(),
             signature: header.signature,
         }
     }
@@ -307,6 +321,8 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
+                // TODO: implement JSON representation of challenges.
+                challenges: vec![],
                 rent_paid: view.rent_paid,
             },
             signature: view.signature,

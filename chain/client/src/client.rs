@@ -36,6 +36,7 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
+use near_primitives::challenge::{Challenge, ChallengeBody, Challenges};
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -70,6 +71,8 @@ pub struct Client {
     pub state_sync: StateSync,
     /// Block economics, relevant to changes when new block must be produced.
     block_economics_config: BlockEconomicsConfig,
+    /// List of currently accumulated challenges.
+    pub challenges: Challenges,
 }
 
 impl Client {
@@ -109,6 +112,7 @@ impl Client {
             block_economics_config: BlockEconomicsConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
+            challenges: Default::default(),
         })
     }
 
@@ -159,6 +163,10 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
+        // Check that this height is not known yet.
+        if next_height <= self.chain.mut_store().get_latest_known()?.height {
+            return Ok(None);
+        }
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
@@ -253,6 +261,9 @@ impl Client {
         let approval =
             self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
 
+        // Get all the latest challenges.
+        let challenges = self.challenges.drain(..).collect();
+
         let block = Block::produce(
             &prev_header,
             next_height,
@@ -261,6 +272,7 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
+            challenges,
             &*block_producer.signer,
         );
 
@@ -414,6 +426,22 @@ impl Client {
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
             )
         };
+        // Send out challenge if the block was found to be invalid.
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            match &result {
+                Err(e) => match e.kind() {
+                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+                        self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
+                            ChallengeBody::ChunkProofs(chunk_proofs),
+                            block_producer.account_id.clone(),
+                            &*block_producer.signer,
+                        )));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
@@ -906,5 +934,23 @@ impl Client {
         }
 
         Ok(vec![])
+    }
+
+    /// When accepting challenge, we verify that it's valid given signature with current validators.
+    pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+        let head = self.chain.head()?;
+        if self
+            .runtime_adapter
+            .verify_validator_signature(
+                &head.epoch_id,
+                &challenge.account_id,
+                challenge.hash.as_ref(),
+                &challenge.signature,
+            )
+            .valid()
+        {
+            self.challenges.push(challenge);
+        }
+        Ok(())
     }
 }

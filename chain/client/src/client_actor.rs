@@ -404,6 +404,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
             }
+            NetworkClientMessages::Challenge(challenge) => {
+                match self.client.process_challenge(challenge) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!(target: "client", "Error processing challenge: {}", err);
+                    }
+                }
+                NetworkClientResponses::NoResponse
+            }
         }
     }
 }

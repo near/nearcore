@@ -16,6 +16,7 @@ use tokio::net::TcpStream;
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{BlsSignature, PublicKey, SecretKey, Signature};
+use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
@@ -414,6 +415,8 @@ pub enum PeerMessage {
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
+
+    Challenge(Challenge),
 }
 
 impl fmt::Display for PeerMessage {
@@ -447,6 +450,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
             PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+            PeerMessage::Challenge(_) => f.write_str("Challenge"),
         }
     }
 }
@@ -699,6 +703,9 @@ pub enum NetworkRequests {
     FetchRoutingTable,
     // New edge from the network.
     Edges(Vec<Edge>),
+
+    /// A challenge to invalidate a block.
+    Challenge(Challenge),
 }
 
 /// Messages from PeerManager to Peer
@@ -792,6 +799,9 @@ pub enum NetworkClientMessages {
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part
     ChunkOnePart(ChunkOnePart),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
 }
 
 // TODO(#1313): Use Box

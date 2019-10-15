@@ -12,7 +12,7 @@ use log::debug;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkOnePart, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::{BlockIndex, ChunkExtra, ShardId};
@@ -20,8 +20,8 @@ use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
     COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHALLENGED_BLOCKS, COL_CHUNKS,
-    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS,
-    COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
+    COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::byzantine_assert;
@@ -143,6 +143,12 @@ pub trait ChainStoreAccess {
 
     /// Save the latest known.
     fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error>;
+
+    /// Returns encoded chunk if it's invalid otherwise None.
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error>;
 }
 
 /// All chain-related database operations.
@@ -168,6 +174,8 @@ pub struct ChainStore {
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, ExecutionOutcome>,
+    /// Invalid chunks.
+    invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -192,6 +200,7 @@ impl ChainStore {
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
+            invalid_chunks: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -435,6 +444,19 @@ impl ChainStoreAccess for ChainStore {
             .get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?
             .unwrap_or_else(|| false));
     }
+
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
+        read_with_cache(
+            &*self.store,
+            COL_INVALID_CHUNKS,
+            &mut self.invalid_chunks,
+            chunk_hash.as_ref(),
+        )
+        .map_err(|err| err.into())
+    }
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -466,6 +488,7 @@ pub struct ChainStoreUpdate<'a, T> {
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
+    invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
@@ -494,6 +517,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
+            invalid_chunks: HashMap::default(),
         }
     }
 
@@ -711,6 +735,17 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         }
         self.chain_store.is_block_challenged(hash)
     }
+
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
+        if let Some(chunk) = self.invalid_chunks.get(&chunk_hash) {
+            Ok(Some(chunk))
+        } else {
+            self.chain_store.is_invalid_chunk(chunk_hash)
+        }
+    }
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
@@ -911,6 +946,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.challenged_blocks.insert(hash);
     }
 
+    pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
+        self.invalid_chunks.insert(chunk.chunk_hash(), chunk);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -1063,6 +1102,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         }
         for hash in self.challenged_blocks {
             store_update.set_ser(COL_CHALLENGED_BLOCKS, hash.as_ref(), &true)?;
+        }
+        for (chunk_hash, chunk) in self.invalid_chunks {
+            store_update.set_ser(COL_INVALID_CHUNKS, chunk_hash.as_ref(), &chunk)?;
         }
         for other in self.store_updates {
             store_update.merge(other);

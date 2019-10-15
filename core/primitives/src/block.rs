@@ -5,8 +5,9 @@ use chrono::{DateTime, Utc};
 
 use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
+use crate::challenge::Challenges;
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::merklize;
+use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
 use crate::types::{
     Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
@@ -54,6 +55,8 @@ pub struct BlockHeaderInner {
     pub rent_paid: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
+    /// List of challenges.
+    pub challenges: Challenges,
 }
 
 impl BlockHeaderInner {
@@ -77,6 +80,7 @@ impl BlockHeaderInner {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
+        challenges: Challenges,
     ) -> Self {
         Self {
             height,
@@ -98,6 +102,7 @@ impl BlockHeaderInner {
             gas_price,
             rent_paid,
             total_supply,
+            challenges,
         }
     }
 }
@@ -141,6 +146,7 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
+        challenges: Challenges,
         signer: &dyn BlsSigner,
     ) -> Self {
         let inner = BlockHeaderInner::new(
@@ -163,6 +169,7 @@ impl BlockHeader {
             gas_price,
             rent_paid,
             total_supply,
+            challenges,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
@@ -199,6 +206,7 @@ impl BlockHeader {
             initial_gas_price,
             0,
             initial_total_supply,
+            vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: BlsSignature::empty(), hash }
@@ -262,7 +270,7 @@ impl Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
                 timestamp,
@@ -283,6 +291,7 @@ impl Block {
         approvals: HashMap<usize, BlsSignature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
+        challenges: Challenges,
         signer: &dyn BlsSigner,
     ) -> Self {
         let mut approval_sig = BlsSignature::empty();
@@ -334,7 +343,7 @@ impl Block {
                 prev.hash(),
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
@@ -350,6 +359,7 @@ impl Block {
                 new_gas_price,
                 storage_rent,
                 new_total_supply,
+                challenges,
                 signer,
             ),
             chunks,
@@ -376,14 +386,15 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_headers_root(
+        chunks: &Vec<ShardChunkHeader>,
+    ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
                 .iter()
                 .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
-        .0
     }
 
     pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
@@ -392,6 +403,18 @@ impl Block {
 
     pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    }
+
+    pub fn validate_chunk_header_proof(
+        chunk: &ShardChunkHeader,
+        chunk_root: &CryptoHash,
+        merkle_path: &MerklePath,
+    ) -> bool {
+        verify_path(
+            *chunk_root,
+            merkle_path,
+            &ChunkHashHeight(chunk.hash.clone(), chunk.height_included),
+        )
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -412,7 +435,7 @@ impl Block {
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks);
+        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
         if self.header.inner.chunk_headers_root != chunk_headers_root {
             return false;
         }

@@ -11,7 +11,10 @@ use near_crypto::{
     BlsSecretKey, BlsSignature, InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey,
 };
 use near_primitives::account::Account;
+use near_primitives::challenge::ChallengesResult;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -34,8 +37,6 @@ use crate::types::{
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -500,6 +501,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        _challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);

@@ -4,6 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::challenge::ChunkProofs;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
@@ -69,12 +70,21 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid challenge (wrong signature or format).
+    #[fail(display = "Invalid Challenge")]
+    InvalidChallenge,
+    /// Incorrect (malicious) challenge (slash the sender).
+    #[fail(display = "Malicious Challenge")]
+    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// One of the chunks has invalid proofs
+    #[fail(display = "Invalid Chunk Proofs")]
+    InvalidChunkProofs(ChunkProofs),
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -156,6 +166,7 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot
@@ -164,6 +175,8 @@ impl Error {
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
+            | ErrorKind::InvalidChallenge
+            | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals

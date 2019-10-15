@@ -44,6 +44,7 @@ fn build_chain_with_orhpans() {
         HashMap::default(),
         0,
         Some(0),
+        vec![],
         &*signer,
     );
     assert_eq!(

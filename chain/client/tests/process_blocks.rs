@@ -9,7 +9,7 @@ use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
+use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{
     BlsSignature, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer,
@@ -140,6 +140,7 @@ fn receive_network_block() {
                 HashMap::default(),
                 0,
                 None,
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -189,6 +190,7 @@ fn receive_network_block_header() {
                 HashMap::default(),
                 0,
                 None,
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -234,6 +236,7 @@ fn produce_block_with_approvals() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
                 &signer1,
             );
             for i in 3..11 {
@@ -293,6 +296,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
                 &signer,
             );
             block.header.inner.prev_state_root = hash(&[1]);
@@ -310,6 +314,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -322,6 +327,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
@@ -517,4 +523,12 @@ fn test_invalid_approvals() {
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
     }
+}
+
+#[test]
+fn test_no_double_sign() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    // Second time producing with the same height should fail.
+    assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
 }
