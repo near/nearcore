@@ -57,12 +57,14 @@ pub struct KeyValueRuntime {
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: ShardId,
+    epoch_length: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<MerkleHash, KVState>>,
     state_parts: RwLock<HashMap<CryptoHash, StatePart>>,
     state_proofs: RwLock<HashMap<CryptoHash, MerklePath>>,
 
+    headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
@@ -87,7 +89,7 @@ fn create_receipt_nonce(from: String, to: String, amount: Balance, nonce: Nonce)
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1)
+        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
@@ -95,6 +97,7 @@ impl KeyValueRuntime {
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
         num_shards: ShardId,
+        epoch_length: u64,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut initial_amounts = HashMap::new();
@@ -140,9 +143,11 @@ impl KeyValueRuntime {
                 .collect(),
             validator_groups,
             num_shards,
+            epoch_length,
             state: RwLock::new(state),
             state_parts: RwLock::new(state_parts),
             state_proofs: RwLock::new(state_proofs),
+            headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
@@ -154,6 +159,18 @@ impl KeyValueRuntime {
         self.root.hash
     }
 
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
+        let mut headers_cache = self.headers_cache.write().unwrap();
+        if headers_cache.get(hash).is_some() {
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        if let Some(result) = self.store.get_ser(COL_BLOCK_HEADER, hash.as_ref())? {
+            headers_cache.insert(hash.clone(), result);
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        Ok(None)
+    }
+
     fn get_prev_height(
         &self,
         prev_hash: &CryptoHash,
@@ -161,10 +178,8 @@ impl KeyValueRuntime {
         if prev_hash == &CryptoHash::default() {
             return Ok(0);
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+        let prev_block_header =
+            self.get_block_header(prev_hash)?.ok_or("Missing block when computing the epoch")?;
         Ok(prev_block_header.inner.height)
     }
 
@@ -175,12 +190,9 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or_else(|| {
-                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
-            })?;
+        let prev_block_header = self.get_block_header(&prev_hash)?.ok_or_else(|| {
+            ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
+        })?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -198,7 +210,7 @@ impl KeyValueRuntime {
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner.height - prev_epoch_start >= 5;
+            || prev_block_header.inner.height - prev_epoch_start >= self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -360,7 +372,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (1 + (height as usize) % 3)
+        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
     }
 
     fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
@@ -750,12 +762,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
-            .ok_or_else(|| {
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
-            })?;
+        let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
+            Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
+        })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -774,7 +783,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
-        match self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, epoch_id.as_ref())? {
+        match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.inner.height),
             None => Ok(0),
         }
