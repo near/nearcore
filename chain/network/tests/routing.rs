@@ -421,6 +421,7 @@ fn account_propagation() {
         runner.push(Action::CheckAccountId(1, vec![0, 1]));
         runner.push(Action::AddEdge(0, 2));
         runner.push(Action::CheckAccountId(2, vec![0, 1]));
+
         runner.run();
     })
     .unwrap();
@@ -451,6 +452,7 @@ fn ping_jump() {
     System::run(|| {
         let mut runner = Runner::new(3, 2);
 
+        runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
         runner.push(Action::PingTo(0, 0, 2));

@@ -73,7 +73,8 @@ mod test {
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
+        AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
+        RoutedMessageBody,
     };
 
     use super::*;
@@ -136,7 +137,7 @@ mod test {
         let bls_signature = bls_sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: sk.public_key().into(),
+            target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
             body: RoutedMessageBody::BlockApproval(

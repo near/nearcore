@@ -6,11 +6,15 @@ use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use log::debug;
 
+use cached::{Cached, SizedCache};
 use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 
-use crate::types::{PeerId, Ping, Pong};
+use crate::types::{PeerId, PeerIdOrHash, Ping, Pong};
+use crate::utils::CloneNone;
+
+const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -195,6 +199,8 @@ pub struct RoutingTable {
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
+    /// Hash of messages that requires routing back to respective previous hop.
+    pub route_back: CloneNone<SizedCache<CryptoHash, PeerId>>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
     /// Ping received by nonce. Used for testing only.
@@ -208,6 +214,7 @@ pub enum FindRouteError {
     Disconnected,
     PeerNotFound,
     AccountNotFound,
+    RouteBackNotFound,
 }
 
 impl RoutingTable {
@@ -216,6 +223,7 @@ impl RoutingTable {
             account_peers: HashMap::new(),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
+            route_back: CloneNone::new(SizedCache::with_size(ROUTE_BACK_CACHE_SIZE)),
             raw_graph: Graph::new(peer_id),
             ping_info: None,
             pong_info: None,
@@ -224,7 +232,7 @@ impl RoutingTable {
 
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
-    pub fn find_route(&self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+    pub fn find_route_from_peer_id(&self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id) {
             if routes.is_empty() {
                 Err(FindRouteError::Disconnected)
@@ -234,6 +242,15 @@ impl RoutingTable {
             }
         } else {
             Err(FindRouteError::PeerNotFound)
+        }
+    }
+
+    pub fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
+        match target {
+            PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(&peer_id),
+            PeerIdOrHash::Hash(hash) => {
+                self.fetch_route_back(hash.clone()).ok_or(FindRouteError::RouteBackNotFound)
+            }
         }
     }
 
@@ -297,7 +314,20 @@ impl RoutingTable {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
-    pub fn handle_ping(&mut self, ping: Ping) {
+    pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
+        self.route_back.value().cache_set(hash, peer_id);
+    }
+
+    // Find route back with given hash and removes it from cache.
+    fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
+        self.route_back.value().cache_remove(&hash)
+    }
+
+    pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
+        self.route_back.value().cache_get(&hash).map_or(false, |value| value == peer_id)
+    }
+
+    pub fn add_ping(&mut self, ping: Ping) {
         if self.ping_info.is_none() {
             self.ping_info = Some(HashMap::new());
         }
@@ -307,7 +337,7 @@ impl RoutingTable {
         }
     }
 
-    pub fn handle_pong(&mut self, pong: Pong) {
+    pub fn add_pong(&mut self, pong: Pong) {
         if self.pong_info.is_none() {
             self.pong_info = Some(HashMap::new());
         }

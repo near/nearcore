@@ -265,28 +265,36 @@ pub enum RoutedMessageBody {
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
-    /// Ping and Pong are used for testing networking and routing.
+    /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
 }
 
-pub enum AccountOrPeerId {
-    AccountId(AccountId),
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum PeerIdOrHash {
     PeerId(PeerId),
+    Hash(CryptoHash),
 }
 
-impl AccountOrPeerId {
-    fn peer_id(&self) -> Option<PeerId> {
+pub enum AccountOrPeerIdOrHash {
+    AccountId(AccountId),
+    PeerId(PeerId),
+    Hash(CryptoHash),
+}
+
+impl AccountOrPeerIdOrHash {
+    fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
         match self {
-            AccountOrPeerId::AccountId(_) => None,
-            AccountOrPeerId::PeerId(peer_id) => Some(peer_id.clone()),
+            AccountOrPeerIdOrHash::AccountId(_) => None,
+            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
         }
     }
 }
 
 #[derive(Message)]
 pub struct RawRoutedMessage {
-    pub target: AccountOrPeerId,
+    pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
 }
 
@@ -294,7 +302,7 @@ impl RawRoutedMessage {
     /// Add signature to the message.
     /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
-        let target = self.target.peer_id().unwrap();
+        let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, body: self.body }
@@ -303,7 +311,7 @@ impl RawRoutedMessage {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature {
-    target: PeerId,
+    target: PeerIdOrHash,
     author: PeerId,
     body: RoutedMessageBody,
 }
@@ -314,10 +322,13 @@ pub struct RoutedMessageNoSignature {
 /// route must verify that this signature is valid otherwise previous sender of this package should
 /// be banned. If the final receiver of this package finds that the body is invalid the original
 /// sender of the package should be banned instead.
+/// If target is hash, it is a message that should be routed back using the same path used to route
+/// the request in first place. It is the hash of the request message.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
-    /// Account id which is directed this message
-    pub target: PeerId,
+    /// Peer id which is directed this message.
+    /// If `target` is hash, this a message should be routed back.
+    pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
@@ -328,7 +339,7 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerId, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -336,7 +347,7 @@ impl RoutedMessage {
         )
     }
 
-    fn hash(&self) -> CryptoHash {
+    pub fn hash(&self) -> CryptoHash {
         RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
     }
 
@@ -345,12 +356,22 @@ impl RoutedMessage {
     }
 
     pub fn expect_response(&self) -> bool {
-        // TODO(MarX, #1368): Mark some message as requiring response
-        false
+        match self.body {
+            RoutedMessageBody::Ping(_) => true,
+            _ => false,
+        }
     }
 }
 
-impl Message for RoutedMessage {
+/// Routed Message wrapped with previous sender of the message.
+pub struct RoutedMessageFrom {
+    /// Routed messages.
+    pub msg: RoutedMessage,
+    /// Previous hop in the route. Used for messages that needs routing back.
+    pub from: PeerId,
+}
+
+impl Message for RoutedMessageFrom {
     type Result = bool;
 }
 
