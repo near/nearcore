@@ -9,7 +9,7 @@ pub fn create_context() -> VMContext {
         signer_account_id: "bob".to_owned(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".to_owned(),
-        input: vec![0, 1, 2],
+        input: vec![0, 1, 2, 3, 5],
         block_index: 10,
         block_timestamp: 42,
         account_balance: 2u128,
@@ -98,7 +98,7 @@ decl_test_bytes!(
 
 decl_test_bytes!(test_random_seed, random_seed, create_context().random_seed.as_slice());
 
-decl_test_bytes!(test_input, signer_account_pk, create_context().input.as_slice());
+decl_test_bytes!(test_input, input, create_context().input.as_slice());
 
 decl_test_u64!(test_block_index, block_index, create_context().block_index);
 decl_test_u64!(test_block_timestamp, block_timestamp, create_context().block_timestamp);
