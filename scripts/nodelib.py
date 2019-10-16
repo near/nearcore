@@ -10,6 +10,7 @@ try:
 except NameError:
     pass
 
+
 """Installs cargo/Rust."""
 def install_cargo():
     try:
