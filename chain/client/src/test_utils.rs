@@ -12,7 +12,7 @@ use futures::future::Future;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Chain, ChainGenesis, Provenance};
+use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chunks::NetworkAdapter;
 use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
@@ -23,7 +23,7 @@ use near_network::{
 };
 use near_primitives::block::{Block, Weight};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -539,6 +539,20 @@ impl BlockProducer {
     }
 }
 
+pub fn setup_client_with_runtime(
+    store: Arc<Store>,
+    num_validators: ValidatorId,
+    account_id: Option<&str>,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    chain_genesis: ChainGenesis,
+    runtime_adapter: Arc<RuntimeAdapter>,
+) -> Client {
+    let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
+    let config = ClientConfig::test(true, 10, num_validators);
+    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
+        .unwrap()
+}
+
 pub fn setup_client(
     store: Arc<Store>,
     validators: Vec<Vec<&str>>,
@@ -556,10 +570,14 @@ pub fn setup_client(
         num_shards,
         5,
     ));
-    let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
-    let config = ClientConfig::test(true, 10, num_validators);
-    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
-        .unwrap()
+    setup_client_with_runtime(
+        store,
+        num_validators,
+        account_id,
+        network_adapter,
+        chain_genesis,
+        runtime_adapter,
+    )
 }
 
 pub struct TestEnv {
@@ -586,6 +604,32 @@ impl TestEnv {
                     Some(&format!("test{}", i)),
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
+                )
+            })
+            .collect();
+        TestEnv { chain_genesis, validators, network_adapters, clients }
+    }
+
+    pub fn new_with_runtime(
+        chain_genesis: ChainGenesis,
+        num_clients: usize,
+        num_validators: usize,
+        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
+    ) -> Self {
+        let validators: Vec<AccountId> =
+            (0..num_validators).map(|i| format!("test{}", i)).collect();
+        let network_adapters =
+            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
+        let clients = (0..num_clients)
+            .map(|i| {
+                let store = create_test_store();
+                setup_client_with_runtime(
+                    store.clone(),
+                    num_validators,
+                    Some(&format!("test{}", i)),
+                    network_adapters[i].clone(),
+                    chain_genesis.clone(),
+                    runtime_adapters[i].clone(),
                 )
             })
             .collect();

@@ -280,7 +280,8 @@ impl NightshadeRuntime {
     /// Processes state update.
     fn process_state_update(
         &self,
-        state_update: &mut TrieUpdate,
+        trie: Arc<Trie>,
+        state_root: CryptoHash,
         shard_id: ShardId,
         block_index: BlockIndex,
         block_timestamp: u64,
@@ -291,6 +292,7 @@ impl NightshadeRuntime {
         gas_price: Balance,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
+        let mut state_update = TrieUpdate::new(trie.clone(), state_root);
         let should_update_account = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
@@ -328,7 +330,7 @@ impl NightshadeRuntime {
 
         let apply_result = self
             .runtime
-            .apply(&mut state_update, &apply_state, &receipts, &transactions)
+            .apply(state_update, &apply_state, &receipts, &transactions)
             .map_err(|e| match e {
                 InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
                 InvalidTxErrorOrStorageError::StorageError(_) => {
@@ -355,7 +357,7 @@ impl NightshadeRuntime {
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_rent_paid: apply_result.total_rent_paid,
-            proof: state_update.trie.recorded_storage(),
+            proof: trie.recorded_storage(),
         };
 
         Ok(result)
@@ -707,9 +709,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             self.trie.clone()
         };
-        let mut state_update = TrieUpdate::new(trie.clone(), state_root.hash);
         self.process_state_update(
-            &mut state_update,
+            trie,
+            state_root.hash,
             shard_id,
             block_index,
             block_timestamp,
@@ -738,9 +740,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
-        let mut state_update = TrieUpdate::new(trie.clone(), state_root.hash);
         self.process_state_update(
-            &mut state_update,
+            trie.clone(),
+            state_root.hash,
             shard_id,
             block_index,
             block_timestamp,

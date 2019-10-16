@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use borsh::BorshSerialize;
 
+use near::GenesisConfig;
 use near_chain::types::validate_challenge;
-use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::InMemoryBlsSigner;
@@ -17,6 +18,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
 use near_primitives::test_utils::init_test_logger;
+use near_store::test_utils::create_test_store;
+use std::path::Path;
+use std::sync::Arc;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -142,6 +146,20 @@ fn test_verify_chunk_invalid_proofs_challenge() {
         .unwrap(),
         (block.hash(), vec!["test0".to_string()])
     );
+}
+
+#[test]
+fn test_verify_chunk_invalid_state_challenge() {
+    let store1 = create_test_store();
+    let genesis_config = GenesisConfig::test(vec!["test0"], 1);
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
+        Path::new("."),
+        store1,
+        genesis_config,
+        vec![],
+        vec![],
+    ))];
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
 }
 
 #[test]
