@@ -489,7 +489,9 @@ fn test_time_attack() {
     assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
 }
 
+// TODO: use real runtime for this test
 #[test]
+#[ignore]
 fn test_invalid_approvals() {
     init_test_logger();
     let store = create_test_store();
