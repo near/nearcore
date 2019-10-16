@@ -79,12 +79,13 @@ pub fn setup_network_node(
 enum Action {
     AddEdge(usize, usize),
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
+    CheckAccountId(usize, Vec<usize>),
 }
 
 #[derive(Clone)]
 struct RunningInfo {
     pm_addr: Vec<Addr<PeerManagerActor>>,
-    peer_info: Vec<PeerInfo>,
+    peers_info: Vec<PeerInfo>,
 }
 
 struct StateMachine {
@@ -101,7 +102,7 @@ impl StateMachine {
             Action::AddEdge(u, v) => {
                 self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
                     let addr = info.pm_addr[u].clone();
-                    let peer_info = info.peer_info[v].clone();
+                    let peer_info = info.peers_info[v].clone();
                     actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(move |res| {
                         match res {
                             Ok(_) => {
@@ -117,15 +118,15 @@ impl StateMachine {
             }
             Action::CheckRoutingTable(u, expected) => {
                 self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
-                    let expected1 = expected
+                    let expected = expected
                         .clone()
                         .into_iter()
                         .map(|(target, routes)| {
                             (
-                                info.peer_info[target].id.clone(),
+                                info.peers_info[target].id.clone(),
                                 routes
                                     .into_iter()
-                                    .map(|hop| info.peer_info[hop].id.clone())
+                                    .map(|hop| info.peers_info[hop].id.clone())
                                     .collect(),
                             )
                         })
@@ -142,7 +143,10 @@ impl StateMachine {
                                     // println!("\nROUTING TABLE: {:?}\n", routing_table);
                                     // println!("\nEXPECTED: {:?}\n", expected1);
 
-                                    if expected_routing_tables(routing_table, expected1) {
+                                    if expected_routing_tables(
+                                        routing_table.peer_forwarding,
+                                        expected,
+                                    ) {
                                         flag.store(true, Ordering::Relaxed);
                                     }
                                 }
@@ -150,6 +154,33 @@ impl StateMachine {
                             }),
                     );
                 }))
+            }
+            Action::CheckAccountId(source, known_validators) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    let expected_known: Vec<_> = known_validators
+                        .clone()
+                        .into_iter()
+                        .map(|u| info.peers_info[u].account_id.clone().unwrap())
+                        .collect();
+
+                    actix::spawn(
+                        info.pm_addr
+                            .get(source)
+                            .unwrap()
+                            .send(NetworkRequests::FetchRoutingTable)
+                            .map_err(|_| ())
+                            .and_then(move |res| {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                    if expected_known.into_iter().all(|validator| {
+                                        routing_table.account_peers.contains_key(&validator)
+                                    }) {
+                                        flag.store(true, Ordering::Relaxed);
+                                    }
+                                }
+                                future::ok(())
+                            }),
+                    );
+                }));
             }
         }
     }
@@ -179,8 +210,14 @@ impl Runner {
         let validators: Vec<_> =
             accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
 
-        let peer_info =
+        let mut peers_info =
             convert_boot_nodes(accounts_id.iter().map(|x| x.as_str()).zip(ports.clone()).collect());
+
+        // Save validators accounts on
+        for (validator, peer_info) in validators.iter().zip(peers_info.iter_mut()) {
+            peer_info.account_id = Some(validator.clone());
+        }
+
         let pm_addr: Vec<_> = (0..self.num_nodes)
             .map(|ix| {
                 setup_network_node(
@@ -194,7 +231,7 @@ impl Runner {
             })
             .collect();
 
-        RunningInfo { pm_addr, peer_info }
+        RunningInfo { pm_addr, peers_info }
     }
 
     fn run(&mut self) {
@@ -306,6 +343,23 @@ fn join_components() {
             .push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (3, vec![3]), (2, vec![0, 3])]));
         runner
             .push(Action::CheckRoutingTable(2, vec![(0, vec![0]), (3, vec![3]), (1, vec![0, 3])]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn account_propagation() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::CheckAccountId(1, vec![0, 1]));
+        runner.push(Action::AddEdge(0, 2));
+        runner.push(Action::CheckAccountId(2, vec![0, 1]));
 
         runner.run();
     })
