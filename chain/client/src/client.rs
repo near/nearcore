@@ -636,14 +636,15 @@ impl Client {
                             block.header.inner.timestamp,
                             shard_id,
                         ) {
-                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
-                                self.shards_mgr.distribute_encoded_chunk(
+                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
+                                .shards_mgr
+                                .distribute_encoded_chunk(
                                     encoded_chunk,
                                     merkle_paths,
                                     receipts,
                                     self.chain.mut_store(),
                                 )
-                            }
+                                .expect("Failed to process produced chunk"),
                             Ok(None) => {}
                             Err(err) => {
                                 error!(target: "client", "Error producing chunk {:?}", err);

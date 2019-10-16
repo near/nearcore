@@ -11,15 +11,13 @@ use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
-};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
-use near_store::{PartialStorage, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
 use crate::{byzantine_assert, ErrorKind};

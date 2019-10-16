@@ -681,18 +681,18 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn check_state_transition(
         &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        block_index: BlockIndex,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
-        gas_price: Balance,
-        challenges: &ChallengesResult,
+        _partial_storage: PartialStorage,
+        _shard_id: ShardId,
+        _state_root: &StateRoot,
+        _block_index: BlockIndex,
+        _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+        _receipts: &[Receipt],
+        _transactions: &[SignedTransaction],
+        _last_validator_proposals: &[ValidatorStake],
+        _gas_price: Balance,
+        _challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }

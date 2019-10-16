@@ -591,7 +591,6 @@ impl Trie {
         Some(PartialStorage { nodes })
     }
 
-    #[allow(dead_code)]
     pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
         let map = partial_storage.nodes.into_iter().map(|si| (si.key, si.value)).collect();
         Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }

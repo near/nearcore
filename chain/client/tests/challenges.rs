@@ -186,12 +186,10 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     env.network_adapters[0].pop().unwrap();
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
-    client.shards_mgr.distribute_encoded_chunk(
-        chunk.clone(),
-        merkle_paths,
-        receipts,
-        client.chain.mut_store(),
-    );
+    assert!(client
+        .shards_mgr
+        .distribute_encoded_chunk(chunk.clone(), merkle_paths, receipts, client.chain.mut_store(),)
+        .is_err());
     let (_, result) = client.process_block(block.clone(), Provenance::NONE);
     // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
     assert!(result.is_err());

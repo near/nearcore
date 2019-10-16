@@ -7,6 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
+use near_primitives::challenge::{ChallengeResult, ChallengesResult, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -26,7 +27,6 @@ use crate::types::{
     ShardStateSyncResponseHeader, ShardStateSyncResponsePart, StateHeaderKey, Tip,
     ValidatorSignatureVerificationResult,
 };
-use near_primitives::challenge::{ChallengeResult, ChallengesResult};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -1479,6 +1479,18 @@ impl<'a> ChainUpdate<'a> {
         let mut missing = vec![];
         let height = block.header.inner.height;
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+            // Check if any chunks are invalid in this block.
+            if let Some(encoded_chunk) =
+                self.chain_store_update.is_invalid_chunk(&chunk_header.hash)?
+            {
+                let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+                let chunk_proof = ChunkProofs {
+                    block_header: block.header.try_to_vec().expect("Failed to serialize"),
+                    merkle_proof: merkle_paths[shard_id].clone(),
+                    chunk: encoded_chunk.clone(),
+                };
+                return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
+            }
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();
