@@ -855,7 +855,7 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
 }
 
 pub fn test_stake_fail_not_enough_rent_for_storage(node: impl Node) {
-    test_stake_fail_not_enough_rent_with_balance(node, 1_000_000_000_000_000_010);
+    test_stake_fail_not_enough_rent_with_balance(node, TESTING_INIT_BALANCE / 10);
 }
 
 pub fn test_stake_fail_not_enough_rent_for_account_id(node: impl Node) {
