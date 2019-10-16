@@ -8,7 +8,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
-use rand::distributions::Alphanumeric;
+use rand::distributions::Standard;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::RefCell;
@@ -298,9 +298,9 @@ pub fn run(config: Config) {
 fn create_args(n: usize, blob_size: usize) -> Vec<u8> {
     let mut res = vec![];
     res.extend_from_slice(&(n as u64).to_le_bytes());
-    let blob: String = rand::thread_rng().sample_iter(Alphanumeric).take(blob_size).collect();
-    let blob = blob.to_lowercase(); // Account names can only be lowercase.
-    res.extend(blob.as_bytes());
+    let blob: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(blob_size).collect();
+    let blob: Vec<u8> = blob.into_iter().map(|x| x % (b'z' - b'a' + 1) + b'a').collect();
+    res.extend(blob);
     res
 }
 
@@ -313,7 +313,7 @@ fn measure_function(
     nonces: &mut HashMap<usize, u64>,
     config: &Config,
 ) -> RuntimeTestbed {
-    for blob_size in &[10000] {
+    for blob_size in &[10, 10000] {
         testbed = measure_function_with_blob_size(
             method_name,
             n,
