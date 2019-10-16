@@ -16,7 +16,8 @@ const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
 /// Methods that can be called by a privileged access key.
 const PRIVILEGED_METHOD_NAMES: &[&str] = &["add_access_key", "remove_access_key"];
 /// Methods that can be called by an access key owned by a "supervisor".
-const SUPERVISOR_METHOD_NAMES: &[&str] = &["permanently_unstake", "terminate", "init"];
+const SUPERVISOR_METHOD_NAMES: &[&str] =
+    &["add_access_key", "remove_access_key", "permanently_unstake", "terminate", "init"];
 /// The number of non-leap seconds since January 1, 1970 0:00:00 UTC (aka "UNIX timestamp").
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

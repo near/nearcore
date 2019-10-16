@@ -142,6 +142,12 @@ impl BorshDeserialize for BlsSecretKey {
     }
 }
 
+impl std::fmt::Display for BlsSecretKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
 impl serde::Serialize for BlsSecretKey {
     fn serialize<S>(
         &self,
