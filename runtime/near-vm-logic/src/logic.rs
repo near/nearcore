@@ -207,7 +207,7 @@ impl<'a> VMLogic<'a> {
                 return Err(HostError::BadUTF8.into());
             }
             self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
-            buf = Self::get_from_memory_or_register(self.memory, &self.registers, ptr, len)?;
+            buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=max_len {
@@ -237,8 +237,7 @@ impl<'a> VMLogic<'a> {
         let mut u16_buffer = Vec::new();
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
-            let input =
-                Self::get_from_memory_or_register(self.memory, &self.registers, ptr, len as u64)?;
+            let input = Self::memory_get(self.memory, ptr, len)?;
             if len % 2 != 0 || len > max_len {
                 return Err(HostError::BadUTF16.into());
             }
@@ -300,7 +299,7 @@ impl<'a> VMLogic<'a> {
             config.runtime_fees.ext_costs.read_register_byte,
             register.len() as u64,
         )?;
-        Self::memory_set(*memory,  ptr, register)
+        Self::memory_set(*memory, ptr, register)
     }
 
     /// Returns the size of the blob stored in the given register.
