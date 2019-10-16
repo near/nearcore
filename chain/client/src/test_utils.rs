@@ -464,7 +464,7 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::BlockHeaderAnnounce { header: _, approval: None } => {}
-                        NetworkRequests::Edges(_edges) => {}
+                        NetworkRequests::Sync(_) => {}
                         NetworkRequests::FetchRoutingTable => {}
                         NetworkRequests::BanPeer { .. } => {}
                     };
