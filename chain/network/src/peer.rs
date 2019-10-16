@@ -171,7 +171,7 @@ impl Peer {
                 self.tracker.increment_sent(bytes.len() as u64);
                 self.framed.write(bytes);
             }
-            Err(err) => error!(target: "network", "Error converting proto to bytes: {}", err),
+            Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
         };
     }
 

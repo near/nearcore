@@ -345,6 +345,7 @@ impl Chain {
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let block_hash = block.hash();
+
         let res =
             self.process_block_single(me, block, provenance, block_accepted, block_misses_chunks);
         if res.is_ok() {
@@ -1587,20 +1588,23 @@ impl<'a> ChainUpdate<'a> {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();
-                if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
-                    || self.runtime_adapter.will_care_about_shard(
-                        me.as_ref(),
-                        &parent_hash,
-                        shard_id,
-                        true,
-                    )
-                {
+
+                if let Err(_) = self.chain_store_update.get_chunk_one_part(chunk_header) {
+                    missing.push(chunk_header.clone());
+                } else if self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                ) || self.runtime_adapter.will_care_about_shard(
+                    me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                ) {
                     if let Err(_) = self.chain_store_update.get_chunk(&chunk_hash) {
                         missing.push(chunk_header.clone());
                     }
-                }
-                if let Err(_) = self.chain_store_update.get_chunk_one_part(chunk_header) {
-                    missing.push(chunk_header.clone());
                 }
             }
         }
@@ -1828,8 +1832,6 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header.inner.prev_hash == head.last_block_hash;
 
-        self.check_header_signature(&block.header)?;
-
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
@@ -1983,6 +1985,12 @@ impl<'a> ChainUpdate<'a> {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
+        }
+
+        if self.chain_store_update.get_block_header(&header.hash).is_ok() {
+            // We never save a header unless it was validated, so skip the unnecessary repetitive
+            //    validation
+            return Ok(());
         }
 
         // First I/O cost, delay as much as possible.
