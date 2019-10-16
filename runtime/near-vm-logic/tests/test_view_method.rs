@@ -1,9 +1,9 @@
+mod fixtures;
+
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, VMLogic};
-
-mod fixtures;
 
 macro_rules! test_prohibited {
     ($f: ident $(, $arg: expr )* ) => {

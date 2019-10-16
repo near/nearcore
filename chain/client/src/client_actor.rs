@@ -156,6 +156,9 @@ impl Actor for ClientActor {
             self.block_production_tracking(ctx);
         }
 
+        // Start chunk request retry job.
+        self.chunk_request_retry(ctx);
+
         // Start catchup job.
         self.catchup(ctx);
 
@@ -247,15 +250,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 if need_header {
-                    if let Ok(header) = self.client.chain.get_state_response_header(shard_id, hash)
-                    {
-                        return NetworkClientResponses::StateResponse(StateResponseInfo {
-                            shard_id,
-                            hash,
-                            shard_state: ShardStateSyncResponse { header: Some(header), parts },
-                        });
-                    } else {
-                        return NetworkClientResponses::NoResponse;
+                    match self.client.chain.get_state_response_header(shard_id, hash) {
+                        Ok(header) => {
+                            return NetworkClientResponses::StateResponse(StateResponseInfo {
+                                shard_id,
+                                hash,
+                                shard_state: ShardStateSyncResponse { header: Some(header), parts },
+                            });
+                        }
+                        Err(e) => {
+                            return NetworkClientResponses::NoResponse;
+                        }
                     }
                 } else {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
@@ -370,10 +375,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_chunk_one_part_request(part_request_msg, peer_id);
+                let _ = self.client.shards_mgr.process_chunk_one_part_request(
+                    part_request_msg,
+                    peer_id,
+                    self.client.chain.mut_store(),
+                );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPart(part_msg) => {
@@ -617,7 +623,10 @@ impl ClientActor {
         match self.client.produce_block(next_height, elapsed_since_last_block) {
             Ok(Some(block)) => {
                 let res = self.process_block(block, Provenance::PRODUCED);
-                byzantine_assert!(res.is_ok());
+                if res.is_err() {
+                    error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                    byzantine_assert!(false);
+                }
                 res.map_err(|err| err.into())
             }
             Ok(None) => Ok(()),
@@ -633,13 +642,6 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
-
-            // Process orphaned chunk_one_parts
-            if self.client.shards_mgr.process_orphaned_one_parts(accepted_block.hash) {
-                let accepted_blocks =
-                    self.client.process_blocks_with_missing_chunks(accepted_block.hash);
-                self.process_accepted_blocks(accepted_blocks);
-            }
 
             self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
             self.check_send_announce_account(accepted_block.hash);
@@ -686,9 +688,7 @@ impl ClientActor {
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
-                    if !self.client.chain.is_orphan(&prev_hash)
-                        && !self.client.sync_status.is_syncing()
-                    {
+                    if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                     NetworkClientResponses::NoResponse
@@ -701,7 +701,7 @@ impl ClientActor {
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -765,8 +765,12 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
-            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
-            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
+            Ok(true) => {
+                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
+            }
+            Err(e) => {
+                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
+            }
         }
     }
 
@@ -859,18 +863,31 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        if let Some(_) = self.client.block_producer {
-            match self.client.run_catchup() {
-                Ok(accepted_blocks) => {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
-                Err(err) => error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err),
+        match self.client.run_catchup() {
+            Ok(accepted_blocks) => {
+                self.process_accepted_blocks(accepted_blocks);
             }
-
-            ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
-                act.catchup(ctx);
-            });
+            Err(err) => {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
+            }
         }
+
+        ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
+            act.catchup(ctx);
+        });
+    }
+
+    /// Job to retry chunks that were requested but not received within expected time.
+    fn chunk_request_retry(&mut self, ctx: &mut Context<ClientActor>) {
+        match self.client.shards_mgr.resend_chunk_requests() {
+            Ok(_) => {}
+            Err(err) => {
+                error!(target: "client", "Failed to resend chunk requests: {}", err);
+            }
+        };
+        ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
+            act.chunk_request_retry(ctx);
+        });
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -932,43 +949,12 @@ impl ClientActor {
             if sync_state {
                 let (sync_hash, mut new_shard_sync) = match &self.client.sync_status {
                     SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        let mut need_to_restart = false;
-
-                        if let Ok(sync_block_header) =
-                            self.client.chain.get_block_header(&sync_hash)
-                        {
-                            let prev_hash = sync_block_header.inner.prev_hash;
-
-                            if let Ok(current_epoch) =
-                                self.client.runtime_adapter.get_epoch_id_from_prev_block(&prev_hash)
-                            {
-                                if let Ok(next_epoch) = self
-                                    .client
-                                    .runtime_adapter
-                                    .get_next_epoch_id_from_prev_block(&prev_hash)
-                                {
-                                    if let Ok(header_head) = self.client.chain.header_head() {
-                                        let header_head_epoch = header_head.epoch_id;
-
-                                        if current_epoch != header_head_epoch
-                                            && next_epoch != header_head_epoch
-                                        {
-                                            error!(target: "client", "Header head is not within two epochs of state sync hash, restarting state sync");
-                                            debug!(target: "client", "Current epoch: {:?}, Next epoch: {:?}, Header head epoch: {:?}", current_epoch, next_epoch, header_head_epoch);
-                                            need_to_restart = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if need_to_restart {
-                            (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default())
-                        } else {
-                            (sync_hash.clone(), shard_sync.clone())
-                        }
+                        (sync_hash.clone(), shard_sync.clone())
                     }
-                    _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
+                    _ => {
+                        let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                        (sync_hash, HashMap::default())
+                    }
                 };
 
                 let me = &self.client.block_producer.as_ref().map(|x| x.account_id.clone());
@@ -1024,7 +1010,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
                         }
 
                         self.client.sync_status =

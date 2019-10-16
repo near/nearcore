@@ -49,7 +49,10 @@ fn test_request_chunk_restart() {
         part_id: 0,
         tracking_shards: HashSet::default(),
     };
-    client.shards_mgr.process_chunk_one_part_request(request.clone(), PeerId::random()).unwrap();
+    client
+        .shards_mgr
+        .process_chunk_one_part_request(request.clone(), PeerId::random(), client.chain.mut_store())
+        .unwrap();
     assert!(network_adapter.pop().is_some());
 
     let mut client2 = setup_client(
@@ -61,7 +64,10 @@ fn test_request_chunk_restart() {
         network_adapter.clone(),
         chain_genesis,
     );
-    client2.shards_mgr.process_chunk_one_part_request(request, PeerId::random()).unwrap();
+    client2
+        .shards_mgr
+        .process_chunk_one_part_request(request, PeerId::random(), client2.chain.mut_store())
+        .unwrap();
     // TODO: should be some() with the same chunk.
     assert!(network_adapter.pop().is_none());
 }
