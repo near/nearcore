@@ -68,10 +68,9 @@ impl<'de> Deserialize<'de> for CryptoHash {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let view = from_base(&s)
+        from_base(&s)
             .and_then(|bytes| CryptoHash::try_from(bytes))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        Ok(view)
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
