@@ -2,6 +2,8 @@
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate lazy_static;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryInto;
@@ -50,6 +52,7 @@ pub mod cache;
 pub mod config;
 pub mod ethereum;
 pub mod ext;
+mod metrics;
 pub mod state_viewer;
 mod store;
 
@@ -245,9 +248,11 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut HashMap<ShardId, Vec<Receipt>>,
     ) -> TransactionLog {
+        near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         let mut result = TransactionResult::default();
         match self.apply_signed_transaction(state_update, apply_state, signed_transaction) {
             Ok(receipt) => {
+                near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
                 result.receipts.push(receipt.receipt_id);
                 if receipt.receiver_id == signed_transaction.transaction.signer_id {
                     new_local_receipts.push(receipt);
@@ -261,6 +266,7 @@ impl Runtime {
                 result.status = TransactionStatus::Completed;
             }
             Err(s) => {
+                near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
                 state_update.rollback();
                 result.logs.push(format!("Runtime error: {}", s));
                 result.status = TransactionStatus::Failed;
@@ -307,12 +313,15 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
+                near_metrics::inc_counter(&metrics::ACTION_CREAT_ACCOUNT_TOTAL);
                 action_create_account(apply_state, account, actor_id, receipt, &mut result);
             }
             Action::DeployContract(deploy_contract) => {
+                near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
                 action_deploy_contract(state_update, account, &account_id, deploy_contract);
             }
             Action::FunctionCall(function_call) => {
+                near_metrics::inc_counter(&metrics::ACTION_FUNCTION_CALL_TOTAL);
                 action_function_call(
                     state_update,
                     apply_state,
@@ -329,18 +338,23 @@ impl Runtime {
                 );
             }
             Action::Transfer(transfer) => {
+                near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
                 action_transfer(account, transfer);
             }
             Action::Stake(stake) => {
+                near_metrics::inc_counter(&metrics::ACTION_STAKE_TOTAL);
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
+                near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(state_update, account, &mut result, account_id, add_key);
             }
             Action::DeleteKey(delete_key) => {
+                near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
                 action_delete_key(state_update, account, &mut result, account_id, delete_key);
             }
             Action::DeleteAccount(delete_account) => {
+                near_metrics::inc_counter(&metrics::ACTION_DELETE_ACCOUNT_TOTAL);
                 action_delete_account(
                     state_update,
                     account,

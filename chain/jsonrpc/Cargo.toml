@@ -14,7 +14,9 @@ bytes = "0.4.11"
 futures = "0.1"
 futures03 = { package = "futures-preview", version = "0.3.0-alpha.16", features = ["compat", "async-await", "nightly"] }
 chrono = { version = "0.4.4", features = ["serde"] }
+lazy_static = "1.4"
 log = "0.4"
+prometheus = "^0.7"
 serde_derive = "1.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +29,7 @@ async-utils = { path = "../../async-utils" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }

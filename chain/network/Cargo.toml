@@ -14,12 +14,14 @@ chrono = { version = "0.4.4", features = ["serde"] }
 serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6.5"
+lazy_static = "1.4"
 
 borsh = "0.2.5"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]

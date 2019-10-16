@@ -38,6 +38,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::info::InfoHelper;
+use crate::metrics;
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync, SyncNetworkRecipient};
 use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
@@ -741,7 +742,7 @@ impl ClientActor {
             validator_proposals,
             block_producer.signer.clone(),
         );
-
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }
 
