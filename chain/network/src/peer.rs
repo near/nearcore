@@ -519,7 +519,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
             (_, PeerStatus::Ready, PeerMessage::Sync(sync)) => {
-                // TODO(MarX): Verify received data before accept it. Check all edges and accounts are valid.
+                // TODO(MarX, #1466): Verify received data before accept it. Check all edges and accounts are valid.
                 self.peer_manager_addr.do_send(NetworkRequests::Sync(sync));
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
