@@ -284,48 +284,22 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &BlsSignature,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &BlsSignature,
     ) -> ValidatorSignatureVerificationResult {
-        if let Some(validator) = self
-            .validators
-            .iter()
-            .flatten()
-            .find(|&validator_stake| &validator_stake.account_id == account_id)
-        {
-            if signature.verify_single(data, &validator.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
-        } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
-        }
+        ValidatorSignatureVerificationResult::Valid
     }
 
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sig: &BlsSignature,
-        data: &[u8],
+        _approval_mask: &[bool],
+        _approval_sig: &BlsSignature,
+        _data: &[u8],
     ) -> Result<bool, Error> {
-        let public_keys: Vec<_> =
-            self.validators
-                .iter()
-                .flatten()
-                .zip(approval_mask.iter())
-                .filter_map(|(validate_stake, is_approved)| {
-                    if *is_approved {
-                        Some(validate_stake.public_key.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-        Ok(approval_sig.verify_aggregate(data, &public_keys))
+        Ok(true)
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
