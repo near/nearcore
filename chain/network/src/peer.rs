@@ -297,7 +297,7 @@ impl Peer {
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
-            | PeerMessage::Edges(_) => {
+            | PeerMessage::Sync(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -518,15 +518,9 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
-            (_, PeerStatus::Ready, PeerMessage::Edges(edges)) => {
-                debug!(target: "network", "Received edges from {}: {:?}.", self.peer_info, edges);
-
-                // Check there is at least one invalid edge ban this peer and discard this batch.
-                if !edges.iter().all(|edge| edge.verify()) {
-                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
-                } else {
-                    self.peer_manager_addr.do_send(NetworkRequests::Edges(edges));
-                }
+            (_, PeerStatus::Ready, PeerMessage::Sync(sync)) => {
+                // TODO(MarX, #1466): Verify received data before accept it. Check all edges and accounts are valid.
+                self.peer_manager_addr.do_send(NetworkRequests::Sync(sync));
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);

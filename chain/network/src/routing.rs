@@ -151,6 +151,7 @@ impl Edge {
 #[derive(Clone)]
 pub struct RoutingTable {
     // TODO(MarX, #1363): Use cache and file storing to keep this information.
+    // TODO(MarX): Add proof that this account belongs to this peer.
     /// PeerId associated for every known account id.
     pub account_peers: HashMap<AccountId, PeerId>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -247,6 +248,19 @@ impl RoutingTable {
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
+
+    pub fn info(&self) -> RoutingTableInfo {
+        RoutingTableInfo {
+            account_peers: self.account_peers.clone(),
+            peer_forwarding: self.peer_forwarding.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RoutingTableInfo {
+    pub account_peers: HashMap<AccountId, PeerId>,
+    pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
 }
 
 #[derive(Clone)]
