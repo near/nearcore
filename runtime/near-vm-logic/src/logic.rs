@@ -300,7 +300,7 @@ impl<'a> VMLogic<'a> {
             config.runtime_fees.ext_costs.read_register_byte,
             register.len() as u64,
         )?;
-        Self::memory_set(*memory, ptr, register)
+        Self::memory_set(*memory,  ptr, register)
     }
 
     /// Returns the size of the blob stored in the given register.
