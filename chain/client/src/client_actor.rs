@@ -20,7 +20,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chunks::{NetworkAdapter, NetworkRecipient};
-use near_crypto::BlsSignature;
+use near_crypto::Signature;
 use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -258,7 +258,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 shard_state: ShardStateSyncResponse { header: Some(header), parts },
                             });
                         }
-                        Err(e) => {
+                        Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -317,11 +317,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             if let Some(header) = &shard_state.header {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(
-                                        &self
-                                            .client
-                                            .block_producer
-                                            .as_ref()
-                                            .map(|bp| bp.account_id.clone()),
                                         shard_id,
                                         hash,
                                         header.clone(),
@@ -470,7 +465,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<BlsSignature, ()> {
+    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<Signature, ()> {
         if let Some(block_producer) = self.client.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
                 &block_producer.account_id,
@@ -911,6 +906,10 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
+                debug!(
+                    "{:?} moo transitions to no sync",
+                    self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
+                );
                 self.client.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.

@@ -18,26 +18,32 @@ use near_chain::{
     Tip,
 };
 use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
-use near_crypto::BlsSignature;
+use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
+use crate::metrics;
+
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
+
+/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
+const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 3;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -55,9 +61,9 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
     /// Set of approvals for blocks.
-    pub approvals: SizedCache<CryptoHash, HashMap<usize, BlsSignature>>,
+    pub approvals: SizedCache<CryptoHash, HashMap<usize, Signature>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -158,9 +164,11 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
-        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
-            Error::BlockProducer("Called without block producer info.".to_string())
-        })?;
+        let block_producer = self
+            .block_producer
+            .as_ref()
+            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
+            .clone();
         let head = self.chain.head()?;
         assert_eq!(
             head.epoch_id,
@@ -260,7 +268,7 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -272,7 +280,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    fn produce_chunk(
+    pub fn produce_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
@@ -280,7 +288,7 @@ impl Client {
         next_height: BlockIndex,
         prev_block_timestamp: u64,
         shard_id: ShardId,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let block_producer = self
             .block_producer
             .as_ref()
@@ -291,7 +299,19 @@ impl Client {
             self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if block_producer.account_id != chunk_proposer {
             debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
-            return Ok(());
+            return Ok(None);
+        }
+
+        if self.runtime_adapter.is_next_block_epoch_start(&prev_block_hash)? {
+            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.inner.prev_hash;
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
+                // See comment in similar snipped in `produce_block`
+                debug!(target: "client", "Produce chunk: prev block is not caught up");
+                return Err(Error::ChunkProducer(
+                    "State for the epoch is not downloaded yet, skipping chunk production"
+                        .to_string(),
+                ));
+            }
         }
 
         debug!(
@@ -360,7 +380,7 @@ impl Client {
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
-        let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
+        let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
             next_height,
@@ -373,7 +393,7 @@ impl Client {
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         )?;
 
         debug!(
@@ -387,13 +407,8 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(
-            encoded_chunk,
-            outgoing_receipts,
-            self.chain.mut_store(),
-        );
-
-        Ok(())
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
     pub fn process_block(
@@ -605,7 +620,7 @@ impl Client {
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
-                        if let Err(err) = self.produce_chunk(
+                        match self.produce_chunk(
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
@@ -613,7 +628,18 @@ impl Client {
                             block.header.inner.timestamp,
                             shard_id,
                         ) {
-                            error!(target: "client", "Error producing chunk {:?}", err);
+                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                                self.shards_mgr.distribute_encoded_chunk(
+                                    encoded_chunk,
+                                    merkle_paths,
+                                    receipts,
+                                    self.chain.mut_store(),
+                                )
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                error!(target: "client", "Error producing chunk {:?}", err);
+                            }
                         }
                     }
                 }
@@ -677,7 +703,7 @@ impl Client {
         &mut self,
         account_id: &AccountId,
         hash: &CryptoHash,
-        signature: &BlsSignature,
+        signature: &Signature,
         peer_id: &PeerId,
     ) -> bool {
         let header = match self.chain.get_block_header(&hash) {
@@ -734,6 +760,36 @@ impl Client {
         true
     }
 
+    /// Forwards given transaction to upcoming validators.
+    fn forward_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
+        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        // TODO(MarX, #1366): Forward tx even if I am a validator.
+        //  How many validators ahead of current time should we forward tx?
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+
+        let validator = unwrap_or_return!(
+            self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id),
+            {
+                warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
+                NetworkClientResponses::NoResponse
+            }
+        );
+
+        debug!(target: "client",
+               "I'm {:?}, routing a transaction to {}, shard_id = {}",
+               self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+               validator,
+               shard_id
+        );
+
+        // Send message to network to actually forward transaction.
+        self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
+
+        NetworkClientResponses::NoResponse
+    }
+
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
     pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
@@ -753,77 +809,61 @@ impl Client {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
         }
-        let gas_price = unwrap_or_return!(
-            self.chain.get_block_header(&head.last_block_hash),
-            NetworkClientResponses::NoResponse
-        )
-        .inner
-        .gas_price;
-        let state_root = unwrap_or_return!(
-            self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
-            NetworkClientResponses::NoResponse
-        )
-        .state_root
-        .clone();
 
-        match self.runtime_adapter.validate_tx(
-            head.height + 1,
-            tx_header.inner.timestamp,
-            gas_price,
-            state_root,
-            tx,
-        ) {
-            Ok(valid_transaction) => {
-                let active_validator = unwrap_or_return!(self.active_validator(), {
-                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                    NetworkClientResponses::NoResponse
-                });
+        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true) {
+            let gas_price = unwrap_or_return!(
+                self.chain.get_block_header(&head.last_block_hash),
+                NetworkClientResponses::NoResponse
+            )
+            .inner
+            .gas_price;
+            let state_root = unwrap_or_return!(
+                self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
+                NetworkClientResponses::NoResponse
+            )
+            .state_root
+            .clone();
+            match self.runtime_adapter.validate_tx(
+                head.height + 1,
+                tx_header.inner.timestamp,
+                gas_price,
+                state_root,
+                tx,
+            ) {
+                Ok(valid_transaction) => {
+                    let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
+                        warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, valid_transaction);
+                        NetworkClientResponses::NoResponse
+                    });
 
-                // If I'm not an active validator I should forward tx to next validators.
-                if active_validator {
-                    debug!(
-                        "Recording a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id
-                    );
-                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                    NetworkClientResponses::ValidTx
-                } else {
-                    // TODO(MarX, #1366): Forward tx even if I am a validator.
-                    //  How many validators ahead of current time should we forward tx?
-                    let target_height = head.height + 2;
-
-                    debug!(target: "client",
-                           "{:?} Routing a transaction. {}",
-                           self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                           shard_id
-                    );
-
-                    let validator = unwrap_or_return!(
-                        self.runtime_adapter.get_chunk_producer(
-                            &head.epoch_id,
-                            target_height,
+                    // If I'm not an active validator I should forward tx to next validators.
+                    if active_validator {
+                        debug!(
+                            target: "client",
+                            "Recording a transaction. I'm {:?}, {}",
+                            me,
                             shard_id
-                        ),
-                        {
-                            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                            NetworkClientResponses::NoResponse
-                        }
-                    );
-
-                    NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
+                        );
+                        self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                        NetworkClientResponses::ValidTx
+                    } else {
+                        self.forward_tx(valid_transaction.transaction)
+                    }
                 }
+                Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
+                    debug!(target: "client", "Invalid tx: {:?}", err);
+                    NetworkClientResponses::InvalidTx(err)
+                }
+                Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
             }
-            Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
-                debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err)
-            }
-            Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
+        } else {
+            // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
+            self.forward_tx(tx)
         }
     }
 
-    /// Determine if I am a validator in current epoch for specified shard.
-    fn active_validator(&self) -> Result<bool, Error> {
+    /// Determine if I am a validator in next few blocks for specified shard.
+    fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
 
         let account_id = if let Some(bp) = self.block_producer.as_ref() {
@@ -832,18 +872,17 @@ impl Client {
             return Ok(false);
         };
 
-        let block_proposers = self
-            .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
-            .map_err(|e| Error::Other(e.to_string()))?;
-
-        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
-        Ok(block_proposers
-            .into_iter()
-            .find_map(
-                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
-            )
-            .unwrap_or(false))
+        for i in 0..TX_ROUTING_HEIGHT_HORIZON {
+            let chunk_producer = self.runtime_adapter.get_chunk_producer(
+                &head.epoch_id,
+                head.height + i,
+                shard_id,
+            )?;
+            if &chunk_producer == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them

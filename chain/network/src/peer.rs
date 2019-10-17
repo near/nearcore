@@ -12,17 +12,19 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    AccountOrPeerId, Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
+    ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 
@@ -222,6 +224,7 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => return,
@@ -230,6 +233,7 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
+                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
@@ -246,6 +250,7 @@ impl Peer {
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
+                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
@@ -297,7 +302,7 @@ impl Peer {
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
-            | PeerMessage::Edges(_) => {
+            | PeerMessage::Sync(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -309,12 +314,6 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
-                        act.peer_manager_addr.do_send(RawRoutedMessage {
-                            target: AccountOrPeerId::AccountId(account_id),
-                            body: RoutedMessageBody::ForwardTx(tx)
-                        })
-                    }
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
                         // TODO: count as malicious behaviour?
@@ -351,6 +350,7 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);
 
@@ -370,6 +370,7 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
@@ -386,6 +387,8 @@ impl WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Vec<u8>, io::Error> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
@@ -518,15 +521,9 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
-            (_, PeerStatus::Ready, PeerMessage::Edges(edges)) => {
-                debug!(target: "network", "Received edges from {}: {:?}.", self.peer_info, edges);
-
-                // Check there is at least one invalid edge ban this peer and discard this batch.
-                if !edges.iter().all(|edge| edge.verify()) {
-                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
-                } else {
-                    self.peer_manager_addr.do_send(NetworkRequests::Edges(edges));
-                }
+            (_, PeerStatus::Ready, PeerMessage::Sync(sync)) => {
+                // TODO(MarX, #1466): Verify received data before accept it. Check all edges and accounts are valid.
+                self.peer_manager_addr.do_send(NetworkRequests::Sync(sync));
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);

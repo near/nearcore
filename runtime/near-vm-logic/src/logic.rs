@@ -89,7 +89,7 @@ impl<'a> VMLogic<'a> {
             memory,
             current_account_balance,
             current_storage_usage,
-            gas_counter: gas_counter,
+            gas_counter,
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
@@ -580,19 +580,18 @@ impl<'a> VMLogic<'a> {
     ///   their data receipts), where bool indicates whether this is sender=receiver communication.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let runtime_fees_cfg = &self.config.runtime_fees;
-        let mut use_gas = runtime_fees_cfg
-            .action_receipt_creation_config
-            .send_fee(sir)
-            .checked_add(runtime_fees_cfg.action_receipt_creation_config.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?;
+        let mut burn_gas = runtime_fees_cfg.action_receipt_creation_config.send_fee(sir);
+        let mut use_gas = runtime_fees_cfg.action_receipt_creation_config.exec_fee();
         for dep in data_dependencies {
-            use_gas = use_gas
+            // Both creation and execution for data receipts are considered burnt gas.
+            burn_gas = burn_gas
                 .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
                 .ok_or(HostError::IntegerOverflow)?
                 .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.deduct_gas(0, use_gas)
+        use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.deduct_gas(burn_gas, use_gas)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -860,7 +859,7 @@ impl<'a> VMLogic<'a> {
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.create_account_cost,
             sir,
         )?;
@@ -897,11 +896,11 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = code.len() as u64;
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
@@ -949,11 +948,11 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = (method_name.len() + arguments.len()) as u64;
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.function_call_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
@@ -992,10 +991,8 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
-            &self.config.runtime_fees.action_creation_config.transfer_cost,
-            sir,
-        )?;
+        self.gas_counter
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.transfer_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1033,7 +1030,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.gas_counter
-            .pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1070,7 +1067,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
             sir,
         )?;
@@ -1132,11 +1129,11 @@ impl<'a> VMLogic<'a> {
 
         // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
             sir,
         )?;
-        self.gas_counter.pay_per_byte_gas_fee(
+        self.gas_counter.pay_action_per_byte(
             &self
                 .config
                 .runtime_fees
@@ -1185,7 +1182,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.delete_key_cost,
             sir,
         )?;
@@ -1222,7 +1219,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_base_gas_fee(
+        self.gas_counter.pay_action_base(
             &self.config.runtime_fees.action_creation_config.delete_account_cost,
             sir,
         )?;
@@ -1327,7 +1324,7 @@ impl<'a> VMLogic<'a> {
     /// returns `MemoryAccessViolation`.
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         let return_val = Self::memory_get(self.memory, value_ptr, value_len)?;
-        let mut gas_use: Gas = 0;
+        let mut burn_gas: Gas = 0;
         let num_bytes = return_val.len() as u64;
         let data_cfg = &self.config.runtime_fees.data_receipt_creation_config;
         for data_receiver in &self.context.output_data_receivers {
@@ -1338,7 +1335,8 @@ impl<'a> VMLogic<'a> {
             // after it receives the first data receipt) and then we need to issue a special
             // refund in this situation. Which we avoid by just paying for execution of
             // data receipt that might not be performed.
-            gas_use = gas_use
+            // The gas here is considered burnt, cause we'll prepay for it upfront.
+            burn_gas = burn_gas
                 .checked_add(
                     data_cfg
                         .cost_per_byte
@@ -1350,7 +1348,7 @@ impl<'a> VMLogic<'a> {
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.deduct_gas(0, gas_use)?;
+        self.gas_counter.deduct_gas(burn_gas, burn_gas)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
