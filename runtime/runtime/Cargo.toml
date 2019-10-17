@@ -15,8 +15,6 @@ kvdb = "0.1"
 rand = "0.6"
 rand_xorshift = "0.1"
 sodiumoxide = "0.2.5"
-ethash = "0.3"
-ethereum-bigint = "0.2"
 lazy_static = "1.4"
 
 near-crypto = { path = "../../core/crypto" }
