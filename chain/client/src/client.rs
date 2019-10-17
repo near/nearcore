@@ -10,6 +10,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use crate::metrics;
 use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
 };
@@ -32,8 +33,6 @@ use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
-use crate::metrics;
-
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
@@ -43,7 +42,7 @@ use crate::{BlockProducer, ClientConfig, SyncStatus};
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 3;
+const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -810,19 +809,23 @@ impl Client {
             return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
         }
 
-        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true) {
+        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
+            || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
+        {
             let gas_price = unwrap_or_return!(
                 self.chain.get_block_header(&head.last_block_hash),
                 NetworkClientResponses::NoResponse
             )
             .inner
             .gas_price;
-            let state_root = unwrap_or_return!(
-                self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
-                NetworkClientResponses::NoResponse
-            )
-            .state_root
-            .clone();
+            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
+                Ok(chunk_extra) => chunk_extra.state_root.clone(),
+                Err(_) => {
+                    // Not being able to fetch a state root most likely implies that we haven't
+                    //     caught up with the next epoch yet.
+                    return self.forward_tx(tx);
+                }
+            };
             match self.runtime_adapter.validate_tx(
                 head.height + 1,
                 tx_header.inner.timestamp,
@@ -872,7 +875,7 @@ impl Client {
             return Ok(false);
         };
 
-        for i in 0..TX_ROUTING_HEIGHT_HORIZON {
+        for i in 1..=TX_ROUTING_HEIGHT_HORIZON {
             let chunk_producer = self.runtime_adapter.get_chunk_producer(
                 &head.epoch_id,
                 head.height + i,
