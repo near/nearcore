@@ -12,10 +12,12 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
@@ -222,6 +224,7 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => return,
@@ -230,6 +233,7 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
+                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
@@ -246,6 +250,7 @@ impl Peer {
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
+                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
@@ -345,6 +350,7 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         // Fetch genesis hash from the client.
         self.fetch_client_chain_info(ctx);
 
@@ -364,6 +370,7 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        near_metrics::dec_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
@@ -380,6 +387,8 @@ impl WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Vec<u8>, io::Error> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,
