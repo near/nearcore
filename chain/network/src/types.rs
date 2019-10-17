@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{BlsSignature, PublicKey, SecretKey, Signature};
+use near_crypto::{PublicKey, SecretKey, Signature};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
@@ -197,41 +197,12 @@ struct AnnounceAccountRouteHeader {
     pub epoch_id: EpochId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum AccountOrPeerSignature {
-    PeerSignature(Signature),
-    AccountSignature(BlsSignature),
-}
-
-impl AccountOrPeerSignature {
-    pub fn peer_signature(&self) -> Option<&Signature> {
-        match self {
-            AccountOrPeerSignature::PeerSignature(signature) => Some(signature),
-            AccountOrPeerSignature::AccountSignature(_) => None,
-        }
-    }
-
-    pub fn account_signature(&self) -> Option<&BlsSignature> {
-        match self {
-            AccountOrPeerSignature::PeerSignature(_) => None,
-            AccountOrPeerSignature::AccountSignature(signature) => Some(signature),
-        }
-    }
-
-    pub fn verify_peer(&self, data: &[u8], public_key: &PublicKey) -> bool {
-        match self {
-            AccountOrPeerSignature::PeerSignature(signature) => signature.verify(data, public_key),
-            AccountOrPeerSignature::AccountSignature(_) => false,
-        }
-    }
-}
-
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
-    pub signature: AccountOrPeerSignature,
+    pub signature: Signature,
 }
 
 /// Account announcement information
@@ -244,7 +215,7 @@ pub struct AnnounceAccount {
     /// This announcement is only valid for this `epoch`.
     pub epoch_id: EpochId,
     /// Signature using AccountId associated secret key.
-    pub signature: BlsSignature,
+    pub signature: Signature,
 }
 
 impl AnnounceAccount {
@@ -286,7 +257,7 @@ pub struct Pong {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, BlsSignature),
+    BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -762,7 +733,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, BlsSignature, PeerId),
+    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.

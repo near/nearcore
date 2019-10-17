@@ -4,7 +4,6 @@ use actix::System;
 use futures::future;
 use futures::future::Future;
 
-use near_crypto::BlsSignature;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::BlockId;
@@ -33,7 +32,7 @@ fn test_block() {
             );
             assert!(res.header.timestamp > 0);
             assert_eq!(res.header.approval_mask.len(), 0);
-            assert_eq!(res.header.approval_sigs, BlsSignature::empty());
+            assert_eq!(res.header.approval_sigs, vec![]);
             assert_eq!(res.header.total_weight, 0);
             assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();
