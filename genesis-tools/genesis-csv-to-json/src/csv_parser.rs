@@ -335,6 +335,7 @@ mod tests {
             })
             .unwrap();
         writer.flush().unwrap();
+        println!("{}", file.path().to_str().unwrap());
         keys_to_state_records(file.reopen().unwrap(), 1).unwrap();
     }
 
