@@ -40,6 +40,9 @@ use crate::{BlockProducer, ClientConfig, SyncStatus};
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
+/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
+const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 3;
+
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
     gas_price_adjustment_rate: u8,
@@ -752,6 +755,36 @@ impl Client {
         true
     }
 
+    /// Forwards given transaction to upcoming validators.
+    fn forward_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
+        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        // TODO(MarX, #1366): Forward tx even if I am a validator.
+        //  How many validators ahead of current time should we forward tx?
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+
+        let validator = unwrap_or_return!(
+            self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id),
+            {
+                warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
+                NetworkClientResponses::NoResponse
+            }
+        );
+
+        debug!(target: "client",
+               "I'm {:?}, routing a transaction to {}, shard_id = {}",
+               self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+               validator,
+               shard_id
+        );
+
+        // Send message to network to actually forward transaction.
+        self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
+
+        NetworkClientResponses::NoResponse
+    }
+
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
     pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
@@ -771,77 +804,61 @@ impl Client {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
         }
-        let gas_price = unwrap_or_return!(
-            self.chain.get_block_header(&head.last_block_hash),
-            NetworkClientResponses::NoResponse
-        )
-        .inner
-        .gas_price;
-        let state_root = unwrap_or_return!(
-            self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
-            NetworkClientResponses::NoResponse
-        )
-        .state_root
-        .clone();
 
-        match self.runtime_adapter.validate_tx(
-            head.height + 1,
-            tx_header.inner.timestamp,
-            gas_price,
-            state_root,
-            tx,
-        ) {
-            Ok(valid_transaction) => {
-                let active_validator = unwrap_or_return!(self.active_validator(), {
-                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                    NetworkClientResponses::NoResponse
-                });
+        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true) {
+            let gas_price = unwrap_or_return!(
+                self.chain.get_block_header(&head.last_block_hash),
+                NetworkClientResponses::NoResponse
+            )
+            .inner
+            .gas_price;
+            let state_root = unwrap_or_return!(
+                self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
+                NetworkClientResponses::NoResponse
+            )
+            .state_root
+            .clone();
+            match self.runtime_adapter.validate_tx(
+                head.height + 1,
+                tx_header.inner.timestamp,
+                gas_price,
+                state_root,
+                tx,
+            ) {
+                Ok(valid_transaction) => {
+                    let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
+                        warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, valid_transaction);
+                        NetworkClientResponses::NoResponse
+                    });
 
-                // If I'm not an active validator I should forward tx to next validators.
-                if active_validator {
-                    debug!(
-                        "Recording a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id
-                    );
-                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                    NetworkClientResponses::ValidTx
-                } else {
-                    // TODO(MarX, #1366): Forward tx even if I am a validator.
-                    //  How many validators ahead of current time should we forward tx?
-                    let target_height = head.height + 2;
-
-                    debug!(target: "client",
-                           "{:?} Routing a transaction. {}",
-                           self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                           shard_id
-                    );
-
-                    let validator = unwrap_or_return!(
-                        self.runtime_adapter.get_chunk_producer(
-                            &head.epoch_id,
-                            target_height,
+                    // If I'm not an active validator I should forward tx to next validators.
+                    if active_validator {
+                        debug!(
+                            target: "client",
+                            "Recording a transaction. I'm {:?}, {}",
+                            me,
                             shard_id
-                        ),
-                        {
-                            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                            NetworkClientResponses::NoResponse
-                        }
-                    );
-
-                    NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
+                        );
+                        self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                        NetworkClientResponses::ValidTx
+                    } else {
+                        self.forward_tx(valid_transaction.transaction)
+                    }
                 }
+                Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
+                    debug!(target: "client", "Invalid tx: {:?}", err);
+                    NetworkClientResponses::InvalidTx(err)
+                }
+                Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
             }
-            Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
-                debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err)
-            }
-            Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
+        } else {
+            // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
+            self.forward_tx(tx)
         }
     }
 
-    /// Determine if I am a validator in current epoch for specified shard.
-    fn active_validator(&self) -> Result<bool, Error> {
+    /// Determine if I am a validator in next few blocks for specified shard.
+    fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
 
         let account_id = if let Some(bp) = self.block_producer.as_ref() {
@@ -850,18 +867,17 @@ impl Client {
             return Ok(false);
         };
 
-        let block_proposers = self
-            .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
-            .map_err(|e| Error::Other(e.to_string()))?;
-
-        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
-        Ok(block_proposers
-            .into_iter()
-            .find_map(
-                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
-            )
-            .unwrap_or(false))
+        for i in 0..TX_ROUTING_HEIGHT_HORIZON {
+            let chunk_producer = self.runtime_adapter.get_chunk_producer(
+                &head.epoch_id,
+                head.height + i,
+                shard_id,
+            )?;
+            if &chunk_producer == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
