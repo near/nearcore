@@ -1,30 +1,36 @@
 #![feature(await_macro, async_await)]
+#[macro_use]
+extern crate lazy_static;
+extern crate prometheus;
 
 use std::convert::TryFrom;
+use std::string::FromUtf8Error;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
-use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
+use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
-use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
+use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use async_utils::{delay, timeout};
-use message::{Request, RpcError};
 use message::Message;
+use message::{Request, RpcError};
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor, GetNetworkInfo};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message as message, BlockId};
+use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::{FinalExecutionStatus, ExecutionErrorView};
 
+mod metrics;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
@@ -99,7 +105,8 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
-    SignedTransaction::try_from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
+    SignedTransaction::try_from_slice(&bytes)
+        .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
@@ -156,7 +163,8 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
-        let result = self.client_addr
+        let result = self
+            .client_addr
             .send(NetworkClientMessages::Transaction(tx))
             .map_err(|err| RpcError::server_error(Some(err.to_string())))
             .compat()
@@ -165,7 +173,8 @@ impl JsonRpcHandler {
             NetworkClientResponses::ValidTx => {
                 timeout(self.polling_config.polling_timeout, async {
                     loop {
-                        let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                        let final_tx =
+                            self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                         if let Ok(Ok(ref tx)) = final_tx {
                             match tx.status {
                                 FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
@@ -186,6 +195,7 @@ impl JsonRpcHandler {
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
+            NetworkClientResponses::InvalidTx(err) => Err(RpcError::server_error(Some(err))),
             _ => unreachable!(),
         }
     }
@@ -225,12 +235,23 @@ impl JsonRpcHandler {
     async fn network_info(&self) -> Result<Value, RpcError> {
         jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
     }
+
+    pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
+        // Gather metrics and return them as a String
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
+
+        String::from_utf8(buffer)
+    }
 }
 
 fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::HTTP_RPC_REQUEST_COUNT);
+
     let response = async move {
         let message = handler.process(message.0).await?;
         Ok(HttpResponse::Ok().json(message))
@@ -238,7 +259,11 @@ fn rpc_handler(
     response.boxed().compat()
 }
 
-fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = HttpResponse, Error = HttpError> {
+fn status_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::HTTP_STATUS_REQUEST_COUNT);
+
     let response = async move {
         match handler.status().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
@@ -253,6 +278,20 @@ fn network_info_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item 
         match handler.network_info().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()), 
+        }
+    };
+    response.boxed().compat()
+}
+
+fn prometheus_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::PROMETHEUS_REQUEST_COUNT);
+
+    let response = async move {
+        match handler.metrics().await {
+            Ok(value) => Ok(HttpResponse::Ok().body(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
     response.boxed().compat()
@@ -290,6 +329,7 @@ pub fn start_http(
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
             .service(web::resource("/status").route(web::get().to_async(status_handler)))
             .service(web::resource("/network_info").route(web::get().to_async(network_info_handler)))
+            .service(web::resource("/metrics").route(web::get().to_async(prometheus_handler)))
     })
     .bind(addr)
     .unwrap()

@@ -1,0 +1,11 @@
+[package]
+name = "near-metrics"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+lazy_static = "1.4"
+prometheus = "0.7"
+log = "0.4"
+

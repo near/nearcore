@@ -12,6 +12,7 @@ members = [
     "core/crypto",
     "core/primitives",
     "core/store",
+    "core/metrics",
     "runtime/runtime",
     "runtime/near-runtime-fees",
     "runtime/near-vm-logic",
