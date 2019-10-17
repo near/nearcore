@@ -115,6 +115,28 @@ pub trait ChainStoreAccess {
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
+    /// Returns block header from the current chain for given height if present.
+    fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+        let hash = self.get_block_hash_by_height(height)?;
+        self.get_block_header(&hash)
+    }
+    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    fn get_header_on_chain_by_height(
+        &mut self,
+        sync_hash: &CryptoHash,
+        height: BlockIndex,
+    ) -> Result<&BlockHeader, Error> {
+        let mut header = self.get_block_header(sync_hash)?;
+        let mut hash = sync_hash.clone();
+        while header.inner.height > height {
+            hash = header.inner.prev_hash;
+            header = self.get_block_header(&hash)?;
+        }
+        if header.inner.height < height {
+            return Err(ErrorKind::InvalidBlockHeight.into());
+        }
+        self.get_block_header(&hash)
+    }
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
@@ -442,6 +464,8 @@ pub struct ChainStoreUpdate<'a, T> {
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
+    chunks: HashMap<ChunkHash, ShardChunk>,
+    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
@@ -471,6 +495,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             headers: HashMap::default(),
             block_index: HashMap::default(),
             chunk_extras: HashMap::default(),
+            chunks: HashMap::default(),
+            chunk_one_parts: HashMap::default(),
             outgoing_receipts: HashMap::default(),
             incoming_receipts: HashMap::default(),
             transaction_results: HashMap::default(),
@@ -653,18 +679,30 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        self.chain_store.get_chunk(chunk_hash)
+        if let Some(chunk) = self.chunks.get(chunk_hash) {
+            Ok(chunk)
+        } else {
+            self.chain_store.get_chunk(chunk_hash)
+        }
     }
 
     fn get_chunk_clone_from_header(
         &mut self,
         header: &ShardChunkHeader,
     ) -> Result<ShardChunk, Error> {
-        self.chain_store.get_chunk_clone_from_header(header)
+        if let Some(chunk) = self.chunks.get(&header.hash) {
+            Ok(chunk.clone())
+        } else {
+            self.chain_store.get_chunk_clone_from_header(header)
+        }
     }
 
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        self.chain_store.get_chunk_one_part(header)
+        if let Some(one_part) = self.chunk_one_parts.get(&header.hash) {
+            Ok(one_part)
+        } else {
+            self.chain_store.get_chunk_one_part(header)
+        }
     }
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
@@ -688,7 +726,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         if self.challenged_blocks.contains(&hash) {
             return Ok(true);
         }
-        return self.chain_store.is_block_challenged(hash);
+        self.chain_store.is_block_challenged(hash)
     }
 }
 
@@ -796,6 +834,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         chunk_extra: ChunkExtra,
     ) {
         self.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
+    }
+
+    pub fn save_chunk(&mut self, chunk_hash: &ChunkHash, chunk: ShardChunk) {
+        self.chunks.insert(chunk_hash.clone(), chunk);
+    }
+
+    pub fn save_chunk_one_part(&mut self, chunk_hash: &ChunkHash, one_part: ChunkOnePart) {
+        self.chunk_one_parts.insert(chunk_hash.clone(), one_part);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -921,6 +967,16 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         for ((block_hash, shard_id), chunk_extra) in self.chunk_extras.drain() {
             store_update
                 .set_ser(COL_CHUNK_EXTRA, &get_block_shard_id(&block_hash, shard_id), &chunk_extra)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (chunk_hash, chunk) in self.chunks.drain() {
+            store_update
+                .set_ser(COL_CHUNKS, chunk_hash.as_ref(), &chunk)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (chunk_hash, chunk_one_part) in self.chunk_one_parts.drain() {
+            store_update
+                .set_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref(), &chunk_one_part)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.block_index.drain() {

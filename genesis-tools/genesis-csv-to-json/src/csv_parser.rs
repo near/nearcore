@@ -2,7 +2,7 @@
 use chrono::{DateTime, Utc};
 use csv::ReaderBuilder;
 use near::config::AccountInfo;
-use near_crypto::{BlsPublicKey, KeyType, PublicKey};
+use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -108,7 +108,7 @@ struct Row {
     amount: Balance,
     is_treasury: bool,
     validator_stake: Balance,
-    validator_key: Option<BlsPublicKey>,
+    validator_key: Option<PublicKey>,
     #[serde(with = "crate::serde_with::peer_info_to_str")]
     peer_info: Option<PeerInfo>,
     smart_contract: Option<String>,
@@ -305,7 +305,7 @@ mod tests {
                 vesting_end: Some(Utc.ymd(2019, 12, 21).and_hms(23, 30, 0)),
                 vesting_cliff: Some(Utc.ymd(2019, 12, 21).and_hms(22, 30, 20)),
                 validator_stake: 100,
-                validator_key: Some(BlsPublicKey::empty()),
+                validator_key: Some(PublicKey::empty(KeyType::ED25519)),
                 peer_info: Some(PeerInfo {
                     id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
                     addr: Some("127.0.0.1:8080".parse().unwrap()),

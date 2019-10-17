@@ -2,7 +2,7 @@ use chrono::Utc;
 use near::config::{
     get_initial_supply, Config, CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH,
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE,
-    MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, PROTOCOL_PERCENT, SIGNER_KEY_FILE,
+    MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, PROTOCOL_PERCENT,
     TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE, VALIDATOR_KICKOUT_THRESHOLD,
 };
 use near::GenesisConfig;
@@ -14,10 +14,9 @@ const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: usize = 1;
 
 /// Generates `config.json` and `genesis.config` from csv files.
-/// Verifies that `signer_key.json`, `validator_key.json`, and `node_key.json` are present.
+/// Verifies that `validator_key.json`, and `node_key.json` are present.
 pub fn csv_to_json_configs(home: &Path, chain_id: String) {
     // Verify that key files exist.
-    assert!(home.join(SIGNER_KEY_FILE).as_path().exists(), "Signer key file should exist");
     assert!(home.join(VALIDATOR_KEY_FILE).as_path().exists(), "Validator key file should exist");
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 

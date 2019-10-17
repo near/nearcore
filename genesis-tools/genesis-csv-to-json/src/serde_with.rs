@@ -29,7 +29,7 @@ pub mod peer_info_to_str {
 
 /// `Vec<PublicKey>` as str.
 pub mod pks_as_str {
-    use near_crypto::{PublicKey, ReadablePublicKey};
+    use near_crypto::PublicKey;
     use serde::{Deserialize, Deserializer, Serializer};
     use std::convert::TryFrom;
 
@@ -49,9 +49,7 @@ pub mod pks_as_str {
         if s.is_empty() {
             Ok(vec![])
         } else {
-            Ok(s.split(",")
-                .map(|c| PublicKey::try_from(ReadablePublicKey::new(c)).unwrap())
-                .collect())
+            Ok(s.split(",").map(|c| PublicKey::try_from(c).unwrap()).collect())
         }
     }
 }

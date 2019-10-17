@@ -13,8 +13,8 @@ use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
+    QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -91,7 +91,7 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
-    fn get_state_root(&self) -> CryptoHashView {
+    fn get_state_root(&self) -> CryptoHash {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 

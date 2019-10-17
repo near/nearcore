@@ -1,8 +1,6 @@
 use clap::{App, Arg, SubCommand};
 use near::get_default_home;
-use near_crypto::{
-    BlsSecretKey, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, SecretKey, Signer,
-};
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use std::path::Path;
 
 fn main() {
@@ -35,7 +33,6 @@ fn main() {
                     .help("Number of signer keys to generate. (default 3)"),
             ),
         )
-        .subcommand(SubCommand::with_name("validator-key").about("Generate key for the validator."))
         .subcommand(
             SubCommand::with_name("node-key").about("Generate key for the node communication."),
         )
@@ -66,26 +63,13 @@ fn main() {
                         .expect("Account id must be specified if --generate-config is used");
                     let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
                     let mut path = home_dir.to_path_buf();
-                    path.push(near::config::SIGNER_KEY_FILE);
+                    path.push(near::config::VALIDATOR_KEY_FILE);
                     signer.write_to_file(path.as_path());
                 }
             }
             let pks: Vec<_> = pks.into_iter().map(|pk| format!("{}", pk)).collect();
             println!("List of public keys:");
             println!("{}", pks.join(","));
-        }
-        ("validator-key", Some(_args)) => {
-            let key = BlsSecretKey::from_random();
-            println!("SK: {}", key);
-            println!("PK: {}", key.public_key());
-            if generate_config {
-                let account_id =
-                    account_id.expect("Account id must be specified if --generate-config is used");
-                let signer = InMemoryBlsSigner::from_secret_key(account_id.to_string(), key);
-                let mut path = home_dir.to_path_buf();
-                path.push(near::config::VALIDATOR_KEY_FILE);
-                signer.write_to_file(path.as_path());
-            }
         }
         ("node-key", Some(_args)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
