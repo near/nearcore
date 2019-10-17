@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use near_crypto::BlsSecretKey;
+use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
@@ -44,7 +44,7 @@ pub fn epoch_info(
             .into_iter()
             .map(|(account_id, amount)| ValidatorStake {
                 account_id: account_id.to_string(),
-                public_key: BlsSecretKey::from_seed(account_id).public_key(),
+                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 amount,
             })
             .collect(),
@@ -77,7 +77,7 @@ pub fn epoch_config(
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
-    let public_key = BlsSecretKey::from_seed(account_id).public_key();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 

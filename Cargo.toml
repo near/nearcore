@@ -64,15 +64,6 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
-[profile.dev.overrides.near-crypto]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.overrides.milagro_bls]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.overrides.amcl]
-opt-level = 3 # BLS library is too slow to use in debug
-
 [profile.dev.overrides.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 
@@ -80,12 +71,6 @@ opt-level = 3 # BLS library is too slow to use in debug
 opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.overrides.rand]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.overrides.yaml-rust]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.overrides.zeroize]
 opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.overrides.bs58]
