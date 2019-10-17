@@ -801,13 +801,13 @@ mod test {
         let (mut chain, _, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, signer.clone());
+            let block = Block::empty(prev, &*signer);
             chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
         let (mut chain2, _, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, signer2.clone());
+            let block = Block::empty(&prev, &*signer2);
             chain2.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;

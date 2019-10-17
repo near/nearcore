@@ -99,7 +99,7 @@ fn create_block_with_invalid_chunk(
         &vec![],
         &vec![],
         MerkleHash::default(),
-        signer.clone(),
+        &*signer,
     )
     .unwrap();
     let block_with_invalid_chunk = Block::produce(
@@ -110,7 +110,7 @@ fn create_block_with_invalid_chunk(
         HashMap::default(),
         0,
         None,
-        signer,
+        &*signer,
     );
     (block_with_invalid_chunk, invalid_encoded_chunk)
 }
