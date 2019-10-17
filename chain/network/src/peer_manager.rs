@@ -31,7 +31,7 @@ use crate::types::{
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
     PeerManagerRequest, PeerMessage, PeerType, PeersRequest, PeersResponse, Ping, Pong,
     QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, SendMessage,
-    Unregister,
+    SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -150,18 +150,28 @@ impl PeerManagerActor {
 
         assert!(self.routing_table.process_edge(new_edge.clone()));
 
-        // TODO(MarX, #1363): Implement sync service. Right now all edges are sent during handshake.
-        // Start syncing network point of view. Wait until both parties are connected before start
-        // sending messages.
+        // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
+        //  are sent during handshake.
         let known_edges = self.routing_table.get_edges();
+        let routing_table_info = self.routing_table.info();
         let wait_for_sync = 1;
 
+        // Start syncing network point of view. Wait until both parties are connected before start
+        // sending messages.
         ctx.run_later(Duration::from_secs(wait_for_sync), move |act, ctx| {
-            let _ = addr.do_send(SendMessage { message: PeerMessage::Edges(known_edges) });
+            let _ = addr.do_send(SendMessage {
+                message: PeerMessage::Sync(SyncData {
+                    edges: known_edges,
+                    known_accounts: routing_table_info.account_peers,
+                }),
+            });
 
             // TODO(MarX): Only broadcast new message from the inbound connection.
             // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-            act.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
+            act.broadcast_message(
+                ctx,
+                SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+            );
         });
     }
 
@@ -632,21 +642,36 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::FetchRoutingTable => {
-                NetworkResponses::RoutingTableInfo(self.routing_table.peer_forwarding.clone())
+                NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
-            NetworkRequests::Edges(edges) => {
-                // If this is a new edge broadcast it.
+            NetworkRequests::Sync(sync_data) => {
                 // TODO(MarX): Don't add edges if it is between us and another peer
                 //  Send evidence that we are not already connected to that peer
                 //  Handle this case properly (maybe we are on the middle of a handshake, so wait
                 //  before saying we are not connected).
-                let edges: Vec<_> = edges
+                // Process edges and add new edges to the routing table. Also broadcast new edges.
+                let SyncData { edges, known_accounts } = sync_data;
+
+                let new_edges: Vec<_> = edges
                     .into_iter()
                     .filter(|edge| self.routing_table.process_edge(edge.clone()))
                     .collect();
 
-                if !edges.is_empty() {
-                    self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(edges) });
+                let new_accounts = known_accounts
+                    .into_iter()
+                    .filter(|(account_id, peer_id)| {
+                        self.routing_table.add_account(account_id.clone(), peer_id.clone())
+                    })
+                    .collect();
+
+                let new_data = SyncData { edges: new_edges, known_accounts: new_accounts };
+
+                // Process new accounts.
+                if !new_data.is_empty() {
+                    self.broadcast_message(
+                        ctx,
+                        SendMessage { message: PeerMessage::Sync(new_data) },
+                    );
                 }
 
                 NetworkResponses::NoResponse

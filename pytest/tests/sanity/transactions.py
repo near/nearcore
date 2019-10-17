@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 240
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10]], {})
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["validator_kickout_threshold", 70]], {})
 
 started = time.time()
 
@@ -61,7 +61,7 @@ while True:
             sent_height = height
         else:
             if height > sent_height + 10:
-                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s\n" % (last_balances, expected_balances, ctx.get_balances(), sent_height)
+                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_height)
             time.sleep(0.2)
 
         if height >= 100:

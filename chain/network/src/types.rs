@@ -26,7 +26,7 @@ use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo};
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -382,6 +382,22 @@ impl Message for RoutedMessage {
     type Result = bool;
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct SyncData {
+    pub edges: Vec<Edge>,
+    pub known_accounts: HashMap<AccountId, PeerId>,
+}
+
+impl SyncData {
+    pub fn edge(edge: Edge) -> Self {
+        Self { edges: vec![edge], known_accounts: HashMap::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.edges.is_empty() && self.known_accounts.is_empty()
+    }
+}
+
 // TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
 // TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
@@ -392,7 +408,7 @@ impl Message for RoutedMessage {
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
-    Edges(Vec<Edge>),
+    Sync(SyncData),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -424,7 +440,7 @@ impl fmt::Display for PeerMessage {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
-            PeerMessage::Edges(_) => f.write_str("Edges"),
+            PeerMessage::Sync(_) => f.write_str("Sync"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -701,8 +717,8 @@ pub enum NetworkRequests {
     // The following types of requests are used to trigger actions in the Peer Manager for testing.
     // Fetch current routing table
     FetchRoutingTable,
-    // New edge from the network.
-    Edges(Vec<Edge>),
+    // Data to sync routing table from active peer.
+    Sync(SyncData),
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
@@ -738,7 +754,7 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
-    RoutingTableInfo(HashMap<PeerId, HashSet<PeerId>>),
+    RoutingTableInfo(RoutingTableInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
