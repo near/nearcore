@@ -22,7 +22,7 @@ for value in q['records']:
     if 'Account' in value:
         account_id = value['Account']['account_id']
         if not is_valid_account.match(account_id):
-            print("Bad account ID, nuking account %s" % (account_id,))
+            print("Nuked account for bad account ID %s" % (account_id,))
             continue
         staked = value['Account']['account'].pop('staked')
         value['Account']['account']['locked'] = staked
