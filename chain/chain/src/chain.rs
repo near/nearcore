@@ -664,7 +664,7 @@ impl Chain {
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
                 }
-                e => Err(e.into()),
+                _ => Err(e),
             },
         }
     }
@@ -1584,16 +1584,6 @@ impl<'a> ChainUpdate<'a> {
                         .chain_store_update
                         .get_chunk_extra(&block.header.inner.prev_hash, shard_id)?
                         .clone();
-                    if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root {
-                        byzantine_assert!(false);
-                        return Err(ErrorKind::InvalidStateRoot.into());
-                    }
-                    if prev_chunk_extra.validator_proposals
-                        != chunk_header.inner.validator_proposals
-                    {
-                        byzantine_assert!(false);
-                        return Err(ErrorKind::InvalidValidatorProposals.into());
-                    }
 
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
@@ -1607,9 +1597,23 @@ impl<'a> ChainUpdate<'a> {
                         self.runtime_adapter.build_receipts_hashes(&receipt_response.1)?;
                     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
-                    if outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root {
+                    if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root
+                        || prev_chunk_extra.validator_proposals
+                            != chunk_header.inner.validator_proposals
+                        || outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root
+                    {
                         byzantine_assert!(false);
-                        return Err(ErrorKind::InvalidReceiptsProof.into());
+                        // This is invalid chunk header. Create challenge for given chunk header and previous chunk.
+                        // TODO:
+                        if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root {
+                            return Err(ErrorKind::InvalidStateRoot.into());
+                        } else if outgoing_receipts_root
+                            != chunk_header.inner.outgoing_receipts_root
+                        {
+                            return Err(ErrorKind::InvalidReceiptsProof.into());
+                        } else {
+                            return Err(ErrorKind::InvalidValidatorProposals.into());
+                        }
                     }
 
                     let receipt_proof_response: Vec<ReceiptProofResponse> =

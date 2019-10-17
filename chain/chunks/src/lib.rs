@@ -1015,6 +1015,10 @@ impl ShardsManager {
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts).unwrap();
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
+        println!(
+            "{:?} {:?} {:?}",
+            outgoing_receipts, outgoing_receipts_hashes, outgoing_receipts_root
+        );
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
 
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
