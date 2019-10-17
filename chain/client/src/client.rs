@@ -295,6 +295,18 @@ impl Client {
             return Ok(None);
         }
 
+        if self.runtime_adapter.is_next_block_epoch_start(&prev_block_hash)? {
+            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.inner.prev_hash;
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
+                // See comment in similar snipped in `produce_block`
+                debug!(target: "client", "Produce chunk: prev block is not caught up");
+                return Err(Error::ChunkProducer(
+                    "State for the epoch is not downloaded yet, skipping chunk production"
+                        .to_string(),
+                ));
+            }
+        }
+
         debug!(
             target: "client",
             "Producing chunk at height {} for shard {}, I'm {}",
