@@ -17,10 +17,12 @@ class Key(object):
         self.sk = sk
 
     def decoded_pk(self):
-        return base58.b58decode(self.pk.split(':')[1] if ':' in self.pk else self.pk)
+        key = self.pk.split(':')[1] if ':' in self.pk else self.pk
+        return base58.b58decode(key.encode('ascii'))
 
     def decoded_sk(self):
-        return base58.b58decode(self.sk.split(':')[1] if ':' in self.sk else self.sk)
+        key = self.sk.split(':')[1] if ':' in self.sk else self.sk
+        return base58.b58decode(key.encode('ascii'))
 
     @classmethod
     def from_json(self, j):
@@ -89,7 +91,7 @@ class LocalNode(BaseNode):
 
         self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer_key.json"))
+        self.signer_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
 
         self.handle = None
 

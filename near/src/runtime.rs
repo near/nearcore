@@ -13,7 +13,7 @@ use log::debug;
 
 use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
-use near_crypto::{BlsSignature, PublicKey};
+use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
@@ -319,12 +319,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &BlsSignature,
+        signature: &Signature,
     ) -> ValidatorSignatureVerificationResult {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
         {
-            if signature.verify_single(data, &validator.public_key) {
+            if signature.verify(data, &validator.public_key) {
                 ValidatorSignatureVerificationResult::Valid
             } else {
                 ValidatorSignatureVerificationResult::Invalid
@@ -341,7 +341,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .get_chunk_producer_info(&epoch_id, header.inner.height_created, header.inner.shard_id)
             .map(|vs| vs.public_key);
         if let Ok(public_key) = public_key {
-            Ok(header.signature.verify_single(header.chunk_hash().as_ref(), public_key))
+            Ok(header.signature.verify(header.chunk_hash().as_ref(), public_key))
         } else {
             Ok(false)
         }
@@ -352,20 +352,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         approval_mask: &[bool],
-        approval_sig: &BlsSignature,
+        approval_sigs: &[Signature],
         data: &[u8],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
             .get_all_block_producer_info(epoch_id, last_known_block_hash)
             .map_err(|err| Error::from(err))?;
-        let mut all_keys = vec![];
+        let mut i = 0;
         for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
             if *is_approved && !is_slashed {
-                all_keys.push(validator.public_key);
+                if !approval_sigs[i].verify(data, &validator.public_key) {
+                    return Ok(false);
+                }
+                i += 1;
             }
         }
-        Ok(approval_sig.verify_aggregate(data, &all_keys))
+        Ok(true)
     }
 
     fn get_epoch_block_producers(
@@ -662,7 +665,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_rent_paid: apply_result.total_rent_paid,
+            total_rent_paid: apply_result.stats.total_rent_paid,
             proof: trie.recorded_storage(),
         };
 
@@ -906,7 +909,7 @@ mod test {
     use near_chain::types::ValidatorSignatureVerificationResult;
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
-    use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signer};
+    use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Weight;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
@@ -1147,14 +1150,16 @@ mod test {
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
             TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, vec![], vec![]);
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
         let new_account = format!("test{}", num_nodes + 1);
         let new_validator: BlockProducer =
-            InMemoryBlsSigner::from_seed(&new_account, &new_account).into();
+            InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account).into();
         let new_signer = InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account);
         let create_account_transaction = SignedTransaction::create_account(
             2,
@@ -1242,8 +1247,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
 
@@ -1284,8 +1291,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
             .iter()
@@ -1408,8 +1417,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
             .iter()
@@ -1456,7 +1467,7 @@ mod test {
             vec![],
         );
         let data = [0; 32];
-        let signer = InMemoryBlsSigner::from_seed(&validators[0], &validators[0]);
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
         assert_eq!(
             ValidatorSignatureVerificationResult::Valid,
@@ -1475,8 +1486,10 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
@@ -1550,8 +1563,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
@@ -1601,8 +1616,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
@@ -1681,8 +1698,10 @@ mod test {
             vec![validators[1].clone()],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let signer = InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
         let staking_transaction = stake(1, &signer, &block_producers[1], 0);
         env.step(vec![vec![staking_transaction], vec![]], vec![true, true]);

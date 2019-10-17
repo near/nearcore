@@ -18,7 +18,7 @@ use near_chain::{
     Tip,
 };
 use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
-use near_crypto::BlsSignature;
+use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
@@ -59,9 +59,9 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
     /// Set of approvals for blocks.
-    pub approvals: SizedCache<CryptoHash, HashMap<usize, BlsSignature>>,
+    pub approvals: SizedCache<CryptoHash, HashMap<usize, Signature>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -698,7 +698,7 @@ impl Client {
         &mut self,
         account_id: &AccountId,
         hash: &CryptoHash,
-        signature: &BlsSignature,
+        signature: &Signature,
         peer_id: &PeerId,
     ) -> bool {
         let header = match self.chain.get_block_header(&hash) {
