@@ -612,7 +612,7 @@ impl Chain {
                             &metrics::VALIDATOR_ACTIVE_TOTAL,
                             match self
                                 .runtime_adapter
-                                .get_epoch_block_proposers(&tip.epoch_hash, &tip.last_block_hash)
+                                .get_epoch_block_producers(&tip.epoch_id, &tip.last_block_hash)
                             {
                                 Ok(value) => value
                                     .iter()

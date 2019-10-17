@@ -194,8 +194,7 @@ impl JsonRpcHandler {
             },
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
-            }
-            NetworkClientResponses::InvalidTx(err) => Err(RpcError::server_error(Some(err))),
+            },
             _ => unreachable!(),
         }
     }
