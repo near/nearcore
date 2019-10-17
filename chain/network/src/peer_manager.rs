@@ -641,6 +641,10 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ForwardTx(account_id, tx) => {
+                self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }

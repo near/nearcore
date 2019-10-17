@@ -499,7 +499,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let mut all_done = false;
+        let mut all_done = true;
         let mut update_sync_status = false;
 
         for shard_id in tracking_shards {
@@ -524,6 +524,7 @@ impl StateSync {
                 need_shard = true;
             };
             let mut new_sync_download = shard_sync_download.clone();
+            let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
@@ -593,9 +594,10 @@ impl StateSync {
                     };
                 }
                 ShardSyncStatus::StateDownloadComplete => {
-                    all_done = true;
+                    this_done = true;
                 }
             }
+            all_done &= this_done;
             // Execute syncing for shard `shard_id`
             if need_shard {
                 new_sync_download = self.request_shard(
