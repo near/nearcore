@@ -2154,18 +2154,6 @@
           "locked": "0",
           "storage_usage": 182,
           "code_hash": "11111111111111111111111111111111",
-          "amount": "100000000000000000",
-          "storage_paid_at": 0
-        },
-        "account_id": "dion@focus"
-      }
-    },
-    {
-      "Account": {
-        "account": {
-          "locked": "0",
-          "storage_usage": 182,
-          "code_hash": "11111111111111111111111111111111",
           "amount": "10000000000",
           "storage_paid_at": 0
         },
@@ -3328,18 +3316,6 @@
       "Account": {
         "account": {
           "locked": "0",
-          "storage_usage": 264,
-          "code_hash": "11111111111111111111111111111111",
-          "amount": "100000000000000000",
-          "storage_paid_at": 0
-        },
-        "account_id": "jess@near"
-      }
-    },
-    {
-      "Account": {
-        "account": {
-          "locked": "0",
           "storage_usage": 346,
           "code_hash": "11111111111111111111111111111111",
           "amount": "7999999999977794754",
@@ -3538,18 +3514,6 @@
           "storage_paid_at": 0
         },
         "account_id": "karel"
-      }
-    },
-    {
-      "Account": {
-        "account": {
-          "locked": "0",
-          "storage_usage": 264,
-          "code_hash": "11111111111111111111111111111111",
-          "amount": "99999999999980830",
-          "storage_paid_at": 0
-        },
-        "account_id": "kelvinhu9988@gmail.com"
       }
     },
     {
@@ -5818,18 +5782,6 @@
           "storage_paid_at": 0
         },
         "account_id": "marco.test1"
-      }
-    },
-    {
-      "Account": {
-        "account": {
-          "locked": "0",
-          "storage_usage": 428,
-          "code_hash": "11111111111111111111111111111111",
-          "amount": "10000000000000000000",
-          "storage_paid_at": 0
-        },
-        "account_id": "marco@buildlinks"
       }
     },
     {
@@ -27163,16 +27115,6 @@
     {
       "AccessKey": {
         "access_key": {
-          "nonce": 1,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:xzfhfyoKE2BiZXqJrsZny5pDHbwzaz3Yn4kUHyrWMgF",
-        "account_id": "dion@focus"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
           "nonce": 0,
           "permission": "FullAccess"
         },
@@ -29387,26 +29329,6 @@
     {
       "AccessKey": {
         "access_key": {
-          "nonce": 2,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:DcRYnCyvYqWRPju5RqHTLXLyNPRtj1QBev9rMmQMy3J",
-        "account_id": "jess@near"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 2,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:G4Z5u74WJwJn4oCaCf5qSrqpr6x9wuavAb34KeKGN9kn",
-        "account_id": "jess@near"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
           "nonce": 4,
           "permission": "FullAccess"
         },
@@ -29812,26 +29734,6 @@
         },
         "public_key": "ed25519:EsjyvmBb2ESGiyjPHMBUnTGCe1P6hPjmxxY2b2hrTBAv",
         "account_id": "karel"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 8,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:D8swymZypy3UQ6H6Jy4URevaBPgZfY4Xo9QBQ6LpSEJM",
-        "account_id": "kelvinhu9988@gmail.com"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 8,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:EsjyvmBb2ESGiyjPHMBUnTGCe1P6hPjmxxY2b2hrTBAv",
-        "account_id": "kelvinhu9988@gmail.com"
       }
     },
     {
@@ -31698,46 +31600,6 @@
         },
         "public_key": "ed25519:BAfDkMsBadjfLBwUqHBC8jVvtJd5Tjs2MfKhf2WQmQBX",
         "account_id": "marco.test1"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 13,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:3mJxkYN62o4cTrS2hb5fKF9jAn35oQn5BaSkiEpZv3L5",
-        "account_id": "marco@buildlinks"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 13,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:8tjVw7A3ySKbJLTivezurnsn4fVyFPbXCkMBhEPoYiaS",
-        "account_id": "marco@buildlinks"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 13,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:D4ZZ1yEafQi4iVznpYHxKUc22XpbcdhtJySMREQg8XVG",
-        "account_id": "marco@buildlinks"
-      }
-    },
-    {
-      "AccessKey": {
-        "access_key": {
-          "nonce": 13,
-          "permission": "FullAccess"
-        },
-        "public_key": "ed25519:GK8TbcYo83XCuEEs6NTYPEN7QN77Rsw9VpmcrfgzWjB8",
-        "account_id": "marco@buildlinks"
       }
     },
     {
