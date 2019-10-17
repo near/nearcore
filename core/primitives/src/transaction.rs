@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{BlsPublicKey, PublicKey, Signature, Signer};
+use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
 use crate::block::BlockHeader;
@@ -104,7 +104,7 @@ pub struct TransferAction {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     pub stake: Balance,
-    pub public_key: BlsPublicKey,
+    pub public_key: PublicKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -315,10 +315,6 @@ mod tests {
     fn test_serialize_transaction() {
         let public_key: PublicKey =
             "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
-        let bls_public_key: BlsPublicKey = serde_json::from_str(
-            "\"7NU5dMDJy8P1mhvDJyKGprjVBWXmXyonqc6N6XcWkvKF7jtwcwzkEdfAM8nDWZhq8M\"",
-        )
-        .unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
             public_key: public_key.clone(),
@@ -335,7 +331,7 @@ mod tests {
                     deposit: 1_000_000,
                 }),
                 Action::Transfer(TransferAction { deposit: 123 }),
-                Action::Stake(StakeAction { public_key: bls_public_key.clone(), stake: 1_000_000 }),
+                Action::Stake(StakeAction { public_key: public_key.clone(), stake: 1_000_000 }),
                 Action::AddKey(AddKeyAction {
                     public_key: public_key.clone(),
                     access_key: AccessKey {
