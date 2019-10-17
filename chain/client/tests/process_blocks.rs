@@ -11,9 +11,7 @@ use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
-use near_crypto::{
-    BlsSignature, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer,
-};
+use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
@@ -131,7 +129,7 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemoryBlsSigner::from_seed("test1", "test1");
+            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -180,7 +178,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemoryBlsSigner::from_seed("test", "test");
+            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -225,7 +223,7 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = InMemoryBlsSigner::from_seed("test2", "test2");
+            let signer1 = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -238,7 +236,7 @@ fn produce_block_with_approvals() {
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = InMemoryBlsSigner::from_seed(&s, &s);
+                let signer = InMemorySigner::from_seed(&s, KeyType::ED25519, &s);
                 let block_approval = BlockApproval::new(block.hash(), &signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
                     s.to_string(),
@@ -283,7 +281,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemoryBlsSigner::from_seed("test", "test");
+            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
@@ -475,7 +473,7 @@ fn test_time_attack() {
     let chain_genesis = ChainGenesis::test();
     let mut client =
         setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
-    let signer = InMemoryBlsSigner::from_seed("test1", "test1");
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
@@ -498,16 +496,20 @@ fn test_invalid_approvals() {
     let chain_genesis = ChainGenesis::test();
     let mut client =
         setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
-    let signer = InMemoryBlsSigner::from_seed("test1", "test1");
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner.approval_mask = vec![true];
-    b1.header.inner.approval_sigs = (0..100).fold(BlsSignature::empty(), |mut acc, i| {
-        let signature = InMemoryBlsSigner::from_seed(&format!("test{}", i), &format!("test{}", i))
-            .sign(genesis.hash().as_ref());
-        acc.add(&signature);
-        acc
-    });
+    b1.header.inner.approval_sigs = (0..100)
+        .map(|i| {
+            InMemorySigner::from_seed(
+                &format!("test{}", i),
+                KeyType::ED25519,
+                &format!("test{}", i),
+            )
+            .sign(genesis.hash().as_ref())
+        })
+        .collect();
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());

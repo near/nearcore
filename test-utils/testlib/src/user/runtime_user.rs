@@ -75,7 +75,9 @@ impl RuntimeUser {
                 .apply(state_update, &apply_state, &receipts, &txs)
                 .map_err(|e| match e {
                     InvalidTxErrorOrStorageError::InvalidTxError(e) => format!("{}", e),
-                    InvalidTxErrorOrStorageError::StorageError(_) => panic!("Storage error"),
+                    InvalidTxErrorOrStorageError::StorageError(e) => {
+                        panic!("Storage error {:?}", e)
+                    }
                 })?;
             for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results

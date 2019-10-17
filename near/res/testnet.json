@@ -8,7 +8,7 @@
   ],
   "validators": [
     {
-      "public_key": "62xLbaLBKDYuBAk32DRo6idnJPLCuZi9MnAMWH39RXsqRQ88TYFY8Tgm899SnbDtNo",
+      "public_key": "ed25519:DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua",
       "amount": "20000000000000000000",
       "account_id": "near"
     }
