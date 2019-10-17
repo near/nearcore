@@ -7,8 +7,8 @@ use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::prelude::Stream;
 use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    StreamHandler, SystemService, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
@@ -31,7 +31,7 @@ use crate::types::{
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
     PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
     PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, SendMessage, SyncData, Unregister,
+    RoutedMessageBody, SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -431,12 +431,12 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
-                      msg.target,
-                      find_route_error,
-                      self.routing_table.peer_forwarding.keys(),
-                      msg,
-                );
+                //                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                //                      msg.target,
+                //                      find_route_error,
+                //                      self.routing_table.peer_forwarding.keys(),
+                //                      msg,
+                //                );
             }
         }
     }
@@ -452,12 +452,12 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
-                      account_id,
-                      find_route_error,
-                      self.routing_table.peer_forwarding.keys(),
-                      msg,
-                );
+                //                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                //                      account_id,
+                //                      find_route_error,
+                //                      self.routing_table.peer_forwarding.keys(),
+                //                      msg,
+                //                );
                 return;
             }
         };
@@ -878,5 +878,13 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
             }
         }
+    }
+}
+
+impl Handler<StopSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        ctx.stop();
     }
 }

@@ -9,7 +9,7 @@ use futures::future::Future;
 
 use near_client::ClientActor;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_network::types::NetworkInfo;
+use near_network::types::{NetworkInfo, StopSignal};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerManagerActor,
@@ -19,10 +19,17 @@ use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
 
-fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
+fn make_peer_manager(
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+    peer_max_count: u32,
+) -> PeerManagerActor {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
+    // TODO(MARX) NOW ADD PARAMETER
+    config.peer_max_count = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
         let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
         match msg {
@@ -46,8 +53,8 @@ fn peer_handshake() {
 
     System::run(|| {
         let (port1, port2) = (open_port(), open_port());
-        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)]).start();
-        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
+        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
+        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
         WaitOrTimeout::new(
             Box::new(move |_| {
                 actix::spawn(pm1.send(NetworkRequests::FetchInfo).then(move |res| {
@@ -75,12 +82,13 @@ fn peers_connect_all() {
 
     System::run(|| {
         let port = open_port();
-        let _pm = make_peer_manager("test", port, vec![]).start();
+        let _pm = make_peer_manager("test", port, vec![], 10).start();
         let mut peers = vec![];
 
         let num_peers = 5;
         for i in 0..num_peers {
-            let pm = make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)]);
+            let pm =
+                make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)], 10);
             peers.push(pm.start());
         }
         let flags = Arc::new(AtomicUsize::new(0));
@@ -114,4 +122,58 @@ fn peers_connect_all() {
         .start();
     })
     .unwrap()
+}
+
+#[test]
+/// Check network is able to recover after node shutdown.
+///
+/// Test description:
+///     Connect nodes 0 - 1 and 0 - 2.
+///     Wait until connection is finished.
+///     Stop node 2. and wait.
+///     Reconnect node 2 with node 1.
+///     Wait until node 2 is connected and see both node 0 and node 1.
+fn peer_recover() {
+    init_test_logger();
+
+    System::run(|| {
+        let port0 = open_port();
+        let _pm0 = make_peer_manager("test0", port0, vec![], 0).start();
+        let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
+
+        let mut pm2 =
+            Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start());
+
+        let state = Arc::new(AtomicUsize::new(0));
+
+        WaitOrTimeout::new(
+            Box::new(move |_ctx| {
+                if state.load(Ordering::Relaxed) == 0 {
+                    state.fetch_add(1, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 1 {
+                    let _ = pm2.do_send(StopSignal {});
+                    state.fetch_add(1, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 2 {
+                    pm2 = Arc::new(
+                        make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start(),
+                    );
+                    state.fetch_add(1, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 3 {
+                    actix::spawn(pm2.send(NetworkRequests::FetchInfo).then(|res| {
+                        if let Ok(NetworkResponses::Info(info)) = res {
+                            println!("\nASD {:?}\n", info.active_peers);
+                            if info.active_peers.len() == 1 {
+                                System::current().stop();
+                            }
+                        }
+                        future::result::<_, ()>(Ok(()))
+                    }));
+                }
+            }),
+            100,
+            10000,
+        )
+        .start();
+    })
+    .unwrap();
 }

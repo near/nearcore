@@ -871,3 +871,6 @@ pub struct ChunkOnePartRequestMsg {
     pub part_id: u64,
     pub tracking_shards: HashSet<ShardId>,
 }
+
+#[derive(Message)]
+pub struct StopSignal {}
