@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
+use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{BlsSignature, BlsSigner};
 
 use crate::hash::{hash, CryptoHash};
@@ -83,7 +81,7 @@ impl ShardChunkHeader {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -144,7 +142,7 @@ pub struct ChunkPartMsg {
     pub merkle_path: MerklePath,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
@@ -175,7 +173,7 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
@@ -201,7 +199,7 @@ impl EncodedShardChunk {
         transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
             TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
@@ -264,7 +262,7 @@ impl EncodedShardChunk {
         data_shards: usize,
         parity_shards: usize,
 
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn BlsSigner,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(data_shards, parity_shards);

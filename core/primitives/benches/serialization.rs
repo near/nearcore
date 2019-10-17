@@ -2,7 +2,6 @@
 extern crate bencher;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -42,7 +41,7 @@ fn create_block() -> Block {
         1_000,
         1_000,
     );
-    let signer = Arc::new(InMemoryBlsSigner::from_random("".to_string()));
+    let signer = InMemoryBlsSigner::from_random("".to_string());
     Block::produce(
         &genesis.header,
         10,
@@ -51,7 +50,7 @@ fn create_block() -> Block {
         HashMap::default(),
         0,
         Some(0),
-        signer.clone(),
+        &signer,
     )
 }
 

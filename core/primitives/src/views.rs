@@ -3,7 +3,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
@@ -14,8 +14,7 @@ use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
-    from_base, from_base64, option_base64_format, option_u128_dec_format, to_base, to_base64,
-    u128_dec_format,
+    from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
@@ -28,58 +27,6 @@ use crate::types::{
     ValidatorStake, Version,
 };
 
-#[derive(PartialEq, Eq, Clone)]
-pub struct CryptoHashView(pub Vec<u8>);
-
-impl fmt::Debug for CryptoHashView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&CryptoHash::from(self.clone()), f)
-    }
-}
-
-impl fmt::Display for CryptoHashView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&CryptoHash::from(self.clone()), f)
-    }
-}
-
-impl Serialize for CryptoHashView {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(&self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for CryptoHashView {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let view = from_base(&s)
-            .map(CryptoHashView)
-            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        if let Err(err) = CryptoHash::try_from(view.0.clone()) {
-            return Err(serde::de::Error::custom(err.to_string()));
-        }
-        Ok(view)
-    }
-}
-
-impl From<CryptoHash> for CryptoHashView {
-    fn from(hash: CryptoHash) -> Self {
-        CryptoHashView(hash.as_ref().to_vec())
-    }
-}
-
-impl From<CryptoHashView> for CryptoHash {
-    fn from(view: CryptoHashView) -> Self {
-        CryptoHash::try_from(view.0).expect("Failed to convert CryptoHashView to CryptoHash")
-    }
-}
-
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
@@ -87,7 +34,7 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
-    pub code_hash: CryptoHashView,
+    pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     pub storage_paid_at: BlockIndex,
 }
@@ -210,9 +157,9 @@ pub enum QueryResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
-    pub latest_block_hash: CryptoHashView,
+    pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockIndex,
-    pub latest_state_root: CryptoHashView,
+    pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
 }
@@ -275,13 +222,13 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
-    pub epoch_id: CryptoHashView,
-    pub hash: CryptoHashView,
-    pub prev_hash: CryptoHashView,
-    pub prev_state_root: CryptoHashView,
-    pub chunk_receipts_root: CryptoHashView,
-    pub chunk_headers_root: CryptoHashView,
-    pub chunk_tx_root: CryptoHashView,
+    pub epoch_id: CryptoHash,
+    pub hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub prev_state_root: CryptoHash,
+    pub chunk_receipts_root: CryptoHash,
+    pub chunk_headers_root: CryptoHash,
+    pub chunk_tx_root: CryptoHash,
     pub chunks_included: u64,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
@@ -372,10 +319,10 @@ impl From<BlockHeaderView> for BlockHeader {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChunkHeaderView {
-    pub prev_block_hash: CryptoHashView,
-    pub prev_state_root_hash: CryptoHashView,
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root_hash: CryptoHash,
     pub prev_state_num_parts: u64,
-    pub encoded_merkle_root: CryptoHashView,
+    pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
     pub height_included: BlockIndex,
@@ -384,8 +331,8 @@ pub struct ChunkHeaderView {
     pub gas_limit: Gas,
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
-    pub outgoing_receipts_root: CryptoHashView,
-    pub tx_root: CryptoHashView,
+    pub outgoing_receipts_root: CryptoHash,
+    pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub signature: BlsSignature,
 }
@@ -463,7 +410,7 @@ impl From<Block> for BlockView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkView {
-    pub chunk_hash: CryptoHashView,
+    pub chunk_hash: CryptoHash,
     pub header: ChunkHeaderView,
     pub transactions: Vec<SignedTransactionView>,
     pub receipts: Vec<ReceiptView>,
@@ -585,7 +532,7 @@ pub struct SignedTransactionView {
     receiver_id: AccountId,
     actions: Vec<ActionView>,
     signature: Signature,
-    hash: CryptoHashView,
+    hash: CryptoHash,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -751,7 +698,7 @@ pub enum ExecutionStatusView {
     SuccessValue(String),
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
-    SuccessReceiptId(CryptoHashView),
+    SuccessReceiptId(CryptoHash),
 }
 
 impl fmt::Debug for ExecutionStatusView {
@@ -790,7 +737,7 @@ pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
     pub logs: Vec<String>,
     /// Receipt IDs generated by this transaction or receipt.
-    pub receipt_ids: Vec<CryptoHashView>,
+    pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
 }
@@ -808,7 +755,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ExecutionOutcomeWithIdView {
-    pub id: CryptoHashView,
+    pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
 }
 
@@ -863,14 +810,14 @@ impl From<ValidatorStakeView> for ValidatorStake {
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
-    pub receipt_id: CryptoHashView,
+    pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DataReceiverView {
-    pub data_id: CryptoHashView,
+    pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
@@ -882,11 +829,11 @@ pub enum ReceiptEnumView {
         #[serde(with = "u128_dec_format")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
-        input_data_ids: Vec<CryptoHashView>,
+        input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
     },
     Data {
-        data_id: CryptoHashView,
+        data_id: CryptoHash,
         #[serde(with = "option_base64_format")]
         data: Option<Vec<u8>>,
     },
