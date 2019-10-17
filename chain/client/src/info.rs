@@ -209,8 +209,8 @@ fn gas_used_per_sec(num: u64) -> String {
     if num < 1000 {
         format!("{} gas/s", num)
     } else if num < 1_000_000 {
-        format!("{:.1} Kgas/s", num)
+        format!("{:.1} Kgas/s", num as f64 / 1_000.0)
     } else {
-        format!("{:.1} Mgas/s", num)
+        format!("{:.1} Mgas/s", num as f64 / 1_000_000.0)
     }
 }

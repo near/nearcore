@@ -5,20 +5,21 @@ use futures::Future;
 use serde::Deserialize;
 use serde::Serialize;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockIndex;
 use near_primitives::views::{
-    BlockView, CryptoHashView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
-    StatusResponse,
+    BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
 };
 
-pub mod message;
 use crate::message::{from_slice, Message};
+
+pub mod message;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockIndex),
-    Hash(CryptoHashView),
+    Hash(CryptoHash),
 }
 
 /// Timeout for establishing connection.

@@ -6,7 +6,7 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{BlsSigner, InMemoryBlsSigner};
+use near_crypto::{InMemorySigner, Signer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -123,6 +123,8 @@ pub struct ClientConfig {
     pub state_fetch_horizon: BlockIndex,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
     /// Accounts that this client tracks
@@ -165,6 +167,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
+            chunk_request_retry_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -176,17 +179,17 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn BlsSigner>,
+    pub signer: Arc<dyn Signer>,
 }
 
-impl From<InMemoryBlsSigner> for BlockProducer {
-    fn from(signer: InMemoryBlsSigner) -> Self {
+impl From<InMemorySigner> for BlockProducer {
+    fn from(signer: InMemorySigner) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
-impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
-    fn from(signer: Arc<InMemoryBlsSigner>) -> Self {
+impl From<Arc<InMemorySigner>> for BlockProducer {
+    fn from(signer: Arc<InMemorySigner>) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }

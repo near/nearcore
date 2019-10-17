@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use actix::Addr;
+use tempdir::TempDir;
+
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis};
 use near_client::{ClientActor, ViewClientActor};
@@ -8,8 +12,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
-use std::sync::Arc;
-use tempdir::TempDir;
 
 pub mod actix_utils;
 pub mod fees_utils;
@@ -68,11 +70,13 @@ pub fn start_nodes(
     num_shards: usize,
     dirs: &[TempDir],
     num_validators: usize,
+    num_lightclient: usize,
     epoch_length: BlockIndex,
-) -> Vec<(Addr<ClientActor>, Addr<ViewClientActor>)> {
+) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
+    let num_tracking_nodes = dirs.len() - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
@@ -84,20 +88,22 @@ pub fn start_nodes(
     let validators = (0..num_validators).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
     let first_node = open_port();
+    let mut rpc_addrs = vec![];
     for i in 0..num_nodes {
         let mut near_config = load_test_config(
             if i < num_validators { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
             &genesis_config,
         );
+        rpc_addrs.push(near_config.rpc_config.addr.clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
             near_config.network_config.boot_nodes =
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
         // if non validator, add some shards to track.
-        if i >= num_validators {
-            let shards_per_node = num_shards / (num_nodes - num_validators);
+        if i >= num_validators && i < num_tracking_nodes {
+            let shards_per_node = num_shards / (num_tracking_nodes - num_validators);
             let (from, to) = (
                 ((i - num_validators) * shards_per_node) as ShardId,
                 ((i - num_validators + 1) * shards_per_node) as ShardId,
@@ -112,5 +118,5 @@ pub fn start_nodes(
         let (client, view_client) = start_with_config(dirs[i].path(), near_config);
         res.push((client, view_client))
     }
-    res
+    (genesis_config, rpc_addrs, res)
 }

@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 
-use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
+use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
@@ -38,7 +37,7 @@ pub struct BlockHeaderInner {
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures for previous block.
-    pub approval_sigs: BlsSignature,
+    pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
     /// Validator proposals.
@@ -69,7 +68,7 @@ impl BlockHeaderInner {
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
-        approval_sigs: BlsSignature,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -110,7 +109,7 @@ pub struct BlockHeader {
     pub inner: BlockHeaderInner,
 
     /// Signature of the block producer.
-    pub signature: BlsSignature,
+    pub signature: Signature,
 
     /// Cached value of hash for this block.
     #[borsh_skip]
@@ -132,7 +131,7 @@ impl BlockHeader {
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
-        approval_sig: BlsSignature,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -142,7 +141,7 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -155,7 +154,7 @@ impl BlockHeader {
             timestamp,
             chunks_included,
             approval_mask,
-            approval_sig,
+            approval_sigs,
             total_weight,
             validator_proposals,
             chunk_mask,
@@ -191,7 +190,7 @@ impl BlockHeader {
             to_timestamp(timestamp),
             chunks_included,
             vec![],
-            BlsSignature::empty(),
+            vec![],
             0.into(),
             vec![],
             vec![],
@@ -202,7 +201,7 @@ impl BlockHeader {
             initial_total_supply,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: BlsSignature::empty(), hash }
+        Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -210,8 +209,8 @@ impl BlockHeader {
     }
 
     /// Verifies that given public key produced the block.
-    pub fn verify_block_producer(&self, public_key: &BlsPublicKey) -> bool {
-        self.signature.verify_single(self.hash.as_ref(), public_key)
+    pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(self.hash.as_ref(), public_key)
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
@@ -255,7 +254,7 @@ impl Block {
                     CryptoHash::default(),
                     CryptoHash::default(),
                     vec![],
-                    Arc::new(EmptyBlsSigner {}),
+                    &EmptySigner {},
                 )
             })
             .collect();
@@ -281,18 +280,19 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
-        approvals: HashMap<usize, BlsSignature>,
+        mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> Self {
-        let mut approval_sig = BlsSignature::empty();
-        let max_approver = approvals.keys().max().unwrap_or(&0);
-        let approval_mask =
-            (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect::<Vec<bool>>();
-        for (_, sig) in approvals.iter() {
-            approval_sig.add(sig);
-        }
+        let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
+            (
+                (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
+                (0..=*max_approver).filter_map(|i| approvals.remove(&i)).collect(),
+            )
+        } else {
+            (vec![], vec![])
+        };
 
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -340,7 +340,7 @@ impl Block {
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 approval_mask,
-                approval_sig,
+                approval_sigs,
                 total_weight,
                 validator_proposals,
                 chunk_mask,
