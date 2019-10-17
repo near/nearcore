@@ -1,5 +1,3 @@
-use std::ffi::c_void;
-
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
@@ -61,8 +59,7 @@ pub fn run<'a>(
     let mut logic =
         VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
 
-    let raw_ptr = &mut logic as *mut _ as *mut c_void;
-    let import_object = imports::build(memory_copy, raw_ptr);
+    let import_object = imports::build(memory_copy, &mut logic);
 
     let method_name = match std::str::from_utf8(method_name) {
         Ok(x) => x,
