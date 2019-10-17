@@ -1,19 +1,22 @@
-use crate::stats::Measurements;
-use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use near_crypto::{BlsPublicKey, InMemorySigner, KeyType};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use rand::distributions::Standard;
+use rand::seq::SliceRandom;
+use rand::Rng;
+
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
-use rand::distributions::Standard;
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+
+use crate::stats::Measurements;
+use crate::testbed::RuntimeTestbed;
+use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 
 pub fn run(config: Config) {
     let mut m = Measurements::new();
@@ -169,7 +172,10 @@ pub fn run(config: Config) {
         &mut m,
         &config,
         None,
-        vec![Action::Stake(StakeAction { stake: 1, public_key: BlsPublicKey::empty() })],
+        vec![Action::Stake(StakeAction {
+            stake: 1,
+            public_key: PublicKey::empty(KeyType::ED25519),
+        })],
         true,
         true,
     );

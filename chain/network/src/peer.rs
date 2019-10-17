@@ -21,10 +21,10 @@ use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    AccountOrPeerId, Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
+    Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
+    ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 
@@ -314,12 +314,6 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
-                        act.peer_manager_addr.do_send(RawRoutedMessage {
-                            target: AccountOrPeerId::AccountId(account_id),
-                            body: RoutedMessageBody::ForwardTx(tx)
-                        })
-                    }
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
                         // TODO: count as malicious behaviour?
