@@ -12,17 +12,18 @@ chrono = { version = "0.4.4", features = ["serde"] }
 kvdb = "0.1"
 log = "0.4"
 rand = "0.6.5"
-borsh = "0.2.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 serde_json = "1.0"
 sysinfo = "0.9.0"
 cached = "0.9.0"
-
+lazy_static = "1.4"
+borsh = "0.2.5"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }

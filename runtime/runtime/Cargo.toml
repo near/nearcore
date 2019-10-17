@@ -15,16 +15,18 @@ kvdb = "0.1"
 rand = "0.6"
 rand_xorshift = "0.1"
 sodiumoxide = "0.2.5"
+lazy_static = "1.4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 cached = "0.9.0"
-borsh = "0.2.2"
+borsh = "0.2.5"
 
 [features]
 test-utils = []
