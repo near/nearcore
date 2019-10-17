@@ -1,5 +1,5 @@
 [package]
-name = "genesis-mainnet"
+name = "genesis-csv-to-json"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"

@@ -1389,7 +1389,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "genesis-mainnet"
+name = "genesis-csv-to-json"
 version = "0.1.0"
 dependencies = [
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1738,6 +1738,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "keypair-generator"
+version = "0.1.0"
+dependencies = [
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near 0.4.0",
+ "near-crypto 0.1.0",
 ]
 
 [[package]]

@@ -109,7 +109,7 @@ pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 pub const SIGNER_KEY_FILE: &str = "signer_key.json";
 
-const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -395,7 +395,7 @@ pub struct GenesisConfig {
     pub protocol_treasury_account: AccountId,
 }
 
-fn get_initial_supply(records: &[StateRecord]) -> Balance {
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {

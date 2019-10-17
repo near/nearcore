@@ -1,5 +1,5 @@
 use clap::{App, Arg, SubCommand};
-use near::{get_default_home, get_store_path};
+use near::get_default_home;
 use near_crypto::{
     BlsSecretKey, BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, SecretKey, Signer,
 };
