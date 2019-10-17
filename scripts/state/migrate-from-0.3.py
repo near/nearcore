@@ -14,10 +14,35 @@ new_records = []
 # TODO: uncomment when we migrate from 0.3 to 0.4
 #q['records'] = q['records'][0]
 
+# The new rule for accounts IDs is excluding `@`
+is_valid_account = re.compile(r"^(([a-z\d]+[\-_])*[a-z\d]+\.)*([a-z\d]+[\-_])*[a-z\d]+$")
+assert(is_valid_account.match("near"))
+
 for value in q['records']:
     if 'Account' in value:
+        account_id = value['Account']['account_id']
+        if not is_valid_account.match(account_id):
+            print("Nuked account for bad account ID %s" % (account_id,))
+            continue
         staked = value['Account']['account'].pop('staked')
         value['Account']['account']['locked'] = staked
+    elif 'AccessKey' in value:
+        account_id = value['AccessKey']['account_id']
+        if not is_valid_account.match(account_id):
+            print("Nuked access key for bad account ID %s" % (account_id,))
+            continue
+    elif 'Contract' in value:
+        account_id = value['Contract']['account_id']
+        if not is_valid_account.match(account_id):
+            print("Nuked contract for bad account ID %s" % (account_id,))
+            continue
+    elif 'Data' in value:
+        key = base64.b64decode(value['Data']['key']).decode('utf-8')
+        account_id = key[1:key.find(',')]
+        if not is_valid_account.match(account_id):
+            print("Nuked data for bad account ID %s" % (account_id,))
+            continue
+
     new_records.append(value)
 
 q['records'] = new_records
