@@ -7,7 +7,7 @@ use std::time::Duration;
 use borsh::BorshSerialize;
 
 use near::GenesisConfig;
-use near_chain::types::validate_challenge;
+use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
@@ -271,11 +271,9 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
     let (_, tip) = client.process_block(block, Provenance::NONE);
-    // assert_eq!(tip.unwrap_err().kind(), near_chain::ErrorKind::InvalidChunk);
-    println!("{:?}", tip);
+    assert!(tip.is_err());
 
     let last_message = env.network_adapters[0].pop().unwrap();
-    println!("{:?}", last_message);
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(challenge, network_challenge);
     } else {

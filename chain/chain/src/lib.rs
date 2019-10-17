@@ -11,6 +11,7 @@ mod error;
 mod store;
 pub mod test_utils;
 pub mod types;
+pub mod validate;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

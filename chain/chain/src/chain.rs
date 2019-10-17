@@ -7,7 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
-use near_primitives::challenge::{ChallengeResult, ChallengesResult, ChunkProofs};
+use near_primitives::challenge::{ChallengeResult, ChallengesResult, ChunkProofs, ChunkState};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -22,11 +22,11 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    validate_challenge, validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus,
-    Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, ShardStateSyncResponsePart, StateHeaderKey, Tip,
-    ValidatorSignatureVerificationResult,
+    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
+    ShardStateSyncResponsePart, StateHeaderKey, Tip, ValidatorSignatureVerificationResult,
 };
+use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -1545,6 +1545,58 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    fn create_chunk_state_challenge(
+        &mut self,
+        prev_block: &Block,
+        block: &Block,
+        prev_chunk_header: &ShardChunkHeader,
+        chunk_header: &ShardChunkHeader,
+    ) -> Result<ChunkState, Error> {
+        let prev_merkle_proofs = Block::compute_chunk_headers_root(&prev_block.chunks).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks).1;
+        let prev_chunk = self
+            .chain_store_update
+            .get_chain_store()
+            .get_chunk_clone_from_header(&prev_block.chunks[chunk_header.inner.shard_id as usize])
+            .unwrap();
+        let receipt_proof_response: Vec<ReceiptProofResponse> =
+            self.chain_store_update.get_incoming_receipts_for_shard(
+                chunk_header.inner.shard_id,
+                prev_block.hash(),
+                prev_chunk_header.height_included,
+            )?;
+        let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+        let challenges = self.verify_header_challenges(&block.header)?;
+        let apply_result = self
+            .runtime_adapter
+            .apply_transactions_with_optional_storage_proof(
+                chunk_header.inner.shard_id,
+                &prev_chunk.header.inner.prev_state_root,
+                prev_chunk.header.height_included,
+                prev_block.header.inner.timestamp,
+                &prev_chunk.header.inner.prev_block_hash,
+                &prev_block.hash(),
+                &receipts,
+                &prev_chunk.transactions,
+                &prev_chunk.header.inner.validator_proposals,
+                prev_block.header.inner.gas_price,
+                &challenges,
+                true,
+            )
+            .unwrap();
+        let partial_state = apply_result.proof.unwrap().nodes;
+        Ok(ChunkState {
+            prev_block_header: prev_block.header.try_to_vec()?,
+            block_header: block.header.try_to_vec()?,
+            prev_merkle_proof: prev_merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
+            merkle_proof: merkle_proofs[chunk_header.inner.shard_id as usize].clone(),
+            prev_chunk,
+            chunk_header: chunk_header.clone(),
+            partial_state,
+        })
+    }
+
     fn apply_chunks(
         &mut self,
         me: &Option<AccountId>,
@@ -1585,36 +1637,31 @@ impl<'a> ChainUpdate<'a> {
                         .get_chunk_extra(&block.header.inner.prev_hash, shard_id)?
                         .clone();
 
-                    // It's safe here to use ChainStore instead of ChainStoreUpdate
-                    // because we're asking prev_chunk_header for already committed block
-                    let receipt_response =
-                        self.chain_store_update.get_chain_store().get_outgoing_receipts_for_shard(
-                            block.header.inner.prev_hash,
-                            shard_id,
-                            prev_chunk_header.height_included,
-                        )?;
-                    let outgoing_receipts_hashes =
-                        self.runtime_adapter.build_receipts_hashes(&receipt_response.1)?;
-                    let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-
-                    if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root
-                        || prev_chunk_extra.validator_proposals
-                            != chunk_header.inner.validator_proposals
-                        || outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root
-                    {
+                    // Validate that all next chunk information matches previous chunk extra.
+                    validate_chunk_with_chunk_extra(
+                        // It's safe here to use ChainStore instead of ChainStoreUpdate
+                        // because we're asking prev_chunk_header for already committed block
+                        self.chain_store_update.get_chain_store(),
+                        &*self.runtime_adapter,
+                        &block.header.inner.prev_hash,
+                        &prev_chunk_extra,
+                        prev_chunk_header,
+                        chunk_header,
+                    )
+                    .map_err(|_| {
                         byzantine_assert!(false);
-                        // This is invalid chunk header. Create challenge for given chunk header and previous chunk.
-                        // TODO:
-                        if prev_chunk_extra.state_root != chunk_header.inner.prev_state_root {
-                            return Err(ErrorKind::InvalidStateRoot.into());
-                        } else if outgoing_receipts_root
-                            != chunk_header.inner.outgoing_receipts_root
-                        {
-                            return Err(ErrorKind::InvalidReceiptsProof.into());
-                        } else {
-                            return Err(ErrorKind::InvalidValidatorProposals.into());
+                        match self.create_chunk_state_challenge(
+                            &prev_block,
+                            &block,
+                            prev_chunk_header,
+                            chunk_header,
+                        ) {
+                            Ok(chunk_state) => {
+                                Error::from(ErrorKind::InvalidChunkState(chunk_state))
+                            }
+                            Err(err) => err,
                         }
-                    }
+                    })?;
 
                     let receipt_proof_response: Vec<ReceiptProofResponse> =
                         self.chain_store_update.get_incoming_receipts_for_shard(

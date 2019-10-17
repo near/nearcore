@@ -449,6 +449,13 @@ impl Client {
                             &*block_producer.signer,
                         )));
                     }
+                    near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
+                        self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
+                            ChallengeBody::ChunkState(chunk_state),
+                            block_producer.account_id.clone(),
+                            &*block_producer.signer,
+                        )));
+                    }
                     _ => {}
                 },
                 _ => {}

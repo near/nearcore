@@ -9,7 +9,7 @@ use actix::Recipient;
 use log::{debug, error};
 use rand::Rng;
 
-use near_chain::types::validate_chunk_proofs;
+use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ErrorKind, RuntimeAdapter,
     ValidTransaction,
@@ -1015,10 +1015,6 @@ impl ShardsManager {
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts).unwrap();
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
-        println!(
-            "{:?} {:?} {:?}",
-            outgoing_receipts, outgoing_receipts_hashes, outgoing_receipts_root
-        );
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
 
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
