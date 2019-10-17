@@ -12,9 +12,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
-use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
-};
+use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
 use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
 pub use crate::user::runtime_user::RuntimeUser;
@@ -58,7 +56,7 @@ pub trait User {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView;
 
-    fn get_state_root(&self) -> CryptoHashView;
+    fn get_state_root(&self) -> CryptoHash;
 
     fn get_access_key(
         &self,

@@ -10,7 +10,7 @@ fn challenges_new_head_prev() {
     for i in 0..5 {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, signer.clone());
+        let block = Block::empty(&prev, &*signer);
         hashes.push(block.hash());
         let tip = chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
@@ -19,11 +19,11 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head().unwrap().height, 5);
 
     // The block to be added below after we invalidated fourth block.
-    let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), signer.clone());
+    let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
     assert_eq!(last_block.header.inner.height, 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
-    let challenger_block = Block::empty(&prev, signer.clone());
+    let challenger_block = Block::empty(&prev, &*signer);
     let challenger_hash = challenger_block.hash();
 
     let _ =
@@ -52,13 +52,13 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), hashes[2]);
 
     // Add two more blocks
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), signer.clone());
+    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
     let _ = chain
         .process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {})
         .unwrap()
         .unwrap();
 
-    let b4 = Block::empty(&b3, signer.clone());
+    let b4 = Block::empty(&b3, &*signer);
     let new_head = chain
         .process_block(&None, b4.clone(), Provenance::PRODUCED, |_| {}, |_| {})
         .unwrap()
@@ -68,10 +68,10 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), new_head);
 
     // Add two more blocks on an alternative chain
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), signer.clone());
+    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
     let _ = chain.process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
 
-    let b4 = Block::empty(&b3, signer.clone());
+    let b4 = Block::empty(&b3, &*signer);
     let _ = chain.process_block(&None, b4.clone(), Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
     let challenger_hash = b4.hash();
 

@@ -8,8 +8,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ExecutionOutcomeView,
-    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
+    ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{Trie, TrieUpdate};
@@ -208,7 +208,7 @@ impl User for RuntimeUser {
         self.get_final_transaction_result(hash)
     }
 
-    fn get_state_root(&self) -> CryptoHashView {
+    fn get_state_root(&self) -> CryptoHash {
         self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
     }
 

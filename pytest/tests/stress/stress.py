@@ -32,11 +32,12 @@ from cluster import init_cluster, spin_up_node
 from utils import TxContext
 from transaction import sign_payment_tx, sign_staking_tx
 
-TIMEOUT = 15 # after how much time to shut down the test
-TIMEOUT_SHUTDOWN = 40 # time to wait after the shutdown was initiated before 
+TIMEOUT = 1500 # after how much time to shut down the test
+TIMEOUT_SHUTDOWN = 60 # time to wait after the shutdown was initiated before 
 BLOCK_TIMEOUT = 20 # if two blocks are not produced within that many seconds, the test will fail
-BALANCES_TIMEOUT = 10 # how long to tolerate for balances to update after txs are sent
+BALANCES_TIMEOUT = 30 # how long to tolerate for balances to update after txs are sent
 MAX_STAKE = int(1e26)
+EPOCH_LENGTH = 20
 
 assert BALANCES_TIMEOUT * 2 <= TIMEOUT_SHUTDOWN
 assert BLOCK_TIMEOUT * 2 <= TIMEOUT_SHUTDOWN
@@ -50,6 +51,17 @@ def stress_process(func):
             error.value = 1
     wrapper.__name__ = func.__name__
     return wrapper
+
+def get_recent_hash(node):
+    # return the parent of the last block known to the observer
+    # don't return the last block itself, since some validators might have not seen it yet
+    # also returns the height of the actual last block (so the height doesn't match the hash!)
+    status = node.get_status()
+    hash_ = status['sync_info']['latest_block_hash']
+    info = node.json_rpc('block', [hash_])
+    hash_ = info['result']['header']['hash']
+    return hash_, status['sync_info']['latest_block_height']
+
 
 def get_validator_ids(nodes):
     # the [4:] part is a hack to convert test7 => 7
@@ -88,6 +100,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
     last_iter_switch = time.time()
     mode = 0 # 0 = send more tx, 1 = wait for balances
     tx_count = 0
+    last_tx_set = []
     while stopped.value == 0:
         validator_ids = get_validator_ids(nodes)
         if time.time() - last_iter_switch > BALANCES_TIMEOUT:
@@ -107,11 +120,11 @@ def monkey_transactions(stopped, error, nodes, nonces):
             amt = random.randint(0, min_balances[from_])
             nonce_val, nonce_lock = nonces[from_]
 
-            status = nodes[-1].get_status()
-            hash_ = status['sync_info']['latest_block_hash']
+            hash_, _ = get_recent_hash(nodes[-1])
 
             with nonce_lock:
                 tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
+                last_tx_set.append(tx)
                 for validator_id in validator_ids:
                     nodes[validator_id].send_tx(tx)
                 nonce_val.value = nonce_val.value + 1
@@ -124,10 +137,15 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
         else:
             if get_balances() == expected_balances:
-                print("BALANCES COUGHT UP, BACK TO SPAMMING TXS")
+                print("BALANCES CAUGHT UP, BACK TO SPAMMING TXS")
                 min_balances = [x - MAX_STAKE for x in expected_balances]
                 tx_count = 0
                 mode = 0
+                last_tx_set = []
+            else:
+                for tx in last_tx_set:
+                    for validator_id in validator_ids:
+                        nodes[validator_id].send_tx(tx)
             
         if mode == 1: time.sleep(1)
         elif mode == 0: time.sleep(0.1)
@@ -146,11 +164,17 @@ def monkey_staking(stopped, error, nodes, nonces):
         whom = random.randint(0, len(nonces) - 1)
 
         status = nodes[-1].get_status()
-        hash_ = status['sync_info']['latest_block_hash']
+        hash_, height = get_recent_hash(nodes[-1])
+
+        who_can_unstake = (height // EPOCH_LENGTH) % len(nodes)
 
         nonce_val, nonce_lock = nonces[whom]
         with nonce_lock:
             stake = random.randint(0.7 * MAX_STAKE // 1000000, MAX_STAKE // 1000000) * 1000000
+
+            if whom == who_can_unstake:
+                stake = 0
+
             tx = sign_staking_tx(nodes[whom].signer_key, nodes[whom].validator_key, stake, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
             for validator_id in validator_ids:
                 nodes[validator_id].send_tx(tx)
@@ -246,7 +270,7 @@ def doit(s, n, N, k, monkeys):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(N, s, k + 1, config, [["max_inflation_rate", 0], ["epoch_length", 20], ["validator_kickout_threshold", 75]], local_config_changes)
+    near_root, node_dirs = init_cluster(N, s, k + 1, config, [["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["validator_kickout_threshold", 75]], local_config_changes)
 
     started = time.time()
 

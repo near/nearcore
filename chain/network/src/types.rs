@@ -25,7 +25,7 @@ use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo};
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -381,6 +381,22 @@ impl Message for RoutedMessage {
     type Result = bool;
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct SyncData {
+    pub edges: Vec<Edge>,
+    pub known_accounts: HashMap<AccountId, PeerId>,
+}
+
+impl SyncData {
+    pub fn edge(edge: Edge) -> Self {
+        Self { edges: vec![edge], known_accounts: HashMap::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.edges.is_empty() && self.known_accounts.is_empty()
+    }
+}
+
 // TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
 // TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
@@ -391,7 +407,7 @@ impl Message for RoutedMessage {
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
-    Edges(Vec<Edge>),
+    Sync(SyncData),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -421,7 +437,7 @@ impl fmt::Display for PeerMessage {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
-            PeerMessage::Edges(_) => f.write_str("Edges"),
+            PeerMessage::Sync(_) => f.write_str("Sync"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -633,25 +649,14 @@ pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
     /// Sends block, either when block was just produced or when requested.
-    Block {
-        block: Block,
-    },
+    Block { block: Block },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval: Option<BlockApproval>,
-    },
+    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
     /// Request block with given hash from given peer.
-    BlockRequest {
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
-    BlockHeadersRequest {
-        hashes: Vec<CryptoHash>,
-        peer_id: PeerId,
-    },
+    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
@@ -661,44 +666,29 @@ pub enum NetworkRequests {
         account_id: AccountId,
     },
     /// Ban given peer.
-    BanPeer {
-        peer_id: PeerId,
-        ban_reason: ReasonForBan,
-    },
+    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
-    ChunkPartRequest {
-        account_id: AccountId,
-        part_request: ChunkPartRequestMsg,
-    },
+    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
     /// Request chunk part and receipts
-    ChunkOnePartRequest {
-        account_id: AccountId,
-        one_part_request: ChunkOnePartRequestMsg,
-    },
+    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
     /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse {
-        peer_id: PeerId,
-        header_and_part: ChunkOnePart,
-    },
+    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
     /// A chunk header and one part for another validator.
-    ChunkOnePartMessage {
-        account_id: AccountId,
-        header_and_part: ChunkOnePart,
-    },
+    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
     /// A chunk part
-    ChunkPart {
-        peer_id: PeerId,
-        part: ChunkPartMsg,
-    },
+    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
 
-    // The following types of requests are used to trigger actions in the Peer Manager for testing.
-    // Fetch current routing table
+    /// Valid transaction but since we are not validators we send this transaction to current validators.
+    ForwardTx(AccountId, SignedTransaction),
+
+    /// The following types of requests are used to trigger actions in the Peer Manager for testing.
+    /// Fetch current routing table.
     FetchRoutingTable,
-    // New edge from the network.
-    Edges(Vec<Edge>),
+    /// Data to sync routing table from active peer.
+    Sync(SyncData),
 }
 
 /// Messages from PeerManager to Peer
@@ -731,7 +721,7 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
-    RoutingTableInfo(HashMap<PeerId, HashSet<PeerId>>),
+    RoutingTableInfo(RoutingTableInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -804,8 +794,6 @@ pub enum NetworkClientResponses {
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
     InvalidTx(InvalidTxError),
-    /// Valid transaction but since we are not validators we send this transaction to current validators.
-    ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.

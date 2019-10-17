@@ -178,8 +178,9 @@ impl KeyValueRuntime {
         if prev_hash == &CryptoHash::default() {
             return Ok(0);
         }
-        let prev_block_header =
-            self.get_block_header(prev_hash)?.ok_or("Missing block when computing the epoch")?;
+        let prev_block_header = self
+            .get_block_header(prev_hash)?
+            .ok_or(format!("Missing block {} when computing the epoch", prev_hash))?;
         Ok(prev_block_header.inner.height)
     }
 
@@ -284,48 +285,22 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &BlsSignature,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &BlsSignature,
     ) -> ValidatorSignatureVerificationResult {
-        if let Some(validator) = self
-            .validators
-            .iter()
-            .flatten()
-            .find(|&validator_stake| &validator_stake.account_id == account_id)
-        {
-            if signature.verify_single(data, &validator.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
-        } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
-        }
+        ValidatorSignatureVerificationResult::Valid
     }
 
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sig: &BlsSignature,
-        data: &[u8],
+        _approval_mask: &[bool],
+        _approval_sig: &BlsSignature,
+        _data: &[u8],
     ) -> Result<bool, Error> {
-        let public_keys: Vec<_> =
-            self.validators
-                .iter()
-                .flatten()
-                .zip(approval_mask.iter())
-                .filter_map(|(validate_stake, is_approved)| {
-                    if *is_approved {
-                        Some(validate_stake.public_key.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-        Ok(approval_sig.verify_aggregate(data, &public_keys))
+        Ok(true)
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -763,7 +738,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(true);
         }
         let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
-            Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
+            Error::from(ErrorKind::Other(format!(
+                "Missing block {} when computing the epoch",
+                parent_hash
+            )))
         })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
