@@ -851,7 +851,8 @@ impl Runtime {
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, InvalidTxErrorOrStorageError> {
-        let initial_state = TrieUpdate::new(state_update.trie.clone(), state_update.get_root());
+        // TODO(#1481): Remove clone after Runtime bug is fixed.
+        let initial_state = state_update.clone();
 
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
