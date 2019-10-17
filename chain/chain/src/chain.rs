@@ -843,7 +843,8 @@ impl Chain {
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
-        let block_header = self.get_header_by_height(chunk_header.height_included)?.clone();
+        let block_header =
+            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included)?.clone();
 
         // Collecting the `prev` state.
         let prev_block = self.get_block(&block_header.inner.prev_hash)?;
@@ -961,17 +962,7 @@ impl Chain {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
-        // Ensure that sync_hash block is included into the canonical chain
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
-        let sync_height = sync_block_header.inner.height;
-        let sync_block_header_by_height = self.get_header_by_height(sync_height)?;
-        if sync_block_header.hash() != sync_block_header_by_height.hash() {
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: sync_hash block isn't included into the canonical chain"
-                    .into(),
-            )
-            .into());
-        }
 
         let ShardStateSyncResponseHeader {
             chunk,
@@ -1010,7 +1001,8 @@ impl Chain {
             .into());
         }
 
-        let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
+        let block_header =
+            self.get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?.clone();
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         let prev_block_header = self.get_block_header(&block_header.inner.prev_hash)?.clone();
@@ -1321,10 +1313,20 @@ impl Chain {
         self.store.get_block_header(hash)
     }
 
-    /// Returns block header from the current chain for given height if present.
+    /// Returns block header from the canonical chain for given height if present.
     #[inline]
     pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
         self.store.get_header_by_height(height)
+    }
+
+    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    #[inline]
+    pub fn get_header_on_chain_by_height(
+        &mut self,
+        sync_hash: &CryptoHash,
+        height: BlockIndex,
+    ) -> Result<&BlockHeader, Error> {
+        self.store.get_header_on_chain_by_height(sync_hash, height)
     }
 
     /// Get previous block header.
@@ -2112,8 +2114,10 @@ impl<'a> ChainUpdate<'a> {
         } = shard_state_header;
         let state_root = &chunk.header.inner.prev_state_root;
 
-        let block_header =
-            self.chain_store_update.get_header_by_height(chunk.header.height_included)?.clone();
+        let block_header = self
+            .chain_store_update
+            .get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?
+            .clone();
 
         // Applying chunk is started here.
 
@@ -2185,7 +2189,8 @@ impl<'a> ChainUpdate<'a> {
         let mut current_height = chunk.header.height_included;
         loop {
             current_height += 1;
-            let block_header_result = self.chain_store_update.get_header_by_height(current_height);
+            let block_header_result =
+                self.chain_store_update.get_header_on_chain_by_height(&sync_hash, current_height);
             if let Err(_) = block_header_result {
                 // No such height, go ahead.
                 continue;
