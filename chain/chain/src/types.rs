@@ -618,14 +618,37 @@ fn validate_chunk_state_challenge(
     runtime_adapter: &RuntimeAdapter,
     chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
+    let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
     let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
 
+    // Validate previous chunk and block header.
+    validate_header_authorship(runtime_adapter, &prev_block_header)?;
+    let _ = validate_chunk_authorship(
+        runtime_adapter,
+        &prev_block_header,
+        &chunk_state.prev_chunk.header,
+    )?;
+    if !Block::validate_chunk_header_proof(
+        &chunk_state.prev_chunk.header,
+        &prev_block_header.inner.chunk_headers_root,
+        &chunk_state.prev_merkle_proof,
+    ) {
+        return Err(ErrorKind::MaliciousChallenge.into());
+    }
+
+    // Validate current chunk and block header.
     validate_header_authorship(runtime_adapter, &block_header)?;
-    validate_chunk_authorship(runtime_adapter, &block_header, &chunk_state.prev_chunk.header)?;
     let chunk_producer =
         validate_chunk_authorship(runtime_adapter, &block_header, &chunk_state.chunk_header)?;
+    if !Block::validate_chunk_header_proof(
+        &chunk_state.chunk_header,
+        &block_header.inner.chunk_headers_root,
+        &chunk_state.merkle_proof,
+    ) {
+        return Err(ErrorKind::MaliciousChallenge.into());
+    }
 
-    // TODO: verify inclusion of prev_chunk into this chain.
+    // Apply state transition and check that the result state and other data doesn't match.
     let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
     let result = runtime_adapter
         .check_state_transition(
@@ -643,9 +666,14 @@ fn validate_chunk_state_challenge(
             &ChallengesResult::default(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
-    if result.new_root == chunk_state.chunk_header.inner.prev_state_root {
+    if result.new_root != chunk_state.chunk_header.inner.prev_state_root
+        || result.validator_proposals != chunk_state.chunk_header.inner.validator_proposals
+        || result.total_gas_burnt != chunk_state.chunk_header.inner.gas_used
+        || result.total_rent_paid != chunk_state.chunk_header.inner.rent_paid
+    {
         Ok((block_header.hash(), vec![chunk_producer]))
     } else {
+        // If all the data matches, this is actually valid chunk and challenge is malicious.
         Err(ErrorKind::MaliciousChallenge.into())
     }
 }

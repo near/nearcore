@@ -25,7 +25,7 @@ pub struct BlockDoubleSign {
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
-    /// Encoded block header.
+    /// Encoded block header that contains invalid chunk.
     pub block_header: Vec<u8>,
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
@@ -36,12 +36,16 @@ pub struct ChunkProofs {
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkState {
-    /// Block header that contains invalid chunk.
+    /// Encoded prev block header.
+    pub prev_block_header: Vec<u8>,
+    /// Encoded block header that contains invalid chunnk.
     pub block_header: Vec<u8>,
-    /// Merkle proof of inclusion of this chunk.
-    pub merkle_proof: MerklePath,
+    /// Merkle proof in inclusion of prev chunk.
+    pub prev_merkle_proof: MerklePath,
     /// Previous chunk that contains transactions.
     pub prev_chunk: ShardChunk,
+    /// Merkle proof of inclusion of this chunk.
+    pub merkle_proof: MerklePath,
     /// Invalid chunk header.
     pub chunk_header: ShardChunkHeader,
     /// Partial state that was affected by transactions of given chunk.

@@ -21,7 +21,7 @@ pub mod update;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct PartialStorage {
     pub nodes: PartialState,
 }

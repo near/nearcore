@@ -333,9 +333,7 @@ impl NightshadeRuntime {
             .apply(state_update, &apply_state, &receipts, &transactions)
             .map_err(|e| match e {
                 InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                InvalidTxErrorOrStorageError::StorageError(_) => {
-                    panic!("Storage error. Corrupted db or invalid state.");
-                }
+                InvalidTxErrorOrStorageError::StorageError(_) => ErrorKind::StorageError,
             })?;
 
         // Sort the receipts into appropriate outgoing shards.
@@ -709,7 +707,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             self.trie.clone()
         };
-        self.process_state_update(
+        match self.process_state_update(
             trie,
             state_root.hash,
             shard_id,
@@ -721,7 +719,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             last_validator_proposals,
             gas_price,
             challenges,
-        )
+        ) {
+            Ok(result) => Ok(result),
+            Err(e) => match e.kind() {
+                ErrorKind::StorageError => {
+                    panic!("Storage error. Corrupted db or invalid state.");
+                }
+                _ => Err(e),
+            },
+        }
     }
 
     fn check_state_transition(

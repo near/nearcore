@@ -112,6 +112,9 @@ pub enum ErrorKind {
     /// Not found record in the DB.
     #[fail(display = "DB Not Found Error: {}", _0)]
     DBNotFoundErr(String),
+    /// Storage error. Used for internal passing the error.
+    #[fail(display = "Storage Error")]
+    StorageError,
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -157,6 +160,7 @@ impl Error {
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
+            | ErrorKind::StorageError
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
