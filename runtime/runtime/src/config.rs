@@ -46,12 +46,12 @@ pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, GasO
     gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| GasOverflowError {})
 }
 
-pub fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, GasOverflowError> {
-    val.checked_add(rhs).ok_or_else(|| GasOverflowError {})
+pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, GasOverflowError> {
+    a.checked_add(b).ok_or_else(|| GasOverflowError {})
 }
 
-pub fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, BalanceOverflowError> {
-    val.checked_add(rhs).ok_or_else(|| BalanceOverflowError {})
+pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, BalanceOverflowError> {
+    a.checked_add(b).ok_or_else(|| BalanceOverflowError {})
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.

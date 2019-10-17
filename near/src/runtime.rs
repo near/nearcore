@@ -665,7 +665,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_rent_paid: apply_result.total_rent_paid,
+            total_rent_paid: apply_result.stats.total_rent_paid,
             proof: trie.recorded_storage(),
         };
 

@@ -120,6 +120,23 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    fn get_header_on_chain_by_height(
+        &mut self,
+        sync_hash: &CryptoHash,
+        height: BlockIndex,
+    ) -> Result<&BlockHeader, Error> {
+        let mut header = self.get_block_header(sync_hash)?;
+        let mut hash = sync_hash.clone();
+        while header.inner.height > height {
+            hash = header.inner.prev_hash;
+            header = self.get_block_header(&hash)?;
+        }
+        if header.inner.height < height {
+            return Err(ErrorKind::InvalidBlockHeight.into());
+        }
+        self.get_block_header(&hash)
+    }
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
