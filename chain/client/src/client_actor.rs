@@ -258,7 +258,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 shard_state: ShardStateSyncResponse { header: Some(header), parts },
                             });
                         }
-                        Err(e) => {
+                        Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -317,11 +317,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             if let Some(header) = &shard_state.header {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(
-                                        &self
-                                            .client
-                                            .block_producer
-                                            .as_ref()
-                                            .map(|bp| bp.account_id.clone()),
                                         shard_id,
                                         hash,
                                         header.clone(),
@@ -911,6 +906,10 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
+                debug!(
+                    "{:?} moo transitions to no sync",
+                    self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
+                );
                 self.client.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.

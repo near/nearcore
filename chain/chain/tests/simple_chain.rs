@@ -19,7 +19,7 @@ fn build_chain() {
     for i in 0..4 {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, signer.clone());
+        let block = Block::empty(&prev, &*signer);
         let tip = chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -32,7 +32,7 @@ fn build_chain_with_orhpans() {
     let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
-        let block = Block::empty(&blocks[i - 1], signer.clone());
+        let block = Block::empty(&blocks[i - 1], &*signer);
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -44,7 +44,7 @@ fn build_chain_with_orhpans() {
         HashMap::default(),
         0,
         Some(0),
-        signer.clone(),
+        &*signer,
     );
     assert_eq!(
         chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap_err().kind(),
@@ -81,11 +81,11 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
-    let b1 = Block::empty(&genesis, signer.clone());
-    let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
-    let b3 = Block::empty_with_height(&b1, 3, signer.clone());
-    let b4 = Block::empty_with_height(&b2, 4, signer.clone());
-    let b5 = Block::empty(&b4, signer);
+    let b1 = Block::empty(&genesis, &*signer);
+    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
+    let b3 = Block::empty_with_height(&b1, 3, &*signer);
+    let b4 = Block::empty_with_height(&b2, 4, &*signer);
+    let b5 = Block::empty(&b4, &*signer);
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
@@ -102,20 +102,20 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(genesis, 1, signer.clone());
-    let b_2 = Block::empty_with_height(&b_1, 2, signer.clone());
-    let b_3 = Block::empty_with_height(&b_2, 3, signer.clone());
+    let b_1 = Block::empty_with_height(genesis, 1, &*signer);
+    let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
+    let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(&genesis, 1, signer.clone());
-    let c_3 = Block::empty_with_height(&c_1, 3, signer.clone());
-    let c_4 = Block::empty_with_height(&c_3, 4, signer.clone());
-    let c_5 = Block::empty_with_height(&c_4, 5, signer.clone());
+    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
+    let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
+    let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
 
-    let d_3 = Block::empty_with_height(&b_2, 3, signer.clone());
-    let d_4 = Block::empty_with_height(&d_3, 4, signer.clone());
-    let d_5 = Block::empty_with_height(&d_4, 5, signer.clone());
+    let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
+    let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
 
-    let mut e_2 = Block::empty_with_height(&b_1, 2, signer.clone());
+    let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
     e_2.header.inner.total_weight = (10 * e_2.header.inner.total_weight.to_num()).into();
     e_2.header.init();
     e_2.header.signature = signer.sign(e_2.header.hash().as_ref());

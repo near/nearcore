@@ -1,5 +1,7 @@
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
+use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -14,6 +16,7 @@ use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction
 use near_crypto::{BlsSignature, PublicKey};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
@@ -36,9 +39,6 @@ use node_runtime::{ApplyState, Runtime, StateRecord};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
-use std::cmp::max;
-use std::fs::File;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";

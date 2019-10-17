@@ -131,7 +131,7 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+            let signer = InMemoryBlsSigner::from_seed("test1", "test1");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -140,7 +140,7 @@ fn receive_network_block() {
                 HashMap::default(),
                 0,
                 None,
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -180,7 +180,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
+            let signer = InMemoryBlsSigner::from_seed("test", "test");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -189,7 +189,7 @@ fn receive_network_block_header() {
                 HashMap::default(),
                 0,
                 None,
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -225,7 +225,7 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemoryBlsSigner::from_seed("test2", "test2"));
+            let signer1 = InMemoryBlsSigner::from_seed("test2", "test2");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -234,13 +234,12 @@ fn produce_block_with_approvals() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer1,
+                &signer1,
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = Arc::new(InMemoryBlsSigner::from_seed(&s, &s));
-                let block_approval =
-                    BlockApproval::new(block.hash(), &*signer, "test2".to_string());
+                let signer = InMemoryBlsSigner::from_seed(&s, &s);
+                let block_approval = BlockApproval::new(block.hash(), &signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
                     s.to_string(),
                     block_approval.hash,
@@ -284,7 +283,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
+            let signer = InMemoryBlsSigner::from_seed("test", "test");
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
@@ -294,7 +293,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer.clone(),
+                &signer,
             );
             block.header.inner.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -311,7 +310,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer.clone(),
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -323,7 +322,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -476,9 +475,9 @@ fn test_time_attack() {
     let chain_genesis = ChainGenesis::test();
     let mut client =
         setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
-    let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+    let signer = InMemoryBlsSigner::from_seed("test1", "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
@@ -499,9 +498,9 @@ fn test_invalid_approvals() {
     let chain_genesis = ChainGenesis::test();
     let mut client =
         setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
-    let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+    let signer = InMemoryBlsSigner::from_seed("test1", "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner.approval_mask = vec![true];
     b1.header.inner.approval_sigs = (0..100).fold(BlsSignature::empty(), |mut acc, i| {
         let signature = InMemoryBlsSigner::from_seed(&format!("test{}", i), &format!("test{}", i))
