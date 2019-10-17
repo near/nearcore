@@ -259,6 +259,7 @@ pub fn run(config: Config) {
     // Measure the speed of all extern function calls.
     testbed = measure_function("call_fixture10", 10, &mut m, testbed, &ad, &mut nonces, &config);
     for (method_name, n) in &[
+        ("factorization", 10000),
         ("call_input", 20),
         ("call_input_register_len", 20),
         ("call_input_read_register", 20),
