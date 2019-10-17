@@ -179,6 +179,30 @@ pub fn payload() {
 #[no_mangle]
 pub fn noop() {}
 
+/// Just a CPU-heavy function that we can use to correlate gas usage with processing time.
+#[no_mangle]
+pub fn factorization() {
+    let mut buffer = [0u8; BUFFER_SIZE];
+    let (n, _) = read_u64input(&mut buffer);
+    let mut largest_prime = 1u64;
+    for i in 2..n {
+        let mut is_prime = true;
+        for k in 2..i {
+            if (i / k) as u64 * k == i {
+                is_prime = false;
+                break;
+            }
+        }
+        if is_prime {
+            largest_prime = i;
+        }
+    }
+    let largest_prime = &largest_prime;
+    unsafe {
+        value_return(size_of::<u64>() as u64, largest_prime as *const u64 as u64);
+    }
+}
+
 /// Returns:
 /// * `n: u64` -- how many times a certain operation should be repeated;
 /// * `blob: &mut [u8]` -- the blob that was also read into the buffer.
