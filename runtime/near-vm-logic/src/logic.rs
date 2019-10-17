@@ -565,8 +565,8 @@ impl<'a> VMLogic<'a> {
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         let Self { memory, registers, gas_counter, config, ext, .. } = self;
         gas_counter.pay_base(config.runtime_fees.ext_costs.sha256)?;
-        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.sha256_byte, value_len)?;
         let value = Self::get_from_memory_or_register(*memory, registers, value_ptr, value_len)?;
+        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.sha256_byte, value.len() as u64)?;
         let value_hash = ext.sha256(&value)?;
         Self::internal_write_register(registers, gas_counter, config, register_id, &value_hash)
     }
@@ -1507,9 +1507,6 @@ impl<'a> VMLogic<'a> {
             ..
         } = self;
         gas_counter.pay_base(config.runtime_fees.ext_costs.storage_write_base)?;
-        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.storage_write_key_byte, key_len)?;
-        gas_counter
-            .pay_per_byte(config.runtime_fees.ext_costs.storage_write_value_byte, value_len)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
             ext.storage_iter_drop(invalidated_iter_idx)?;
@@ -1517,13 +1514,22 @@ impl<'a> VMLogic<'a> {
         }
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
         let value = Self::get_from_memory_or_register(*memory, registers, value_ptr, value_len)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_write_value_byte,
+            key.len() as u64,
+        )?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_write_value_byte,
+            value.len() as u64,
+        )?;
         let evicted = self.ext.storage_set(&key, &value)?;
         let storage_config = &config.runtime_fees.storage_usage_config;
         match evicted {
             Some(old_value) => {
                 self.current_storage_usage -=
                     (old_value.len() as u64) * storage_config.value_cost_per_byte;
-                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
+                self.current_storage_usage +=
+                    value.len() as u64 * storage_config.value_cost_per_byte;
                 Self::internal_write_register(
                     registers,
                     gas_counter,
@@ -1534,8 +1540,9 @@ impl<'a> VMLogic<'a> {
                 Ok(1)
             }
             None => {
-                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
-                self.current_storage_usage += key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage +=
+                    value.len() as u64 * storage_config.value_cost_per_byte;
+                self.current_storage_usage += key.len() as u64 * storage_config.key_cost_per_byte;
                 self.current_storage_usage += storage_config.data_record_cost;
                 Ok(0)
             }
@@ -1555,14 +1562,15 @@ impl<'a> VMLogic<'a> {
     ///   `MemoryAccessViolation`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         let Self { ext, memory, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_write_base)?;
-        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.storage_write_key_byte, key_len)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_read_base)?;
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
+        gas_counter
+            .pay_per_byte(config.runtime_fees.ext_costs.storage_read_key_byte, key.len() as u64)?;
         let read = ext.storage_get(&key)?;
         match read {
             Some(value) => {
                 gas_counter.pay_per_byte(
-                    config.runtime_fees.ext_costs.storage_write_value_byte,
+                    config.runtime_fees.ext_costs.storage_read_key_byte,
                     value.len() as u64,
                 )?;
                 Self::internal_write_register(registers, gas_counter, config, register_id, &value)?;
@@ -1596,13 +1604,17 @@ impl<'a> VMLogic<'a> {
             ..
         } = self;
         gas_counter.pay_base(config.runtime_fees.ext_costs.storage_remove_base)?;
-        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.storage_remove_key_byte, key_len)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
             ext.storage_iter_drop(invalidated_iter_idx)?;
             invalid_iterators.insert(invalidated_iter_idx);
         }
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
+
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_remove_key_byte,
+            key.len() as u64,
+        )?;
         let removed = ext.storage_remove(&key)?;
         let storage_config = &config.runtime_fees.storage_usage_config;
         match removed {
@@ -1613,7 +1625,7 @@ impl<'a> VMLogic<'a> {
                 )?;
                 self.current_storage_usage -=
                     (value.len() as u64) * storage_config.value_cost_per_byte;
-                self.current_storage_usage -= key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage -= key.len() as u64 * storage_config.key_cost_per_byte;
                 self.current_storage_usage -= storage_config.data_record_cost;
                 Self::internal_write_register(registers, gas_counter, config, register_id, &value)?;
                 Ok(1)
@@ -1631,10 +1643,12 @@ impl<'a> VMLogic<'a> {
     /// If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.storage_has_key_base)?;
-        self.gas_counter
-            .pay_per_byte(self.config.runtime_fees.ext_costs.storage_has_key_byte, key_len)?;
         let key =
             Self::get_from_memory_or_register(self.memory, &self.registers, key_ptr, key_len)?;
+        self.gas_counter.pay_per_byte(
+            self.config.runtime_fees.ext_costs.storage_has_key_byte,
+            key.len() as u64,
+        )?;
         let res = self.ext.storage_has_key(&key)?;
         Ok(res as u64)
     }
@@ -1651,15 +1665,15 @@ impl<'a> VMLogic<'a> {
     pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
         self.gas_counter
             .pay_base(self.config.runtime_fees.ext_costs.storage_iter_create_prefix_base)?;
-        self.gas_counter.pay_per_byte(
-            self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
-            prefix_len,
-        )?;
         let prefix = Self::get_from_memory_or_register(
             self.memory,
             &self.registers,
             prefix_ptr,
             prefix_len,
+        )?;
+        self.gas_counter.pay_per_byte(
+            self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
+            prefix.len() as u64,
         )?;
         let iterator_index = self.ext.storage_iter(&prefix)?;
         self.valid_iterators.insert(iterator_index);
@@ -1690,11 +1704,11 @@ impl<'a> VMLogic<'a> {
             Self::get_from_memory_or_register(self.memory, &self.registers, end_ptr, end_len)?;
         self.gas_counter.pay_per_byte(
             self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
-            start_len,
+            start_key.len() as u64,
         )?;
         self.gas_counter.pay_per_byte(
             self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
-            end_len,
+            end_key.len() as u64,
         )?;
         let iterator_index = self.ext.storage_iter_range(&start_key, &end_key)?;
         self.valid_iterators.insert(iterator_index);

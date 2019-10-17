@@ -99,7 +99,7 @@ pub struct ExtCostsConfig {
     pub storage_iter_next_value_byte: Gas,
     /// Base cost for reading from register
     pub read_register_base: Gas,
-    /// Cst for reading byte from register
+    /// Cost for reading byte from register
     pub read_register_byte: Gas,
     /// Base cost for writing into register
     pub write_register_base: Gas,

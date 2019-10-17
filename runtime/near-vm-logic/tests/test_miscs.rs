@@ -246,3 +246,48 @@ fn test_valid_log_utf16_null_terminated_fail() {
     logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
     assert_ne!(logic.outcome().logs[0], format!("LOG: {}", string));
 }
+
+#[test]
+fn test_hash256() {
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let data = b"tesdsst";
+
+    logic.sha256(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &[0u8; 32];
+    logic.read_register(0, res.as_ptr() as _);
+    assert_ne!(
+        res,
+        &[
+            18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
+            92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
+        ]
+    );
+}
+
+#[test]
+fn test_hash256_register() {
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let data = b"tesdsst";
+    logic.write_register(1, data);
+
+    logic.sha256(std::u64::MAX, data.as_ptr() as _, 0).unwrap();
+    let res = &[0u8; 32];
+    logic.read_register(0, res.as_ptr() as _);
+    assert_ne!(
+        res,
+        &[
+            18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
+            92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
+        ]
+    );
+}
