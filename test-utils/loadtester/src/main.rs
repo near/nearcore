@@ -13,9 +13,10 @@ use env_logger::Builder;
 
 use git_version::git_version;
 use near::config::create_testnet_configs;
-use near::get_default_home;
+use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::Version;
+use near_store::{create_store, COL_STATE};
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
@@ -103,6 +104,19 @@ fn main() {
                     .default_value("set")
                     .possible_values(&["set", "send_money", "heavy_storage"])
                     .help("Transaction type")))
+        .subcommand(SubCommand::with_name("load_state_dump").about("Load state dump from genesis-tools and create store for run")
+        .arg(
+            Arg::with_name("home")
+            .long("home")
+            .takes_value(true)
+            .default_value(&default_home)
+        )
+        .arg(
+            Arg::with_name("state_dump")
+            .long("state_dump")
+            .takes_value(true)
+            .default_value("state_dump")
+        ))
         .subcommand(SubCommand::with_name("create_genesis").about("Create genesis file of many accounts for launch a network")
             .arg(
                 Arg::with_name("accounts")
@@ -139,6 +153,7 @@ fn main() {
     match matches.subcommand() {
         ("create_genesis", Some(args)) => create_genesis(args),
         ("run", Some(args)) => run(args),
+        ("load_state_dump", Some(args)) => load_state_dump(args),
         _ => unreachable!(),
     }
 }
@@ -166,6 +181,15 @@ fn create_genesis(matches: &clap::ArgMatches) {
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
         info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
     }
+}
+
+fn load_state_dump(matches: &clap::ArgMatches) {
+    let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
+    let state_dump_path = value_t_or_exit!(matches, "state_dump", PathBuf);
+    let dir = dir_buf.as_path();
+    let state_dump = state_dump_path.as_path();
+    let store = create_store(&get_store_path(dir));
+    store.load_from_file(COL_STATE, state_dump).expect("Failed to read state dump");
 }
 
 fn run(matches: &clap::ArgMatches) {

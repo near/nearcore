@@ -1833,6 +1833,7 @@ dependencies = [
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-primitives 0.1.0",
+ "near-store 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
