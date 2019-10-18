@@ -601,6 +601,7 @@ impl Chain {
         match maybe_new_head {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.commit()?;
+
                 if needs_to_start_fetching_state {
                     debug!("Downloading state for block {}", block.hash());
                     self.start_downloading_state(me, &block)?;
