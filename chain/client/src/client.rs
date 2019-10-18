@@ -32,6 +32,8 @@ use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
+use crate::metrics;
+
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
@@ -162,9 +164,11 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
-        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
-            Error::BlockProducer("Called without block producer info.".to_string())
-        })?;
+        let block_producer = self
+            .block_producer
+            .as_ref()
+            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
+            .clone();
         let head = self.chain.head()?;
         assert_eq!(
             head.epoch_id,
@@ -403,6 +407,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
