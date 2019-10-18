@@ -52,6 +52,10 @@ pub struct BlockHeaderInner {
     pub gas_price: Balance,
     /// Sum of all storage rent paid across all chunks.
     pub rent_paid: Balance,
+    /// Sum of all validator reward across all chunks.
+    pub validator_reward: Balance,
+    /// Sum of all burnt balance across all chunks.
+    pub balance_burnt: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
 }
@@ -76,6 +80,8 @@ impl BlockHeaderInner {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -97,6 +103,8 @@ impl BlockHeaderInner {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
         }
     }
@@ -140,6 +148,8 @@ impl BlockHeader {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
         signer: &dyn Signer,
     ) -> Self {
@@ -162,6 +172,8 @@ impl BlockHeader {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
@@ -197,6 +209,8 @@ impl BlockHeader {
             0,
             initial_gas_limit,
             initial_gas_price,
+            0,
+            0,
             0,
             initial_total_supply,
         );
@@ -251,6 +265,8 @@ impl Block {
                     0,
                     initial_gas_limit,
                     0,
+                    0,
+                    0,
                     CryptoHash::default(),
                     CryptoHash::default(),
                     vec![],
@@ -301,12 +317,16 @@ impl Block {
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut storage_rent = 0;
+        let mut validator_reward = 0;
+        let mut balance_burnt = 0;
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
                 storage_rent += chunk.inner.rent_paid;
+                validator_reward += chunk.inner.validator_reward;
+                balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -350,6 +370,8 @@ impl Block {
                 // TODO: calculate this correctly
                 new_gas_price,
                 storage_rent,
+                validator_reward,
+                balance_burnt,
                 new_total_supply,
                 signer,
             ),

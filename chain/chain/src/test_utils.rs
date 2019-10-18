@@ -456,6 +456,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_used: Gas,
         _gas_price: Balance,
         _rent_paid: Balance,
+        _validator_reward: Balance,
+        _balance_burnt: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -644,6 +646,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_rent_paid: 0,
+            total_validator_reward: 0,
+            total_balance_burnt: 0,
             proof: None,
         })
     }

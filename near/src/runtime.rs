@@ -553,6 +553,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_used: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -573,6 +575,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_used,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
         );
         // TODO: add randomness here
@@ -666,6 +670,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_rent_paid: apply_result.stats.total_rent_paid,
+            total_validator_reward: apply_result.stats.total_validator_reward,
+            total_balance_burnt: apply_result.stats.total_balance_burnt,
             proof: trie.recorded_storage(),
         };
 
@@ -1036,6 +1042,8 @@ mod test {
                     0,
                     genesis_config.gas_price,
                     0,
+                    0,
+                    0,
                     genesis_config.total_supply,
                 )
                 .unwrap();
@@ -1094,6 +1102,8 @@ mod test {
                     chunk_mask,
                     0,
                     self.runtime.genesis_config.gas_price,
+                    0,
+                    0,
                     0,
                     self.runtime.genesis_config.total_supply,
                 )
@@ -1521,6 +1531,8 @@ mod test {
                     vec![true],
                     0,
                     new_env.runtime.genesis_config.gas_price,
+                    0,
+                    0,
                     0,
                     new_env.runtime.genesis_config.total_supply,
                 )

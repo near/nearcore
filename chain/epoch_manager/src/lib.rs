@@ -157,6 +157,8 @@ impl EpochManager {
         let mut chunk_validator_tracker = HashMap::new();
         let mut total_gas_used = 0;
         let mut total_storage_rent = 0;
+        let mut total_validator_reward = 0;
+        let mut total_balance_burnt = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -198,6 +200,8 @@ impl EpochManager {
 
             total_gas_used += info.gas_used;
             total_storage_rent += info.rent_paid;
+            total_validator_reward += info.validator_reward;
+            total_balance_burnt += info.balance_burnt;
 
             hash = info.prev_hash;
         }
@@ -231,6 +235,8 @@ impl EpochManager {
             validator_online_ratio,
             total_gas_used,
             total_storage_rent,
+            total_validator_reward,
+            total_balance_burnt
         })
     }
 
@@ -248,15 +254,15 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
-            total_storage_rent,
+            total_storage_rent, total_validator_reward, total_balance_burnt,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_online_ratio,
-            total_gas_used,
-            block_info.gas_price,
             total_storage_rent,
+            total_validator_reward,
+            total_balance_burnt,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -1010,6 +1016,8 @@ mod tests {
                     0,
                     DEFAULT_GAS_PRICE,
                     0,
+                    0,
+                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1115,6 +1123,8 @@ mod tests {
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 0,
+                    validator_reward: 0,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1134,6 +1144,8 @@ mod tests {
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
+                    validator_reward: 10,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1153,6 +1165,8 @@ mod tests {
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
+                    validator_reward: 10,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1164,8 +1178,8 @@ mod tests {
         let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
-            DEFAULT_GAS_PRICE,
             20,
+            0,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1218,6 +1232,8 @@ mod tests {
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 0,
+                    validator_reward: 0,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1237,6 +1253,8 @@ mod tests {
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
+                    validator_reward: 10,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1256,6 +1274,8 @@ mod tests {
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
+                    validator_reward: 10,
+                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1266,8 +1286,8 @@ mod tests {
         let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
-            DEFAULT_GAS_PRICE,
             20,
+            0,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();

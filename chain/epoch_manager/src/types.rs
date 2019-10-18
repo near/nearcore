@@ -71,6 +71,10 @@ pub struct BlockInfo {
     pub gas_price: Balance,
     /// Total rent paid in this block.
     pub rent_paid: Balance,
+    /// Total validator reward in this block.
+    pub validator_reward: Balance,
+    /// Total balance burnt in this block.
+    pub balance_burnt: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
 }
@@ -85,6 +89,8 @@ impl BlockInfo {
         gas_used: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -96,6 +102,8 @@ impl BlockInfo {
             gas_used,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
@@ -180,4 +188,6 @@ pub struct EpochSummary {
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
     pub total_gas_used: Gas,
     pub total_storage_rent: Balance,
+    pub total_validator_reward: Balance,
+    pub total_balance_burnt: Balance,
 }

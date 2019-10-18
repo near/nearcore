@@ -174,6 +174,8 @@ pub fn record_block(
                 0,
                 DEFAULT_GAS_PRICE,
                 0,
+                0,
+                0,
                 DEFAULT_TOTAL_SUPPLY,
             ),
             [0; 32],
