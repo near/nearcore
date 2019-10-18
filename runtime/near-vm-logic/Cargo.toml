@@ -22,6 +22,12 @@ near-vm-errors = { path = "../near-vm-errors" }
 [dev-dependencies]
 serde_json = {version= "1.0", features= ["preserve_order"]}
 
+
+[[test]]
+name = "test_storage_read_write"
+path = "tests/test_storage_read_write.rs"
+required-features = ["mocks"]
+
 [[test]]
 name = "test_context"
 path = "tests/test_context.rs"
