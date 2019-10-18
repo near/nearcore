@@ -22,11 +22,12 @@ use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
-    NetworkClientMessages, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
+    NetworkClientMessages, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
+use near_primitives::unwrap_option_or_return;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -222,13 +223,14 @@ impl Peer {
         ctx.stop();
     }
 
+    fn peer_id(&self) -> Option<PeerId> {
+        self.peer_info.as_ref().as_ref().map(|peer_info| peer_info.id.clone())
+    }
+
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
-        let peer_id = match self.peer_info.as_ref() {
-            Some(peer_info) => peer_info.id.clone(),
-            None => return,
-        };
+        let peer_id = unwrap_option_or_return!(self.peer_id());
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
@@ -302,7 +304,9 @@ impl Peer {
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
-            | PeerMessage::Sync(_) => {
+            | PeerMessage::Sync(_)
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::Disconnect => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -484,7 +488,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     .into_actor(self)
                     .then(move |res, act, ctx| {
                         match res {
-                            Ok(ConsolidateResponse(true, edge_info)) => {
+                            Ok(ConsolidateResponse::Accept(edge_info)) => {
                                 debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
@@ -495,6 +499,11 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                                 }
                                 actix::fut::ok(())
                             },
+                            Ok(ConsolidateResponse::InvalidNonce(edge)) => {
+                                debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
+                                act.send_message(PeerMessage::LastEdge(edge));
+                                actix::fut::ok(())
+                            }
                             _ => {
                                 info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
                                 ctx.stop();
@@ -503,6 +512,40 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         }
                     })
                     .wait(ctx);
+            }
+            (_, PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
+                // This message will be received only if we started the connection.
+                if self.peer_type == PeerType::Inbound {
+                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    ctx.stop();
+                    return ();
+                }
+
+                // Disconnect if neighbor propose invalid edge.
+                if !edge.verify() {
+                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_info.id.clone(), self.peer_addr);
+                    ctx.stop();
+                    return ();
+                }
+
+                self.peer_manager_addr
+                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next_nonce())))
+                    .into_actor(self)
+                    .then(|res, act, ctx| {
+                        match res {
+                            Ok(PeerResponse::UpdatedEdge(edge_info)) => {
+                                act.edge_info = Some(edge_info);
+                                act.send_handshake(ctx);
+                            }
+                            _ => {}
+                        }
+                        actix::fut::ok(())
+                    })
+                    .spawn(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::Disconnect) => {
+                debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.node_info.id, self.peer_id());
+                ctx.stop();
             }
             (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
                 // Received handshake after already have seen handshake from this peer.
