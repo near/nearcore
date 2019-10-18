@@ -82,7 +82,6 @@ fn test_log_max_limit() {
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
-    let bytes_len = string_bytes.len();
     config.max_log_len = (string_bytes.len() - 1) as u64;
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     assert_eq!(
@@ -258,9 +257,9 @@ fn test_hash256() {
     let data = b"tesdsst";
 
     logic.sha256(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &[0u8; 32];
+    let res = &vec![0u8; 32];
     logic.read_register(0, res.as_ptr() as _);
-    assert_ne!(
+    assert_eq!(
         res,
         &[
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
@@ -278,12 +277,12 @@ fn test_hash256_register() {
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     let data = b"tesdsst";
-    logic.write_register(1, data);
+    logic.write_register(1, data).unwrap();
 
-    logic.sha256(std::u64::MAX, data.as_ptr() as _, 0).unwrap();
-    let res = &[0u8; 32];
-    logic.read_register(0, res.as_ptr() as _);
-    assert_ne!(
+    logic.sha256(std::u64::MAX, 1, 0).unwrap();
+    let res = &vec![0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).unwrap();
+    assert_eq!(
         res,
         &[
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,

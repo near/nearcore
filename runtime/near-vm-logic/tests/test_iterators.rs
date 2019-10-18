@@ -17,7 +17,7 @@ fn add_key_vals(logic: &mut VMLogic, key_vals: &[KeyVal]) {
 
 fn iter_prefix_check(logic: &mut VMLogic, prefix: &[u8], key_vals: &[KeyVal], use_register: bool) -> u64 {
     let iter_id = if use_register {
-        logic.write_register(3, prefix);
+        logic.write_register(3, prefix).unwrap();
         logic.storage_iter_prefix(std::u64::MAX, 3)
     } else {
         logic
@@ -44,8 +44,8 @@ fn iter_prefix_check(logic: &mut VMLogic, prefix: &[u8], key_vals: &[KeyVal], us
 
 fn iter_range_check(logic: &mut VMLogic, start: &[u8], end: &[u8], key_vals: &[KeyVal], use_register: bool) -> u64 {
     let iter_id = if use_register {
-        logic.write_register(3, start);
-        logic.write_register(4, end);
+        logic.write_register(3, start).unwrap();
+        logic.write_register(4, end).unwrap();
         logic.storage_iter_range(std::u64::MAX, 0, std::u64::MAX, 1)
     } else {
         logic.storage_iter_range(
@@ -106,7 +106,7 @@ fn test_iterator_from_second(use_register: bool) {
         &[KeyVal(b"aaa", b"bar1"), KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")],
     );
     let iter_id =
-        iter_prefix_check(&mut logic, b"aaa", &[KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")], false);
+        iter_prefix_check(&mut logic, b"aaa", &[KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")], use_register);
     // iterator exhausted
     assert_eq!(logic.storage_iter_next(iter_id, 0, 1).unwrap(), 0);
 }
