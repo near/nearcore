@@ -203,7 +203,7 @@ pub fn input_register_len_1k() {
 /// Call input, read_register for up to 1M bytes 1000 times.
 #[no_mangle]
 pub fn input_read_register_1k() {
-    let buffer = [0u8; 10485760];
+    let buffer = [0u8; 10240];
     for _ in 0..1000 {
         unsafe {
             input(0);
@@ -273,7 +273,7 @@ macro_rules! read_call_func_10k {
             unsafe {
                 input(0);
                 let $len = register_len(0);
-                let mut $buf = [0u8; 10485760];
+                let mut $buf = [0u8; 10240];
                 read_register(0, $buf.as_ptr() as u64);
                 for _ in 0..10_000 {
                     $call
@@ -348,7 +348,7 @@ macro_rules! storage_100 {
             unsafe {
                 input(0);
                 let $len = register_len(0);
-                let mut $buf = [0u8; 10485760];
+                let mut $buf = [0u8; 10240];
                 read_register(0, $buf.as_ptr() as u64);
                 for i in 0..100 {
                     // Modify blob so that we write different content.
@@ -382,37 +382,31 @@ storage_100!(
 storage_100!(
     buf,
     len,
-    storage_write_read_100,
-    {
-        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
-    },
+    storage_read_100,
     {
         storage_read(len as _, buf.as_ptr() as _, 0);
-    }
+    },
+    {}
 );
 
 storage_100!(
     buf,
     len,
-    storage_write_remove_100,
-    {
-        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
-    },
+    storage_remove_100,
     {
         storage_remove(len as _, buf.as_ptr() as _, 0);
-    }
+    },
+    {}
 );
 
 storage_100!(
     buf,
     len,
-    storage_write_has_key_100,
-    {
-        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
-    },
+    storage_has_key_100,
     {
         storage_has_key(len as _, buf.as_ptr() as _);
-    }
+    },
+    {}
 );
 
 storage_100!(
@@ -440,7 +434,7 @@ pub fn storage_iter_next_1k() {
     unsafe {
         input(0);
         let len = register_len(0);
-        let mut buf = [0u8; 10485760];
+        let mut buf = [0u8; 10240];
         read_register(0, buf.as_ptr() as u64);
         for i in 0..1000 {
             buf[0] = (i % 256) as u8;
@@ -458,7 +452,14 @@ pub fn storage_iter_next_1k() {
             end.as_ptr() as _,
         );
         for _ in 0..1000 {
-            storage_iter_next(id, 1, 2);
+            if storage_iter_next(id, 1, 2) == 0 {
+                id = storage_iter_range(
+                    start.len() as _,
+                    start.as_ptr() as _,
+                    end.len() as _,
+                    end.as_ptr() as _,
+                );
+            }
         }
     }
 }
@@ -468,9 +469,9 @@ pub fn cpu_ram_soak_test() {
     unsafe {
         input(0);
         let len = register_len(0) as usize;
-        let mut buf = [0u8; 10485760];
+        let mut buf = [0u8; 10240];
         read_register(0, buf.as_ptr() as u64);
-        for i in 0..100_000 {
+        for i in 0..1_000_000 {
             let j = (i * 3) % len;
             let k = (i * 2 + len / 2) % len;
             let tmp = buf[k];

@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::types::Gas;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -141,17 +142,20 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
+    let mut gas_per_transaction = 0;
     for block_size in block_sizes(config) {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start_time = Instant::now();
-            testbed.process_block(&block, allow_failures);
+            gas_per_transaction += testbed.process_block(&block, allow_failures);
             let end_time = Instant::now();
             measurements.record_measurement(metric.clone(), block_size, end_time - start_time);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
+    //    gas_per_transaction /= block_sizes(config).into_iter().sum::<Gas>();
+    testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
     measurements.print();
     testbed
