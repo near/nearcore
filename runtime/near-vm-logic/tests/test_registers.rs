@@ -1,10 +1,10 @@
+pub mod fixtures;
+
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
 use std::mem::size_of;
-
-mod fixtures;
 
 #[test]
 fn test_one_register() {
@@ -74,7 +74,7 @@ fn test_max_register_size() {
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
-    let value = vec![0u8; (config.max_register_size +1) as usize];
+    let value = vec![0u8; (config.max_register_size + 1) as usize];
 
     assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation.into()));
 }
@@ -83,7 +83,7 @@ fn test_max_register_size() {
 fn test_max_register_memory_limit() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = Config::free();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
@@ -95,7 +95,10 @@ fn test_max_register_memory_limit() {
         logic.write_register(i, &value).expect("should be written successfully");
     }
     let last = vec![1u8; config.max_register_size as usize];
-    assert_eq!(logic.write_register(max_registers, &last), Err(HostError::MemoryAccessViolation.into()));
+    assert_eq!(
+        logic.write_register(max_registers, &last),
+        Err(HostError::MemoryAccessViolation.into())
+    );
 }
 
 #[test]

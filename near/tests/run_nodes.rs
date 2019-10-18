@@ -21,7 +21,7 @@ fn run_nodes(
             TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
         })
         .collect::<Vec<_>>();
-    let clients = start_nodes(num_shards, &dirs, num_validators, epoch_length);
+    let (_, _, clients) = start_nodes(num_shards, &dirs, num_validators, 0, epoch_length);
     let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
@@ -40,7 +40,7 @@ fn run_nodes(
             }));
         }),
         100,
-        60000,
+        20000,
     )
     .start();
 

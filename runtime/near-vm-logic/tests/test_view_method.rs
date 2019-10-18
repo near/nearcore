@@ -1,9 +1,9 @@
+mod fixtures;
+
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::{Config, VMLogic};
-
-mod fixtures;
 
 macro_rules! test_prohibited {
     ($f: ident $(, $arg: expr )* ) => {
@@ -54,6 +54,6 @@ fn test_allowed_view_method() {
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
-    let logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     assert_eq!(logic.block_index().unwrap(), block_index);
 }

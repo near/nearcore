@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
+use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{BlsSignature, BlsSigner};
+use near_crypto::{Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHash(pub CryptoHash);
@@ -24,7 +22,7 @@ impl AsRef<[u8]> for ChunkHash {
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
-    pub prev_state_root: CryptoHash,
+    pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -52,7 +50,7 @@ pub struct ShardChunkHeader {
     pub height_included: BlockIndex,
 
     /// Signature of the chunk producer.
-    pub signature: BlsSignature,
+    pub signature: Signature,
 
     #[borsh_skip]
     pub hash: ChunkHash,
@@ -72,7 +70,7 @@ impl ShardChunkHeader {
 
     pub fn new(
         prev_block_hash: CryptoHash,
-        prev_state_root: CryptoHash,
+        prev_state_root: StateRoot,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -83,7 +81,7 @@ impl ShardChunkHeader {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -144,7 +142,7 @@ pub struct ChunkPartMsg {
     pub merkle_path: MerklePath,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
@@ -175,7 +173,7 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
@@ -188,7 +186,7 @@ impl EncodedShardChunk {
 
     pub fn new(
         prev_block_hash: CryptoHash,
-        prev_state_root: CryptoHash,
+        prev_state_root: StateRoot,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -201,7 +199,7 @@ impl EncodedShardChunk {
         transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
             TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
@@ -248,7 +246,7 @@ impl EncodedShardChunk {
 
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
-        prev_state_root: CryptoHash,
+        prev_state_root: StateRoot,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -264,7 +262,7 @@ impl EncodedShardChunk {
         data_shards: usize,
         parity_shards: usize,
 
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(data_shards, parity_shards);

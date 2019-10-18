@@ -1,8 +1,12 @@
+use near_primitives::errors::ActionError;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
+
+#[cfg(test)]
+use assert_matches::assert_matches;
 
 const FUNCTION_CALL_GAS_AMOUNT: Gas = 1_000_000_000;
 
@@ -102,7 +106,33 @@ fn test_evil_deep_recursion() {
                 res
             );
         } else {
-            assert_eq!(res.status, FinalExecutionStatus::Failure, "{:?}", res);
+            assert_matches!(res.status, FinalExecutionStatus::Failure(_), "{:?}", res);
         }
     });
+}
+
+#[test]
+fn test_evil_abort() {
+    let node =
+        setup_test_contract(include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm"));
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".to_string(),
+            "test_contract".to_string(),
+            "abort_with_zero",
+            vec![],
+            FUNCTION_CALL_GAS_AMOUNT,
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCallError("String encoding is bad UTF-16 sequence.".to_string())
+                .into()
+        ),
+        "{:?}",
+        res
+    );
 }

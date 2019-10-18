@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use near_crypto::{BlsPublicKey, PublicKey, Signer};
+use near_crypto::{PublicKey, Signer};
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
-use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
-};
+use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
 use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
 pub use crate::user::runtime_user::RuntimeUser;
@@ -58,9 +56,7 @@ pub trait User {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView;
 
-    fn get_state_root(&self) -> CryptoHashView;
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
+    fn get_state_root(&self) -> CryptoHash;
 
     fn get_access_key(
         &self,
@@ -211,7 +207,7 @@ pub trait User {
     fn stake(
         &self,
         signer_id: AccountId,
-        public_key: BlsPublicKey,
+        public_key: PublicKey,
         amount: Balance,
     ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
@@ -266,11 +262,6 @@ pub trait AsyncUser: Send + Sync {
     ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = String>>;
 
     fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
-
-    fn get_receipt_info(
-        &self,
-        hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
 
     fn get_access_key(
         &self,

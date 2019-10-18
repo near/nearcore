@@ -3,10 +3,11 @@ use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{BlsPublicKey, PublicKey, Signature, Signer};
+use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
 use crate::block::BlockHeader;
+use crate::errors::ExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
@@ -103,7 +104,7 @@ pub struct TransferAction {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     pub stake: Balance,
-    pub public_key: BlsPublicKey,
+    pub public_key: PublicKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -183,8 +184,8 @@ impl PartialEq for SignedTransaction {
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
-    /// The execution has failed.
-    Failure,
+    /// The execution has failed with the given execution error.
+    Failure(ExecutionError),
     /// The final action succeeded and returned some value or an empty vec.
     SuccessValue(Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted
@@ -196,7 +197,7 @@ impl fmt::Debug for ExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
-            ExecutionStatus::Failure => f.write_str("Failure"),
+            ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
             ExecutionStatus::SuccessValue(v) => {
                 f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
             }
@@ -277,7 +278,7 @@ mod tests {
 
     use borsh::BorshDeserialize;
 
-    use near_crypto::{InMemorySigner, KeyType, ReadablePublicKey, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signature};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;
@@ -313,13 +314,7 @@ mod tests {
     #[test]
     fn test_serialize_transaction() {
         let public_key: PublicKey =
-            ReadablePublicKey::new("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV")
-                .try_into()
-                .unwrap();
-        let bls_public_key: BlsPublicKey = serde_json::from_str(
-            "\"7NU5dMDJy8P1mhvDJyKGprjVBWXmXyonqc6N6XcWkvKF7jtwcwzkEdfAM8nDWZhq8M\"",
-        )
-        .unwrap();
+            "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".to_string().try_into().unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
             public_key: public_key.clone(),
@@ -336,7 +331,7 @@ mod tests {
                     deposit: 1_000_000,
                 }),
                 Action::Transfer(TransferAction { deposit: 123 }),
-                Action::Stake(StakeAction { public_key: bls_public_key.clone(), stake: 1_000_000 }),
+                Action::Stake(StakeAction { public_key: public_key.clone(), stake: 1_000_000 }),
                 Action::AddKey(AddKeyAction {
                     public_key: public_key.clone(),
                     access_key: AccessKey {
@@ -358,7 +353,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "EJsqxSnwZfBfzJWesJAtYxMK6rzTJcb1pdKgMCjHiEBB"
+            "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
     }
 }

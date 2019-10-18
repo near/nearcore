@@ -1,6 +1,7 @@
 mod config;
 mod context;
 mod dependencies;
+mod gas_counter;
 mod logic;
 #[cfg(feature = "mocks")]
 pub mod mocks;

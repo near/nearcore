@@ -1,22 +1,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use tempdir::TempDir;
-
-use lazy_static::lazy_static;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ExecutionOutcomeView,
-    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
+    ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{Trie, TrieUpdate};
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -51,18 +47,11 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
 
-lazy_static! {
-    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
-        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
-    ));
-}
-
 impl RuntimeUser {
     pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
-        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new(ethash_provider),
+            trie_viewer: TrieViewer::new(),
             account_id: account_id.to_string(),
             client,
             transaction_results: Default::default(),
@@ -86,7 +75,9 @@ impl RuntimeUser {
                 .apply(state_update, &apply_state, &receipts, &txs)
                 .map_err(|e| match e {
                     InvalidTxErrorOrStorageError::InvalidTxError(e) => format!("{}", e),
-                    InvalidTxErrorOrStorageError::StorageError(_) => panic!("Storage error"),
+                    InvalidTxErrorOrStorageError::StorageError(e) => {
+                        panic!("Storage error {:?}", e)
+                    }
                 })?;
             for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results
@@ -94,7 +85,7 @@ impl RuntimeUser {
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
-            client.state_root = apply_result.root;
+            client.state_root = apply_result.state_root.hash;
             if apply_result.new_receipts.is_empty() {
                 return Ok(());
             }
@@ -139,9 +130,13 @@ impl RuntimeUser {
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => Some(FinalExecutionStatus::NotStarted),
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
                         ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
                         ExecutionStatusView::SuccessValue(v) => {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
@@ -215,18 +210,8 @@ impl User for RuntimeUser {
         self.get_final_transaction_result(hash)
     }
 
-    fn get_state_root(&self) -> CryptoHashView {
+    fn get_state_root(&self) -> CryptoHash {
         self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
-    }
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
-        let receipt = self.receipts.borrow().get(hash).cloned()?;
-        let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
-        Some(ReceiptInfo {
-            receipt,
-            result: transaction_result.into(),
-            block_index: Default::default(),
-        })
     }
 
     fn get_access_key(

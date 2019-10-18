@@ -22,8 +22,8 @@ assert mode in ['notx', 'onetx', 'manytx']
 from cluster import init_cluster, spin_up_node
 from utils import TxContext
 
-TIMEOUT = 150
 START_AT_BLOCK = int(sys.argv[2])
+TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = {'local': True, 'near_root': '../target/debug/'}
 near_root, node_dirs = init_cluster(2, 1, 1, config, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
@@ -51,12 +51,12 @@ while observed_height < START_AT_BLOCK:
         print("Boot node got to height %s" % new_height);
 
     if mode == 'onetx' and not sent_txs:
-        ctx.send_moar_txs(hash_, 3)
+        ctx.send_moar_txs(hash_, 3, False)
         sent_txs = True
 
     elif mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
-            ctx.send_moar_txs(hash_, 3)
+            ctx.send_moar_txs(hash_, 3, False)
             print("Sending moar txs at height %s" % new_height)
     time.sleep(0.1)
 
@@ -80,7 +80,7 @@ while catch_up_height < observed_height:
 
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
-            ctx.send_moar_txs(hash_, 3)
+            ctx.send_moar_txs(hash_, 3, False)
             print("Sending moar txs at height %s" % boot_height)
     time.sleep(0.1)
 

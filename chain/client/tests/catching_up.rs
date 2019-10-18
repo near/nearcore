@@ -108,7 +108,9 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                400,
+                1200,
+                false,
+                5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -334,6 +336,8 @@ mod tests {
                 validator_groups,
                 true,
                 1500,
+                false,
+                5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
@@ -515,6 +519,8 @@ mod tests {
                 validator_groups,
                 true,
                 400,
+                false,
+                5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner.height);
