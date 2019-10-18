@@ -38,6 +38,7 @@ use crate::types::{
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
+use crate::NetworkClientResponses;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -154,7 +155,7 @@ impl PeerManagerActor {
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.
         let known_edges = self.routing_table.get_edges();
-        let routing_table_info = self.routing_table.info();
+        let known_accounts = self.routing_table.get_accounts();
         let wait_for_sync = 1;
 
         // Start syncing network point of view. Wait until both parties are connected before start
@@ -163,7 +164,7 @@ impl PeerManagerActor {
             let _ = addr.do_send(SendMessage {
                 message: PeerMessage::Sync(SyncData {
                     edges: known_edges,
-                    known_accounts: routing_table_info.account_peers,
+                    accounts: known_accounts,
                 }),
             });
 
@@ -178,6 +179,12 @@ impl PeerManagerActor {
         });
     }
 
+    fn remove_active_peer(&mut self, peer_id: &PeerId) {
+        // TODO(MarX, #1312): Trigger actions after a peer is removed successfully regarding networking
+        //  (Write specification about the actions)
+        self.active_peers.remove(&peer_id);
+    }
+
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
     fn unregister_peer(&mut self, peer_id: PeerId) {
@@ -186,18 +193,14 @@ impl PeerManagerActor {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        self.active_peers.remove(&peer_id);
-
-        // TODO(MarX, #1312): Trigger actions after a peer is removed successfully regarding networking
-        //  (Write specification about the actions)
-
+        self.remove_active_peer(&peer_id);
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
     /// Add peer to ban list.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
-        self.active_peers.remove(&peer_id);
+        self.remove_active_peer(peer_id);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -315,6 +318,8 @@ impl PeerManagerActor {
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
                         warn!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
+                        // TODO(MarX): I think banning peer here leaves a hanging Peer instance.
+                        //  We should send signal to peer instead, and expect signal back.
                         act.ban_peer(&peer_id1, ReasonForBan::Abusive);
                     } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
@@ -394,13 +399,10 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
-        if self
-            .routing_table
-            .add_account(announce_account.account_id.clone(), announce_account.peer_id.clone())
-        {
+        if self.routing_table.add_account(announce_account.clone()) {
             self.broadcast_message(
                 ctx,
-                SendMessage { message: PeerMessage::AnnounceAccount(announce_account) },
+                SendMessage { message: PeerMessage::Sync(SyncData::account(announce_account)) },
             );
         }
     }
@@ -427,8 +429,8 @@ impl PeerManagerActor {
         }
     }
 
-    /// Route message to target peer.
-    fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
+    /// Route signed message to target peer.
+    fn send_signed_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
@@ -448,6 +450,12 @@ impl PeerManagerActor {
                 );
             }
         }
+    }
+
+    /// Route message to target peer.
+    fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RawRoutedMessage) {
+        let msg = self.sign_routed_message(msg);
+        self.send_signed_message_to_peer(ctx, msg);
     }
 
     /// Send message to specific account.
@@ -471,8 +479,7 @@ impl PeerManagerActor {
             }
         };
 
-        let raw = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        let msg = self.sign_routed_message(raw);
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
         self.send_message_to_peer(ctx, msg);
     }
 
@@ -480,6 +487,7 @@ impl PeerManagerActor {
         msg.sign(self.peer_id.clone(), &self.config.secret_key)
     }
 
+    // Determine if the given target is referring to us.
     fn message_for_me(&mut self, target: &PeerIdOrHash) -> bool {
         match target {
             PeerIdOrHash::PeerId(peer_id) => peer_id == &self.peer_id,
@@ -507,15 +515,13 @@ impl PeerManagerActor {
 
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.peer_id.clone() });
-        let raw = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
-        let msg = self.sign_routed_message(raw);
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(ctx, msg);
     }
 
     fn send_pong(&mut self, ctx: &mut Context<Self>, nonce: usize, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.peer_id.clone() });
-        let raw = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
-        let msg = self.sign_routed_message(raw);
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(ctx, msg);
     }
 
@@ -700,35 +706,65 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
-            NetworkRequests::Sync(sync_data) => {
+            NetworkRequests::Sync { peer_id, sync_data } => {
                 // TODO(MarX): Don't add edges if it is between us and another peer
                 //  Send evidence that we are not already connected to that peer
                 //  Handle this case properly (maybe we are on the middle of a handshake, so wait
                 //  before saying we are not connected).
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let SyncData { edges, known_accounts } = sync_data;
+                let SyncData { edges, accounts } = sync_data;
 
-                let new_edges: Vec<_> = edges
-                    .into_iter()
-                    .filter(|edge| self.routing_table.process_edge(edge.clone()))
-                    .collect();
+                if !edges.iter().all(|edge| edge.verify()) {
+                    return NetworkResponses::BanPeer(ReasonForBan::InvalidEdge);
+                }
 
-                let new_accounts = known_accounts
+                // Filter known accounts before validating them.
+                let new_accounts = accounts
                     .into_iter()
-                    .filter(|(account_id, peer_id)| {
-                        self.routing_table.add_account(account_id.clone(), peer_id.clone())
+                    .filter(|announce_account| {
+                        !self.routing_table.contains_account(announce_account.clone())
                     })
                     .collect();
 
-                let new_data = SyncData { edges: new_edges, known_accounts: new_accounts };
+                // Ask client to validate accounts before accepting them.
+                self.client_addr
+                    .send(NetworkClientMessages::AnnounceAccount(new_accounts))
+                    .into_actor(self)
+                    .then(move |response, act, ctx| {
+                        match response {
+                        Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                            if let Some(active_peer) = act.active_peers.get(&peer_id) {
+                                active_peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+                            }
+                        }
+                        Ok(NetworkClientResponses::AnnounceAccount(accounts)) => {
+                            // Filter known edges.
+                            let new_edges: Vec<_> = edges
+                                .into_iter()
+                                .filter(|edge| act.routing_table.process_edge(edge.clone()))
+                                .collect();
 
-                // Process new accounts.
-                if !new_data.is_empty() {
-                    self.broadcast_message(
-                        ctx,
-                        SendMessage { message: PeerMessage::Sync(new_data) },
-                    );
-                }
+                            // Add accounts to the routing table.
+                            for account in accounts.iter() {
+                                act.routing_table.add_account(account.clone());
+                            }
+
+                            let new_data = SyncData { edges: new_edges, accounts };
+
+                            if !new_data.is_empty() {
+                                act.broadcast_message(
+                                    ctx,
+                                    SendMessage { message: PeerMessage::Sync(new_data) },
+                                )
+                            };
+                        }
+                        _ => {
+                            debug!(target: "network", "Received invalid account confirmation from client.");
+                        }
+                    }
+                        actix::fut::ok(())
+                    })
+                    .spawn(ctx);
 
                 NetworkResponses::NoResponse
             }
@@ -911,7 +947,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             false
         } else {
             // Otherwise route it to its corresponding destination.
-            self.send_message_to_peer(ctx, msg);
+            self.send_signed_message_to_peer(ctx, msg);
             false
         }
     }
@@ -924,7 +960,6 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
         if let AccountOrPeerIdOrHash::AccountId(target) = msg.target {
             self.send_message_to_account(ctx, &target, msg.body);
         } else {
-            let msg = self.sign_routed_message(msg);
             self.send_message_to_peer(ctx, msg);
         }
     }

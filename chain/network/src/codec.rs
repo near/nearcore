@@ -74,7 +74,7 @@ mod test {
     use crate::routing::EdgeInfo;
     use crate::types::{
         AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
-        RoutedMessageBody,
+        RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -118,11 +118,14 @@ mod test {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::AnnounceAccount(AnnounceAccount {
-            account_id: "test1".to_string(),
-            peer_id: network_sk.public_key().into(),
-            epoch_id: EpochId::default(),
-            signature,
+        let msg = PeerMessage::Sync(SyncData {
+            edges: Vec::new(),
+            accounts: vec![AnnounceAccount {
+                account_id: "test1".to_string(),
+                peer_id: network_sk.public_key().into(),
+                epoch_id: EpochId::default(),
+                signature,
+            }],
         });
         test_codec(msg);
     }

@@ -1,17 +1,16 @@
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
+use cached::{Cached, SizedCache};
 use log::debug;
 
-use cached::{Cached, SizedCache};
 use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 
-use crate::types::{PeerId, PeerIdOrHash, Ping, Pong};
+use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
@@ -194,7 +193,7 @@ pub struct RoutingTable {
     // TODO(MarX, #1363): Use cache and file storing to keep this information.
     // TODO(MarX): Add proof that this account belongs to this peer.
     /// PeerId associated for every known account id.
-    pub account_peers: HashMap<AccountId, PeerId>,
+    pub account_peers: HashMap<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
@@ -256,20 +255,26 @@ impl RoutingTable {
 
     /// Find peer that owns this AccountId.
     pub fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.account_peers.get(account_id).cloned().ok_or_else(|| FindRouteError::AccountNotFound)
+        self.account_peers
+            .get(account_id)
+            .map(|announce_account| announce_account.peer_id.clone())
+            .ok_or_else(|| FindRouteError::AccountNotFound)
     }
 
     /// Add (account id, peer id) to routing table.
     /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
-    pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) -> bool {
-        match self.account_peers.entry(account_id) {
-            Entry::Occupied(_) => false,
-            Entry::Vacant(entry) => {
-                entry.insert(peer_id);
-                true
-            }
-        }
+    pub fn add_account(&mut self, announce_account: AnnounceAccount) -> bool {
+        let account_id = announce_account.account_id.clone();
+        self.account_peers
+            .insert(account_id, announce_account.clone())
+            .map_or(true, |old_announce_account| old_announce_account == announce_account)
+    }
+
+    pub fn contains_account(&self, announce_account: AnnounceAccount) -> bool {
+        self.account_peers
+            .get(&announce_account.account_id)
+            .map_or(false, |cur_announce_account| *cur_announce_account == announce_account)
     }
 
     /// Add this edge to the current view of the network.
@@ -314,6 +319,10 @@ impl RoutingTable {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
+    pub fn get_accounts(&self) -> Vec<AnnounceAccount> {
+        self.account_peers.iter().map(|(_key, value)| value.clone()).collect()
+    }
+
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
         self.route_back.value().cache_set(hash, peer_id);
     }
@@ -354,8 +363,14 @@ impl RoutingTable {
     }
 
     pub fn info(&self) -> RoutingTableInfo {
+        let account_peers = self
+            .account_peers
+            .iter()
+            .map(|(key, value)| (key.clone(), value.peer_id.clone()))
+            .collect();
+
         RoutingTableInfo {
-            account_peers: self.account_peers.clone(),
+            account_peers: account_peers,
             peer_forwarding: self.peer_forwarding.clone(),
         }
     }

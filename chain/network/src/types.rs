@@ -378,16 +378,20 @@ impl Message for RoutedMessageFrom {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub edges: Vec<Edge>,
-    pub known_accounts: HashMap<AccountId, PeerId>,
+    pub accounts: Vec<AnnounceAccount>,
 }
 
 impl SyncData {
     pub fn edge(edge: Edge) -> Self {
-        Self { edges: vec![edge], known_accounts: HashMap::new() }
+        Self { edges: vec![edge], accounts: Vec::new() }
+    }
+
+    pub fn account(account: AnnounceAccount) -> Self {
+        Self { edges: Vec::new(), accounts: vec![account] }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.edges.is_empty() && self.known_accounts.is_empty()
+        self.edges.is_empty() && self.accounts.is_empty()
     }
 }
 
@@ -403,6 +407,7 @@ pub enum PeerMessage {
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
+    /// Contains accounts and edge information.
     Sync(SyncData),
 
     PeersRequest,
@@ -419,7 +424,6 @@ pub enum PeerMessage {
 
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
-    AnnounceAccount(AnnounceAccount),
     Routed(RoutedMessage),
 
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -448,7 +452,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
-            PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
@@ -660,6 +663,7 @@ pub enum ReasonForBan {
     InvalidSignature = 7,
     InvalidPeerId = 8,
     InvalidHash = 9,
+    InvalidEdge = 10,
 }
 
 #[derive(Message)]
@@ -714,7 +718,10 @@ pub enum NetworkRequests {
     /// Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync(SyncData),
+    Sync {
+        peer_id: PeerId,
+        sync_data: SyncData,
+    },
 
     // Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
@@ -754,6 +761,7 @@ pub enum NetworkResponses {
     Info(NetworkInfo),
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
+    BanPeer(ReasonForBan),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -803,16 +811,16 @@ pub enum NetworkClientMessages {
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Account announcement that needs to be validated before being processed
-    AnnounceAccount(AnnounceAccount),
+    /// Account announcements that needs to be validated before being processed.
+    AnnounceAccount(Vec<AnnounceAccount>),
 
-    /// Request chunk part
+    /// Request chunk part.
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
-    /// Request chunk part
+    /// Request chunk part.
     ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
-    /// A chunk part
+    /// A chunk part.
     ChunkPart(ChunkPartMsg),
-    /// A chunk header and one part
+    /// A chunk header and one part.
     ChunkOnePart(ChunkOnePart),
 }
 
@@ -836,6 +844,8 @@ pub enum NetworkClientResponses {
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
     StateResponse(StateResponseInfo),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

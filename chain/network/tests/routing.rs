@@ -148,9 +148,6 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    // println!("\nROUTING TABLE: {:?}\n", routing_table);
-                                    // println!("\nEXPECTED: {:?}\n", expected1);
-
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,

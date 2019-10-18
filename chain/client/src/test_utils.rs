@@ -440,9 +440,9 @@ pub fn setup_mock_all_validators(
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (client, _) in connectors1.read().unwrap().iter() {
-                                    client.do_send(NetworkClientMessages::AnnounceAccount(
+                                    client.do_send(NetworkClientMessages::AnnounceAccount(vec![
                                         announce_account.clone(),
-                                    ))
+                                    ]))
                                 }
                             }
                         }
@@ -464,7 +464,7 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::Sync(_)
+                        | NetworkRequests::Sync { .. }
                         | NetworkRequests::FetchRoutingTable
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
