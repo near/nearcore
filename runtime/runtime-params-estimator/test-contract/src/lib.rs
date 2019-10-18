@@ -179,97 +179,48 @@ pub fn payload() {
 #[no_mangle]
 pub fn noop() {}
 
-/// Returns:
-/// * `n: u64` -- how many times a certain operation should be repeated;
-/// * `blob: &mut [u8]` -- the blob that was also read into the buffer.
-#[inline]
-fn read_u64input(buffer: &mut [u8]) -> (u64, &mut [u8]) {
-    unsafe {
-        input(0);
-        let len = register_len(0);
-        read_register(0, buffer.as_ptr() as u64);
-        let mut data = [0u8; size_of::<u64>()];
-        data.copy_from_slice(&buffer[..size_of::<u64>()]);
-        (
-            u64::from_le_bytes(data),
-            buffer.split_at_mut(len as usize).0.split_at_mut(size_of::<u64>()).1,
-        )
-    }
-}
-
-#[inline]
-fn return_u64(value: u64) {
-    unsafe {
-        value_return(size_of::<u64>() as u64, &value as *const u64 as u64);
-    }
-}
-
-const BUFFER_SIZE: usize = 100_000;
-
-/// Call fixture 10 times.
+/// Call input 1000 times.
 #[no_mangle]
-pub fn call_fixture10() {
-    for _ in 0..10 {
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let (n, _) = read_u64input(&mut buffer);
-        // Some useful stuff should be happening here.
-        return_u64(n);
-    }
-}
-
-/// Call `input` `n` times.
-#[no_mangle]
-pub fn call_input() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
+pub fn input_1k() {
+    for _ in 0..1000 {
         unsafe {
             input(0);
         }
     }
-    return_u64(n);
 }
 
-/// Call `input`, `register_len` `n` times.
+/// Call input and register_len 1000 times.
 #[no_mangle]
-pub fn call_input_register_len() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
+pub fn input_register_len_1k() {
+    for _ in 0..1000 {
         unsafe {
             input(0);
             register_len(0);
         }
     }
-    return_u64(n);
 }
 
-/// Call `input`, `read_register` `n` times.
+/// Call input, read_register for up to 1M bytes 1000 times.
 #[no_mangle]
-pub fn call_input_read_register() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
+pub fn input_read_register_1k() {
+    let buffer = [0u8; 10485760];
+    for _ in 0..1000 {
         unsafe {
             input(0);
-            read_register(0, buffer.as_ptr() as *const u64 as u64);
+            read_register(0, buffer.as_ptr() as u64);
         }
     }
-    return_u64(n);
 }
 
-macro_rules! call_func {
+macro_rules! call_func_10k {
     ($exp_name:ident, $call:expr) => {
         #[no_mangle]
         pub fn $exp_name() {
-            let mut buffer = [0u8; BUFFER_SIZE];
-            let (n, _) = read_u64input(&mut buffer);
-            for _ in 0..n {
+            for _ in 0..10_000 {
                 unsafe {
                     $call;
                 }
             }
-            return_u64(n);
         }
     };
 }
@@ -277,311 +228,254 @@ macro_rules! call_func {
 // ###############
 // # Context API #
 // ###############
-call_func!(call_current_account_id, current_account_id(0));
-call_func!(call_signer_account_id, signer_account_id(0));
-call_func!(call_signer_account_pk, signer_account_pk(0));
-call_func!(call_predecessor_account_id, predecessor_account_id(0));
-call_func!(call_block_index, block_index());
-call_func!(call_storage_usage, storage_usage());
+call_func_10k!(current_account_id_10k, current_account_id(0));
+call_func_10k!(signer_account_id_10k, signer_account_id(0));
+call_func_10k!(signer_account_pk_10k, signer_account_pk(0));
+call_func_10k!(predecessor_account_id_10k, predecessor_account_id(0));
+call_func_10k!(block_index_10k, block_index());
+call_func_10k!(storage_usage_10k, storage_usage());
 
 // #################
 // # Economics API #
 // #################
 #[no_mangle]
-pub fn call_account_balance() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
+pub fn account_balance_10k() {
+    let mut buffer = [0u8; core::mem::size_of::<u128>()];
+    for _ in 0..10_000 {
         unsafe {
             account_balance(buffer.as_ptr() as *const u64 as u64);
         }
     }
-    return_u64(n);
 }
 
 #[no_mangle]
-pub fn call_attached_deposit() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
+pub fn attached_deposit_10k() {
+    let mut buffer = [0u8; core::mem::size_of::<u128>()];
+    for _ in 0..10_000 {
         unsafe {
             attached_deposit(buffer.as_ptr() as *const u64 as u64);
         }
     }
-    return_u64(n);
 }
-call_func!(call_prepaid_gas, prepaid_gas());
-call_func!(call_used_gas, used_gas());
+call_func_10k!(prepaid_gas_10k, prepaid_gas());
+call_func_10k!(used_gas_10k, used_gas());
 
 // ############
 // # Math API #
 // ############
-call_func!(call_random_seed, random_seed(0));
-#[no_mangle]
-pub fn call_sha256() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe { sha256(blob.len() as _, blob.as_ptr() as _, 0) }
-    }
-    return_u64(n);
+call_func_10k!(random_seed_10k, random_seed(0));
+
+/// Read input and then call function on it.
+macro_rules! read_call_func_10k {
+    ($buf:ident, $len:ident, $exp_name:ident, $call:block) => {
+        #[no_mangle]
+        pub fn $exp_name() {
+            unsafe {
+                input(0);
+                let $len = register_len(0);
+                let mut $buf = [0u8; 10485760];
+                read_register(0, $buf.as_ptr() as u64);
+                for _ in 0..10_000 {
+                    $call
+                }
+            }
+        }
+    };
 }
+/// Read input and then sha256 it.
+read_call_func_10k!(buf, len, sha256_10k, {
+    sha256(len as _, buf.as_ptr() as _, 0);
+});
 
 // #####################
 // # Miscellaneous API #
 // #####################
-#[no_mangle]
-pub fn call_value_return() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe { value_return(blob.len() as _, blob.as_ptr() as _) }
-    }
-    return_u64(n);
-}
 
-#[no_mangle]
-pub fn call_log_utf8() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
-        unsafe { log_utf8(blob.len() as _, blob.as_ptr() as _) }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_log_utf16() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
-        unsafe { log_utf16(blob.len() as _, blob.as_ptr() as _) }
-    }
-    return_u64(n);
-}
+/// Read input and then return it.
+read_call_func_10k!(buf, len, value_return_10k, {
+    value_return(len as _, buf.as_ptr() as _);
+});
+/// Read input and log it.
+read_call_func_10k!(buf, len, log_utf8_10k, {
+    log_utf8(len as _, buf.as_ptr() as _);
+});
+read_call_func_10k!(buf, len, log_utf16_10k, {
+    log_utf16(len as _, buf.as_ptr() as _);
+});
 
 // ################
 // # Promises API #
 // ################
 
-// Most of promises API is different in that it converts incoming blobs of data into Rust structures.
-// We don't need to write tests for all of them, and can just test one and extrapolate cost to
-// everything else.
-#[no_mangle]
-pub fn call_promise_batch_create() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-        }
-    }
-    return_u64(n);
-}
+read_call_func_10k!(buf, len, promise_batch_create_10k, {
+    promise_batch_create(10, buf.as_ptr() as _);
+});
 
-#[no_mangle]
-pub fn call_promise_batch_create_promise_batch_then() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-            promise_batch_then(id, blob.len() as _, blob.as_ptr() as _);
-        }
-    }
-    return_u64(n);
-}
+read_call_func_10k!(buf, len, promise_batch_create_then_10k, {
+    let id = promise_batch_create(10, buf.as_ptr() as _);
+    promise_batch_then(id, 10, buf.as_ptr() as _);
+});
 
-#[no_mangle]
-pub fn call_promise_batch_create_promise_batch_action_create_account() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            if blob[0] > b'z' {
-                blob[0] = b'a';
-                blob[1] += 1;
-                if blob[1] > b'z' {
-                    blob[1] = b'a';
-                }
-            }
-            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
-            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
-            promise_batch_action_create_account(id);
-            blob[0] += 1;
-        }
-    }
-    return_u64(n);
-}
+read_call_func_10k!(buf, len, promise_batch_create_account_10k, {
+    let id = promise_batch_create(10, buf.as_ptr() as _);
+    promise_batch_action_create_account(id);
+});
 
-#[no_mangle]
-pub fn call_promise_batch_create_promise_batch_action_create_account_batch_action_deploy_contract()
-{
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            if blob[0] > b'z' {
-                blob[0] = b'a';
-                blob[1] += 1;
-                if blob[1] > b'z' {
-                    blob[1] = b'a';
-                }
-            }
-            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
-            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
-            promise_batch_action_create_account(id);
-            promise_batch_action_deploy_contract(id, blob.len() as _, blob.as_ptr() as _);
-            blob[0] += 1;
-        }
-    }
-    return_u64(n);
-}
+read_call_func_10k!(buf, len, promise_batch_create_deploy_10k, {
+    let id = promise_batch_create(10, buf.as_ptr() as _);
+    promise_batch_action_create_account(id);
+    promise_batch_action_deploy_contract(id, len as _, buf.as_ptr() as _);
+});
 
 // #######################
 // # Promise API results #
 // #######################
-call_func!(call_promise_results_count, promise_results_count());
+call_func_10k!(promise_results_count_10k, promise_results_count());
 
-#[no_mangle]
-pub fn call_promise_batch_create_promise_return() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-            promise_return(id);
-        }
-    }
-    return_u64(n);
-}
+read_call_func_10k!(buf, len, promise_batch_create_return_10k, {
+    let id = promise_batch_create(10, buf.as_ptr() as _);
+    promise_return(id);
+});
 
 // ###############
 // # Storage API #
 // ###############
 
-// We need to measure cost of operation for large&small blobs. Also, we need to measure the
-// cost of operation for different depths of the trie.
-#[no_mangle]
-pub fn call_storage_write() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we write different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_write(
-                blob.len() as _,
-                blob.as_ptr() as _,
-                blob.len() as _,
-                blob.as_ptr() as _,
-                0,
-            );
+macro_rules! storage_100 {
+    ($buf:ident, $len:ident, $exp_name:ident, $call1:block, $call2:block) => {
+        #[no_mangle]
+        pub fn $exp_name() {
+            unsafe {
+                input(0);
+                let $len = register_len(0);
+                let mut $buf = [0u8; 10485760];
+                read_register(0, $buf.as_ptr() as u64);
+                for i in 0..100 {
+                    // Modify blob so that we write different content.
+                    $buf[0] = (i % 256) as u8;
+                    $buf[1] = ((i / 256) % 256) as u8;
+                    $buf[2] = ((i / 256 / 256) % 256) as u8;
+                    $call1
+                }
+
+                for i in 0..100 {
+                    $buf[0] = (i % 256) as u8;
+                    $buf[1] = ((i / 256) % 256) as u8;
+                    $buf[2] = ((i / 256 / 256) % 256) as u8;
+                    $call2
+                }
+            }
         }
-    }
-    return_u64(n);
+    };
 }
 
-#[no_mangle]
-pub fn call_storage_read() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we read different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_read(blob.len() as _, blob.as_ptr() as _, 0);
-        }
+storage_100!(
+    buf,
+    len,
+    storage_write_100,
+    {
+        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
+    },
+    {}
+);
+
+storage_100!(
+    buf,
+    len,
+    storage_write_read_100,
+    {
+        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
+    },
+    {
+        storage_read(len as _, buf.as_ptr() as _, 0);
     }
-    return_u64(n);
-}
+);
 
-#[no_mangle]
-pub fn call_storage_remove() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we remove different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_remove(blob.len() as _, blob.as_ptr() as _, 0);
-        }
+storage_100!(
+    buf,
+    len,
+    storage_write_remove_100,
+    {
+        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
+    },
+    {
+        storage_remove(len as _, buf.as_ptr() as _, 0);
     }
-    return_u64(n);
-}
+);
 
-#[no_mangle]
-pub fn call_storage_has_key() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we remove different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_has_key(blob.len() as _, blob.as_ptr() as _);
-        }
+storage_100!(
+    buf,
+    len,
+    storage_write_has_key_100,
+    {
+        storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
+    },
+    {
+        storage_has_key(len as _, buf.as_ptr() as _);
     }
-    return_u64(n);
-}
+);
+
+storage_100!(
+    buf,
+    len,
+    storage_iter_prefix_100,
+    {
+        storage_iter_prefix(len, buf.as_ptr() as _);
+    },
+    {}
+);
+
+storage_100!(
+    buf,
+    len,
+    storage_iter_range_100,
+    {
+        storage_iter_range(len, buf.as_ptr() as _, len, buf.as_ptr() as _);
+    },
+    {}
+);
 
 #[no_mangle]
-pub fn call_storage_iter_prefix() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            storage_iter_prefix(blob.len() as _, blob.as_ptr() as _);
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_iter_range() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            storage_iter_range(
-                blob.len() as _,
-                blob.as_ptr() as _,
-                blob.len() as _,
-                blob.as_ptr() as _,
-            );
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_iter_next() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-
-    let end = [255u8, 255u8];
+pub fn storage_iter_next_1k() {
     unsafe {
+        input(0);
+        let len = register_len(0);
+        let mut buf = [0u8; 10485760];
+        read_register(0, buf.as_ptr() as u64);
+        for i in 0..1000 {
+            buf[0] = (i % 256) as u8;
+            buf[1] = ((i / 256) % 256) as u8;
+            buf[2] = ((i / 256 / 256) % 256) as u8;
+            storage_write(len as _, buf.as_ptr() as _, len as _, buf.as_ptr() as _, 0);
+        }
+
+        let start = [0u8, 0u8, 0u8];
+        let end = [255u8, 255u8, 255u8];
         let mut id = storage_iter_range(
-            blob.len() as _,
-            blob.as_ptr() as _,
+            start.len() as _,
+            start.as_ptr() as _,
             end.len() as _,
             end.as_ptr() as _,
         );
-        for i in 0..n {
-            if storage_iter_next(id, 1, 2) == 0 {
-                id = storage_iter_range(
-                    blob.len() as _,
-                    blob.as_ptr() as _,
-                    end.len() as _,
-                    end.as_ptr() as _,
-                );
-            }
+        for _ in 0..1000 {
+            storage_iter_next(id, 1, 2);
         }
     }
-    return_u64(n);
+}
+
+#[no_mangle]
+pub fn cpu_ram_soak_test() {
+    unsafe {
+        input(0);
+        let len = register_len(0) as usize;
+        let mut buf = [0u8; 10485760];
+        read_register(0, buf.as_ptr() as u64);
+        for i in 0..100_000 {
+            let j = (i * 3) % len;
+            let k = (i * 2 + len / 2) % len;
+            let tmp = buf[k];
+            buf[k] = buf[j];
+            buf[j] = tmp;
+        }
+    }
 }

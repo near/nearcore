@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use rand::distributions::Standard;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
@@ -18,16 +17,82 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
+pub enum Metric {
+    Receipt,
+    ActionTransfer,
+    ActionCreateAccount,
+    ActionDeleteAccount,
+    ActionAddFullAccessKey,
+    /// Create access key with 1 method.
+    ActionAddFunctionAccessKey1Method,
+    /// Create access key with 1k methods.
+    ActionAddFunctionAccessKey1000Methods,
+    ActionDeleteAccessKey,
+    ActionStake,
+    /// Deploy 10K contract.
+    ActionDeploy10K,
+    /// Deploy 100K contract.
+    ActionDeploy100K,
+    /// Deploy 1M contract.
+    ActionDeploy1M,
+    /// Call noop contract method.
+    CallNoop,
+    CallInput1KW10B,
+    CallInput1KW1MB,
+    CallInputRegisterLen1KW10B,
+    CallInputRegisterLen1KW1MB,
+    CallInputReadRegister1KW10B,
+    CallInputReadRegister1KW1MB,
+    CallCurrentAccountId10K,
+    CallSignerAccountId10K,
+    CallSignerAccountPK10K,
+    CallPredecessorAccountId10K,
+    CallBlockIndex10K,
+    CallStorageUsage10K,
+    CallAccountBalance10K,
+    CallAttachedDeposit10K,
+    CallPrepaidGas10K,
+    CallUsedGas10K,
+    CallRandomSeed10K,
+    CallSHA25610KW10B,
+    CallSHA25610KW1MB,
+    CallValueReturn10KW10B,
+    CallValueReturn10KW1MB,
+    CallLogUTF810KW10B,
+    CallLogUTF810KW1MB,
+    CallLogUTF1610KW10B,
+    CallLogUTF1610KW1MB,
+    CallPromiseBatchCreate10K,
+    CallPromiseBatchCreateThen10K,
+    CallPromiseBatchCreateAccount10K,
+    CallPromiseBatchCreateDeploy10K,
+    CallPromiseResultsCount10K,
+    CallPromiseBatchCreateReturn10K,
+    CallStorageWrite100W10B,
+    CallStorageWrite100W1KB,
+    CallStorageWriteRead100W10B,
+    CallStorageWriteRead100W1KB,
+    CallStorageWriteRemove100W10B,
+    CallStorageWriteRemove100W1KB,
+    CallStorageWriteHasKey100W10B,
+    CallStorageWriteHasKey100W1MB,
+    CallStorageIterPrefix100W10B,
+    CallStorageIterPrefix100W1KB,
+    CallStorageIterRange100W10B,
+    CallStorageIterRange100W1KB,
+    CallStorageIterNext1KW1KB,
+    CalCpuRamSoakTest,
+}
+
 pub fn run(config: Config) {
     let mut m = Measurements::new();
     // Measure the speed of processing empty receipts.
-    measure_actions("receipt only", 1, None, &mut m, &config, None, vec![], false, false);
+    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
 
     // Measure the speed of processing simple transfers.
     measure_actions(
-        "transfer",
-        1,
-        None,
+        Metric::ActionTransfer,
         &mut m,
         &config,
         None,
@@ -53,7 +118,7 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("create_account", 1, None, &mut m, &config, None, &mut f);
+    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of deleting an account.
     let mut nonces: HashMap<usize, u64> = HashMap::new();
@@ -87,13 +152,11 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("delete_account", 1, None, &mut m, &config, None, &mut f);
+    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of adding a full access key.
     measure_actions(
-        "add access key full",
-        1,
-        None,
+        Metric::ActionAddFullAccessKey,
         &mut m,
         &config,
         None,
@@ -110,9 +173,7 @@ pub fn run(config: Config) {
 
     // Measure the speed of adding a function call access key.
     measure_actions(
-        "add access key full",
-        1,
-        None,
+        Metric::ActionAddFunctionAccessKey1Method,
         &mut m,
         &config,
         None,
@@ -126,11 +187,32 @@ pub fn run(config: Config) {
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
                     receiver_id: get_account_id(0),
-                    method_names: vec![
-                        "method1".to_string(),
-                        "method2".to_string(),
-                        "method3".to_string(),
-                    ],
+                    method_names: vec!["method1".to_string()],
+                }),
+            },
+        })],
+        true,
+        true,
+    );
+
+    // Measure the speed of adding an access key with 1k methods each 10bytes long.
+    let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+    measure_actions(
+        Metric::ActionAddFunctionAccessKey1000Methods,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: get_account_id(0),
+                    method_names: many_methods,
                 }),
             },
         })],
@@ -162,13 +244,11 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions("delete_access_key", 1, None, &mut m, &config, None, &mut f);
+    measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of staking.
     measure_actions(
-        "stake",
-        1,
-        None,
+        Metric::ActionStake,
         &mut m,
         &config,
         None,
@@ -181,10 +261,10 @@ pub fn run(config: Config) {
     );
 
     // Measure the speed of deploying some code.
-    let small_code = include_bytes!("../test-contract/res/small_contract.wasm");
-    let medium_code = include_bytes!("../test-contract/res/medium_contract.wasm");
-    let large_code = include_bytes!("../test-contract/res/large_contract.wasm");
-    let curr_code = RefCell::new(small_code.to_vec());
+    let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
+    let code_100k = include_bytes!("../test-contract/res/medium_contract.wasm");
+    let code_1m = include_bytes!("../test-contract/res/large_contract.wasm");
+    let curr_code = RefCell::new(code_10k.to_vec());
     let mut nonces: HashMap<usize, u64> = HashMap::new();
     let mut accounts_deployed = HashSet::new();
     let mut f = || {
@@ -209,27 +289,19 @@ pub fn run(config: Config) {
         )
     };
     let mut testbed =
-        measure_transactions("deploy", 1, Some(small_code.len()), &mut m, &config, None, &mut f);
-    *curr_code.borrow_mut() = medium_code.to_vec();
+        measure_transactions(Metric::ActionDeploy10K, &mut m, &config, None, &mut f, false);
+    *curr_code.borrow_mut() = code_100k.to_vec();
     testbed = measure_transactions(
-        "deploy",
-        1,
-        Some(medium_code.len()),
+        Metric::ActionDeploy100K,
         &mut m,
         &config,
         Some(testbed),
         &mut f,
+        false,
     );
-    *curr_code.borrow_mut() = large_code.to_vec();
-    testbed = measure_transactions(
-        "deploy",
-        1,
-        Some(large_code.len()),
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-    );
+    *curr_code.borrow_mut() = code_1m.to_vec();
+    testbed =
+        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
     let ad: Vec<_> = accounts_deployed.into_iter().collect();
 
@@ -254,44 +326,69 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    testbed = measure_transactions("call noop", 1, None, &mut m, &config, Some(testbed), &mut f);
+    testbed = measure_transactions(Metric::CallNoop, &mut m, &config, Some(testbed), &mut f, false);
 
     // Measure the speed of all extern function calls.
-    testbed = measure_function("call_fixture10", 10, &mut m, testbed, &ad, &mut nonces, &config);
-    for (method_name, n) in &[
-        ("call_input", 20),
-        ("call_input_register_len", 20),
-        ("call_input_read_register", 20),
-        ("call_current_account_id", 100),
-        ("call_signer_account_id", 100),
-        ("call_signer_account_pk", 100),
-        ("call_predecessor_account_id", 100),
-        ("call_block_index", 100),
-        ("call_storage_usage", 100),
-        ("call_account_balance", 100),
-        ("call_attached_deposit", 100),
-        ("call_prepaid_gas", 100),
-        ("call_used_gas", 100),
-        ("call_random_seed", 100),
-        ("call_sha256", 20),
-        ("call_value_return", 20),
-        ("call_log_utf8", 20),
-        ("call_log_utf16", 20),
-        ("call_promise_batch_create", 100),
-        ("call_promise_batch_create_promise_batch_then", 100),
-        ("call_promise_batch_create_promise_batch_action_create_account", 20),
-        ("call_promise_batch_create_promise_batch_action_create_account_batch_action_deploy_contract", 20),
-        ("call_promise_results_count", 100),
-        ("call_promise_batch_create_promise_return", 20),
-        ("call_storage_write", 20),
-        ("call_storage_read", 20),
-        ("call_storage_remove", 20),
-        ("call_storage_has_key", 20),
-        ("call_storage_iter_prefix", 20),
-        ("call_storage_iter_range", 20),
-        ("call_storage_iter_next", 20),
+    for (allow_failures, metric, method_name, arg_size) in vec![
+        (false, Metric::CallInput1KW10B, "input_1k", 10),
+        (false, Metric::CallInput1KW1MB, "input_1k", 2usize.pow(20)),
+        (false, Metric::CallInputRegisterLen1KW10B, "input_register_len_1k", 10),
+        (false, Metric::CallInputRegisterLen1KW1MB, "input_register_len_1k", 2usize.pow(20)),
+        (false, Metric::CallInputReadRegister1KW10B, "input_read_register_1k", 10),
+        (false, Metric::CallInputReadRegister1KW1MB, "input_read_register_1k", 2usize.pow(20)),
+        (false, Metric::CallCurrentAccountId10K, "current_account_id_10k", 0),
+        (false, Metric::CallSignerAccountId10K, "signer_account_id_10k", 0),
+        (false, Metric::CallSignerAccountPK10K, "signer_account_pk_10k", 0),
+        (false, Metric::CallPredecessorAccountId10K, "predecessor_account_id_10k", 0),
+        (false, Metric::CallBlockIndex10K, "block_index_10k", 0),
+        (false, Metric::CallStorageUsage10K, "storage_usage_10k", 0),
+        (false, Metric::CallAccountBalance10K, "account_balance_10k", 0),
+        (false, Metric::CallAttachedDeposit10K, "attached_deposit_10k", 0),
+        (false, Metric::CallPrepaidGas10K, "prepaid_gas_10k", 0),
+        (false, Metric::CallUsedGas10K, "used_gas_10k", 0),
+        (false, Metric::CallRandomSeed10K, "random_seed_10k", 0),
+        (false, Metric::CallSHA25610KW10B, "sha256_10k", 10),
+        (false, Metric::CallSHA25610KW1MB, "sha256_10k", 2usize.pow(20)),
+        (false, Metric::CallValueReturn10KW10B, "value_return_10k", 10),
+        (false, Metric::CallValueReturn10KW1MB, "value_return_10k", 2usize.pow(20)),
+        (false, Metric::CallLogUTF810KW10B, "log_utf8_10k", 10),
+        (false, Metric::CallLogUTF810KW1MB, "log_utf8_10k", 2usize.pow(20)),
+        (false, Metric::CallLogUTF1610KW10B, "log_utf16_10k", 10),
+        (false, Metric::CallLogUTF1610KW1MB, "log_utf16_10k", 2usize.pow(20)),
+        (false, Metric::CallPromiseBatchCreate10K, "promise_batch_create_10k", 10),
+        (false, Metric::CallPromiseBatchCreateThen10K, "promise_batch_create_then_10k", 10),
+        // Action creation is complex. This measurement does not include measuring the actual action
+        // therefore we try creating the same account over and over and fail.
+        (true, Metric::CallPromiseBatchCreateAccount10K, "promise_batch_create_account_10k", 10),
+        (true, Metric::CallPromiseBatchCreateDeploy10K, "promise_batch_create_deploy_10k", 10),
+        (false, Metric::CallPromiseResultsCount10K, "promise_results_count_10k", 10),
+        (false, Metric::CallPromiseBatchCreateReturn10K, "promise_batch_create_return_10k", 0),
+        (false, Metric::CallStorageWrite100W10B, "storage_write_100", 10),
+        (false, Metric::CallStorageWrite100W1KB, "storage_write_100", 2usize.pow(10)),
+        (false, Metric::CallStorageWriteRead100W10B, "storage_write_read_100", 10),
+        (false, Metric::CallStorageWriteRead100W1KB, "storage_write_read_100", 2usize.pow(10)),
+        (false, Metric::CallStorageWriteRemove100W10B, "storage_write_remove_100", 10),
+        (false, Metric::CallStorageWriteRemove100W1KB, "storage_write_remove_100", 2usize.pow(10)),
+        (false, Metric::CallStorageWriteHasKey100W10B, "storage_write_has_key_100", 10),
+        (false, Metric::CallStorageWriteHasKey100W1MB, "storage_write_has_key_100", 2usize.pow(10)),
+        (false, Metric::CallStorageIterPrefix100W10B, "storage_iter_prefix_100", 10),
+        (false, Metric::CallStorageIterPrefix100W1KB, "storage_iter_prefix_100", 2usize.pow(10)),
+        (false, Metric::CallStorageIterRange100W10B, "storage_iter_range_100", 10),
+        (false, Metric::CallStorageIterRange100W1KB, "storage_iter_range_100", 2usize.pow(10)),
+        (false, Metric::CallStorageIterNext1KW1KB, "storage_iter_next_1k", 2usize.pow(10)),
+        (false, Metric::CalCpuRamSoakTest, "cpu_ram_soak_test", 2usize.pow(20)),
     ] {
-        testbed = measure_function(method_name, *n, &mut m, testbed, &ad, &mut nonces, &config);
+        testbed = measure_function(
+            metric,
+            method_name,
+            arg_size,
+            &mut m,
+            testbed,
+            &ad,
+            &mut nonces,
+            &config,
+            allow_failures,
+        );
     }
 
     let mut csv_path = PathBuf::from(&config.state_dump_path);
@@ -301,58 +398,28 @@ pub fn run(config: Config) {
     m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-fn create_args(n: usize, blob_size: usize) -> Vec<u8> {
-    let mut res = vec![];
-    res.extend_from_slice(&(n as u64).to_le_bytes());
-    let blob: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(blob_size).collect();
-    let blob: Vec<u8> = blob.into_iter().map(|x| x % (b'z' - b'a' + 1) + b'a').collect();
-    res.extend(blob);
-    res
-}
-
 fn measure_function(
+    metric: Metric,
     method_name: &'static str,
-    n: usize,
-    measurements: &mut Measurements,
-    mut testbed: RuntimeTestbed,
-    accounts_deployed: &[usize],
-    nonces: &mut HashMap<usize, u64>,
-    config: &Config,
-) -> RuntimeTestbed {
-    for blob_size in &[10, 10000] {
-        testbed = measure_function_with_blob_size(
-            method_name,
-            n,
-            *blob_size as _,
-            measurements,
-            testbed,
-            accounts_deployed,
-            nonces,
-            config,
-        );
-    }
-    testbed
-}
-
-fn measure_function_with_blob_size(
-    method_name: &'static str,
-    n: usize,
-    blob_size: usize,
+    args_size: usize,
     measurements: &mut Measurements,
     testbed: RuntimeTestbed,
     accounts_deployed: &[usize],
     nonces: &mut HashMap<usize, u64>,
     config: &Config,
+    allow_failures: bool,
 ) -> RuntimeTestbed {
     // Measure the speed of creating a function fixture with 1MiB input.
     let mut f = || {
+        let args: Vec<_> =
+            (0..args_size).map(|_| rand::thread_rng().gen_range(b'a', b'z')).collect();
         let account_idx = *accounts_deployed.choose(&mut rand::thread_rng()).unwrap();
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         let function_call = Action::FunctionCall(FunctionCallAction {
             method_name: method_name.to_string(),
-            args: create_args(n, blob_size),
+            args,
             gas: 10u64.pow(18),
             deposit: 0,
         });
@@ -365,13 +432,5 @@ fn measure_function_with_blob_size(
             CryptoHash::default(),
         )
     };
-    measure_transactions(
-        method_name,
-        n,
-        Some(blob_size),
-        measurements,
-        config,
-        Some(testbed),
-        &mut f,
-    )
+    measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
 }
