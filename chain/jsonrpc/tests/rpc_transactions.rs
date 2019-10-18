@@ -15,7 +15,7 @@ use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::FinalExecutionStatus;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]
@@ -39,7 +39,7 @@ fn test_send_tx_async() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -60,7 +60,7 @@ fn test_send_tx_async() {
                             .tx((&tx_hash).into())
                             .map_err(|err| println!("Error: {:?}", err))
                             .map(|result| {
-                                if result.status == FinalTransactionStatus::Completed {
+                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
                                     System::current().stop();
                                 }
                             }),
@@ -68,7 +68,7 @@ fn test_send_tx_async() {
                 }
             }),
             100,
-            1000,
+            2000,
         )
         .start();
     })
@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -105,7 +105,7 @@ fn test_send_tx_commit() {
                     panic!(why);
                 })
                 .map(move |result| {
-                    assert_eq!(result.status, FinalTransactionStatus::Completed);
+                    assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
                     System::current().stop();
                 })
         }));
@@ -138,7 +138,7 @@ fn test_expired_tx() {
                                 1,
                                 "test1".to_string(),
                                 "test2".to_string(),
-                                Arc::new(signer),
+                                &signer,
                                 100,
                                 block_hash,
                             );
@@ -180,7 +180,7 @@ fn test_replay_protection() {
             1,
             "test1".to_string(),
             "test2".to_string(),
-            Arc::new(signer),
+            &signer,
             100,
             hash(&[1]),
         );

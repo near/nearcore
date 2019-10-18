@@ -8,8 +8,8 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 pub struct Account {
     /// The sum of `amount` and `staked` is the total value of the account.
     pub amount: Balance,
-    /// The amount staked by given account.
-    pub staked: Balance,
+    /// The amount locked due to staking
+    pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
@@ -20,7 +20,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockIndex) -> Self {
-        Account { amount, staked: 0, code_hash, storage_usage: 0, storage_paid_at }
+        Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
 }
 
@@ -94,7 +94,7 @@ mod tests {
     fn test_account_serialization() {
         let acc = Account {
             amount: 1_000_000,
-            staked: 1_000_000,
+            locked: 1_000_000,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
             storage_paid_at: 1_123_321,

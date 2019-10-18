@@ -1,7 +1,7 @@
 use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 
-use near_chain::{Block, ValidTransaction};
+use near_chain::ValidTransaction;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 
@@ -10,6 +10,7 @@ pub use crate::types::Error;
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
+#[derive(Default)]
 pub struct TransactionPool {
     num_transactions: usize,
     /// Transactions grouped by account and ordered by nonce.
@@ -17,10 +18,6 @@ pub struct TransactionPool {
 }
 
 impl TransactionPool {
-    pub fn new() -> Self {
-        TransactionPool { num_transactions: 0, transactions: HashMap::default() }
-    }
-
     /// Insert a valid transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, valid_transaction: ValidTransaction) {
         let signer_id = valid_transaction.transaction.transaction.signer_id.clone();
@@ -51,10 +48,10 @@ impl TransactionPool {
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
-    pub fn reconcile_block(&mut self, block: &Block) {
-        for signed_transaction in block.transactions.iter() {
-            let signer_id = &signed_transaction.transaction.signer_id;
-            let nonce = signed_transaction.transaction.nonce;
+    pub fn remove_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
+            let signer_id = &transaction.transaction.signer_id;
+            let nonce = transaction.transaction.nonce;
             let mut remove_map = false;
             if let Some(map) = self.transactions.get_mut(signer_id) {
                 map.remove(&nonce);
@@ -67,8 +64,20 @@ impl TransactionPool {
         }
     }
 
+    /// Reintroduce transactions back during the reorg
+    pub fn reintroduce_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
+            let transaction = transaction.clone();
+            self.insert_transaction(ValidTransaction { transaction });
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.num_transactions
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.num_transactions == 0
     }
 }
 
@@ -99,13 +108,13 @@ mod tests {
                     i,
                     "alice.near".to_string(),
                     "bob.near".to_string(),
-                    signer.clone(),
+                    &*signer,
                     i as Balance,
                     CryptoHash::default(),
                 )
             })
             .collect();
-        let mut pool = TransactionPool::new();
+        let mut pool = TransactionPool::default();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {

@@ -1,27 +1,17 @@
+use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind, Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use rand::rngs::{OsRng, StdRng};
+use rand::SeedableRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use rand::rngs::{OsRng, StdRng};
-use rand::SeedableRng;
-use std::cmp::Ordering;
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
-}
-
-/// Public key represented as string of format <curve>:<base58 of the key>.
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct ReadablePublicKey(String);
-
-impl ReadablePublicKey {
-    pub fn new(s: &str) -> Self {
-        Self { 0: s.to_string() }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,7 +34,7 @@ impl Display for KeyType {
 }
 
 impl TryFrom<String> for KeyType {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.to_lowercase().as_str() {
@@ -56,7 +46,7 @@ impl TryFrom<String> for KeyType {
 }
 
 impl TryFrom<u8> for KeyType {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -67,10 +57,10 @@ impl TryFrom<u8> for KeyType {
     }
 }
 
-fn split_key_type_data(value: String) -> Result<(KeyType, String), Box<std::error::Error>> {
-    if let Some(idx) = value.find(":") {
+fn split_key_type_data(value: &str) -> Result<(KeyType, &str), Box<dyn std::error::Error>> {
+    if let Some(idx) = value.find(':') {
         let (prefix, key_data) = value.split_at(idx);
-        Ok((KeyType::try_from(prefix.to_string())?, key_data[1..].to_string()))
+        Ok((KeyType::try_from(prefix.to_string())?, &key_data[1..]))
     } else {
         // If there is no Default is ED25519.
         Ok((KeyType::ED25519, value))
@@ -107,7 +97,7 @@ impl Ord for Secp256K1PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PublicKey {
     ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey),
     SECP256K1(Secp256K1PublicKey),
@@ -133,10 +123,17 @@ impl PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", ReadablePublicKey::from(self.clone()).0)
+        write!(f, "{}", String::from(self))
     }
 }
 
+impl Debug for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", String::from(self))
+    }
+}
+
+#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
@@ -153,6 +150,7 @@ impl BorshSerialize for PublicKey {
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for PublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
@@ -180,7 +178,7 @@ impl serde::Serialize for PublicKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&ReadablePublicKey::from(self.clone()).0)
+        serializer.serialize_str(&String::from(self))
     }
 }
 
@@ -189,34 +187,39 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = <String as serde::Deserialize<'de>>::deserialize(deserializer)?;
-        ReadablePublicKey::new(&s.as_str())
-            .try_into()
-            .map_err(|err: Box<std::error::Error>| serde::de::Error::custom(err.to_string()))
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        s.try_into()
+            .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
     }
 }
-impl From<PublicKey> for ReadablePublicKey {
-    fn from(public_key: PublicKey) -> Self {
+impl From<&PublicKey> for String {
+    fn from(public_key: &PublicKey) -> Self {
         match public_key {
-            PublicKey::ED25519(public_key) => ReadablePublicKey(format!(
-                "{}:{}",
-                KeyType::ED25519,
-                bs58::encode(&public_key.0).into_string()
-            )),
-            PublicKey::SECP256K1(public_key) => ReadablePublicKey(format!(
+            PublicKey::ED25519(public_key) => {
+                format!("{}:{}", KeyType::ED25519, bs58::encode(&public_key.0).into_string())
+            }
+            PublicKey::SECP256K1(public_key) => format!(
                 "{}:{}",
                 KeyType::SECP256K1,
                 bs58::encode(&public_key.0.to_vec()).into_string()
-            )),
+            ),
         }
     }
 }
 
-impl TryFrom<ReadablePublicKey> for PublicKey {
-    type Error = Box<std::error::Error>;
+impl TryFrom<String> for PublicKey {
+    type Error = Box<dyn std::error::Error>;
 
-    fn try_from(value: ReadablePublicKey) -> Result<Self, Self::Error> {
-        let (key_type, key_data) = split_key_type_data(value.0)?;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<&str> for PublicKey {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (key_type, key_data) = split_key_type_data(&value)?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
@@ -332,9 +335,9 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = <String as serde::Deserialize<'de>>::deserialize(deserializer)?;
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         let (key_type, key_data) =
-            split_key_type_data(s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
+            split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
@@ -380,14 +383,14 @@ impl PartialEq for Secp2561KSignature {
     }
 }
 
-impl std::fmt::Debug for Secp2561KSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl Debug for Secp2561KSignature {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
 
 /// Signature container supporting different curves.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Signature {
     ED25519(sodiumoxide::crypto::sign::ed25519::Signature),
     SECP256K1(Secp2561KSignature),
@@ -405,7 +408,7 @@ impl Signature {
                 let rsig = secp256k1::RecoverableSignature::from_compact(
                     &SECP256K1,
                     &signature.0[0..64],
-                    secp256k1::RecoveryId::from_i32(signature.0[64] as i32).unwrap(),
+                    secp256k1::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
                 )
                 .unwrap();
                 let sig = rsig.to_standard(&SECP256K1);
@@ -435,6 +438,13 @@ impl Signature {
     }
 }
 
+impl Default for Signature {
+    fn default() -> Self {
+        Signature::empty(KeyType::ED25519)
+    }
+}
+
+#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
@@ -451,6 +461,7 @@ impl BorshSerialize for Signature {
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for Signature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
@@ -480,6 +491,12 @@ impl Display for Signature {
     }
 }
 
+impl Debug for Signature {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
+}
+
 impl serde::Serialize for Signature {
     fn serialize<S>(
         &self,
@@ -497,9 +514,9 @@ impl<'de> serde::Deserialize<'de> for Signature {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = <String as serde::Deserialize<'de>>::deserialize(deserializer)?;
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         let (key_type, key_data) =
-            split_key_type_data(s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
+            split_key_type_data(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];

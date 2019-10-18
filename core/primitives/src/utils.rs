@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, ShardId};
+use crate::types::AccountId;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -109,19 +109,13 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
     bytes
 }
 
-#[allow(unused)]
-pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
-    // TODO: change to real sharding
-    0
-}
-
 lazy_static! {
     /// See NEP#0006
     static ref VALID_ACCOUNT_ID: Regex =
-        Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+[\.@])*([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
-    /// Represents a part of an account ID with a suffix of as a separator `.` or `@`.
+        Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+\.)*([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
+    /// Represents a part of an account ID with a suffix of as a separator `.`.
     static ref VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR: Regex =
-        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+[\.@]$").unwrap();
+        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+\.$").unwrap();
     /// Represents a top level account ID.
     static ref VALID_TOP_LEVEL_ACCOUNT_ID: Regex =
         Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
@@ -196,13 +190,47 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 #[macro_export]
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Unwrap error: {}", err);
-        return $ret;
-    }
-}));
+macro_rules! unwrap_or_return {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return $ret;
+            }
+        }
+    };
+    ($obj: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return;
+            }
+        }
+    };
+}
+
+/// Macro to either return value if the result is Some, or exit function logging error.
+#[macro_export]
+macro_rules! unwrap_option_or_return {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Some(value) => value,
+            None => {
+                return $ret;
+            }
+        }
+    };
+    ($obj: expr) => {
+        match $obj {
+            Some(value) => value,
+            None => {
+                return;
+            }
+        }
+    };
+}
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
@@ -241,8 +269,6 @@ mod tests {
             "a.ha",
             "a.b-a.ra",
             "system",
-            "some-complex-address@gmail.com",
-            "sub.buy_d1gitz@atata@b0-rg.c_0_m",
             "over.9000",
             "google.com",
             "illia.cheapaccounts.near",
@@ -286,6 +312,9 @@ mod tests {
             "hello world",
             "abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
             "01234567890123456789012345678901234567890123456789012345678901234",
+            // `@` separators are banned now
+            "some-complex-address@gmail.com",
+            "sub.buy_d1gitz@atata@b0-rg.c_0_m",
         ];
         for account_id in bad_account_ids {
             assert!(
@@ -372,14 +401,11 @@ mod tests {
     fn test_is_valid_sub_account_id() {
         let ok_pairs = vec![
             ("test", "a.test"),
-            ("test", "a@test"),
             ("test-me", "abc.test-me"),
-            ("test_me", "abc@test_me"),
-            ("gmail.com", "abc@gmail.com"),
-            ("gmail@com", "abc.gmail@com"),
-            ("gmail.com", "abc-lol@gmail.com"),
-            ("gmail@com", "abc_lol.gmail@com"),
-            ("gmail@com", "bro-abc_lol.gmail@com"),
+            ("gmail.com", "abc.gmail.com"),
+            ("gmail.com", "abc-lol.gmail.com"),
+            ("gmail.com", "abc_lol.gmail.com"),
+            ("gmail.com", "bro-abc_lol.gmail.com"),
             ("g0", "0g.g0"),
             ("1g", "1g.1g"),
             ("5-3", "4_2.5-3"),
@@ -418,6 +444,13 @@ mod tests {
             ("gmail.com", ".abc@gmail.com"),
             ("gmail.com", ".abc@gmail@com"),
             ("gmail.com", "abc@gmail@com"),
+            ("test", "a@test"),
+            ("test_me", "abc@test_me"),
+            ("gmail.com", "abc@gmail.com"),
+            ("gmail@com", "abc.gmail@com"),
+            ("gmail.com", "abc-lol@gmail.com"),
+            ("gmail@com", "abc_lol.gmail@com"),
+            ("gmail@com", "bro-abc_lol.gmail@com"),
             ("gmail.com", "123456789012345678901234567890123456789012345678901234567890@gmail.com"),
             (
                 "123456789012345678901234567890123456789012345678901234567890",

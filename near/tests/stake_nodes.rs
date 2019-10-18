@@ -1,74 +1,57 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use rand::Rng;
 use tempdir::TempDir;
 
-use lazy_static::lazy_static;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
-use near_client::{ClientActor, Query, Status, ViewClientActor};
-use near_crypto::Signer;
+use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_integration_logger;
-use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
-use near_primitives::types::{AccountId, Balance, Nonce};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use near_primitives::views::{QueryResponse, ValidatorInfo};
-use testlib::fees_utils::*;
 use testlib::genesis_hash;
-
-lazy_static! {
-    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
-}
-
-fn heavy_test<F>(f: F)
-where
-    F: FnOnce() -> (),
-{
-    let _guard = HEAVY_TESTS_LOCK.lock();
-    f();
-}
 
 #[derive(Clone)]
 struct TestNode {
     account_id: AccountId,
+    signer: Arc<InMemorySigner>,
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
     genesis_hash: CryptoHash,
 }
 
-fn stake_transaction(
-    nonce: Nonce,
-    signer_id: AccountId,
-    stake: Balance,
-    signer: Arc<dyn Signer>,
-    block_hash: CryptoHash,
-) -> SignedTransaction {
-    SignedTransaction::from_actions(
-        nonce,
-        signer_id.clone(),
-        signer_id,
-        signer.clone(),
-        vec![Action::Stake(StakeAction { stake, public_key: signer.public_key() })],
-        block_hash,
-    )
-}
-
-fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -> Vec<TestNode> {
+fn init_test_staking(
+    paths: Vec<&Path>,
+    num_nodes: usize,
+    num_validators: usize,
+    epoch_length: u64,
+    enable_rewards: bool,
+) -> Vec<TestNode> {
     init_integration_logger();
 
-    let mut genesis_config = GenesisConfig::testing_spec(num_accounts, num_nodes);
+    let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
+    let mut genesis_config =
+        GenesisConfig::test(seeds.iter().map(|s| s.as_str()).collect(), num_validators);
     genesis_config.epoch_length = epoch_length;
-    genesis_config.num_block_producers = num_accounts;
-    genesis_config.validator_kickout_threshold = 0.2;
+    genesis_config.num_block_producers = num_nodes;
+    genesis_config.validator_kickout_threshold = 20;
+    if !enable_rewards {
+        genesis_config.max_inflation_rate = 0;
+        genesis_config.gas_price = 0;
+    }
     let first_node = open_port();
 
-    let configs = (0..num_accounts).map(|i| {
+    let configs = (0..num_nodes).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
@@ -77,7 +60,6 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
         }
-        config.client_config.skip_sync_wait = false;
         config.client_config.min_num_peers = num_nodes - 1;
         config
     });
@@ -85,15 +67,11 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis_config);
-            let dir = TempDir::new(&format!("stake_node_{}", i)).unwrap();
-            let (client, view_client) = start_with_config(dir.path(), config.clone());
-            TestNode {
-                account_id: format!("near.{}", i),
-                config,
-                client,
-                view_client,
-                genesis_hash,
-            }
+            let (client, view_client) = start_with_config(paths[i], config.clone());
+            let account_id = format!("near.{}", i);
+            let signer =
+                Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+            TestNode { account_id, signer, config, client, view_client, genesis_hash }
         })
         .collect()
 }
@@ -104,13 +82,25 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
 fn test_stake_nodes() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(2, 1, 10);
+        let num_nodes = 2;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            1,
+            10,
+            false,
+        );
 
-        let tx = stake_transaction(
+        let tx = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
+            // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+            &*test_nodes[1].signer,
             TESTING_INIT_STAKE,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
         actix::spawn(
@@ -146,21 +136,35 @@ fn test_stake_nodes() {
 
 /// TODO(1094): Enable kickout test after figuring
 #[test]
-#[ignore]
 fn test_validator_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 4, 24);
-        let num_nodes = test_nodes.len();
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("validator_kickout_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            4,
+            8,
+            false,
+        );
         let mut rng = rand::thread_rng();
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
-            stake_transaction(
+            let signer = Arc::new(InMemorySigner::from_seed(
+                &test_node.account_id,
+                KeyType::ED25519,
+                &test_node.account_id,
+            ));
+            SignedTransaction::stake(
                 1,
                 test_node.account_id.clone(),
+                &*signer,
                 stake,
-                test_node.config.block_producer.as_ref().unwrap().signer.clone(),
+                test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
                 test_node.genesis_hash,
             )
         });
@@ -182,13 +186,11 @@ fn test_validator_kickout() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
-                let test_node1 = test_nodes[0].clone();
+                let test_node1 = test_nodes[num_nodes / 2].clone();
                 let finalized_mark1 = finalized_mark.clone();
 
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected: Vec<_> = (num_nodes / 2..num_nodes)
-                        .cycle()
-                        .take(num_nodes)
                         .map(|i| ValidatorInfo {
                             account_id: format!("near.{}", i),
                             is_slashed: false,
@@ -209,7 +211,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            if result.staked == 0
+                                            if result.locked == 0
                                                 || result.amount == TESTING_INIT_BALANCE
                                             {
                                                 mark.store(true, Ordering::SeqCst);
@@ -235,7 +237,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            assert_eq!(result.staked, TESTING_INIT_STAKE);
+                                            assert_eq!(result.locked, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
                                                 TESTING_INIT_BALANCE - TESTING_INIT_STAKE
@@ -255,8 +257,8 @@ fn test_validator_kickout() {
                     futures::future::ok(())
                 }));
             }),
-            1000,
-            10000,
+            100,
+            20000,
         )
         .start();
 
@@ -268,23 +270,44 @@ fn test_validator_kickout() {
 fn test_validator_join() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 2, 16);
-        let unstake_transaction = stake_transaction(
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            2,
+            16,
+            false,
+        );
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &test_nodes[1].account_id,
+            KeyType::ED25519,
+            &test_nodes[1].account_id,
+        ));
+        let unstake_transaction = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
+            &*signer,
             0,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
 
-        let stake_transaction = stake_transaction(
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &test_nodes[2].account_id,
+            KeyType::ED25519,
+            &test_nodes[2].account_id,
+        ));
+        let stake_transaction = SignedTransaction::stake(
             1,
             test_nodes[2].account_id.clone(),
+            &*signer,
             TESTING_INIT_STAKE,
-            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[2].genesis_hash,
         );
-        let stake_cost = stake_cost();
 
         actix::spawn(
             test_nodes[1]
@@ -323,9 +346,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.staked == 0
-                                            && result.amount == TESTING_INIT_BALANCE - stake_cost
-                                        {
+                                        if result.locked == 0 {
                                             done1_copy2.store(true, Ordering::SeqCst);
                                         }
                                         futures::future::ok(())
@@ -342,12 +363,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.staked == TESTING_INIT_STAKE
-                                            && result.amount
-                                                == TESTING_INIT_BALANCE
-                                                    - TESTING_INIT_STAKE
-                                                    - stake_cost
-                                        {
+                                        if result.locked == TESTING_INIT_STAKE {
                                             done2_copy2.store(true, Ordering::SeqCst);
                                         }
 
@@ -365,6 +381,66 @@ fn test_validator_join() {
                 }
             }),
             1000,
+            60000,
+        )
+        .start();
+
+        system.run().unwrap();
+    });
+}
+
+#[test]
+fn test_inflation() {
+    heavy_test(|| {
+        let system = System::new("NEAR");
+        let num_nodes = 1;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let epoch_length = 10;
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            1,
+            epoch_length,
+            true,
+        );
+        let initial_total_supply = test_nodes[0].config.genesis_config.total_supply;
+        let max_inflation_rate = test_nodes[0].config.genesis_config.max_inflation_rate;
+        let num_blocks_per_year = test_nodes[0].config.genesis_config.num_blocks_per_year;
+
+        let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
+        WaitOrTimeout::new(
+            Box::new(move |_ctx| {
+                let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
+                actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
+                    let header_view = res.unwrap().unwrap().header;
+                    if header_view.height >= 2 && header_view.height <= epoch_length {
+                        if header_view.total_supply == initial_total_supply {
+                            done1_copy2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    futures::future::ok(())
+                }));
+                actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
+                    let header_view = res.unwrap().unwrap().header;
+                    if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
+                        let inflation = initial_total_supply
+                            * max_inflation_rate as u128
+                            * epoch_length as u128
+                            / (100 * num_blocks_per_year as u128);
+                        if header_view.total_supply == initial_total_supply + inflation {
+                            done2_copy2.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    futures::future::ok(())
+                }));
+                if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
+                    System::current().stop();
+                }
+            }),
+            100,
             10000,
         )
         .start();

@@ -11,12 +11,15 @@ use std::time::Duration;
 use clap::{crate_version, App, Arg, SubCommand};
 use env_logger::Builder;
 
+<<<<<<< HEAD
 use git_version::git_version;
 use near::config::create_testnet_configs;
 use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::Version;
 use near_store::{create_store, COL_STATE};
+=======
+>>>>>>> staging
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;

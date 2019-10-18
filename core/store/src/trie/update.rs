@@ -10,8 +10,11 @@ use near_primitives::types::MerkleHash;
 use crate::trie::TrieChanges;
 
 use super::{Trie, TrieIterator};
+use crate::StorageError;
 
+// TODO(#1481): Remove clone after Runtime bug is fixed.
 /// Provides a way to access Storage and record changes with future commit.
+#[derive(Clone)]
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
     root: MerkleHash,
@@ -23,13 +26,13 @@ impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
-    pub fn get(&self, key: &[u8]) -> Option<DBValue> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Some(DBValue::from_slice(value.as_ref()?))
+            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
         } else if let Some(value) = self.committed.get(key) {
-            Some(DBValue::from_slice(value.as_ref()?))
+            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
         } else {
-            self.trie.get(&self.root, key).map(DBValue::from_vec)
+            self.trie.get(&self.root, key).map(|x| x.map(DBValue::from_vec))
         }
     }
     pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
@@ -39,7 +42,7 @@ impl TrieUpdate {
         self.prospective.insert(key.to_vec(), None);
     }
 
-    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), StorageError> {
         let mut keys = vec![];
         for key in self.iter(prefix)? {
             keys.push(key);
@@ -76,7 +79,7 @@ impl TrieUpdate {
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> Result<TrieChanges, Box<dyn std::error::Error>> {
+    pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();
         }
@@ -85,7 +88,7 @@ impl TrieUpdate {
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
+    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
         TrieUpdateIterator::new(self, prefix, b"", None)
     }
 
@@ -94,7 +97,7 @@ impl TrieUpdate {
         prefix: &[u8],
         start: &[u8],
         end: &[u8],
-    ) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
+    ) -> Result<TrieUpdateIterator, StorageError> {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
@@ -157,7 +160,7 @@ impl<'a> TrieUpdateIterator<'a> {
         prefix: &[u8],
         start: &[u8],
         end: Option<&[u8]>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter(&state_update.root)?;
         let mut start_offset = prefix.to_vec();
         start_offset.extend_from_slice(start);
@@ -273,6 +276,18 @@ mod tests {
 
     use super::*;
 
+    // TODO(#1481): Remove clone after Runtime bug is fixed.
+    #[test]
+    fn trie_clone() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let mut trie_update = TrieUpdate::new(trie.clone(), root);
+        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
+        let trie_cloned = trie_update.clone();
+        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"batman"));
+        assert_eq!(trie_cloned.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
+    }
+
     #[test]
     fn trie() {
         let trie = create_trie();
@@ -284,7 +299,7 @@ mod tests {
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
-        assert_eq!(trie_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
+        assert_eq!(trie_update2.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
         let mut values = vec![];
         trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);

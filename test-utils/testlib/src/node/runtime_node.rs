@@ -17,7 +17,7 @@ pub struct RuntimeNode {
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
         let genesis_config =
-            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
         Self::new_from_genesis(account_id, genesis_config)
     }
 
@@ -27,10 +27,16 @@ impl RuntimeNode {
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
             trie,
-            state_root: root,
+            state_root: root.hash,
             epoch_length: genesis_config.epoch_length,
         }));
         RuntimeNode { signer, client }
+    }
+
+    pub fn free(account_id: &AccountId) -> Self {
+        let genesis_config =
+            GenesisConfig::test_free(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        Self::new_from_genesis(account_id, genesis_config)
     }
 }
 
@@ -44,6 +50,10 @@ impl Node for RuntimeNode {
     fn kill(&mut self) {}
 
     fn signer(&self) -> Arc<dyn Signer> {
+        self.signer.clone()
+    }
+
+    fn block_signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 
@@ -62,7 +72,7 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::fees_utils::transfer_cost;
+    use crate::fees_utils::{gas_burnt_to_reward, transfer_cost};
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
     use crate::runtime_utils::{alice_account, bob_account};
@@ -71,19 +81,20 @@ mod tests {
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
-        node_user.send_money(alice_account(), bob_account(), 1);
+        let transaction_result = node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let transfer_cost = transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
-        node_user.send_money(alice_account(), bob_account(), 1);
+        node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let (alice2, bob2) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
         assert_eq!(alice2, alice1 - 1 - transfer_cost);
-        assert_eq!(bob2, bob1 + 1);
+        let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+        assert_eq!(bob2, bob1 + 1 + reward);
     }
 
 }

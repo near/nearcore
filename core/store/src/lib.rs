@@ -1,7 +1,11 @@
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
@@ -10,6 +14,9 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
+pub use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
@@ -21,8 +28,6 @@ pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
 
 pub mod test_utils;
 mod trie;
@@ -32,15 +37,22 @@ pub const COL_BLOCK: Option<u32> = Some(1);
 pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
 pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
 pub const COL_STATE: Option<u32> = Some(4);
-pub const COL_STATE_REF: Option<u32> = Some(5);
+pub const COL_CHUNK_EXTRA: Option<u32> = Some(5);
 pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
-pub const COL_RECEIPTS: Option<u32> = Some(7);
-pub const COL_PEERS: Option<u32> = Some(8);
-pub const COL_PROPOSALS: Option<u32> = Some(9);
-pub const COL_VALIDATORS: Option<u32> = Some(10);
-pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(11);
-pub const COL_VALIDATOR_PROPOSALS: Option<u32> = Some(12);
-const NUM_COLS: u32 = 13;
+pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
+pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
+pub const COL_PEERS: Option<u32> = Some(9);
+pub const COL_EPOCH_INFO: Option<u32> = Some(10);
+pub const COL_BLOCK_INFO: Option<u32> = Some(11);
+pub const COL_CHUNKS: Option<u32> = Some(12);
+pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
+/// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
+pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
+/// Blocks for which the state is being downloaded
+pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
+pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
+pub const COL_STATE_HEADERS: Option<u32> = Some(17);
+const NUM_COLS: u32 = 18;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -83,6 +95,42 @@ impl Store {
         column: Option<u32>,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
+    }
+
+    pub fn save_to_file(&self, column: Option<u32>, filename: &Path) -> Result<(), std::io::Error> {
+        let mut file = File::create(filename)?;
+        for (key, value) in self.storage.iter(column) {
+            file.write_u32::<LittleEndian>(key.len() as u32)?;
+            file.write_all(&key)?;
+            file.write_u32::<LittleEndian>(value.len() as u32)?;
+            file.write_all(&value)?;
+        }
+        Ok(())
+    }
+
+    pub fn load_from_file(
+        &self,
+        column: Option<u32>,
+        filename: &Path,
+    ) -> Result<(), std::io::Error> {
+        let mut file = File::open(filename)?;
+        let mut transaction = self.storage.transaction();
+        loop {
+            let key_len = match file.read_u32::<LittleEndian>() {
+                Ok(key_len) => key_len as usize,
+                Err(ref err) if err.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(err) => return Err(err),
+            };
+            let mut key = Vec::<u8>::with_capacity(key_len);
+            Read::by_ref(&mut file).take(key_len as u64).read_to_end(&mut key)?;
+            let value_len = file.read_u32::<LittleEndian>()? as usize;
+            let mut value = Vec::<u8>::with_capacity(value_len);
+            Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
+            //            println!("{:?} {:?}", key, value);
+            transaction.put(column, &key, &value);
+        }
+        self.storage.write(transaction)?;
+        Ok(())
     }
 }
 
@@ -154,16 +202,14 @@ impl StoreUpdate {
 
 impl fmt::Debug for StoreUpdate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Store Update {{\n")?;
+        writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, to_base(key))?
-                }
-                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
             }
         }
-        write!(f, "}}\n")
+        writeln!(f, "}}")
     }
 }
 
@@ -191,8 +237,24 @@ pub fn create_store(path: &str) -> Arc<Store> {
 }
 
 /// Reads an object from Trie.
-pub fn get<T: BorshDeserialize>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
+/// # Errors
+/// see StorageError
+pub fn get<T: BorshDeserialize>(
+    state_update: &TrieUpdate,
+    key: &[u8],
+) -> Result<Option<T>, StorageError> {
+    state_update.get(key).and_then(|opt| {
+        opt.map_or_else(
+            || Ok(None),
+            |data| {
+                T::try_from_slice(&data)
+                    .map_err(|_| {
+                        StorageError::StorageInconsistentState("Failed to deserialize".to_string())
+                    })
+                    .map(Some)
+            },
+        )
+    })
 }
 
 /// Writes an object into Trie.
@@ -213,7 +275,10 @@ pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Acc
     set(state_update, key_for_account(key), account)
 }
 
-pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
+pub fn get_account(
+    state_update: &TrieUpdate,
+    key: &AccountId,
+) -> Result<Option<Account>, StorageError> {
     get(state_update, &key_for_account(key))
 }
 
@@ -230,7 +295,7 @@ pub fn get_received_data(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     data_id: &CryptoHash,
-) -> Option<ReceivedData> {
+) -> Result<Option<ReceivedData>, StorageError> {
     get(state_update, &key_for_received_data(account_id, data_id))
 }
 
@@ -243,7 +308,7 @@ pub fn get_receipt(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     receipt_id: &CryptoHash,
-) -> Option<Receipt> {
+) -> Result<Option<Receipt>, StorageError> {
     get(state_update, &key_for_postponed_receipt(account_id, receipt_id))
 }
 
@@ -260,11 +325,14 @@ pub fn get_access_key(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
-) -> Option<AccessKey> {
+) -> Result<Option<AccessKey>, StorageError> {
     get(state_update, &key_for_access_key(account_id, public_key))
 }
 
-pub fn get_access_key_raw(state_update: &TrieUpdate, key: &[u8]) -> Option<AccessKey> {
+pub fn get_access_key_raw(
+    state_update: &TrieUpdate,
+    key: &[u8],
+) -> Result<Option<AccessKey>, StorageError> {
     get(state_update, key)
 }
 
@@ -272,17 +340,20 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &Co
     state_update.set(key_for_code(account_id), DBValue::from_vec(code.code.clone()));
 }
 
-pub fn get_code(state_update: &TrieUpdate, account_id: &AccountId) -> Option<ContractCode> {
+pub fn get_code(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+) -> Result<Option<ContractCode>, StorageError> {
     state_update
         .get(&key_for_code(account_id))
-        .and_then(|code| Some(ContractCode::new(code.to_vec())))
+        .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), StorageError> {
     state_update.remove(&key_for_account(account_id));
     state_update.remove(&key_for_code(account_id));
     state_update.remove_starts_with(&prefix_for_access_key(account_id))?;
