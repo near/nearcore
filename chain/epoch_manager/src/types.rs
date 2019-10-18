@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -46,8 +46,6 @@ pub struct EpochInfo {
     pub fishermen: Vec<ValidatorWeight>,
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
-    /// Total gas used in epoch (T-2)
-    pub total_gas_used: Gas,
     /// Validator reward for the epoch
     pub validator_reward: HashMap<AccountId, Balance>,
     /// Total inflation in the epoch
@@ -65,10 +63,6 @@ pub struct BlockInfo {
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
-    /// Total gas used in this block.
-    pub gas_used: Gas,
-    /// Current gas price.
-    pub gas_price: Balance,
     /// Total rent paid in this block.
     pub rent_paid: Balance,
     /// Total validator reward in this block.
@@ -86,8 +80,6 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: HashSet<AccountId>,
-        gas_used: Gas,
-        gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
@@ -99,8 +91,6 @@ impl BlockInfo {
             proposals,
             chunk_mask: validator_mask,
             slashed,
-            gas_used,
-            gas_price,
             rent_paid,
             validator_reward,
             balance_burnt,
@@ -186,7 +176,6 @@ pub struct EpochSummary {
     pub all_proposals: Vec<ValidatorStake>,
     pub validator_kickout: HashSet<AccountId>,
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
-    pub total_gas_used: Gas,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,

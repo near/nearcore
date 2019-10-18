@@ -240,8 +240,6 @@ fn replay_chain(
                     header.inner.validator_proposals,
                     vec![],
                     vec![],
-                    header.inner.gas_used,
-                    header.inner.gas_price,
                     header.inner.rent_paid,
                     header.inner.validator_reward,
                     header.inner.balance_burnt,

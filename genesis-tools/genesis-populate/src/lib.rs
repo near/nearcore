@@ -200,8 +200,6 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                self.config.gas_price.clone(),
-                0,
                 0,
                 0,
                 self.config.total_supply.clone(),

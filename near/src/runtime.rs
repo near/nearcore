@@ -23,7 +23,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -550,8 +550,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         chunk_mask: Vec<bool>,
-        gas_used: Gas,
-        gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
         balance_burnt: Balance,
@@ -572,8 +570,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed,
-            gas_used,
-            gas_price,
             rent_paid,
             validator_reward,
             balance_burnt,
@@ -1040,8 +1036,6 @@ mod test {
                     vec![],
                     vec![],
                     0,
-                    genesis_config.gas_price,
-                    0,
                     0,
                     0,
                     genesis_config.total_supply,
@@ -1100,8 +1094,6 @@ mod test {
                     self.last_proposals.clone(),
                     vec![],
                     chunk_mask,
-                    0,
-                    self.runtime.genesis_config.gas_price,
                     0,
                     0,
                     0,
@@ -1529,8 +1521,6 @@ mod test {
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
-                    0,
-                    new_env.runtime.genesis_config.gas_price,
                     0,
                     0,
                     0,

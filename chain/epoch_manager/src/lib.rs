@@ -63,7 +63,6 @@ impl EpochManager {
                 HashSet::default(),
                 validator_reward,
                 0,
-                0,
             )?;
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
@@ -155,7 +154,6 @@ impl EpochManager {
         let mut validator_kickout = HashSet::new();
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
-        let mut total_gas_used = 0;
         let mut total_storage_rent = 0;
         let mut total_validator_reward = 0;
         let mut total_balance_burnt = 0;
@@ -198,7 +196,6 @@ impl EpochManager {
                 }
             }
 
-            total_gas_used += info.gas_used;
             total_storage_rent += info.rent_paid;
             total_validator_reward += info.validator_reward;
             total_balance_burnt += info.balance_burnt;
@@ -233,7 +230,6 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_online_ratio,
-            total_gas_used,
             total_storage_rent,
             total_validator_reward,
             total_balance_burnt
@@ -253,7 +249,6 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_online_ratio,
-            total_gas_used,
             total_storage_rent, total_validator_reward, total_balance_burnt,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
@@ -272,15 +267,12 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_reward,
-            total_gas_used,
             inflation,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {
                 warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", amount, num_seats);
-                let mut next_next_epoch_info = next_epoch_info.clone();
-                next_next_epoch_info.total_gas_used = total_gas_used;
-                next_next_epoch_info
+                next_epoch_info.clone()
             }
             Err(err) => return Err(err),
         };
@@ -721,7 +713,7 @@ mod tests {
     use crate::test_utils::{
         change_stake, default_reward_calculator, epoch_config, epoch_info, hash_range,
         record_block, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
-        DEFAULT_GAS_PRICE, DEFAULT_TOTAL_SUPPLY,
+        DEFAULT_TOTAL_SUPPLY,
     };
 
     use super::*;
@@ -741,7 +733,6 @@ mod tests {
             vec![vec![0, 0]],
             vec![],
             change_stake(vec![("test1", amount_staked)]),
-            0,
             reward(vec![("near", 0)]),
             0,
         );
@@ -766,7 +757,6 @@ mod tests {
             vec![vec![0, 1]],
             vec![],
             change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
-            0,
             // only the validator who produced the block in this epoch gets the reward since epoch length is 1
             reward(vec![("test1", 0), ("near", 0)]),
             0,
@@ -807,7 +797,6 @@ mod tests {
                 vec![vec![0, 0]],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
-                0,
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
                 0
             )
@@ -909,7 +898,6 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
-                0,
                 reward(vec![("test1", 0), ("near", 0)]),
                 0
             )
@@ -945,7 +933,6 @@ mod tests {
                 vec![vec![0, 0]],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
-                0,
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
                 0
             )
@@ -961,7 +948,6 @@ mod tests {
                 vec![vec![0, 0]],
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
-                0,
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
                 0
             )
@@ -977,7 +963,6 @@ mod tests {
                 vec![vec![0, 0]],
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
-                0,
                 reward(vec![("test2", 0), ("near", 0)]),
                 0
             )
@@ -1014,8 +999,6 @@ mod tests {
                     vec![],
                     slashed,
                     0,
-                    DEFAULT_GAS_PRICE,
-                    0,
                     0,
                     0,
                     DEFAULT_TOTAL_SUPPLY,
@@ -1048,7 +1031,6 @@ mod tests {
                 vec![vec![0, 0]],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
-                0,
                 reward(vec![("test2", 0), ("near", 0)]),
                 0
             )
@@ -1120,8 +1102,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    gas_used: 0,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 0,
                     validator_reward: 0,
                     balance_burnt: 0,
@@ -1141,8 +1121,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    gas_used: 10,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
                     validator_reward: 10,
                     balance_burnt: 0,
@@ -1162,8 +1140,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true],
                     slashed: Default::default(),
-                    gas_used: 10,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
                     validator_reward: 10,
                     balance_burnt: 0,
@@ -1193,7 +1169,6 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
-                20,
                 reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)]),
                 inflation,
             )
@@ -1229,8 +1204,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![],
                     slashed: Default::default(),
-                    gas_used: 0,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 0,
                     validator_reward: 0,
                     balance_burnt: 0,
@@ -1250,8 +1223,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, false],
                     slashed: Default::default(),
-                    gas_used: 10,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
                     validator_reward: 10,
                     balance_burnt: 0,
@@ -1271,8 +1242,6 @@ mod tests {
                     proposals: vec![],
                     chunk_mask: vec![true, true],
                     slashed: Default::default(),
-                    gas_used: 10,
-                    gas_price: DEFAULT_GAS_PRICE,
                     rent_paid: 10,
                     validator_reward: 10,
                     balance_burnt: 0,
@@ -1300,7 +1269,6 @@ mod tests {
                 vec![vec![0, 0], vec![0, 0]],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
-                20,
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
                 inflation
             )
@@ -1336,7 +1304,6 @@ mod tests {
                 vec![vec![1, 0]],
                 vec![],
                 change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
-                0,
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
                 0
             )
