@@ -123,7 +123,7 @@ fn main() {
                 .long("accounts")
                 .takes_value(true)
                 .default_value("400")
-                .help("Number of accounts to create"))
+                .help("Number of accounts (in all shard) to create"))
             .arg(
                 Arg::with_name("validators")
                 .long("validators")
@@ -140,7 +140,15 @@ fn main() {
                 Arg::with_name("home")
                     .long("home")
                     .takes_value(true)
-                    .default_value(&default_home)))
+                    .default_value(&default_home))
+            .arg(
+                Arg::with_name("shards")
+                    .long("shards")
+                    .takes_value(true)
+                    .default_value("1")
+                    .help("Number of shards")
+            )
+        )
         .get_matches();
 
     match matches.occurrences_of("v") {
@@ -163,12 +171,13 @@ pub const CONFIG_FILENAME: &str = "config.json";
 fn create_genesis(matches: &clap::ArgMatches) {
     let n = value_t_or_exit!(matches, "accounts", u64) as usize;
     let v = value_t_or_exit!(matches, "validators", u64) as usize;
+    let s = value_t_or_exit!(matches, "shards", u64) as usize;
     let prefix = value_t_or_exit!(matches, "prefix", String);
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
     let dir = dir_buf.as_path();
 
     let (mut configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(v, n - v, &format!("{}.", prefix), false);
+        create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false);
     for i in 0..v {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
