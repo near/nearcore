@@ -389,20 +389,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::AnnounceAccount(announce_account) => {
-                match self.check_signature_account_announce(&announce_account) {
-                    AccountAnnounceVerificationResult::Valid => {
-                        self.network_adapter
-                            .send(NetworkRequests::AnnounceAccount(announce_account));
-                        NetworkClientResponses::NoResponse
-                    }
-                    AccountAnnounceVerificationResult::Invalid(ban_reason) => {
-                        NetworkClientResponses::Ban { ban_reason }
-                    }
-                    AccountAnnounceVerificationResult::UnknownEpoch => {
-                        NetworkClientResponses::NoResponse
+            NetworkClientMessages::AnnounceAccount(announce_accounts) => {
+                let mut filtered_announce_accounts = Vec::new();
+
+                for announce_account in announce_accounts.into_iter() {
+                    match self.check_signature_account_announce(&announce_account) {
+                        AccountAnnounceVerificationResult::Invalid(ban_reason) => {
+                            return NetworkClientResponses::Ban { ban_reason };
+                        }
+                        AccountAnnounceVerificationResult::Valid => {
+                            filtered_announce_accounts.push(announce_account);
+                        }
+                        // Filter this account
+                        AccountAnnounceVerificationResult::UnknownEpoch => {}
                     }
                 }
+
+                NetworkClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
         }
     }
@@ -760,12 +763,8 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
@@ -862,9 +861,7 @@ impl ClientActor {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
-            Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
-            }
+            Err(err) => error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err),
         }
 
         ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
@@ -1035,13 +1032,11 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Ok(NetworkResponses::RoutingTableInfo(_)) | Ok(NetworkResponses::NoResponse) => {
-                    actix::fut::ok(())
-                }
                 Err(e) => {
                     error!(target: "client", "Sync: received error or incorrect result: {}", e);
                     actix::fut::err(())
                 }
+                _ => actix::fut::ok(()),
             })
             .wait(ctx);
 
