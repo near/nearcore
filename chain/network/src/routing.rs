@@ -9,7 +9,6 @@ use log::debug;
 use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
-use near_primitives::unwrap_option_or_return;
 
 use crate::types::PeerId;
 
@@ -22,15 +21,9 @@ pub struct EdgeInfo {
 }
 
 impl EdgeInfo {
-    pub fn new(
-        peer0: PeerId,
-        peer1: PeerId,
-        nonce: u64,
-        edge_type: &EdgeType,
-        secret_key: &SecretKey,
-    ) -> Self {
+    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
         let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::hash(&peer0, &peer1, nonce, &edge_type);
+        let data = Edge::build_hash(&peer0, &peer1, nonce);
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
@@ -43,15 +36,9 @@ pub enum EdgeType {
     Removed,
 }
 
-impl EdgeType {
-    fn value(&self) -> u8 {
-        match self {
-            EdgeType::Added => 0,
-            EdgeType::Removed => 1,
-        }
-    }
-}
-
+// TODO(MarX): If two connected peers find an known edge between them with higher nonce in the network
+//  they should update its nonce so that further edges are accepted among other members in the network.
+//  This event can happen if both nodes get offline and loose persisted information.
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -60,23 +47,25 @@ pub struct Edge {
     peer0: PeerId,
     peer1: PeerId,
     /// Nonce to keep tracking of the last update on this edge.
-    nonce: u64,
-    /// Specify status of the edge in the last update.
-    edge_type: EdgeType,
-    /// Signature from parties validating the edge.
-    /// If the edge_type is Removed, only one signature is required.
-    signature0: Option<Signature>,
-    signature1: Option<Signature>,
+    /// It must be even
+    pub nonce: u64,
+    /// Signature from parties validating the edge. These are signature of the added edge.
+    signature0: Signature,
+    signature1: Signature,
+    /// Info necessary to declare an edge as removed.
+    /// The bool says which party is removing the edge: false for Peer0, true for Peer1
+    /// The signature from the party removing the edge.
+    removal_info: Option<(bool, Signature)>,
 }
 
 impl Edge {
+    /// Create an addition edge.
     pub fn new(
         peer0: PeerId,
         peer1: PeerId,
         nonce: u64,
-        edge_type: EdgeType,
-        signature0: Option<Signature>,
-        signature1: Option<Signature>,
+        signature0: Signature,
+        signature1: Signature,
     ) -> Self {
         let (peer0, signature0, peer1, signature1) = if peer0 < peer1 {
             (peer0, signature0, peer1, signature1)
@@ -84,18 +73,37 @@ impl Edge {
             (peer1, signature1, peer0, signature0)
         };
 
-        Self { peer0, peer1, nonce, edge_type, signature0, signature1 }
+        Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
     }
 
-    fn hash(peer0: &PeerId, peer1: &PeerId, nonce: u64, edge_type: &EdgeType) -> CryptoHash {
+    /// Create the remove edge change from an added edge change.
+    pub fn remove_edge(&self, me: PeerId, sk: SecretKey) -> Self {
+        assert_eq!(self.edge_type(), EdgeType::Added);
+        let mut edge = self.clone();
+        edge.nonce += 1;
+        let me = edge.peer0 == me;
+        let hash = edge.hash();
+        let signature = sk.sign(hash.as_ref());
+        edge.removal_info = Some((me, signature));
+        edge
+    }
+
+    fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let mut buffer = Vec::<u8>::new();
         let peer0: Vec<u8> = peer0.clone().into();
         buffer.extend_from_slice(peer0.as_slice());
         let peer1: Vec<u8> = peer1.clone().into();
         buffer.extend_from_slice(peer1.as_slice());
         buffer.write_u64::<LittleEndian>(nonce).unwrap();
-        buffer.push(edge_type.value());
         hash(buffer.as_slice())
+    }
+
+    fn hash(&self) -> CryptoHash {
+        Edge::build_hash(&self.peer0, &self.peer1, self.nonce)
+    }
+
+    fn prev_hash(&self) -> CryptoHash {
+        Edge::build_hash(&self.peer0, &self.peer1, self.nonce - 1)
     }
 
     pub fn verify(&self) -> bool {
@@ -103,25 +111,35 @@ impl Edge {
             return false;
         }
 
-        let data = Edge::hash(&self.peer0, &self.peer1, self.nonce, &self.edge_type);
-
-        match self.edge_type {
+        match self.edge_type() {
             EdgeType::Added => {
-                let signature0 = unwrap_option_or_return!(&self.signature0, false);
-                let signature1 = unwrap_option_or_return!(&self.signature1, false);
+                let data = self.hash();
 
-                signature0.verify(data.as_ref(), &self.peer0.public_key())
-                    && signature1.verify(data.as_ref(), &self.peer1.public_key())
+                self.removal_info.is_none()
+                    && self.signature0.verify(data.as_ref(), &self.peer0.public_key())
+                    && self.signature1.verify(data.as_ref(), &self.peer1.public_key())
             }
             EdgeType::Removed => {
-                // Only one edge needs to be available for edge removed
-                if let Some(signature0) = &self.signature0 {
-                    return signature0.verify(data.as_ref(), &self.peer0.public_key());
+                // nonce should be an even positive number
+                if self.nonce == 0 {
+                    return false;
                 }
-                if let Some(signature1) = &self.signature1 {
-                    return signature1.verify(data.as_ref(), &self.peer1.public_key());
+
+                // Check referring added edge is valid.
+                let add_hash = self.prev_hash();
+                if !self.signature0.verify(add_hash.as_ref(), &self.peer0.public_key())
+                    || !self.signature1.verify(add_hash.as_ref(), &self.peer1.public_key())
+                {
+                    return false;
                 }
-                false
+
+                if let Some((party, signature)) = &self.removal_info {
+                    let peer = if *party { &self.peer0 } else { &self.peer1 };
+                    let del_hash = self.hash();
+                    signature.verify(del_hash.as_ref(), &peer.public_key())
+                } else {
+                    false
+                }
             }
         }
     }
@@ -139,12 +157,31 @@ impl Edge {
     pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
         let pk = peer1.public_key();
         let (peer0, peer1) = Edge::key(peer0, peer1);
-        let data = Edge::hash(&peer0, &peer1, edge_info.nonce, &EdgeType::Added);
+        let data = Edge::build_hash(&peer0, &peer1, edge_info.nonce);
         edge_info.signature.verify(data.as_ref(), &pk)
     }
 
     fn get_pair(&self) -> (PeerId, PeerId) {
         (self.peer0.clone(), self.peer1.clone())
+    }
+
+    /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
+    /// previous edge.
+    fn edge_type(&self) -> EdgeType {
+        if self.nonce % 2 == 1 {
+            EdgeType::Added
+        } else {
+            EdgeType::Removed
+        }
+    }
+
+    /// Next nonce of valid addition edge.
+    pub fn next_nonce(&self) -> u64 {
+        if self.nonce % 2 == 1 {
+            self.nonce + 2
+        } else {
+            self.nonce + 1
+        }
     }
 }
 
@@ -226,7 +263,7 @@ impl RoutingTable {
             return false;
         }
 
-        match edge.edge_type {
+        match edge.edge_type() {
             EdgeType::Added => {
                 self.raw_graph.add_edge(key.0.clone(), key.1.clone());
             }
@@ -243,6 +280,11 @@ impl RoutingTable {
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
         self.edges_info.get(&edge).map_or(0, |x| x.nonce)
+    }
+
+    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
+        let key = Edge::key(peer0, peer1);
+        self.edges_info.get(&key).cloned()
     }
 
     pub fn get_edges(&self) -> Vec<Edge> {
