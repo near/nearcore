@@ -305,7 +305,8 @@ impl Peer {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::Sync(_)
-            | PeerMessage::LastEdge(_) => {
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::Disconnect => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -541,6 +542,10 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         actix::fut::ok(())
                     })
                     .spawn(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::Disconnect) => {
+                debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.node_info.id, self.peer_id());
+                ctx.stop();
             }
             (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
                 // Received handshake after already have seen handshake from this peer.

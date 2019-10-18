@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use actix::actors::mocker::Mocker;
@@ -124,44 +124,57 @@ fn peers_connect_all() {
     .unwrap()
 }
 
+/// Check network is able to recover after node restart.
 #[test]
-/// Check network is able to recover after node shutdown.
-///
-/// Test description:
-///     Connect nodes 0 - 1 and 0 - 2.
-///     Wait until connection is finished.
-///     Stop node 2. and wait.
-///     Reconnect node 2 with node 1.
-///     Wait until node 2 is connected and see both node 0 and node 1.
 fn peer_recover() {
     init_test_logger();
 
     System::run(|| {
         let port0 = open_port();
-        let _pm0 = make_peer_manager("test0", port0, vec![], 0).start();
+        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 0).start());
         let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
 
         let mut pm2 =
             Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start());
 
         let state = Arc::new(AtomicUsize::new(0));
+        let flag = Arc::new(AtomicBool::new(false));
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 if state.load(Ordering::Relaxed) == 0 {
-                    state.fetch_add(1, Ordering::Relaxed);
+                    // Wait a small timeout for connection to be active.
+                    state.store(1, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 1 {
+                    // Stop node2.
                     let _ = pm2.do_send(StopSignal {});
-                    state.fetch_add(1, Ordering::Relaxed);
+                    state.store(2, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 2 {
+                    // Wait until node0 removes node2 from active validators.
+                    if !flag.load(Ordering::Relaxed) {
+                        let flag1 = flag.clone();
+                        actix::spawn(pm0.send(NetworkRequests::FetchInfo).then(move |res| {
+                            if let Ok(NetworkResponses::Info(info)) = res {
+                                if info.active_peers.len() == 1 {
+                                    flag1.clone().store(true, Ordering::Relaxed);
+                                }
+                            }
+                            future::result::<_, ()>(Ok(()))
+                        }));
+                    } else {
+                        state.store(3, Ordering::Relaxed);
+                    }
+                } else if state.load(Ordering::Relaxed) == 3 {
+                    // Start node2 from scratch again.
                     pm2 = Arc::new(
                         make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start(),
                     );
-                    state.fetch_add(1, Ordering::Relaxed);
-                } else if state.load(Ordering::Relaxed) == 3 {
+
+                    state.store(4, Ordering::Relaxed);
+                } else if state.load(Ordering::Relaxed) == 4 {
+                    // Wait until node2 is connected with node0
                     actix::spawn(pm2.send(NetworkRequests::FetchInfo).then(|res| {
                         if let Ok(NetworkResponses::Info(info)) = res {
-                            println!("\nASD {:?}\n", info.active_peers);
                             if info.active_peers.len() == 1 {
                                 System::current().stop();
                             }

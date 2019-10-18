@@ -403,6 +403,9 @@ pub enum PeerMessage {
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
+
+    /// Gracefully disconnect from other peer.
+    Disconnect,
 }
 
 impl fmt::Display for PeerMessage {
@@ -437,6 +440,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
             PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+            PeerMessage::Disconnect => f.write_str("Disconnect"),
         }
     }
 }
@@ -557,7 +561,7 @@ impl Message for Consolidate {
     type Result = ConsolidateResponse;
 }
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
     InvalidNonce(Edge),

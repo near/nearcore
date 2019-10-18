@@ -8,7 +8,7 @@ use actix::io::FramedWrite;
 use actix::prelude::Stream;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, StreamHandler, SystemService, WrapFuture,
+    Recipient, Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
@@ -431,12 +431,12 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                //                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
-                //                      msg.target,
-                //                      find_route_error,
-                //                      self.routing_table.peer_forwarding.keys(),
-                //                      msg,
-                //                );
+                trace!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                      msg.target,
+                      find_route_error,
+                      self.routing_table.peer_forwarding.keys(),
+                      msg,
+                );
             }
         }
     }
@@ -452,12 +452,12 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                //                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
-                //                      account_id,
-                //                      find_route_error,
-                //                      self.routing_table.peer_forwarding.keys(),
-                //                      msg,
-                //                );
+                trace!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                      account_id,
+                      find_route_error,
+                      self.routing_table.peer_forwarding.keys(),
+                      msg,
+                );
                 return;
             }
         };
@@ -508,6 +508,17 @@ impl Actor for PeerManagerActor {
 
         // Start active peer stats querying.
         self.monitor_peer_stats(ctx);
+    }
+
+    /// Try to gracefully disconnect from active peers.
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        let msg = SendMessage { message: PeerMessage::Disconnect };
+
+        for (_, active_peer) in self.active_peers.iter() {
+            active_peer.addr.do_send(msg.clone());
+        }
+
+        Running::Stop
     }
 }
 
@@ -743,7 +754,7 @@ impl Handler<Consolidate> for PeerManagerActor {
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
-            trace!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
+            debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
             return ConsolidateResponse::Reject;
         }
         // This is incoming connection but we have this peer already in outgoing.
@@ -751,13 +762,13 @@ impl Handler<Consolidate> for PeerManagerActor {
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
             // We pick connection that has lower id.
             if msg.peer_info.id > self.peer_id {
-                trace!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
+                debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse::Reject;
             }
         }
 
         if msg.other_edge_info.nonce == 0 {
-            trace!(target: "network", "Invalid nonce. It must be greater than 0. nonce={}", msg.other_edge_info.nonce);
+            debug!(target: "network", "Invalid nonce. It must be greater than 0. nonce={}", msg.other_edge_info.nonce);
             return ConsolidateResponse::Reject;
         }
 
@@ -766,7 +777,7 @@ impl Handler<Consolidate> for PeerManagerActor {
 
         // Check that the received nonce is greater than the current nonce of this connection.
         if last_nonce >= msg.other_edge_info.nonce {
-            trace!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
+            debug!(target: "network", "Too low nonce. ({} <= {}) {:?} {:?}", msg.other_edge_info.nonce, last_nonce, self.peer_id, msg.peer_info.id);
             // If the check fails don't allow this connection.
             return ConsolidateResponse::InvalidNonce(last_edge.unwrap());
         }
@@ -885,6 +896,7 @@ impl Handler<StopSignal> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, _msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Receive Stop Signal. Me: {:?}", self.peer_id);
         ctx.stop();
     }
 }
