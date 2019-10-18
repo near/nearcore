@@ -99,12 +99,20 @@ pub struct ExtCostsConfig {
     pub storage_iter_next_value_byte: Gas,
     /// Base cost for reading from register
     pub read_register_base: Gas,
-    /// Base cost for reading byte from register
+    /// Cost for reading byte from register
     pub read_register_byte: Gas,
     /// Base cost for writing into register
     pub write_register_base: Gas,
-    /// Base cost for writing byte into register
+    /// Cost for writing byte into register
     pub write_register_byte: Gas,
+    /// Base cost for guest memory read
+    pub read_memory_base: Gas,
+    /// Cost for guest memory read
+    pub read_memory_byte: Gas,
+    /// Base cost for guest memory write
+    pub write_memory_base: Gas,
+    /// Cost for guest memory write per byte
+    pub write_memory_byte: Gas,
     /// Get account balance cost
     pub account_balance: Gas,
     /// Get prepaid gas cost
@@ -113,11 +121,11 @@ pub struct ExtCostsConfig {
     pub used_gas: Gas,
     /// Cost of getting random seed
     pub random_seed_base: Gas,
-    /// Cost of getting random seed
+    /// Cost of getting random seed per byte
     pub random_seed_per_byte: Gas,
-    /// Cost of getting sha256
+    /// Cost of getting sha256 base
     pub sha256: Gas,
-    /// Cost of getting sha256
+    /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
     /// Get account attached_deposit base cost
     pub attached_deposit: Gas,
@@ -254,6 +262,10 @@ impl Default for RuntimeFeesConfig {
                 read_register_byte: 1,
                 write_register_base: 1,
                 write_register_byte: 1,
+                read_memory_base: 1,
+                read_memory_byte: 1,
+                write_memory_base: 1,
+                write_memory_byte: 1,
                 account_balance: 1,
                 prepaid_gas: 1,
                 used_gas: 1,
@@ -351,6 +363,10 @@ impl RuntimeFeesConfig {
                 read_register_byte: 0,
                 write_register_base: 0,
                 write_register_byte: 0,
+                read_memory_base: 0,
+                read_memory_byte: 0,
+                write_memory_base: 0,
+                write_memory_byte: 0,
                 account_balance: 0,
                 prepaid_gas: 0,
                 used_gas: 0,

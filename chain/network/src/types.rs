@@ -378,6 +378,8 @@ impl SyncData {
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
+    /// When a failed nonce is used by some peer, this message is sent back as evidence.
+    LastEdge(Edge),
     Sync(SyncData),
 
     PeersRequest,
@@ -401,6 +403,9 @@ pub enum PeerMessage {
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
+
+    /// Gracefully disconnect from other peer.
+    Disconnect,
 }
 
 impl fmt::Display for PeerMessage {
@@ -409,6 +414,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::Sync(_) => f.write_str("Sync"),
+            PeerMessage::LastEdge(_) => f.write_str("LastEdge"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -434,6 +440,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
             PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+            PeerMessage::Disconnect => f.write_str("Disconnect"),
         }
     }
 }
@@ -554,8 +561,12 @@ impl Message for Consolidate {
     type Result = ConsolidateResponse;
 }
 
-#[derive(MessageResponse)]
-pub struct ConsolidateResponse(pub bool, pub Option<EdgeInfo>);
+#[derive(MessageResponse, Debug)]
+pub enum ConsolidateResponse {
+    Accept(Option<EdgeInfo>),
+    InvalidNonce(Edge),
+    Reject,
+}
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
@@ -565,6 +576,27 @@ pub struct Unregister {
 
 pub struct PeerList {
     pub peers: Vec<PeerInfo>,
+}
+
+/// TODO(MarX): Wrap the following type of messages in this category:
+///     - PeersRequest
+///     - PeersResponse
+///     - Unregister
+///     - Ban
+///     - Consolidate (Maybe not)
+///  check that this messages are only used from peer -> peer manager.
+/// Message from peer to peer manager
+pub enum PeerRequest {
+    UpdateEdge((PeerId, u64)),
+}
+
+impl Message for PeerRequest {
+    type Result = PeerResponse;
+}
+
+#[derive(MessageResponse)]
+pub enum PeerResponse {
+    UpdatedEdge(EdgeInfo),
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
@@ -843,3 +875,6 @@ pub struct ChunkOnePartRequestMsg {
     pub part_id: u64,
     pub tracking_shards: HashSet<ShardId>,
 }
+
+#[derive(Message)]
+pub struct StopSignal {}
