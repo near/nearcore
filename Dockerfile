@@ -10,6 +10,7 @@ RUN apt-get update -qq && apt-get install -y \
     pkg-config \
     libssl-dev \
     unzip \
+    systemd-coredump \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \

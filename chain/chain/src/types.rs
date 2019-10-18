@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{BlsSignature, BlsSigner};
+use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -17,7 +17,7 @@ use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::byzantine_assert;
-use crate::error::{Error, ErrorKind};
+use crate::error::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -99,6 +99,12 @@ pub enum ValidatorSignatureVerificationResult {
     UnknownEpoch,
 }
 
+impl ValidatorSignatureVerificationResult {
+    pub fn valid(&self) -> bool {
+        *self == ValidatorSignatureVerificationResult::Valid
+    }
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -152,7 +158,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &BlsSignature,
+        signature: &Signature,
     ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
@@ -164,7 +170,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         approval_mask: &[bool],
-        approval_sig: &BlsSignature,
+        approval_sig: &[Signature],
         data: &[u8],
     ) -> Result<bool, Error>;
 
@@ -357,42 +363,6 @@ pub trait RuntimeAdapter: Send + Sync {
         }
         Ok(receipts_hashes)
     }
-
-    /// Check chunk validity.
-    fn check_chunk_validity(&self, chunk: &ShardChunk) -> Result<(), Error> {
-        // 1. Checking that chunk header is valid
-        // 1a. Checking chunk.header.hash
-        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
-        }
-        // 1b. Checking signature
-        if !self.verify_chunk_header_signature(&chunk.header)? {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk signature".to_string()).into());
-        }
-        // 2. Checking that chunk body is valid
-        // 2a. Checking chunk hash
-        if chunk.chunk_hash != chunk.header.hash {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
-        }
-        // 2b. Checking that chunk transactions are valid
-        let (tx_root, _) = merklize(&chunk.transactions);
-        if tx_root != chunk.header.inner.tx_root {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk tx_root".to_string()).into());
-        }
-        // 2c. Checking that chunk receipts are valid
-        let outgoing_receipts_hashes = self.build_receipts_hashes(&chunk.receipts)?;
-        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != chunk.header.inner.outgoing_receipts_root {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk receipts root".to_string()).into());
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
@@ -440,12 +410,12 @@ impl Tip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockApproval {
     pub hash: CryptoHash,
-    pub signature: BlsSignature,
+    pub signature: Signature,
     pub target: AccountId,
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn BlsSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -473,13 +443,44 @@ pub struct ShardStateSyncResponse {
     pub parts: Vec<ShardStateSyncResponsePart>,
 }
 
+/// Verifies that chunk's proofs in the header match the body.
+pub fn validate_chunk_proofs(
+    chunk: &ShardChunk,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> Result<bool, Error> {
+    // 1. Checking chunk.header.hash
+    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        byzantine_assert!(false);
+        return Ok(false);
+    }
+
+    // 2. Checking that chunk body is valid
+    // 2a. Checking chunk hash
+    if chunk.chunk_hash != chunk.header.hash {
+        byzantine_assert!(false);
+        return Ok(false);
+    }
+    // 2b. Checking that chunk transactions are valid
+    let (tx_root, _) = merklize(&chunk.transactions);
+    if tx_root != chunk.header.inner.tx_root {
+        byzantine_assert!(false);
+        return Ok(false);
+    }
+    // 2c. Checking that chunk receipts are valid
+    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+    if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        byzantine_assert!(false);
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use chrono::Utc;
 
-    use near_crypto::{BlsSignature, InMemoryBlsSigner};
+    use near_crypto::{InMemorySigner, KeyType, Signature};
 
     use super::*;
 
@@ -494,19 +495,19 @@ mod tests {
             100,
             1_000_000_000,
         );
-        let signer = Arc::new(InMemoryBlsSigner::from_seed("other", "other"));
-        let b1 = Block::empty(&genesis, signer.clone());
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let b1 = Block::empty(&genesis, &signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
-        let other_signer = Arc::new(InMemoryBlsSigner::from_seed("other2", "other2"));
-        let approvals: HashMap<usize, BlsSignature> =
+        let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
+        let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
             b1.header.inner.epoch_id.clone(),
             approvals,
-            signer.clone(),
+            &signer,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner.total_weight.to_num(), 3);

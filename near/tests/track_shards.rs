@@ -19,7 +19,7 @@ fn track_shards() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("track_shards_{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let clients = start_nodes(4, &dirs, 2, 10);
+        let (_, _, clients) = start_nodes(4, &dirs, 2, 0, 10);
         let view_client = clients[clients.len() - 1].1.clone();
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
         WaitOrTimeout::new(

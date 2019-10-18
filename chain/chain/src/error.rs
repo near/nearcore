@@ -72,8 +72,8 @@ pub enum ErrorKind {
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
-    /// One of the chunks is invalid
-    #[fail(display = "Incorrect Chunk")]
+    /// Invalid chunk.
+    #[fail(display = "Invalid Chunk")]
     InvalidChunk,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]

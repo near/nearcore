@@ -15,9 +15,6 @@ class Transaction:
 class PublicKey:
     pass
 
-class BlsPublicKey:
-    pass
-
 class AccessKey:
     pass
 
@@ -77,9 +74,6 @@ tx_schema = dict([[Signature, { 'kind': 'struct', 'fields': [
             ['keyType', 'u8'],
             ['data', [32]]
         ] }],
-[BlsPublicKey, { 'kind': 'struct', 'fields': [
-            ['data', [48]]
-        ] }],
 [AccessKey, { 'kind': 'struct', 'fields': [
             ['nonce', 'u64'],
             ['permission', AccessKeyPermission],
@@ -119,7 +113,7 @@ tx_schema = dict([[Signature, { 'kind': 'struct', 'fields': [
         ] }],
 [Stake, { 'kind': 'struct', 'fields': [
             ['stake', 'u128'],
-            ['publicKey', BlsPublicKey]
+            ['publicKey', PublicKey]
         ] }],
 [AddKey, { 'kind': 'struct', 'fields': [
             ['publicKey', PublicKey],
@@ -168,7 +162,8 @@ def create_payment_action(amount):
 def create_staking_action(amount, pk):
     stake = Stake()
     stake.stake = amount
-    stake.publicKey = BlsPublicKey()
+    stake.publicKey = PublicKey()
+    stake.publicKey.keyType = 0
     stake.publicKey.data = pk
     action = Action()
     action.enum = 'stake'
