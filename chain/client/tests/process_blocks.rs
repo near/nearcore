@@ -20,7 +20,7 @@ use near_network::{
 };
 use near_primitives::block::BlockHeader;
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
@@ -454,14 +454,11 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
-            block_hash: CryptoHash::default(),
+            block_hash: hash(&[1]),
             actions: vec![],
         },
     );
-    assert_eq!(
-        client.process_tx(tx2),
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
-    );
+    assert_eq!(client.process_tx(tx2), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
 }
 
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
