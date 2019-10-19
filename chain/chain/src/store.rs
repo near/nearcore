@@ -26,6 +26,7 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use near_primitives::errors::InvalidTxError;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -356,7 +357,7 @@ impl ChainStore {
         cur_header: &BlockHeader,
         base_block_hash: &CryptoHash,
         max_difference_in_height: u64,
-    ) -> bool {
+    ) -> Result<(), InvalidTxError> {
         // first step: update cache head
         if self.header_history.is_empty() {
             self.header_history.push_back(cur_header.clone());
@@ -366,23 +367,23 @@ impl ChainStore {
         let contains_hash = self.header_history.update(&cur_header.hash, &[]);
         if !contains_hash {
             let mut header_list = vec![cur_header.clone()];
-            let mut find_ancestor = false;
+            let mut found_ancestor = false;
             while !self.header_history.is_empty() {
                 let prev_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash)
                 {
                     header.clone()
                 } else {
-                    return false;
+                    return Err(InvalidTxError::InvalidChain);
                 };
                 self.header_history.pop_front();
                 if self.header_history.update(&prev_block_header.hash, &header_list) {
-                    find_ancestor = true;
+                    found_ancestor = true;
                     break;
                 }
                 prev_block_hash = prev_block_header.inner.prev_hash;
                 header_list.push(prev_block_header);
             }
-            if !find_ancestor {
+            if !found_ancestor {
                 self.header_history = HeaderList::from_headers(header_list);
             }
             // It is possible that cur_len is max_difference_in_height + 1 after the above update.
@@ -397,7 +398,7 @@ impl ChainStore {
         // second step: check if `base_block_hash` exists
         assert!(max_difference_in_height >= self.header_history.len() as u64);
         if self.header_history.contains(base_block_hash) {
-            return true;
+            return Ok(());
         }
         let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
         // here the queue cannot be empty so it is safe to unwrap
@@ -407,16 +408,16 @@ impl ChainStore {
             let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
                 header.clone()
             } else {
-                return false;
+                return Err(InvalidTxError::InvalidChain);
             };
             prev_block_hash = cur_block_header.inner.prev_hash;
             let cur_block_hash = cur_block_header.hash;
             self.header_history.push_back(cur_block_header);
             if &cur_block_hash == base_block_hash {
-                return true;
+                return Ok(());
             }
         }
-        false
+        Err(InvalidTxError::Expired)
     }
 }
 
@@ -1247,8 +1248,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 mod tests {
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis};
-    use near_crypto::InMemoryBlsSigner;
+    use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::block::Block;
+    use near_primitives::errors::InvalidTxError;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
 
@@ -1264,6 +1266,7 @@ mod tests {
                 .collect(),
             1,
             1,
+            10,
         ));
         Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap()
     }
@@ -1273,23 +1276,26 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
-        let short_fork = vec![Block::empty_with_height(&genesis, 1, bls_signer.clone())];
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header.clone());
         store_update.commit().unwrap();
 
         let short_fork_head = short_fork[0].clone().header;
-        assert!(chain.mut_store().check_blocks_on_same_chain(
-            &short_fork_head,
-            &genesis.hash(),
-            transaction_validity_period
-        ));
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(
+                &short_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            )
+            .is_ok());
         let mut long_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period + 2) {
-            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             long_fork.push(block);
@@ -1297,17 +1303,19 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header;
-        assert!(chain.mut_store().check_blocks_on_same_chain(
-            cur_header,
-            &valid_base_hash,
-            transaction_validity_period
-        ));
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .is_ok());
         let invalid_base_hash = long_fork[0].hash();
-        assert!(!chain.mut_store().check_blocks_on_same_chain(
-            cur_header,
-            &invalid_base_hash,
-            transaction_validity_period
-        ));
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                cur_header,
+                &invalid_base_hash,
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
         assert_eq!(
             chain.store().header_history.queue.clone().into_iter().collect::<Vec<_>>(),
             long_fork
@@ -1324,12 +1332,12 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period + 2) {
-            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             blocks.push(block);
@@ -1337,25 +1345,27 @@ mod tests {
         store_update.commit().unwrap();
         let valid_base_hash = blocks[1].hash();
         let cur_header = &blocks.last().unwrap().header;
-        assert!(chain.mut_store().check_blocks_on_same_chain(
-            cur_header,
-            &valid_base_hash,
-            transaction_validity_period
-        ));
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .is_ok());
         assert_eq!(chain.store().header_history.len(), transaction_validity_period as usize);
         let new_block = Block::empty_with_height(
             &blocks.last().unwrap(),
             transaction_validity_period + 2,
-            bls_signer.clone(),
+            &*signer.clone(),
         );
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header.clone());
         store_update.commit().unwrap();
-        assert!(!chain.mut_store().check_blocks_on_same_chain(
-            &new_block.header,
-            &valid_base_hash,
-            transaction_validity_period
-        ));
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                &new_block.header,
+                &valid_base_hash,
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
     }
 
     #[test]
@@ -1363,12 +1373,12 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period + 1) {
-            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             short_fork.push(block);
@@ -1376,26 +1386,32 @@ mod tests {
         store_update.commit().unwrap();
 
         let short_fork_head = short_fork.last().unwrap().clone().header;
-        assert!(!chain.mut_store().check_blocks_on_same_chain(
-            &short_fork_head,
-            &genesis.hash(),
-            transaction_validity_period
-        ));
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                &short_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
         let mut long_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
         for i in 1..(transaction_validity_period * 5) {
-            let block = Block::empty_with_height(&prev_block, i, bls_signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
             prev_block = block.clone();
             store_update.save_block_header(block.header.clone());
             long_fork.push(block);
         }
         store_update.commit().unwrap();
         let long_fork_head = &long_fork.last().unwrap().header;
-        assert!(!chain.mut_store().check_blocks_on_same_chain(
-            long_fork_head,
-            &genesis.hash(),
-            transaction_validity_period
-        ));
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                long_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
     }
 }

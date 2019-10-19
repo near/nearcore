@@ -1652,11 +1652,11 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        !self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
+                        self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
                             &block.header,
                             &t.transaction.block_hash,
                             self.transaction_validity_period,
-                        )
+                        ).is_err()
                     });
                     if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);

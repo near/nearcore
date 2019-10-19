@@ -3,7 +3,6 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 

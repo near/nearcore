@@ -23,12 +23,12 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
@@ -334,11 +334,14 @@ impl Client {
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
             .into_iter()
             .filter(|t| {
-                self.chain.mut_store().check_blocks_on_same_chain(
-                    &prev_block_header,
-                    &t.transaction.block_hash,
-                    transaction_validity_period,
-                )
+                self.chain
+                    .mut_store()
+                    .check_blocks_on_same_chain(
+                        &prev_block_header,
+                        &t.transaction.block_hash,
+                        transaction_validity_period,
+                    )
+                    .is_ok()
             })
             .collect();
         let block_header = self.chain.get_block_header(&prev_block_hash)?;
@@ -801,15 +804,13 @@ impl Client {
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if !self.chain.mut_store().check_blocks_on_same_chain(
+        if let Err(e) = self.chain.mut_store().check_blocks_on_same_chain(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(
-                InvalidTxError::Expired
-            );
+            return NetworkClientResponses::InvalidTx(e);
         }
 
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
