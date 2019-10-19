@@ -14,6 +14,7 @@ use tokio::net::TcpStream;
 
 use near_metrics;
 use near_primitives::hash::CryptoHash;
+use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
@@ -22,12 +23,13 @@ use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
-    NetworkClientMessages, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
-    PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerChainInfo, PeerId,
+    PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerStatsResult,
+    PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister, PROTOCOL_VERSION,
 };
-use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
-use near_primitives::unwrap_option_or_return;
+
+use crate::PeerManagerActor;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -266,9 +268,6 @@ impl Peer {
                 NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
-            PeerMessage::AnnounceAccount(announce_account) => {
-                NetworkClientMessages::AnnounceAccount(announce_account)
-            }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
@@ -564,19 +563,24 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
-            (_, PeerStatus::Ready, PeerMessage::Sync(sync)) => {
-                // TODO(MarX, #1466): Verify received data before accept it. Check all edges and accounts are valid.
-                self.peer_manager_addr.do_send(NetworkRequests::Sync(sync));
+            (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
+                self.peer_manager_addr.do_send(NetworkRequests::Sync {
+                    peer_id: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
+                    sync_data,
+                });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);
+                debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
-                        .send(routed_message.clone())
+                        .send(RoutedMessageFrom {
+                            msg: routed_message.clone(),
+                            from: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
+                        })
                         .into_actor(self)
                         .then(move |res, act, ctx| {
                             if res.unwrap_or(false) {

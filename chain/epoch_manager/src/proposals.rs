@@ -5,7 +5,7 @@ use std::iter;
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use near_primitives::types::{AccountId, Balance, Gas, ValidatorId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -41,7 +41,6 @@ pub fn proposals_to_epoch_info(
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashSet<AccountId>,
     validator_reward: HashMap<AccountId, Balance>,
-    total_gas_used: Gas,
     inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
@@ -151,7 +150,6 @@ pub fn proposals_to_epoch_info(
         chunk_producers,
         fishermen: vec![],
         stake_change: final_stake_change,
-        total_gas_used,
         validator_reward,
         inflation,
     })
@@ -181,7 +179,6 @@ mod tests {
                 vec![stake("test1", 1_000_000)],
                 HashSet::new(),
                 HashMap::default(),
-                0,
                 0
             )
             .unwrap(),
@@ -191,7 +188,6 @@ mod tests {
                 vec![vec![0], vec![0]],
                 vec![],
                 change_stake(vec![("test1", 1_000_000)]),
-                0,
                 HashMap::default(),
                 0
             )
@@ -215,7 +211,6 @@ mod tests {
                 ],
                 HashSet::new(),
                 HashMap::default(),
-                0,
                 0
             )
             .unwrap(),
@@ -236,7 +231,6 @@ mod tests {
                     ("test2", 1_000_000),
                     ("test3", 1_000_000)
                 ]),
-                0,
                 HashMap::default(),
                 0
             )

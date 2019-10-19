@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
@@ -30,7 +30,6 @@ pub fn epoch_info(
     chunk_producers: Vec<Vec<usize>>,
     fishermen: Vec<ValidatorWeight>,
     stake_change: BTreeMap<AccountId, Balance>,
-    total_gas_used: Gas,
     validator_reward: HashMap<AccountId, Balance>,
     inflation: u128,
 ) -> EpochInfo {
@@ -53,7 +52,6 @@ pub fn epoch_info(
         chunk_producers,
         fishermen,
         stake_change,
-        total_gas_used,
         validator_reward,
         inflation,
     }
@@ -172,7 +170,7 @@ pub fn record_block(
                 vec![],
                 HashSet::default(),
                 0,
-                DEFAULT_GAS_PRICE,
+                0,
                 0,
                 DEFAULT_TOTAL_SUPPLY,
             ),
