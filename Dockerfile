@@ -36,9 +36,6 @@ EXPOSE 3030 24567
 
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
 
-# Remove the files to keep docker smaller.
-RUN rm -rf /near
-
 ENTRYPOINT ["/sbin/my_init", "--"]
 
 CMD ["/usr/local/bin/run.sh"]
