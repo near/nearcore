@@ -235,7 +235,7 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
-                        chain_genesis.gas_price,
+                        0,
                         0,
                         chain_genesis.total_supply,
                     )?;
@@ -247,7 +247,7 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0, 0, 0),
                         );
                     }
 
@@ -403,9 +403,9 @@ impl Chain {
                     header.inner.validator_proposals.clone(),
                     vec![],
                     header.inner.chunk_mask.clone(),
-                    header.inner.gas_used,
-                    header.inner.gas_price,
                     header.inner.rent_paid,
+                    header.inner.validator_reward,
+                    header.inner.balance_burnt,
                     header.inner.total_supply,
                 )?;
             }
@@ -1694,6 +1694,8 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.total_gas_burnt,
                             gas_limit,
                             apply_result.total_rent_paid,
+                            apply_result.total_validator_reward,
+                            apply_result.total_balance_burnt
                         ),
                     );
                     // Save resulting receipts.
@@ -1854,9 +1856,9 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner.validator_proposals.clone(),
             vec![],
             block.header.inner.chunk_mask.clone(),
-            block.header.inner.gas_used,
-            block.header.inner.gas_price,
             block.header.inner.rent_paid,
+            block.header.inner.validator_reward,
+            block.header.inner.balance_burnt,
             block.header.inner.total_supply,
         )?;
 
@@ -2199,6 +2201,8 @@ impl<'a> ChainUpdate<'a> {
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_rent_paid,
+            apply_result.total_validator_reward,
+            apply_result.total_balance_burnt
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
 
