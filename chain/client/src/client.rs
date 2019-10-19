@@ -387,6 +387,8 @@ impl Client {
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
             chunk_extra.rent_paid,
+            chunk_extra.validator_reward,
+            chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
             &filtered_transactions,
             &outgoing_receipts,

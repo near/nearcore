@@ -3,7 +3,6 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 
@@ -244,6 +243,10 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
+    pub validator_reward: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub balance_burnt: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub signature: Signature,
 }
@@ -275,6 +278,8 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
+            validator_reward: header.inner.validator_reward,
+            balance_burnt: header.inner.balance_burnt,
             total_supply: header.inner.total_supply,
             signature: header.signature,
         }
@@ -308,6 +313,8 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
                 rent_paid: view.rent_paid,
+                validator_reward: view.validator_reward,
+                balance_burnt: view.balance_burnt,
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -331,6 +338,10 @@ pub struct ChunkHeaderView {
     pub gas_limit: Gas,
     #[serde(with = "u128_dec_format")]
     pub rent_paid: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub validator_reward: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
@@ -351,6 +362,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
             rent_paid: chunk.inner.rent_paid,
+            validator_reward: chunk.inner.validator_reward,
+            balance_burnt: chunk.inner.balance_burnt,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root.into(),
             tx_root: chunk.inner.tx_root.into(),
             validator_proposals: chunk
@@ -380,6 +393,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
                 rent_paid: view.rent_paid,
+                validator_reward: view.validator_reward,
+                balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root.into(),
                 tx_root: view.tx_root.into(),
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
