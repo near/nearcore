@@ -71,14 +71,12 @@ fn main() {
                     .default_value("near")
                     .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
             )
-            // Will be able to self discover all available rpc endpoint once nearcore expose it.
-            // .arg(
-            //     Arg::with_name("addr")
-            //         .long("addr")
-            //         .takes_value(true)
-            //         .default_value("127.0.0.1:3030")
-            //         .help("Socket address of one of the node in network"),
-            // )
+            .arg(
+                Arg::with_name("discover_addr")
+                    .long("discover_addr")
+                    .takes_value(true)
+                    .help("Socket address of one of the node in network"),
+            )
             .arg(
                 Arg::with_name("addrs")
                 .long("addrs")
@@ -204,18 +202,27 @@ fn load_state_dump(matches: &clap::ArgMatches) {
 fn run(matches: &clap::ArgMatches) {
     let n = value_t_or_exit!(matches, "accounts", u64);
     let prefix = value_t_or_exit!(matches, "prefix", String);
-    // let addr = value_t_or_exit!(matches, "addr", String);
     let massive_accounts = matches.is_present("massive_accounts");
-    let addrs = values_t_or_exit!(matches, "addrs", String);
-    let addr = &addrs[0];
     let tps = value_t_or_exit!(matches, "tps", u64);
     let duration = value_t_or_exit!(matches, "duration", u64);
     let transaction_type = value_t_or_exit!(matches, "type", TransactionType);
 
-    let node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);
-
-    // let peer_addrs = node.read().unwrap().peer_node_addrs().unwrap();
-    let peer_addrs = &addrs[1..];
+    let mut addr: String;
+    let mut addrs: Vec<_>;
+    let peer_addrs: &[String];
+    let mut node;
+    if let Some(discover_addr) = matches.value_of("discover_addr") {
+        addr = discover_addr.to_string();
+        node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);
+        addrs = node.read().unwrap().peer_node_addrs().unwrap();
+        peer_addrs = &addrs;
+        info!("Discovered peer_addrs to be {:?}", &peer_addrs);
+    } else {
+        addrs = values_t_or_exit!(matches, "addrs", String);
+        addr = addrs[0].clone();
+        node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);
+        peer_addrs = &addrs[1..];
+    }
 
     let accounts: Vec<_> = if massive_accounts {
         (0..n).map(|i| format!("near_{}_{}", i, i)).collect()

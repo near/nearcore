@@ -280,7 +280,19 @@ impl RemoteNode {
         Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }
 
-    // pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    //     Ok(vec!["127.0.0.1:3031".to_string()])
-    // }
+    pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        Ok(response["active_peers"]
+            .as_array()
+            .ok_or(VALUE_NOT_ARR_ERR)?
+            .into_iter()
+            .map(|active_peer| {
+                let mut socket_addr =
+                    active_peer["addr"].as_str().unwrap().parse::<SocketAddr>().unwrap();
+                socket_addr.set_port(3030);
+                socket_addr.to_string()
+            })
+            .collect())
+    }
 }
