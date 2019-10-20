@@ -525,29 +525,25 @@ impl Client {
             }
         };
 
-        if provenance != Provenance::SYNC {
-            // If we produced the block, then we want to broadcast it.
-            // If received the block from another node then broadcast "header first" to minimise network traffic.
-            if provenance == Provenance::PRODUCED {
-                self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
-            } else {
-                let approval = self.pending_approvals.cache_remove(&block_hash);
-                if let Some(approval) = approval {
-                    for (account_id, (sig, peer_id)) in approval {
-                        if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
-                            self.network_adapter.send(NetworkRequests::BanPeer {
-                                peer_id,
-                                ban_reason: ReasonForBan::BadBlockApproval,
-                            });
-                        }
+        // If we produced the block, then it should have already been broadcasted.
+        // If received the block from another node then broadcast "header first" to minimise network traffic.
+        if provenance == Provenance::NONE {
+            let approval = self.pending_approvals.cache_remove(&block_hash);
+            if let Some(approval) = approval {
+                for (account_id, (sig, peer_id)) in approval {
+                    if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
+                        self.network_adapter.send(NetworkRequests::BanPeer {
+                            peer_id,
+                            ban_reason: ReasonForBan::BadBlockApproval,
+                        });
                     }
                 }
-                let approval = self.create_block_approval(&block);
-                self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
-                    header: block.header.clone(),
-                    approval,
-                });
             }
+            let approval = self.create_block_approval(&block);
+            self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
+                header: block.header.clone(),
+                approval,
+            });
         }
 
         if let Some(bp) = self.block_producer.clone() {
