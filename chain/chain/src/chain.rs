@@ -13,7 +13,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{check_tx_history, ExecutionOutcome};
+use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::{Store, COL_STATE_HEADERS};
 
@@ -1652,13 +1652,11 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        !check_tx_history(
-                            self.chain_store_update
-                                .get_block_header(&t.transaction.block_hash)
-                                .ok(),
-                            chunk_header.inner.height_created,
+                        self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
+                            &block.header,
+                            &t.transaction.block_hash,
                             self.transaction_validity_period,
-                        )
+                        ).is_err()
                     });
                     if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
