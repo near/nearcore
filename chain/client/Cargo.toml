@@ -19,7 +19,7 @@ lazy_static = "1.4"
 
 sysinfo = "0.9.0"
 
-borsh = "0.2.5"
+borsh = "0.2.7"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
