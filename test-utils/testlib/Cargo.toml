@@ -22,7 +22,7 @@ byteorder = "1.2"
 tempdir = "0.3"
 tokio-signal = "0.2"
 
-borsh = "0.2.5"
+borsh = "0.2.7"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
