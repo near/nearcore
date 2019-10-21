@@ -14,7 +14,7 @@ mod test {
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");
-        let mut nodes = create_nodes_from_seeds(vec![
+        let nodes = create_nodes_from_seeds(vec![
             "alice.near".to_string(),
             "bob.near".to_string(),
             "carol.near".to_string(),
@@ -148,8 +148,8 @@ mod test {
     }
 
     #[test]
-    fn test_add_key_testnet() {
-        run_testnet_test!(test_add_key);
+    fn test_add_access_key_function_call_testnet() {
+        run_testnet_test!(test_add_access_key_function_call);
     }
 
     #[test]
@@ -173,8 +173,8 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_testnet() {
-        run_testnet_test!(test_add_access_key);
+    fn test_add_key_testnet() {
+        run_testnet_test!(test_add_key);
     }
 
     #[test]
@@ -183,13 +183,13 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_with_funding_testnet() {
-        run_testnet_test!(test_add_access_key_with_funding);
+    fn test_add_access_key_with_allowance_testnet() {
+        run_testnet_test!(test_add_access_key_with_allowance);
     }
 
     #[test]
-    fn test_delete_access_key_with_owner_refund_testnet() {
-        run_testnet_test!(test_delete_access_key_with_owner_refund);
+    fn test_delete_access_key_with_allowance_testnet() {
+        run_testnet_test!(test_delete_access_key_with_allowance);
     }
 
     #[test]

@@ -1,0 +1,6 @@
+boto3
+fabric
+tornado
+requests
+ed25519
+base58

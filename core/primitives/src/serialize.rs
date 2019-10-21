@@ -72,7 +72,7 @@ where
 pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error>> {
     fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let bytes = from_base(s)?;
-        Self::try_from(&bytes).map_err(|err| err.into())
+        Self::try_from(&bytes)
     }
 }
 
@@ -127,7 +127,7 @@ pub mod option_base_format {
         if s.is_empty() {
             Ok(None)
         } else {
-            T::from_base(&s).map(|x| Some(x)).map_err(|err| de::Error::custom(err.to_string()))
+            T::from_base(&s).map(Some).map_err(|err| de::Error::custom(err.to_string()))
         }
     }
 }

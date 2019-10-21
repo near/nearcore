@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,61 +10,78 @@ use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_chain::{Block, BlockHeader};
+use near_chain::Block;
 use near_client::{ClientActor, GetBlock};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::test_utils::{init_integration_logger, init_test_logger};
-use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
-use testlib::test_helpers::heavy_test;
-use testlib::{genesis_hash, genesis_header};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{BlockIndex, EpochId};
+use testlib::genesis_block;
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
-    start: &BlockHeader,
+    mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
     num: usize,
-    signer: Arc<InMemorySigner>,
-) -> BlockHeader {
-    let mut blocks = vec![];
-    let mut prev = start;
+    epoch_length: BlockIndex,
+    signer: &dyn Signer,
+) -> Vec<Block> {
+    let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
-        let block = Block::empty(prev, signer.clone());
+        let epoch_id = match prev.header.inner.height + 1 {
+            height if height <= epoch_length => EpochId::default(),
+            height => {
+                EpochId(blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
+            }
+        };
+        let block = Block::produce(
+            &prev.header,
+            prev.header.inner.height + 1,
+            blocks[0].chunks.clone(),
+            epoch_id,
+            HashMap::default(),
+            0,
+            Some(0),
+            signer,
+        );
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
             false,
         ));
         blocks.push(block);
-        prev = &blocks[blocks.len() - 1].header;
+        prev = &blocks[blocks.len() - 1];
     }
-    blocks[blocks.len() - 1].header.clone()
+    blocks
 }
 
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
 fn sync_nodes() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["other"]);
+        let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
-        let genesis_header = genesis_header(&genesis_config);
+        let genesis_block = genesis_block(genesis_config.clone());
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+        near1.client_config.min_num_peers = 1;
         let mut near2 = load_test_config("test2", port2, &genesis_config);
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+        near2.client_config.min_num_peers = 1;
 
         let system = System::new("NEAR");
 
         let dir1 = TempDir::new("sync_nodes_1").unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
-        let _ = add_blocks(&genesis_header, client1, 11, signer);
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let _ = add_blocks(vec![genesis_block], client1, 12, genesis_config.epoch_length, &signer);
 
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -72,7 +90,7 @@ fn sync_nodes() {
             Box::new(move |_ctx| {
                 actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.height == 11 => System::current().stop(),
+                        Ok(Ok(b)) if b.header.height == 12 => System::current().stop(),
                         Err(_) => return futures::future::err(()),
                         _ => {}
                     };
@@ -85,24 +103,26 @@ fn sync_nodes() {
         .start();
 
         system.run().unwrap();
-    })
+    });
 }
 
 /// Clients connect and then one of them becomes in front. The other one must then sync to it.
 #[test]
 fn sync_after_sync_nodes() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["other"]);
+        let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
-        let genesis_header = genesis_header(&genesis_config);
+        let genesis_block = genesis_block(genesis_config.clone());
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+        near1.client_config.min_num_peers = 1;
         let mut near2 = load_test_config("test2", port2, &genesis_config);
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+        near2.client_config.min_num_peers = 1;
 
         let system = System::new("NEAR");
 
@@ -112,21 +132,28 @@ fn sync_after_sync_nodes() {
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
-        let last_block = add_blocks(&genesis_header, client1.clone(), 11, signer.clone());
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let blocks = add_blocks(
+            vec![genesis_block],
+            client1.clone(),
+            12,
+            genesis_config.epoch_length,
+            &signer,
+        );
 
         let next_step = Arc::new(AtomicBool::new(false));
+        let epoch_length = genesis_config.epoch_length;
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                let last_block1 = last_block.clone();
+                let blocks1 = blocks.clone();
                 let client11 = client1.clone();
                 let signer1 = signer.clone();
                 let next_step1 = next_step.clone();
                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.height == 11 => {
+                        Ok(Ok(b)) if b.header.height == 12 => {
                             if !next_step1.load(Ordering::Relaxed) {
-                                let _ = add_blocks(&last_block1, client11, 11, signer1);
+                                let _ = add_blocks(blocks1, client11, 11, epoch_length, &signer1);
                                 next_step1.store(true, Ordering::Relaxed);
                             }
                         }
@@ -143,7 +170,7 @@ fn sync_after_sync_nodes() {
         .start();
 
         system.run().unwrap();
-    })
+    });
 }
 
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
@@ -153,37 +180,37 @@ fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["test1"]);
+        let mut genesis_config = GenesisConfig::test(vec!["test1"], 1);
         genesis_config.epoch_length = 5;
-        let genesis_hash = genesis_hash(&genesis_config);
+        genesis_config.validator_kickout_threshold = 80;
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
-        near1.client_config.min_block_production_delay = Duration::from_millis(100);
+        near1.client_config.min_num_peers = 0;
+        near1.client_config.min_block_production_delay = Duration::from_millis(200);
         let mut near2 = load_test_config("test2", port2, &genesis_config);
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
-        near2.client_config.min_block_production_delay = Duration::from_millis(100);
+        near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
 
         let system = System::new("NEAR");
-        let unstake_transaction = SignedTransaction::from_actions(
-            1,
-            "test1".to_string(),
-            "test1".to_string(),
-            near1.block_producer.as_ref().unwrap().signer.clone(),
-            vec![Action::Stake(StakeAction {
-                stake: TESTING_INIT_STAKE / 2,
-                public_key: near1.block_producer.as_ref().unwrap().signer.public_key(),
-            })],
-            genesis_hash,
-        );
 
         let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
         let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
-        let (client1, view_client1) = start_with_config(dir1.path(), near1);
+        let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
 
+        let genesis_hash = genesis_block(genesis_config).hash();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let unstake_transaction = SignedTransaction::stake(
+            1,
+            "test1".to_string(),
+            &*signer,
+            TESTING_INIT_STAKE / 2,
+            near1.block_producer.as_ref().unwrap().signer.public_key(),
+            genesis_hash,
+        );
         actix::spawn(
             client1
                 .send(NetworkClientMessages::Transaction(unstake_transaction))
@@ -207,9 +234,10 @@ fn sync_state_stake_change() {
                         WaitOrTimeout::new(
                             Box::new(move |_ctx| {
                                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
-                                    if res.unwrap().unwrap().header.height > latest_block_height + 1
-                                    {
-                                        System::current().stop()
+                                    if let Ok(block) = res.unwrap() {
+                                        if block.header.height > latest_block_height + 1 {
+                                            System::current().stop()
+                                        }
                                     }
                                     future::result::<_, ()>(Ok(()))
                                 }));
@@ -228,5 +256,5 @@ fn sync_state_stake_change() {
         .start();
 
         system.run().unwrap();
-    })
+    });
 }

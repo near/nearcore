@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
+use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
+use near_primitives::sharding::ChunkHash;
+use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -18,7 +21,9 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
+    Chunk(near_chunks::Error),
     BlockProducer(String),
+    ChunkProducer(String),
     Other(String),
 }
 
@@ -27,7 +32,9 @@ impl std::fmt::Display for Error {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Pool(err) => write!(f, "Pool: {}", err),
+            Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
+            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
             Error::Other(err) => write!(f, "Other: {}", err),
         }
     }
@@ -54,6 +61,12 @@ impl From<near_pool::Error> for Error {
     }
 }
 
+impl From<near_chunks::Error> for Error {
+    fn from(err: near_chunks::Error) -> Self {
+        Error::Chunk(err)
+    }
+}
+
 impl From<String> for Error {
     fn from(e: String) -> Self {
         Error::Other(e)
@@ -68,10 +81,14 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: String,
+    /// Duration to check for producing / skipping block.
+    pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
-    /// Maximum duration before producing block or skipping height.
+    /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
+    /// Maximum duration before skipping given height.
+    pub max_block_wait_delay: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -81,9 +98,9 @@ pub struct ClientConfig {
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u64,
+    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
-    pub sync_height_threshold: u64,
+    pub sync_height_threshold: BlockIndex,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between fetching data from other parts of the system.
@@ -94,26 +111,45 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockIndex,
+    /// Total number of block producers
+    pub num_block_producers: ValidatorId,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
+    /// Time to persist Accounts Id in the router without removing them.
+    pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
     pub state_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
-    /// Number of blocks for which a transaction is valid
-    pub transaction_validity_period: BlockIndex,
+    /// Accounts that this client tracks
+    pub tracked_accounts: Vec<AccountId>,
+    /// Shards that this client tracks
+    pub tracked_shards: Vec<ShardId>,
 }
 
 impl ClientConfig {
-    pub fn test(skip_sync_wait: bool) -> Self {
+    pub fn test(
+        skip_sync_wait: bool,
+        block_prod_time: u64,
+        num_block_producers: ValidatorId,
+    ) -> Self {
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
-            min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(300),
+            block_production_tracking_delay: Duration::from_millis(std::cmp::max(
+                10,
+                block_prod_time / 5,
+            )),
+            min_block_production_delay: Duration::from_millis(block_prod_time),
+            max_block_production_delay: Duration::from_millis(2 * block_prod_time),
+            max_block_wait_delay: Duration::from_millis(3 * block_prod_time),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
@@ -125,11 +161,16 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            num_block_producers,
             announce_account_horizon: 5,
+            ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            catchup_step_period: Duration::from_millis(block_prod_time / 2),
+            chunk_request_retry_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
-            transaction_validity_period: 100,
+            tracked_accounts: vec![],
+            tracked_shards: vec![],
         }
     }
 }
@@ -153,23 +194,28 @@ impl From<Arc<InMemorySigner>> for BlockProducer {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DownloadStatus {
+    pub start_time: DateTime<Utc>,
+    pub prev_update_time: DateTime<Utc>,
+    pub run_me: bool,
+    pub error: bool,
+    pub done: bool,
+}
+
 /// Various status of syncing a specific shard.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ShardSyncStatus {
-    /// Downloading state for fast sync.
-    StateDownload {
-        start_time: DateTime<Utc>,
-        prev_update_time: DateTime<Utc>,
-        prev_downloaded_size: u64,
-        downloaded_size: u64,
-        total_size: u64,
-    },
-    /// Validating the full state.
-    StateValidation,
-    /// Finalizing state sync.
-    StateDone,
-    /// Syncing errored out, restart.
-    Error(String),
+    StateDownloadHeader,
+    StateDownloadParts,
+    StateDownloadFinalize,
+    StateDownloadComplete,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShardSyncDownload {
+    pub downloads: Vec<DownloadStatus>,
+    pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
@@ -182,7 +228,7 @@ pub enum SyncStatus {
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockIndex, highest_height: BlockIndex },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncStatus>),
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
@@ -207,6 +253,16 @@ impl Message for GetBlock {
     type Result = Result<BlockView, String>;
 }
 
+/// Actor message requesting a chunk by chunk hash and block hash + shard id.
+pub enum GetChunk {
+    BlockHash(CryptoHash, ShardId),
+    ChunkHash(ChunkHash),
+}
+
+impl Message for GetChunk {
+    type Result = Result<ChunkView, String>;
+}
+
 /// Queries client for given path / data.
 pub struct Query {
     pub path: String,
@@ -223,13 +279,30 @@ impl Message for Status {
     type Result = Result<StatusResponse, String>;
 }
 
+pub struct GetNetworkInfo {}
+
+impl Message for GetNetworkInfo {
+    type Result = Result<NetworkInfoResponse, String>;
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NetworkInfoResponse {
+    pub active_peers: Vec<PeerInfo>,
+    pub num_active_peers: usize,
+    pub peer_max_count: u32,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<AccountId>,
+}
+
 /// Status of given transaction including all the subsequent receipts.
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalTransactionResult, String>;
+    type Result = Result<FinalExecutionOutcomeView, String>;
 }
 
 /// Details about given transaction.
@@ -238,5 +311,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResultView, String>;
+    type Result = Result<ExecutionOutcomeView, String>;
 }

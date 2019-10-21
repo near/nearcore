@@ -6,16 +6,9 @@ use near_crypto::{KeyType, PublicKey};
 
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::transaction::{Action, TransactionResult, TransferAction};
+use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance};
 use crate::utils::system_account;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReceiptInfo {
-    pub receipt: Receipt,
-    pub block_index: u64,
-    pub result: TransactionResult,
-}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {

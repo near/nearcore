@@ -1,6 +1,6 @@
 [package]
 name = "near"
-version = "0.3.6"
+version = "0.4.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -33,8 +33,8 @@ near-client = { path = "../chain/client" }
 near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
-near-verifier = { path = "../runtime/verifier" }
 near-telemetry = { path = "../chain/telemetry" }
+near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
 tempdir = "0.3"

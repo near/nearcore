@@ -5,20 +5,21 @@ use futures::Future;
 use serde::Deserialize;
 use serde::Serialize;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockIndex;
 use near_primitives::views::{
-    BlockView, CryptoHashView, FinalTransactionResult, QueryResponse, StatusResponse,
-    TransactionResultView,
+    BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
 };
 
-pub mod message;
 use crate::message::{from_slice, Message};
+
+pub mod message;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockIndex),
-    Hash(CryptoHashView),
+    Hash(CryptoHash),
 }
 
 /// Timeout for establishing connection.
@@ -126,7 +127,7 @@ macro_rules! http_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_http_get(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_http_get(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }
@@ -163,7 +164,7 @@ macro_rules! jsonrpc_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_method(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_method(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }
@@ -172,12 +173,12 @@ macro_rules! jsonrpc_client {
 
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
-    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalTransactionResult>;
+    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResultView>;
+    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn tx_details(&mut self, hash: String) -> RpcRequest<ExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
 });
 

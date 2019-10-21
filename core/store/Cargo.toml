@@ -21,6 +21,7 @@ near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
+tempdir = "0.3"
 hex-literal = "0.1.1"
 bencher = "0.1.5"
 rand = "0.6"

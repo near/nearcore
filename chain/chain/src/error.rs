@@ -4,6 +4,8 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+
 #[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,
@@ -17,6 +19,11 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
+    #[fail(display = "Chunk Missing: {:?}", _0)]
+    ChunkMissing(ChunkHash),
+    /// Chunks missing with header info.
+    #[fail(display = "Chunks Missing: {:?}", _0)]
+    ChunksMissing(Vec<(ShardChunkHeader)>),
     /// Peer abusively sending us an old block we already have
     #[fail(display = "Old Block")]
     OldBlock,
@@ -41,15 +48,54 @@ pub enum ErrorKind {
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid block tx root hash.
+    #[fail(display = "Invalid Block Tx Root Hash")]
+    InvalidTxRoot,
+    /// Invalid chunk receipts root hash.
+    #[fail(display = "Invalid Chunk Receipts Root Hash")]
+    InvalidChunkReceiptsRoot,
+    /// Invalid chunk headers root hash.
+    #[fail(display = "Invalid Chunk Headers Root Hash")]
+    InvalidChunkHeadersRoot,
+    /// Invalid chunk tx root hash.
+    #[fail(display = "Invalid Chunk Tx Root Hash")]
+    InvalidChunkTxRoot,
+    /// Invalid receipts proof.
+    #[fail(display = "Invalid Receipts Proof")]
+    InvalidReceiptsProof,
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
-    InvalidStatePayload(String),
+    InvalidStatePayload,
+    /// Invalid transactions in the block.
+    #[fail(display = "Invalid Transactions")]
+    InvalidTransactions,
+    /// Incorrect number of chunk headers
+    #[fail(display = "Incorrect Number of Chunk Headers")]
+    IncorrectNumberOfChunkHeaders,
+    /// Invalid chunk.
+    #[fail(display = "Invalid Chunk")]
+    InvalidChunk,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid validator proposals in the block.
+    #[fail(display = "Invalid Validator Proposals")]
+    InvalidValidatorProposals,
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
+    /// Invalid Approvals
+    #[fail(display = "Invalid Approvals")]
+    InvalidApprovals,
+    /// Validator error.
+    #[fail(display = "Validator Error")]
+    ValidatorError(String),
+    /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
+    #[fail(display = "Epoch Out Of Bounds")]
+    EpochOutOfBounds,
+    /// A challenged block is on the chain that was attempted to become the head
+    #[fail(display = "Challenged block on chain")]
+    ChallengedBlockOnChain,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -93,8 +139,14 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
+            | ErrorKind::ChunkMissing(_)
+            | ErrorKind::ChunksMissing(_)
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
+            | ErrorKind::ValidatorError(_)
+            // TODO: can be either way?
+            | ErrorKind::EpochOutOfBounds
+            | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -103,10 +155,20 @@ impl Error {
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
-            | ErrorKind::InvalidStatePayload(_)
+            | ErrorKind::InvalidTxRoot
+            | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidChunkHeadersRoot
+            | ErrorKind::InvalidChunkTxRoot
+            | ErrorKind::InvalidReceiptsProof
+            | ErrorKind::InvalidStatePayload
+            | ErrorKind::InvalidTransactions
+            | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
-            | ErrorKind::InvalidSignature => true,
+            | ErrorKind::InvalidValidatorProposals
+            | ErrorKind::InvalidSignature
+            | ErrorKind::InvalidApprovals => true,
         }
     }
 

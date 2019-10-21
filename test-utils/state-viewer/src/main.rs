@@ -15,7 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockIndex, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, DBValue, Store, TrieIterator};
@@ -80,7 +80,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
         col::PENDING_DATA_COUNT => None,
         col::POSTPONED_RECEIPT => {
             let receipt = Receipt::try_from_slice(&value).unwrap();
-            Some(StateRecord::PostponedReceipt(receipt.into()))
+            Some(StateRecord::PostponedReceipt(Box::new(receipt.into())))
         }
         _ => unreachable!(),
     }
@@ -128,14 +128,23 @@ fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, CryptoHash, BlockIndex) {
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockIndex) {
     let mut chain_store = ChainStore::new(store.clone());
 
-    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     let head = chain_store.head().unwrap();
-    let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
-    let state_root = chain_store.get_post_state_root(&head.last_block_hash).unwrap();
-    (runtime, *state_root, last_header.inner.height)
+    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    let mut state_roots = vec![];
+    for chunk in last_block.chunks.iter() {
+        state_roots.push(chunk.inner.prev_state_root.clone());
+    }
+    (runtime, state_roots, last_block.header.inner.height)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -150,7 +159,13 @@ fn print_chain(
     end_index: BlockIndex,
 ) {
     let mut chain_store = ChainStore::new(store.clone());
-    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     for index in start_index..=end_index {
@@ -160,20 +175,20 @@ fn print_chain(
                 println!("{: >3} {}", header.inner.height, format_hash(header.hash()));
             } else {
                 let parent_header = chain_store.get_block_header(&header.inner.prev_hash).unwrap();
-                let (epoch_id, offset) =
-                    runtime.get_epoch_offset(header.inner.prev_hash, index).unwrap();
-                cur_epoch_id = Some(epoch_id);
-                if offset == 0 {
+                let epoch_id =
+                    runtime.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
+                cur_epoch_id = Some(epoch_id.clone());
+                if runtime.is_next_block_epoch_start(&header.inner.prev_hash).unwrap() {
                     println!("{:?}", account_id_to_blocks);
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
-                        format_hash(epoch_id),
-                        runtime.get_epoch_block_proposers(&epoch_id, &header.hash()).unwrap()
+                        format_hash(epoch_id.0),
+                        runtime.get_epoch_block_producers(&epoch_id, &header.hash()).unwrap()
                     );
                 }
                 let block_producer =
-                    runtime.get_block_proposer(&epoch_id, header.inner.height).unwrap();
+                    runtime.get_block_producer(&epoch_id, header.inner.height).unwrap();
                 account_id_to_blocks
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
@@ -188,8 +203,8 @@ fn print_chain(
                 );
             }
         } else {
-            if let Some(epoch_id) = cur_epoch_id {
-                let block_producer = runtime.get_block_proposer(&epoch_id, index).unwrap();
+            if let Some(epoch_id) = &cur_epoch_id {
+                let block_producer = runtime.get_block_producer(epoch_id, index).unwrap();
                 println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
             } else {
                 println!("{: >3} {}", index, Red.bold().paint("MISSING"));
@@ -207,7 +222,13 @@ fn replay_chain(
 ) {
     let mut chain_store = ChainStore::new(store.clone());
     let new_store = create_test_store();
-    let runtime = NightshadeRuntime::new(&home_dir, new_store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        new_store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     for index in start_index..=end_index {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
@@ -219,6 +240,10 @@ fn replay_chain(
                     header.inner.validator_proposals,
                     vec![],
                     vec![],
+                    header.inner.rent_paid,
+                    header.inner.validator_reward,
+                    header.inner.balance_burnt,
+                    header.inner.total_supply,
                 )
                 .unwrap();
         }
@@ -299,24 +324,33 @@ fn main() {
             }
         }
         ("state", Some(_args)) => {
-            let (runtime, state_root, height) = load_trie(store, &home_dir, &near_config);
-            println!("Storage root is {}, block height is {}", state_root, height);
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                print_state_entry(key, value);
+            let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
+            println!("Storage roots are {:?}, block height is {}", state_roots, height);
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    print_state_entry(key, value);
+                }
             }
         }
         ("dump_state", Some(args)) => {
-            let (runtime, state_root, height) = load_trie(store, home_dir, &near_config);
+            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
             let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
-            println!("Saving state at {} @ {} into {}", state_root, height, output_path.display());
-            near_config.genesis_config.records = vec![vec![]];
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                if let Some(sr) = kv_to_state_record(key, value) {
-                    near_config.genesis_config.records[0].push(sr);
+            println!(
+                "Saving state at {:?} @ {} into {}",
+                state_roots,
+                height,
+                output_path.display()
+            );
+            near_config.genesis_config.records = vec![];
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    if let Some(sr) = kv_to_state_record(key, value) {
+                        near_config.genesis_config.records.push(sr);
+                    }
                 }
             }
             near_config.genesis_config.write_to_file(&output_path);

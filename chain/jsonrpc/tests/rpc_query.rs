@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use actix::System;
 use futures::future;
 use futures::future::Future;
@@ -5,6 +7,7 @@ use futures::future::Future;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::BlockId;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 
 /// Retrieve blocks via json rpc
@@ -20,14 +23,16 @@ fn test_block() {
         actix::spawn(client.block(BlockId::Height(0)).then(|res| {
             let res = res.unwrap();
             assert_eq!(res.header.height, 0);
-            assert_eq!(res.header.epoch_hash.0, &[0; 32]);
-            assert_eq!(res.header.hash.0.len(), 32);
-            assert_eq!(res.header.prev_hash.0, &[0; 32]);
-            assert_eq!(res.header.prev_state_root.0, &[0; 32]);
-            assert_eq!(res.header.tx_root.0, &[0; 32]);
+            assert_eq!(res.header.epoch_id.0.as_ref(), &[0; 32]);
+            assert_eq!(res.header.hash.0.as_ref().len(), 32);
+            assert_eq!(res.header.prev_hash.0.as_ref(), &[0; 32]);
+            assert_eq!(
+                res.header.prev_state_root,
+                CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            );
             assert!(res.header.timestamp > 0);
             assert_eq!(res.header.approval_mask.len(), 0);
-            assert_eq!(res.header.approval_sigs.len(), 0);
+            assert_eq!(res.header.approval_sigs, vec![]);
             assert_eq!(res.header.total_weight, 0);
             assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();

@@ -33,6 +33,7 @@ pub struct RateCounter {
     last_min_entries: Vec<Entry>,
 }
 
+// TODO(#1314): Improve performance from O(N) to O(1)
 impl RateCounter {
     pub fn new() -> Self {
         RateCounter { last_min_entries: vec![] }
@@ -54,7 +55,9 @@ impl RateCounter {
 
     fn truncate(&mut self) {
         let now = millis_since_epoch();
-        while self.last_min_entries.len() > 0 && self.last_min_entries[0].timestamp + MINUTE_IN_MILLIS < now {
+        while !self.last_min_entries.is_empty()
+            && self.last_min_entries[0].timestamp + MINUTE_IN_MILLIS < now
+        {
             self.last_min_entries.remove(0);
         }
     }
@@ -62,6 +65,8 @@ impl RateCounter {
 
 /// Returns timestamp in milliseconds.
 fn millis_since_epoch() -> u128 {
-    let since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::new(0, 0));
+    let since_epoch = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::new(0, 0));
     since_epoch.as_millis()
 }

@@ -10,6 +10,7 @@ try:
 except NameError:
     pass
 
+
 """Installs cargo/Rust."""
 def install_cargo():
     try:
@@ -17,7 +18,6 @@ def install_cargo():
     except OSError:
         print("Installing Rust...")
         subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y', shell=True)
-        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'), 'default', 'nightly'])
 
 
 """Inits the node configuration using docker."""
@@ -45,13 +45,11 @@ def get_chain_id_from_flags(flags):
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
 def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
     if nodocker:
-        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
-            'default', 'nightly'])
         flags = ['-p', 'near']
         if is_release:
             flags = ['--release'] + flags
         code = subprocess.call(
-            [os.path.expanduser('~/.cargo/bin/cargo'), 'build'] + flags)
+            [os.path.expanduser('cargo'), 'build'] + flags)
         if code != 0:
             print("Compilation failed, aborting")
             exit(code)

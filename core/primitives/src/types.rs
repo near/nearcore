@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
 
 use crate::hash::CryptoHash;
+use near_crypto::PublicKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -29,8 +29,28 @@ pub type Gas = u64;
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
+/// Hash used by to store state root and the number of parts the state is divided.
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+pub struct StateRoot {
+    pub hash: CryptoHash,
+    pub num_parts: u64,
+}
+
+/// Epoch identifier -- wrapped hash, to make it easier to distinguish.
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+pub struct EpochId(pub CryptoHash);
+
+impl AsRef<[u8]> for EpochId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+pub struct Range(pub u64, pub u64);
+
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -46,13 +66,38 @@ impl ValidatorStake {
     }
 }
 
-impl PartialEq for ValidatorStake {
-    fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id && self.public_key == other.public_key
-    }
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct ChunkExtra {
+    /// Post state root after applying give chunk.
+    pub state_root: StateRoot,
+    /// Validator proposals produced by given chunk.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Actually how much gas were used.
+    pub gas_used: Gas,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: Gas,
+    /// Total rent paid after processing the current chunk
+    pub rent_paid: Balance,
+    /// Total validation execution reward after processing the current chunk
+    pub validator_reward: Balance,
+    /// Total balance burnt after processing the current chunk
+    pub balance_burnt: Balance
 }
 
-impl Eq for ValidatorStake {}
+impl ChunkExtra {
+    pub fn new(
+        state_root: &StateRoot,
+        validator_proposals: Vec<ValidatorStake>,
+        gas_used: Gas,
+        gas_limit: Gas,
+        rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
+    ) -> Self {
+        Self { state_root: state_root.clone(), validator_proposals, gas_used, gas_limit, rent_paid, validator_reward, balance_burnt }
+    }
+}
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

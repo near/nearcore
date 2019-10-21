@@ -11,7 +11,7 @@ bs58 = "0.2.4"
 base64 = "0.10.1"
 byteorder = "1.2"
 chrono = { version = "0.4.4", features = ["serde"] }
-sodiumoxide = "0.2.2"
+sodiumoxide = "0.2.5"
 lazy_static = "1.4"
 serde = "1.0"
 serde_derive = "1.0"

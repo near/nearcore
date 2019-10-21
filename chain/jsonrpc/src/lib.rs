@@ -1,6 +1,4 @@
 #![feature(await_macro, async_await)]
-#[macro_use]
-extern crate lazy_static;
 extern crate prometheus;
 
 use std::convert::TryFrom;
@@ -20,7 +18,9 @@ use serde_json::Value;
 use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
-use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
+use near_client::{
+    ClientActor, GetBlock, GetNetworkInfo, Query, Status, TxDetails, TxStatus, ViewClientActor,
+};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId};
 use near_metrics::{Encoder, TextEncoder};
@@ -28,7 +28,7 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 
 mod metrics;
 pub mod test_utils;
@@ -143,6 +143,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "tx_details" => self.tx_details(request.params).await,
             "block" => self.block(request.params).await,
+            "network_info" => self.network_info().await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
     }
@@ -176,8 +177,8 @@ impl JsonRpcHandler {
                             self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                         if let Ok(Ok(ref tx)) = final_tx {
                             match tx.status {
-                                FinalTransactionStatus::Started
-                                | FinalTransactionStatus::Unknown => {}
+                                FinalExecutionStatus::Started
+                                | FinalExecutionStatus::NotStarted => {}
                                 _ => {
                                     break jsonify(final_tx);
                                 }
@@ -188,10 +189,15 @@ impl JsonRpcHandler {
                 })
                 .await
                 .map_err(|_| {
-                    RpcError::server_error(Some("send_tx_commit has timed out.".to_owned()))
+                    RpcError::server_error(Some(ExecutionErrorView {
+                        error_message: "send_tx_commit has timed out".to_string(),
+                        error_type: "TimeoutError".to_string(),
+                    }))
                 })?
             }
-            NetworkClientResponses::InvalidTx(err) => Err(RpcError::server_error(Some(err))),
+            NetworkClientResponses::InvalidTx(err) => {
+                Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
+            }
             _ => unreachable!(),
         }
     }
@@ -233,6 +239,10 @@ impl JsonRpcHandler {
         )
     }
 
+    async fn network_info(&self) -> Result<Value, RpcError> {
+        jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
+    }
+
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
         // Gather metrics and return them as a String
         let mut buffer = vec![];
@@ -263,6 +273,18 @@ fn status_handler(
 
     let response = async move {
         match handler.status().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed().compat()
+}
+
+fn network_info_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    let response = async move {
+        match handler.network_info().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
@@ -315,6 +337,9 @@ pub fn start_http(
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
             .service(web::resource("/status").route(web::get().to_async(status_handler)))
+            .service(
+                web::resource("/network_info").route(web::get().to_async(network_info_handler)),
+            )
             .service(web::resource("/metrics").route(web::get().to_async(prometheus_handler)))
     })
     .bind(addr)

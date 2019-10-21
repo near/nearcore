@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near::{start_with_config, NearConfig};
-use near_crypto::Signer;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::actix_utils::ShutdownableThread;
@@ -17,6 +17,7 @@ pub enum ThreadNodeState {
 pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
+    pub signer: Arc<InMemorySigner>,
 }
 
 fn start_thread(config: NearConfig) -> ShutdownableThread {
@@ -50,7 +51,7 @@ impl Node for ThreadNode {
     }
 
     fn signer(&self) -> Arc<dyn Signer> {
-        self.config.block_producer.clone().unwrap().signer.clone()
+        self.signer.clone()
     }
 
     fn is_running(&self) -> bool {
@@ -61,10 +62,7 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(
-            &self.config.rpc_config.addr,
-            self.config.block_producer.clone().unwrap().signer.clone(),
-        ))
+        Box::new(RpcUser::new(&self.config.rpc_config.addr, self.signer.clone()))
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {
@@ -79,6 +77,11 @@ impl Node for ThreadNode {
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
-        ThreadNode { config, state: ThreadNodeState::Stopped }
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &config.block_producer.clone().unwrap().account_id,
+            KeyType::ED25519,
+            &config.block_producer.clone().unwrap().account_id,
+        ));
+        ThreadNode { config, state: ThreadNodeState::Stopped, signer }
     }
 }

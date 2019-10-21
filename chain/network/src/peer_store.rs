@@ -40,7 +40,7 @@ impl PeerStore {
         }
         for peer_info in boot_nodes.iter() {
             if !peer_states.contains_key(&peer_info.id) {
-                peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
+                peer_states.insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone()));
             }
         }
         Ok(PeerStore { store, peer_states })
@@ -50,14 +50,18 @@ impl PeerStore {
         self.peer_states.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.peer_states.is_empty()
+    }
+
     pub fn peer_connected(
         &mut self,
         peer_info: &FullPeerInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let entry = self
             .peer_states
-            .entry(peer_info.peer_info.id)
-            .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
+            .entry(peer_info.peer_info.id.clone())
+            .or_insert_with(|| KnownPeerState::new(peer_info.peer_info.clone()));
         entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
@@ -178,7 +182,7 @@ impl PeerStore {
     pub fn add_peers(&mut self, peers: Vec<PeerInfo>) {
         for peer_info in peers.into_iter() {
             if !self.peer_states.contains_key(&peer_info.id) {
-                self.peer_states.insert(peer_info.id, KnownPeerState::new(peer_info));
+                self.peer_states.insert(peer_info.id.clone(), KnownPeerState::new(peer_info));
             }
         }
     }

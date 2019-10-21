@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::key_file::KeyFile;
-use crate::signature::{KeyType, PublicKey, SecretKey, Signature};
+use crate::{KeyType, PublicKey, SecretKey, Signature};
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {
@@ -15,6 +15,23 @@ pub trait Signer: Sync + Send {
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
     fn write_to_file(&self, path: &Path);
+}
+
+// Signer that returns empty signature. Used for transaction testing.
+pub struct EmptySigner {}
+
+impl Signer for EmptySigner {
+    fn public_key(&self) -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn sign(&self, _data: &[u8]) -> Signature {
+        Signature::empty(KeyType::ED25519)
+    }
+
+    fn write_to_file(&self, _path: &Path) {
+        unimplemented!()
+    }
 }
 
 /// Signer that keeps secret key in memory.
@@ -31,12 +48,12 @@ impl InMemorySigner {
         Self { account_id: account_id.to_string(), public_key: secret_key.public_key(), secret_key }
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        KeyFile::from_file(path).into()
-    }
-
     pub fn from_secret_key(account_id: String, secret_key: SecretKey) -> Self {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
+    }
+
+    pub fn from_file(path: &Path) -> Self {
+        KeyFile::from_file(path).into()
     }
 }
 
@@ -68,7 +85,7 @@ impl From<&InMemorySigner> for KeyFile {
     fn from(signer: &InMemorySigner) -> KeyFile {
         KeyFile {
             account_id: signer.account_id.clone(),
-            public_key: signer.public_key,
+            public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
         }
     }
@@ -78,7 +95,7 @@ impl From<Arc<InMemorySigner>> for KeyFile {
     fn from(signer: Arc<InMemorySigner>) -> KeyFile {
         KeyFile {
             account_id: signer.account_id.clone(),
-            public_key: signer.public_key,
+            public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
         }
     }

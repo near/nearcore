@@ -23,6 +23,8 @@ pub struct VMContext {
     pub input: Vec<u8>,
     /// The current block index.
     pub block_index: BlockIndex,
+    /// The current block timestamp.
+    pub block_timestamp: u64,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
@@ -38,7 +40,7 @@ pub struct VMContext {
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.
-    pub free_of_charge: bool,
+    pub is_view: bool,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,

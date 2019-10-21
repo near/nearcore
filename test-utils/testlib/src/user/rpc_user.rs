@@ -8,13 +8,13 @@ use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
-    TransactionResultView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
+    QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -58,7 +58,7 @@ impl User for RpcUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalTransactionResult, String> {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         let bytes = transaction.try_to_vec().unwrap();
         System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
@@ -83,21 +83,16 @@ impl User for RpcUser {
             .ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
         System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
-    fn get_state_root(&self) -> CryptoHashView {
+    fn get_state_root(&self) -> CryptoHash {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
-    }
-
-    fn get_receipt_info(&self, _hash: &CryptoHash) -> Option<ReceiptInfo> {
-        // TDDO: figure out if rpc will support this
-        unimplemented!()
     }
 
     fn get_access_key(

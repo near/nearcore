@@ -10,6 +10,7 @@ RUN apt-get update -qq && apt-get install -y \
     pkg-config \
     libssl-dev \
     unzip \
+    systemd-coredump \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -34,9 +35,6 @@ RUN --mount=type=cache,target=/tmp/target \
 EXPOSE 3030 24567
 
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
-
-# Remove the files to keep docker smaller.
-RUN rm -rf /near
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 

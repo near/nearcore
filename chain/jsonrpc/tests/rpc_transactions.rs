@@ -15,7 +15,7 @@ use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::FinalExecutionStatus;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]
@@ -39,7 +39,7 @@ fn test_send_tx_async() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -60,7 +60,7 @@ fn test_send_tx_async() {
                             .tx((&tx_hash).into())
                             .map_err(|err| println!("Error: {:?}", err))
                             .map(|result| {
-                                if result.status == FinalTransactionStatus::Completed {
+                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
                                     System::current().stop();
                                 }
                             }),
@@ -68,7 +68,7 @@ fn test_send_tx_async() {
                 }
             }),
             100,
-            1000,
+            2000,
         )
         .start();
     })
@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -105,7 +105,7 @@ fn test_send_tx_commit() {
                     panic!(why);
                 })
                 .map(move |result| {
-                    assert_eq!(result.status, FinalTransactionStatus::Completed);
+                    assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
                     System::current().stop();
                 })
         }));
@@ -119,41 +119,47 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (view_client, addr) = start_all_with_validity_period(true, 0);
+        let (view_client, addr) = start_all_with_validity_period(true, 1);
 
         let block_hash = Arc::new(Mutex::new(None));
+        let block_height = Arc::new(Mutex::new(None));
 
         WaitOrTimeout::new(
             Box::new(move |_| {
                 let block_hash = block_hash.clone();
+                let block_height = block_height.clone();
                 let mut client = new_client(&format!("http://{}", addr));
                 actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                     let header: BlockHeader = res.unwrap().unwrap().header.into();
                     let hash = block_hash.lock().unwrap().clone();
+                    let height = block_height.lock().unwrap().clone();
                     if let Some(block_hash) = hash {
-                        if block_hash != header.hash {
-                            let signer =
-                                InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-                            let tx = SignedTransaction::send_money(
-                                1,
-                                "test1".to_string(),
-                                "test2".to_string(),
-                                Arc::new(signer),
-                                100,
-                                block_hash,
-                            );
-                            let bytes = tx.try_to_vec().unwrap();
-                            actix::spawn(
-                                client
-                                    .broadcast_tx_commit(to_base64(&bytes))
-                                    .map_err(|_| {
-                                        System::current().stop();
-                                    })
-                                    .map(|_| ()),
-                            );
+                        if let Some(height) = height {
+                            if header.inner.height - height >= 2 {
+                                let signer =
+                                    InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+                                let tx = SignedTransaction::send_money(
+                                    1,
+                                    "test1".to_string(),
+                                    "test2".to_string(),
+                                    &signer,
+                                    100,
+                                    block_hash,
+                                );
+                                let bytes = tx.try_to_vec().unwrap();
+                                actix::spawn(
+                                    client
+                                        .broadcast_tx_commit(to_base64(&bytes))
+                                        .map_err(|_| {
+                                            System::current().stop();
+                                        })
+                                        .map(|_| ()),
+                                );
+                            }
                         }
                     } else {
                         *block_hash.lock().unwrap() = Some(header.hash);
+                        *block_height.lock().unwrap() = Some(header.inner.height);
                     };
                     future::ok(())
                 }));
@@ -180,7 +186,7 @@ fn test_replay_protection() {
             1,
             "test1".to_string(),
             "test2".to_string(),
-            Arc::new(signer),
+            &signer,
             100,
             hash(&[1]),
         );

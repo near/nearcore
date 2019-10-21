@@ -27,7 +27,7 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> GenesisConfig {
-    GenesisConfig::test(vec!["alice.near", "bob.near"])
+    GenesisConfig::test(vec!["alice.near", "bob.near"], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.
@@ -68,6 +68,10 @@ pub trait Node: Send + Sync {
     }
 
     fn signer(&self) -> Arc<dyn Signer>;
+
+    fn block_signer(&self) -> Arc<dyn Signer> {
+        unimplemented!()
+    }
 
     fn is_running(&self) -> bool;
 
@@ -134,7 +138,7 @@ fn near_configs_to_node_configs(
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
     let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(num_nodes, 0, prefix, true);
+        create_testnet_configs(1, num_nodes, 0, prefix, true);
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 
@@ -143,10 +147,9 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
     let code = to_base64(&fs::read(path).unwrap());
     let (configs, signers, network_signers, mut genesis_config) =
-        create_testnet_configs_from_seeds(seeds.clone(), 0, true);
+        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
     for seed in seeds {
-        genesis_config.records[0]
-            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+        genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }

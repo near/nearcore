@@ -5,7 +5,7 @@ use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
 
-use crate::errors::PrepareError;
+use near_vm_errors::PrepareError;
 use near_vm_logic::Config;
 
 struct ContractModule<'a> {
@@ -17,7 +17,7 @@ impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
-        Ok(ContractModule { module: module, config })
+        Ok(ContractModule { module, config })
     }
 
     fn standardize_mem(self) -> Self {
@@ -55,9 +55,8 @@ impl<'a> ContractModule<'a> {
 
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        // TODO(#194): Re-enable .with_forbidden_floats() once AssemblyScript is fixed.
         let gas_rules = rules::Set::new(config.regular_op_cost, Default::default())
-            //            .with_forbidden_floats()
+            .with_forbidden_floats()
             .with_grow_cost(config.grow_mem_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;
@@ -179,7 +178,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(Config::default().max_memory_pages, 32);
+        assert_eq!(Config::default().max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));

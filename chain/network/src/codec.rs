@@ -1,9 +1,8 @@
 use std::io::{Error, ErrorKind};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{BufMut, BytesMut};
 use tokio::codec::{Decoder, Encoder};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::types::PeerMessage;
 
@@ -11,6 +10,7 @@ pub struct Codec {
     max_length: u32,
 }
 
+#[allow(clippy::new_without_default)]
 impl Codec {
     pub fn new() -> Self {
         Codec { max_length: std::u32::MAX }
@@ -67,7 +67,15 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use crate::types::{Handshake, PeerChainInfo, PeerInfo};
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::EpochId;
+
+    use crate::routing::EdgeInfo;
+    use crate::types::{
+        AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
+        RoutedMessageBody, SyncData,
+    };
 
     use super::*;
 
@@ -91,6 +99,7 @@ mod test {
                 height: 0,
                 total_weight: 0.into(),
             },
+            edge_info: EdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
@@ -101,6 +110,45 @@ mod test {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = PeerInfo::random();
         let msg = PeerMessage::PeersResponse(vec![peer_info1, peer_info2]);
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_announce_account() {
+        let sk = SecretKey::from_random(KeyType::ED25519);
+        let network_sk = SecretKey::from_random(KeyType::ED25519);
+        let signature = sk.sign(vec![].as_slice());
+        let msg = PeerMessage::Sync(SyncData {
+            edges: Vec::new(),
+            accounts: vec![AnnounceAccount {
+                account_id: "test1".to_string(),
+                peer_id: network_sk.public_key().into(),
+                epoch_id: EpochId::default(),
+                signature,
+            }],
+        });
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_announce_routed_block_approval() {
+        let sk = SecretKey::from_random(KeyType::ED25519);
+        let hash = CryptoHash::default();
+        let signature = sk.sign(hash.as_ref());
+
+        let bls_sk = SecretKey::from_random(KeyType::ED25519);
+        let bls_signature = bls_sk.sign(hash.as_ref());
+
+        let msg = PeerMessage::Routed(RoutedMessage {
+            target: PeerIdOrHash::PeerId(sk.public_key().into()),
+            author: sk.public_key().into(),
+            signature: signature.clone(),
+            body: RoutedMessageBody::BlockApproval(
+                "test2".to_string(),
+                CryptoHash::default(),
+                bls_signature,
+            ),
+        });
         test_codec(msg);
     }
 }

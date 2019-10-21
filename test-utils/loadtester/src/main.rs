@@ -4,12 +4,10 @@ use std::time::Duration;
 
 use env_logger::Builder;
 
-use near::config::GenesisConfig;
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
 use crate::transactions_generator::TransactionType;
-use node_runtime::StateRecord;
 
 pub mod remote_node;
 pub mod sampler;
@@ -30,15 +28,7 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let genesis_config = GenesisConfig::testing_spec(400, 10);
-    let accounts: Vec<_> = genesis_config.records[0]
-        .iter()
-        .filter_map(|r| match r {
-            StateRecord::Account { account_id, .. } => Some(account_id.clone()),
-            _ => None,
-        })
-        .collect();
-
+    let accounts = (0..400).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let addrs = [
         "35.236.106.188:3030",
         "35.235.115.64:3030",
