@@ -23,7 +23,7 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -855,11 +855,14 @@ impl Client {
                         self.forward_tx(valid_transaction.transaction)
                     }
                 }
-                Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
+                Err(RuntimeError::InvalidTxError(err)) => {
                     debug!(target: "client", "Invalid tx: {:?}", err);
                     NetworkClientResponses::InvalidTx(err)
                 }
-                Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
+                Err(RuntimeError::StorageError(err)) => panic!("{}", err),
+                Err(RuntimeError::BalanceMismatch(err)) => {
+                    unreachable!("Unexpected BalanceMismatch error in validate_tx: {}", err)
+                }
             }
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
