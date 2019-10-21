@@ -320,9 +320,10 @@ impl PeerManagerActor {
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
                         trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
-                        // TODO(MarX): I think banning peer here leaves a hanging Peer instance.
-                        //  We should send signal to peer instead, and expect signal back.
-                        // act.ban_peer(&peer_id1, ReasonForBan::Abusive);
+                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                        // if let Some(active_peer) = act.active_peers.get(&peer_id1) {
+                        //     active_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                        // }
                     } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
                         active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
@@ -717,10 +718,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
-                // TODO(MarX): Don't add edges if it is between us and another peer
-                //  Send evidence that we are not already connected to that peer
-                //  Handle this case properly (maybe we are on the middle of a handshake, so wait
-                //  before saying we are not connected).
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
                 let SyncData { edges, accounts } = sync_data;
 
@@ -749,9 +746,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         }
                         Ok(NetworkClientResponses::AnnounceAccount(accounts)) => {
                             // Filter known edges.
+                            let me = act.peer_id.clone();
+
                             let new_edges: Vec<_> = edges
                                 .into_iter()
-                                .filter(|edge| act.routing_table.process_edge(edge.clone()))
+                                .filter( |edge| {
+                                    // Don't add edge incoming edge if it is between us and other peers.
+                                    // TODO(Marx): If we receive an edge concerning us
+                                    //  send evidence that we are not already connected to that peer.
+                                    //  Handle this case properly (maybe we are on the middle of a handshake, so wait
+                                    //  before saying we are not connected).
+                                    //  Also handle the case where we current peer needs to update its nonce.
+                                    edge.peer0 != me && edge.peer1 != me &&
+                                    act.routing_table.process_edge(edge.clone())
+                                })
                                 .collect();
 
                             // Add accounts to the routing table.

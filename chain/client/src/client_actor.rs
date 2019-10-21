@@ -797,12 +797,8 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
@@ -899,9 +895,7 @@ impl ClientActor {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
-            Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
-            }
+            Err(err) => error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err),
         }
 
         ctx.run_later(self.client.config.catchup_step_period, move |act, ctx| {
@@ -1076,11 +1070,14 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Err(e) => {
-                    error!(target: "client", "Sync: received error or incorrect result: {}", e);
+                Err(_)
+                | Ok(NetworkResponses::BanPeer(_))
+                | Ok(NetworkResponses::RoutingTableInfo(_))
+                | Ok(NetworkResponses::PingPongInfo { .. })
+                | Ok(NetworkResponses::NoResponse) => {
+                    error!(target: "client", "Sync: received error or incorrect result.");
                     actix::fut::err(())
                 }
-                _ => actix::fut::ok(()),
             })
             .wait(ctx);
 

@@ -39,16 +39,13 @@ pub enum EdgeType {
     Removed,
 }
 
-// TODO(MarX): If two connected peers find an known edge between them with higher nonce in the network
-//  they should update its nonce so that further edges are accepted among other members in the network.
-//  This event can happen if both nodes get offline and loose persisted information.
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
-    peer0: PeerId,
-    peer1: PeerId,
+    pub peer0: PeerId,
+    pub peer1: PeerId,
     /// Nonce to keep tracking of the last update on this edge.
     /// It must be even
     pub nonce: u64,
@@ -191,7 +188,6 @@ impl Edge {
 #[derive(Clone)]
 pub struct RoutingTable {
     // TODO(MarX, #1363): Use cache and file storing to keep this information.
-    // TODO(MarX): Add proof that this account belongs to this peer.
     /// PeerId associated for every known account id.
     pub account_peers: HashMap<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.

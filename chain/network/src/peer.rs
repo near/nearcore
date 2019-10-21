@@ -28,7 +28,6 @@ use crate::types::{
     PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan,
     RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister, PROTOCOL_VERSION,
 };
-
 use crate::PeerManagerActor;
 
 /// Maximum number of requests and responses to track.
@@ -571,10 +570,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
             (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
-                self.peer_manager_addr.do_send(NetworkRequests::Sync {
-                    peer_id: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
-                    sync_data,
-                });
+                self.peer_manager_addr
+                    .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
@@ -586,7 +583,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     self.peer_manager_addr
                         .send(RoutedMessageFrom {
                             msg: routed_message.clone(),
-                            from: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
+                            from: self.peer_id().unwrap(),
                         })
                         .into_actor(self)
                         .then(move |res, act, ctx| {
