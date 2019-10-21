@@ -94,6 +94,8 @@ fn create_block_with_invalid_chunk(
         0,
         0,
         0,
+        0,
+        0,
         MerkleHash::default(),
         vec![],
         &vec![],

@@ -38,11 +38,11 @@ class BaseNode(object):
     def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr):
         if boot_key is None:
             assert boot_node_addr is None
-            return [os.path.join(near_root, 'near'), "--verbose", "--home", node_dir, "run"]
+            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run"]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]
-            return [os.path.join(near_root, 'near'), "--verbose", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
+            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
 
     def wait_for_rpc(self):
         retry.retry(lambda: self.get_status(), timeout=1)

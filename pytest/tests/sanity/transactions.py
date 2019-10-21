@@ -57,7 +57,7 @@ while True:
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
             print("Balances caught up, took %s blocks, moving on" % (height - sent_height));
-            ctx.send_moar_txs(hash_, 10)
+            ctx.send_moar_txs(hash_, 10, use_routing=True)
             sent_height = height
         else:
             if height > sent_height + 10:

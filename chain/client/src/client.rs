@@ -10,6 +10,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use crate::metrics;
 use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
 };
@@ -27,13 +28,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{check_tx_history, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
-use crate::metrics;
-
 
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
@@ -43,7 +42,7 @@ use crate::{BlockProducer, ClientConfig, SyncStatus};
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 3;
+const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -328,17 +327,21 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
+        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         let transactions: Vec<_> = self
             .shards_mgr
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
             .into_iter()
             .filter(|t| {
-                check_tx_history(
-                    self.chain.get_block_header(&t.transaction.block_hash).ok(),
-                    next_height,
-                    transaction_validity_period,
-                )
+                self.chain
+                    .mut_store()
+                    .check_blocks_on_same_chain(
+                        &prev_block_header,
+                        &t.transaction.block_hash,
+                        transaction_validity_period,
+                    )
+                    .is_ok()
             })
             .collect();
         let block_header = self.chain.get_block_header(&prev_block_hash)?;
@@ -388,6 +391,8 @@ impl Client {
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
             chunk_extra.rent_paid,
+            chunk_extra.validator_reward,
+            chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
             &filtered_transactions,
             &outgoing_receipts,
@@ -520,29 +525,25 @@ impl Client {
             }
         };
 
-        if provenance != Provenance::SYNC {
-            // If we produced the block, then we want to broadcast it.
-            // If received the block from another node then broadcast "header first" to minimise network traffic.
-            if provenance == Provenance::PRODUCED {
-                self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
-            } else {
-                let approval = self.pending_approvals.cache_remove(&block_hash);
-                if let Some(approval) = approval {
-                    for (account_id, (sig, peer_id)) in approval {
-                        if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
-                            self.network_adapter.send(NetworkRequests::BanPeer {
-                                peer_id,
-                                ban_reason: ReasonForBan::BadBlockApproval,
-                            });
-                        }
+        // If we produced the block, then it should have already been broadcasted.
+        // If received the block from another node then broadcast "header first" to minimise network traffic.
+        if provenance == Provenance::NONE {
+            let approval = self.pending_approvals.cache_remove(&block_hash);
+            if let Some(approval) = approval {
+                for (account_id, (sig, peer_id)) in approval {
+                    if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
+                        self.network_adapter.send(NetworkRequests::BanPeer {
+                            peer_id,
+                            ban_reason: ReasonForBan::BadBlockApproval,
+                        });
                     }
                 }
-                let approval = self.create_block_approval(&block);
-                self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
-                    header: block.header.clone(),
-                    approval,
-                });
             }
+            let approval = self.create_block_approval(&block);
+            self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
+                header: block.header.clone(),
+                approval,
+            });
         }
 
         if let Some(bp) = self.block_producer.clone() {
@@ -795,37 +796,41 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let tx_header = unwrap_or_return!(
-            self.chain.get_block_header(&tx.transaction.block_hash),
-            NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
+        let cur_block_header = unwrap_or_return!(
+            self.chain.get_block_header(&head.last_block_hash),
+            NetworkClientResponses::NoResponse
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if !check_tx_history(
-            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
-            head.height,
+        if let Err(e) = self.chain.mut_store().check_blocks_on_same_chain(
+            &cur_block_header,
+            &tx.transaction.block_hash,
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(InvalidTxError::Expired);
+            return NetworkClientResponses::InvalidTx(e);
         }
 
-        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true) {
+        if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
+            || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
+        {
             let gas_price = unwrap_or_return!(
                 self.chain.get_block_header(&head.last_block_hash),
                 NetworkClientResponses::NoResponse
             )
             .inner
             .gas_price;
-            let state_root = unwrap_or_return!(
-                self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
-                NetworkClientResponses::NoResponse
-            )
-            .state_root
-            .clone();
+            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
+                Ok(chunk_extra) => chunk_extra.state_root.clone(),
+                Err(_) => {
+                    // Not being able to fetch a state root most likely implies that we haven't
+                    //     caught up with the next epoch yet.
+                    return self.forward_tx(tx);
+                }
+            };
             match self.runtime_adapter.validate_tx(
                 head.height + 1,
-                tx_header.inner.timestamp,
+                cur_block_header.inner.timestamp,
                 gas_price,
                 state_root,
                 tx,
@@ -875,7 +880,7 @@ impl Client {
             return Ok(false);
         };
 
-        for i in 0..TX_ROUTING_HEIGHT_HORIZON {
+        for i in 1..=TX_ROUTING_HEIGHT_HORIZON {
             let chunk_producer = self.runtime_adapter.get_chunk_producer(
                 &head.epoch_id,
                 head.height + i,
