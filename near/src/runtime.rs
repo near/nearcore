@@ -15,7 +15,7 @@ use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
@@ -433,7 +433,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
+    ) -> Result<ValidTransaction, RuntimeError> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
         let apply_state = ApplyState {
             block_index,
@@ -596,9 +596,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &transactions,
             )
             .map_err(|e| match e {
-                InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                InvalidTxErrorOrStorageError::StorageError(_) => {
-                    panic!("Storage error. Corrupted db or invalid state.");
+                RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
+                RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                RuntimeError::StorageError(e) => {
+                    panic!("Storage error. Corrupted db or invalid state. {}", e);
                 }
             })?;
 

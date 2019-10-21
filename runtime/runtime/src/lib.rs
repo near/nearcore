@@ -45,8 +45,7 @@ use crate::config::{
 };
 pub use crate::store::StateRecord;
 use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError,
-    InvalidTxErrorOrStorageError,
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
 };
 use std::cmp::max;
 use std::sync::Arc;
@@ -184,7 +183,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
-    ) -> Result<VerificationResult, InvalidTxErrorOrStorageError> {
+    ) -> Result<VerificationResult, RuntimeError> {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
@@ -337,7 +336,7 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
         stats: &mut ApplyStats,
-    ) -> Result<ExecutionOutcomeWithId, InvalidTxErrorOrStorageError> {
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         let outcome =
             match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
@@ -852,7 +851,7 @@ impl Runtime {
         Ok(None)
     }
 
-    /// Iterates over validator in the current shard and updates their accounts to return stake
+    /// Iterates over the validators in the current shard and updates their accounts to return stake
     /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
     /// shard.
     fn update_validator_accounts(
@@ -919,7 +918,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyResult, InvalidTxErrorOrStorageError> {
+    ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
 

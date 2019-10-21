@@ -23,7 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 tokio = "0.1.15"
 uuid = { version = "~0.6", features = ["v4"] }
 
-borsh = "0.2.5"
+borsh = "0.2.7"
 
 async-utils = { path = "../../async-utils" }
 near-crypto = { path = "../../core/crypto" }

@@ -3,7 +3,7 @@ use crate::config::{
     total_prepaid_gas,
 };
 use crate::{ApplyStats, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
-use near_primitives::errors::{InvalidTxError, InvalidTxErrorOrStorageError, StorageError};
+use near_primitives::errors::{BalanceMismatchError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -23,7 +23,7 @@ pub(crate) fn check_balance(
     transactions: &[SignedTransaction],
     new_receipts: &[Receipt],
     stats: &ApplyStats,
-) -> Result<(), InvalidTxErrorOrStorageError> {
+) -> Result<(), RuntimeError> {
     // Accounts
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter()
@@ -52,8 +52,8 @@ pub(crate) fn check_balance(
             .into_iter()
             .sum::<Balance>())
     };
-    let initial_account_balance = total_accounts_balance(&initial_state)?;
-    let final_account_balance = total_accounts_balance(&final_state)?;
+    let initial_accounts_balance = total_accounts_balance(&initial_state)?;
+    let final_accounts_balance = total_accounts_balance(&final_state)?;
     // Receipts
     let receipt_cost = |receipt: &Receipt| -> Result<Balance, InvalidTxError> {
         Ok(match &receipt.receipt {
@@ -114,14 +114,14 @@ pub(crate) fn check_balance(
         .filter_map(|x| x)
         .collect::<HashSet<_>>();
 
-    let total_postponed_receipts_cost = |state| -> Result<Balance, InvalidTxErrorOrStorageError> {
+    let total_postponed_receipts_cost = |state| -> Result<Balance, RuntimeError> {
         Ok(all_potential_postponed_receipt_ids
             .iter()
             .map(|(account_id, receipt_id)| {
                 Ok(get_receipt(state, account_id, &receipt_id)?
                     .map_or(Ok(0), |r| receipt_cost(&r))?)
             })
-            .collect::<Result<Vec<Balance>, InvalidTxErrorOrStorageError>>()?
+            .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
             .sum::<Balance>())
     };
@@ -129,43 +129,32 @@ pub(crate) fn check_balance(
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
     // Sum it up
     let initial_balance = incoming_validator_rewards
-        + initial_account_balance
+        + initial_accounts_balance
         + incoming_receipts_balance
         + initial_postponed_receipts_balance;
-    let final_balance = final_account_balance
+    let final_balance = final_accounts_balance
         + outgoing_receipts_balance
         + final_postponed_receipts_balance
         + stats.total_rent_paid
         + stats.total_validator_reward
         + stats.total_balance_burnt;
     if initial_balance != final_balance {
-        panic!(
-            "Runtime Apply initial balance sum {} doesn't match final balance sum {}\n\
-             \tIncoming validator rewards sum: {}\n\
-             \tInitial account balance sum: {}\n\
-             \tFinal account balance sum: {}\n\
-             \tIncoming receipts balance sum: {}\n\
-             \tOutgoing receipts balance sum: {}\n\
-             \tInitial postponed receipts balance sum: {}\n\
-             \tFinal postponed receipts balance sum: {}\n\
-             \t{:?}\n\
-             \tIncoming Receipts {:#?}\n\
-             \tOutgoing Receipts {:#?}",
-            initial_balance,
-            final_balance,
+        Err(BalanceMismatchError {
             incoming_validator_rewards,
-            initial_account_balance,
-            final_account_balance,
+            initial_accounts_balance,
+            final_accounts_balance,
             incoming_receipts_balance,
             outgoing_receipts_balance,
             initial_postponed_receipts_balance,
             final_postponed_receipts_balance,
-            stats,
-            prev_receipts,
-            new_receipts,
-        );
+            total_rent_paid: stats.total_rent_paid,
+            total_validator_reward: stats.total_validator_reward,
+            total_balance_burnt: stats.total_balance_burnt,
+        }
+        .into())
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -182,6 +171,8 @@ mod tests {
     use near_store::test_utils::create_trie;
     use near_store::{set_account, TrieUpdate};
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_check_balance_no_op() {
@@ -204,14 +195,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_check_balance_unaccounted_refund() {
         let trie = create_trie();
         let root = MerkleHash::default();
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let final_state = TrieUpdate::new(trie.clone(), root);
         let transaction_costs = RuntimeFeesConfig::default();
-        check_balance(
+        let err = check_balance(
             &transaction_costs,
             &initial_state,
             &final_state,
@@ -221,7 +211,8 @@ mod tests {
             &[],
             &ApplyStats::default(),
         )
-        .unwrap_or_else(|_| ());
+        .unwrap_err();
+        assert_matches!(err, RuntimeError::BalanceMismatch(_));
     }
 
     #[test]
