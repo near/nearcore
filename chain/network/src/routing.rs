@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
+use itertools::{Itertools, MinMaxResult};
 use log::debug;
 
 use near_crypto::{SecretKey, Signature};
@@ -14,6 +15,7 @@ use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
+const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -198,6 +200,10 @@ pub struct RoutingTable {
     pub route_back: CloneNone<SizedCache<CryptoHash, PeerId>>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
+    /// Number of times each active connection was used to route a message.
+    /// If there are several options use route with minimum nonce.
+    /// New routes are added with minimum nonce.
+    route_nonce: HashMap<PeerId, usize>,
     /// Ping received by nonce. Used for testing only.
     ping_info: Option<HashMap<usize, Ping>>,
     /// Ping received by nonce. Used for testing only.
@@ -220,6 +226,7 @@ impl RoutingTable {
             edges_info: HashMap::new(),
             route_back: CloneNone::new(SizedCache::with_size(ROUTE_BACK_CACHE_SIZE)),
             raw_graph: Graph::new(peer_id),
+            route_nonce: HashMap::new(),
             ping_info: None,
             pong_info: None,
         }
@@ -227,14 +234,44 @@ impl RoutingTable {
 
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
-    pub fn find_route_from_peer_id(&self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+    pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id) {
-            if routes.is_empty() {
-                Err(FindRouteError::Disconnected)
-            } else {
-                // TODO(MarX, #1363): Do Round Robin
-                Ok(routes.iter().next().unwrap().clone())
-            }
+            // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
+            // nonce by one. Additionally if the difference between the highest and nonce and the lowest
+            // nonce is greater than some threshold increase the lowest nonce to be at least
+            // max nonce - threshold.
+
+            let result = routes
+                .iter()
+                .map(|peer_id| {
+                    let nonce = self.route_nonce.get(&peer_id).cloned().unwrap_or(0usize);
+                    (peer_id.clone(), nonce)
+                })
+                .minmax_by_key(|value| value.1);
+
+            let next_hop = match result {
+                MinMaxResult::NoElements => {
+                    return Err(FindRouteError::Disconnected);
+                }
+                MinMaxResult::OneElement(value) => value.0,
+                MinMaxResult::MinMax(min, max) => {
+                    if min.1 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max.1 {
+                        self.route_nonce.insert(
+                            min.0.clone(),
+                            max.1 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
+                        );
+                    }
+                    min.0
+                }
+            };
+
+            self.route_nonce
+                .entry(next_hop.clone())
+                .and_modify(|nonce| {
+                    *nonce += 1;
+                })
+                .or_insert(1);
+            Ok(next_hop)
         } else {
             Err(FindRouteError::PeerNotFound)
         }
