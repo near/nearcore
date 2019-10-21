@@ -67,7 +67,7 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j)
+        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j, timeout=1)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -75,7 +75,7 @@ class BaseNode(object):
         return self.json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
 
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr())
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=1)
         r.raise_for_status()
         return json.loads(r.content)
 
