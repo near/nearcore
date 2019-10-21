@@ -44,8 +44,8 @@ use crate::config::{
 };
 pub use crate::store::StateRecord;
 use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError,
-    InvalidTxErrorOrStorageError,
+    ActionError, BalanceMismatchError, ExecutionError, InvalidAccessKeyError, InvalidTxError,
+    RuntimeError,
 };
 
 mod actions;
@@ -168,7 +168,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
-    ) -> Result<VerificationResult, InvalidTxErrorOrStorageError> {
+    ) -> Result<VerificationResult, RuntimeError> {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
@@ -321,7 +321,7 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
         stats: &mut ApplyStats,
-    ) -> Result<ExecutionOutcomeWithId, InvalidTxErrorOrStorageError> {
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
         let outcome =
             match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
@@ -850,7 +850,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyResult, InvalidTxErrorOrStorageError> {
+    ) -> Result<ApplyResult, RuntimeError> {
         // TODO(#1481): Remove clone after Runtime bug is fixed.
         let initial_state = state_update.clone();
 
@@ -914,7 +914,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
         new_receipts: &[Receipt],
         stats: &ApplyStats,
-    ) -> Result<(), InvalidTxErrorOrStorageError> {
+    ) -> Result<(), RuntimeError> {
         // Accounts
         let all_accounts_ids: HashSet<AccountId> = transactions
             .iter()
@@ -931,8 +931,8 @@ impl Runtime {
                 .into_iter()
                 .sum::<u128>())
         };
-        let initial_account_balance = total_accounts_balance(&initial_state)?;
-        let final_account_balance = total_accounts_balance(&final_state)?;
+        let initial_accounts_balance = total_accounts_balance(&initial_state)?;
+        let final_accounts_balance = total_accounts_balance(&final_state)?;
         // Receipts
         let receipt_cost = |receipt: &Receipt| -> Result<u128, InvalidTxError> {
             Ok(match &receipt.receipt {
@@ -997,55 +997,45 @@ impl Runtime {
             .filter_map(|x| x)
             .collect();
 
-        let total_postponed_receipts_cost = |state| -> Result<u128, InvalidTxErrorOrStorageError> {
+        let total_postponed_receipts_cost = |state| -> Result<u128, RuntimeError> {
             Ok(all_potential_postponed_receipt_ids
                 .iter()
                 .map(|(account_id, receipt_id)| {
                     Ok(get_receipt(state, account_id, &receipt_id)?
                         .map_or(Ok(0), |r| receipt_cost(&r))?)
                 })
-                .collect::<Result<Vec<u128>, InvalidTxErrorOrStorageError>>()?
+                .collect::<Result<Vec<u128>, RuntimeError>>()?
                 .into_iter()
                 .sum::<u128>())
         };
         let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
         let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
         // Sum it up
-        let initial_balance = initial_account_balance
+        let initial_balance = initial_accounts_balance
             + incoming_receipts_balance
             + initial_postponed_receipts_balance;
-        let final_balance = final_account_balance
+        let final_balance = final_accounts_balance
             + outgoing_receipts_balance
             + final_postponed_receipts_balance
             + stats.total_rent_paid
             + stats.total_validator_reward
             + stats.total_balance_burnt;
         if initial_balance != final_balance {
-            panic!(
-                "Runtime Apply initial balance sum {} doesn't match final balance sum {}\n\
-                 \tInitial account balance sum: {}\n\
-                 \tFinal account balance sum: {}\n\
-                 \tIncoming receipts balance sum: {}\n\
-                 \tOutgoing receipts balance sum: {}\n\
-                 \tInitial postponed receipts balance sum: {}\n\
-                 \tFinal postponed receipts balance sum: {}\n\
-                 \t{:?}\n\
-                 \tIncoming Receipts {:#?}\n\
-                 \tOutgoing Receipts {:#?}",
-                initial_balance,
-                final_balance,
-                initial_account_balance,
-                final_account_balance,
+            Err(BalanceMismatchError {
+                initial_accounts_balance,
+                final_accounts_balance,
                 incoming_receipts_balance,
                 outgoing_receipts_balance,
                 initial_postponed_receipts_balance,
                 final_postponed_receipts_balance,
-                stats,
-                prev_receipts,
-                new_receipts,
-            );
+                total_balance_burnt: stats.total_balance_burnt,
+                total_rent_paid: stats.total_rent_paid,
+                total_validator_reward: stats.total_validator_reward,
+            }
+            .into())
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
@@ -1206,6 +1196,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
+    use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::TransferAction;
 
@@ -1252,14 +1243,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_check_balance_unaccounted_refund() {
         let trie = create_trie();
         let root = MerkleHash::default();
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let final_state = TrieUpdate::new(trie.clone(), root);
         let runtime = Runtime::new(RuntimeConfig::default());
-        runtime
+        let err = runtime
             .check_balance(
                 &initial_state,
                 &final_state,
@@ -1268,7 +1258,8 @@ mod tests {
                 &[],
                 &ApplyStats::default(),
             )
-            .unwrap_or_else(|_| ());
+            .unwrap_err();
+        assert_matches!(err, RuntimeError::BalanceMismatch(_));
     }
 
     #[test]
