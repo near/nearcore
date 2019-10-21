@@ -45,7 +45,7 @@ impl Decoder for Codec {
         }
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
-        let len = unsafe { std::mem::transmute::<[u8; 4], u32>(len_bytes) }.to_le();
+        let len = u32::from_le_bytes(len_bytes);
         if buf.len() < 4 + len as usize {
             // not enough bytes, keep waiting
             Ok(None)
