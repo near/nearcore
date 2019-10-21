@@ -852,7 +852,7 @@ impl Runtime {
         Ok(None)
     }
 
-    /// Iterates over validator in the current shard and updates their accounts to return stake
+    /// Iterates over the validators in the current shard and updates their accounts to return stake
     /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
     /// shard.
     fn update_validator_accounts(
