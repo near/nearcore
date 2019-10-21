@@ -13,7 +13,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{check_tx_history, ExecutionOutcome};
+use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::{Store, COL_STATE_HEADERS};
 
@@ -235,7 +235,7 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
-                        chain_genesis.gas_price,
+                        0,
                         0,
                         chain_genesis.total_supply,
                     )?;
@@ -247,7 +247,7 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0, 0, 0),
                         );
                     }
 
@@ -403,9 +403,9 @@ impl Chain {
                     header.inner.validator_proposals.clone(),
                     vec![],
                     header.inner.chunk_mask.clone(),
-                    header.inner.gas_used,
-                    header.inner.gas_price,
                     header.inner.rent_paid,
+                    header.inner.validator_reward,
+                    header.inner.balance_burnt,
                     header.inner.total_supply,
                 )?;
             }
@@ -1652,13 +1652,11 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        !check_tx_history(
-                            self.chain_store_update
-                                .get_block_header(&t.transaction.block_hash)
-                                .ok(),
-                            chunk_header.inner.height_created,
+                        self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
+                            &block.header,
+                            &t.transaction.block_hash,
                             self.transaction_validity_period,
-                        )
+                        ).is_err()
                     });
                     if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
@@ -1694,6 +1692,8 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.total_gas_burnt,
                             gas_limit,
                             apply_result.total_rent_paid,
+                            apply_result.total_validator_reward,
+                            apply_result.total_balance_burnt
                         ),
                     );
                     // Save resulting receipts.
@@ -1854,9 +1854,9 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner.validator_proposals.clone(),
             vec![],
             block.header.inner.chunk_mask.clone(),
-            block.header.inner.gas_used,
-            block.header.inner.gas_price,
             block.header.inner.rent_paid,
+            block.header.inner.validator_reward,
+            block.header.inner.balance_burnt,
             block.header.inner.total_supply,
         )?;
 
@@ -2199,6 +2199,8 @@ impl<'a> ChainUpdate<'a> {
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_rent_paid,
+            apply_result.total_validator_reward,
+            apply_result.total_balance_burnt
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
 

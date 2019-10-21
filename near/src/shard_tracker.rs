@@ -237,7 +237,6 @@ mod tests {
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
 
-    const DEFAULT_GAS_PRICE: u128 = 100;
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
     fn get_epoch_manager(num_shards: ShardId) -> Arc<RwLock<EpochManager>> {
@@ -290,7 +289,7 @@ mod tests {
                     vec![],
                     HashSet::default(),
                     0,
-                    DEFAULT_GAS_PRICE,
+                    0,
                     0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
