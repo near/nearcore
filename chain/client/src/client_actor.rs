@@ -389,20 +389,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::AnnounceAccount(announce_account) => {
-                match self.check_signature_account_announce(&announce_account) {
-                    AccountAnnounceVerificationResult::Valid => {
-                        self.network_adapter
-                            .send(NetworkRequests::AnnounceAccount(announce_account));
-                        NetworkClientResponses::NoResponse
-                    }
-                    AccountAnnounceVerificationResult::Invalid(ban_reason) => {
-                        NetworkClientResponses::Ban { ban_reason }
-                    }
-                    AccountAnnounceVerificationResult::UnknownEpoch => {
-                        NetworkClientResponses::NoResponse
+            NetworkClientMessages::AnnounceAccount(announce_accounts) => {
+                let mut filtered_announce_accounts = Vec::new();
+
+                for announce_account in announce_accounts.into_iter() {
+                    match self.check_signature_account_announce(&announce_account) {
+                        AccountAnnounceVerificationResult::Invalid(ban_reason) => {
+                            return NetworkClientResponses::Ban { ban_reason };
+                        }
+                        AccountAnnounceVerificationResult::Valid => {
+                            filtered_announce_accounts.push(announce_account);
+                        }
+                        // Filter this account
+                        AccountAnnounceVerificationResult::UnknownEpoch => {}
                     }
                 }
+
+                NetworkClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
         }
     }
@@ -649,6 +652,10 @@ impl ClientActor {
         block: Block,
         provenance: Provenance,
     ) -> Result<(), near_chain::Error> {
+        // If we produced the block, send it out before we apply the block.
+        if provenance == Provenance::PRODUCED {
+            self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+        }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
@@ -1035,13 +1042,11 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Ok(NetworkResponses::RoutingTableInfo(_)) | Ok(NetworkResponses::NoResponse) => {
-                    actix::fut::ok(())
-                }
                 Err(e) => {
                     error!(target: "client", "Sync: received error or incorrect result: {}", e);
                     actix::fut::err(())
                 }
+                _ => actix::fut::ok(()),
             })
             .wait(ctx);
 

@@ -34,6 +34,10 @@ pub struct ShardChunkHeaderInner {
     pub gas_limit: Gas,
     /// Rent paid in the previous chunk
     pub rent_paid: Balance,
+    /// Total validator reward in previous chunk
+    pub validator_reward: Balance,
+    /// Total balance burnt in previous chunk
+    pub balance_burnt: Balance,
     /// Outgoing receipts merkle root.
     pub outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
@@ -78,6 +82,8 @@ impl ShardChunkHeader {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -93,6 +99,8 @@ impl ShardChunkHeader {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -194,6 +202,9 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
+
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
@@ -232,6 +243,8 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -252,6 +265,8 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -277,6 +292,8 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,

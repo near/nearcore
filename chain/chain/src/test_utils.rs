@@ -18,7 +18,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, StateRoot,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot,
     ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
@@ -453,9 +453,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
-        _gas_used: Gas,
-        _gas_price: Balance,
         _rent_paid: Balance,
+        _validator_reward: Balance,
+        _balance_burnt: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -644,6 +644,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_rent_paid: 0,
+            total_validator_reward: 0,
+            total_balance_burnt: 0,
             proof: None,
         })
     }

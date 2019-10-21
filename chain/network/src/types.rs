@@ -245,12 +245,14 @@ pub enum HandshakeFailureReason {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
-    nonce: usize,
+    pub nonce: usize,
+    pub source: PeerId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
-    nonce: usize,
+    pub nonce: usize,
+    pub source: PeerId,
 }
 
 // TODO(#1313): Use Box
@@ -263,28 +265,36 @@ pub enum RoutedMessageBody {
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
-    /// Ping and Pong are used for testing networking and routing
+    /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
 }
 
-pub enum AccountOrPeerId {
-    AccountId(AccountId),
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum PeerIdOrHash {
     PeerId(PeerId),
+    Hash(CryptoHash),
 }
 
-impl AccountOrPeerId {
-    fn peer_id(&self) -> Option<PeerId> {
+pub enum AccountOrPeerIdOrHash {
+    AccountId(AccountId),
+    PeerId(PeerId),
+    Hash(CryptoHash),
+}
+
+impl AccountOrPeerIdOrHash {
+    fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
         match self {
-            AccountOrPeerId::AccountId(_) => None,
-            AccountOrPeerId::PeerId(peer_id) => Some(peer_id.clone()),
+            AccountOrPeerIdOrHash::AccountId(_) => None,
+            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
+            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(hash.clone())),
         }
     }
 }
 
 #[derive(Message)]
 pub struct RawRoutedMessage {
-    pub target: AccountOrPeerId,
+    pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
 }
 
@@ -292,7 +302,7 @@ impl RawRoutedMessage {
     /// Add signature to the message.
     /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
-        let target = self.target.peer_id().unwrap();
+        let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { target, author, signature, body: self.body }
@@ -301,7 +311,7 @@ impl RawRoutedMessage {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature {
-    target: PeerId,
+    target: PeerIdOrHash,
     author: PeerId,
     body: RoutedMessageBody,
 }
@@ -312,10 +322,13 @@ pub struct RoutedMessageNoSignature {
 /// route must verify that this signature is valid otherwise previous sender of this package should
 /// be banned. If the final receiver of this package finds that the body is invalid the original
 /// sender of the package should be banned instead.
+/// If target is hash, it is a message that should be routed back using the same path used to route
+/// the request in first place. It is the hash of the request message.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
-    /// Account id which is directed this message
-    pub target: PeerId,
+    /// Peer id which is directed this message.
+    /// If `target` is hash, this a message should be routed back.
+    pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
@@ -326,7 +339,7 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(target: PeerId, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
+    pub fn build_hash(target: PeerIdOrHash, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
         hash(
             &RoutedMessageNoSignature { target, author: source, body }
                 .try_to_vec()
@@ -334,7 +347,7 @@ impl RoutedMessage {
         )
     }
 
-    fn hash(&self) -> CryptoHash {
+    pub fn hash(&self) -> CryptoHash {
         RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
     }
 
@@ -343,28 +356,42 @@ impl RoutedMessage {
     }
 
     pub fn expect_response(&self) -> bool {
-        // TODO(MarX, #1368): Mark some message as requiring response
-        false
+        match self.body {
+            RoutedMessageBody::Ping(_) => true,
+            _ => false,
+        }
     }
 }
 
-impl Message for RoutedMessage {
+/// Routed Message wrapped with previous sender of the message.
+pub struct RoutedMessageFrom {
+    /// Routed messages.
+    pub msg: RoutedMessage,
+    /// Previous hop in the route. Used for messages that needs routing back.
+    pub from: PeerId,
+}
+
+impl Message for RoutedMessageFrom {
     type Result = bool;
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub edges: Vec<Edge>,
-    pub known_accounts: HashMap<AccountId, PeerId>,
+    pub accounts: Vec<AnnounceAccount>,
 }
 
 impl SyncData {
     pub fn edge(edge: Edge) -> Self {
-        Self { edges: vec![edge], known_accounts: HashMap::new() }
+        Self { edges: vec![edge], accounts: Vec::new() }
+    }
+
+    pub fn account(account: AnnounceAccount) -> Self {
+        Self { edges: Vec::new(), accounts: vec![account] }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.edges.is_empty() && self.known_accounts.is_empty()
+        self.edges.is_empty() && self.accounts.is_empty()
     }
 }
 
@@ -380,6 +407,7 @@ pub enum PeerMessage {
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
+    /// Contains accounts and edge information.
     Sync(SyncData),
 
     PeersRequest,
@@ -396,7 +424,6 @@ pub enum PeerMessage {
 
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
-    AnnounceAccount(AnnounceAccount),
     Routed(RoutedMessage),
 
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -425,7 +452,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
-            PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
@@ -637,6 +663,7 @@ pub enum ReasonForBan {
     InvalidSignature = 7,
     InvalidPeerId = 8,
     InvalidHash = 9,
+    InvalidEdge = 10,
 }
 
 #[derive(Message)]
@@ -691,7 +718,15 @@ pub enum NetworkRequests {
     /// Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync(SyncData),
+    Sync {
+        peer_id: PeerId,
+        sync_data: SyncData,
+    },
+
+    // Start ping to `PeerId` with `nonce`.
+    PingTo(usize, PeerId),
+    // Fetch all received ping and pong so far.
+    FetchPingPongInfo,
 }
 
 /// Messages from PeerManager to Peer
@@ -725,6 +760,8 @@ pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
     RoutingTableInfo(RoutingTableInfo),
+    PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
+    BanPeer(ReasonForBan),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -774,16 +811,16 @@ pub enum NetworkClientMessages {
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Account announcement that needs to be validated before being processed
-    AnnounceAccount(AnnounceAccount),
+    /// Account announcements that needs to be validated before being processed.
+    AnnounceAccount(Vec<AnnounceAccount>),
 
-    /// Request chunk part
+    /// Request chunk part.
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
-    /// Request chunk part
+    /// Request chunk part.
     ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
-    /// A chunk part
+    /// A chunk part.
     ChunkPart(ChunkPartMsg),
-    /// A chunk header and one part
+    /// A chunk header and one part.
     ChunkOnePart(ChunkOnePart),
 }
 
@@ -807,6 +844,8 @@ pub enum NetworkClientResponses {
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
     StateResponse(StateResponseInfo),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
