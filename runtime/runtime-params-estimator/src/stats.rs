@@ -161,6 +161,11 @@ impl DataStats {
             ile95: Duration::from_nanos(ile95 as u64),
         }
     }
+
+    /// Get mean + 4*sigma in micros
+    pub fn sigma_micros(&self) -> u64 {
+        (self.mean.as_micros() + 4 * self.stddev.as_micros()) as u64
+    }
 }
 
 impl std::fmt::Display for DataStats {

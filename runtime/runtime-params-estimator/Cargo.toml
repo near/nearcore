@@ -16,6 +16,7 @@ serde_json = "1.0.40"
 csv = "1.1.1"
 clap = "2.33.0"
 
+near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
