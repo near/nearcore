@@ -1,6 +1,6 @@
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{Config, VMContext, VMOutcome};
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_runner::{run, VMError};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

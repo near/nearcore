@@ -4,14 +4,14 @@ use std::time::Duration;
 
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::{setup_client, MockNetworkAdapter};
-use near_crypto::InMemoryBlsSigner;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{MerkleHash, StateRoot};
 use near_store::test_utils::create_test_store;
 
 #[test]
@@ -49,7 +49,10 @@ fn test_request_chunk_restart() {
         part_id: 0,
         tracking_shards: HashSet::default(),
     };
-    client.shards_mgr.process_chunk_one_part_request(request.clone(), PeerId::random()).unwrap();
+    client
+        .shards_mgr
+        .process_chunk_one_part_request(request.clone(), PeerId::random(), client.chain.mut_store())
+        .unwrap();
     assert!(network_adapter.pop().is_some());
 
     let mut client2 = setup_client(
@@ -61,7 +64,10 @@ fn test_request_chunk_restart() {
         network_adapter.clone(),
         chain_genesis,
     );
-    client2.shards_mgr.process_chunk_one_part_request(request, PeerId::random()).unwrap();
+    client2
+        .shards_mgr
+        .process_chunk_one_part_request(request, PeerId::random(), client2.chain.mut_store())
+        .unwrap();
     // TODO: should be some() with the same chunk.
     assert!(network_adapter.pop().is_none());
 }
@@ -74,14 +80,19 @@ fn create_block_with_invalid_chunk(
     prev_block_header: &BlockHeader,
     account_id: &str,
 ) -> (Block, EncodedShardChunk) {
-    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
         prev_block_header.hash,
-        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+        StateRoot {
+            hash: CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+            num_parts: 9, /* TODO MOO */
+        },
         1,
         0,
         20,
         12,
+        0,
+        0,
         0,
         0,
         0,
@@ -90,7 +101,7 @@ fn create_block_with_invalid_chunk(
         &vec![],
         &vec![],
         MerkleHash::default(),
-        signer.clone(),
+        &*signer,
     )
     .unwrap();
     let block_with_invalid_chunk = Block::produce(
@@ -101,7 +112,7 @@ fn create_block_with_invalid_chunk(
         HashMap::default(),
         0,
         None,
-        signer,
+        &*signer,
     );
     (block_with_invalid_chunk, invalid_encoded_chunk)
 }

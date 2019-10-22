@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use log::LevelFilter;
 
 use lazy_static::lazy_static;
-use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptySigner, PublicKey, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission};
 use crate::block::Block;
@@ -85,7 +85,7 @@ impl SignedTransaction {
         signer_id: AccountId,
         signer: &dyn Signer,
         stake: Balance,
-        public_key: BlsPublicKey,
+        public_key: PublicKey,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -134,16 +134,16 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
-        signer: Arc<dyn BlsSigner>,
+        signer: &dyn Signer,
     ) -> Self {
         Self::empty_with_approvals(prev, height, epoch_id, HashMap::default(), signer)
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn BlsSigner>) -> Self {
+    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
         Self::empty_with_epoch(prev, height, prev.header.inner.epoch_id.clone(), signer)
     }
 
-    pub fn empty(prev: &Block, signer: Arc<dyn BlsSigner>) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
         Self::empty_with_height(prev, prev.header.inner.height + 1, signer)
     }
 
@@ -153,8 +153,8 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
-        approvals: HashMap<usize, BlsSignature>,
-        signer: Arc<dyn BlsSigner>,
+        approvals: HashMap<usize, Signature>,
+        signer: &dyn Signer,
     ) -> Self {
         Block::produce(
             &prev.header,

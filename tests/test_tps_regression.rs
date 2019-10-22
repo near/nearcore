@@ -143,7 +143,7 @@ mod test {
                                 observed_transactions
                                     .write()
                                     .unwrap()
-                                    .push((b.transactions.len() as u64, Instant::now()));
+                                    .push((b.header.gas_used as u64, Instant::now()));
                             }
                             prev_ind = new_ind;
                         }

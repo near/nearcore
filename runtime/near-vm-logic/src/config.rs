@@ -90,7 +90,10 @@ impl Config {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    pub input_byte: Gas,
+    /// Pay for reading contract input base
+    pub input_base: Gas,
+    /// Pay for reading contract input per byte
+    pub input_per_byte: Gas,
     /// Storage trie read key base cost
     pub storage_read_base: Gas,
     /// Storage trie read key per byte cost
@@ -127,12 +130,20 @@ pub struct ExtCostsConfig {
     pub storage_iter_next_value_byte: Gas,
     /// Base cost for reading from register
     pub read_register_base: Gas,
-    /// Base cost for reading byte from register
+    /// Cost for reading byte from register
     pub read_register_byte: Gas,
     /// Base cost for writing into register
     pub write_register_base: Gas,
-    /// Base cost for writing byte into register
+    /// Cost for writing byte into register
     pub write_register_byte: Gas,
+    /// Base cost for guest memory read
+    pub read_memory_base: Gas,
+    /// Cost for guest memory read
+    pub read_memory_byte: Gas,
+    /// Base cost for guest memory write
+    pub write_memory_base: Gas,
+    /// Cost for guest memory write per byte
+    pub write_memory_byte: Gas,
     /// Get account balance cost
     pub account_balance: Gas,
     /// Get prepaid gas cost
@@ -140,10 +151,12 @@ pub struct ExtCostsConfig {
     /// Get used gas cost
     pub used_gas: Gas,
     /// Cost of getting random seed
-    pub random_seed: Gas,
-    /// Cost of getting sha256
+    pub random_seed_base: Gas,
+    /// Cost of getting random seed per byte
+    pub random_seed_per_byte: Gas,
+    /// Cost of getting sha256 base
     pub sha256: Gas,
-    /// Cost of getting sha256
+    /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
     /// Get account attached_deposit base cost
     pub attached_deposit: Gas,
@@ -169,12 +182,29 @@ pub struct ExtCostsConfig {
     pub predecessor_account_id: Gas,
     /// Cost for getting a predecessor account per byte
     pub predecessor_account_id_byte: Gas,
+    /// Cost for calling promise_and
+    pub promise_and_base: Gas,
+    /// Cost for calling promise_and for each promise
+    pub promise_and_per_promise: Gas,
+    /// Cost for calling promise_result
+    pub promise_result_base: Gas,
+    /// Cost for calling promise_result per result byte
+    pub promise_result_byte: Gas,
+    /// Cost for calling promise_results_count
+    pub promise_results_count: Gas,
+    /// Cost for calling promise_return
+    pub promise_return: Gas,
+    /// Cost for calling logging
+    pub log_base: Gas,
+    /// Cost for logging per byte
+    pub log_per_byte: Gas,
 }
 
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
-            input_byte: 1,
+            input_base: 1,
+            input_per_byte: 1,
             storage_read_base: 1,
             storage_read_key_byte: 1,
             storage_read_value_byte: 1,
@@ -196,10 +226,15 @@ impl Default for ExtCostsConfig {
             read_register_byte: 1,
             write_register_base: 1,
             write_register_byte: 1,
+            read_memory_base: 1,
+            read_memory_byte: 1,
+            write_memory_base: 1,
+            write_memory_byte: 1,
             account_balance: 1,
             prepaid_gas: 1,
             used_gas: 1,
-            random_seed: 1,
+            random_seed_base: 1,
+            random_seed_per_byte: 1,
             sha256: 1,
             sha256_byte: 1,
             attached_deposit: 1,
@@ -214,6 +249,14 @@ impl Default for ExtCostsConfig {
             signer_account_pk_byte: 1,
             predecessor_account_id: 1,
             predecessor_account_id_byte: 1,
+            promise_and_base: 1,
+            promise_and_per_promise: 1,
+            promise_result_base: 1,
+            promise_result_byte: 1,
+            promise_results_count: 1,
+            promise_return: 1,
+            log_base: 1,
+            log_per_byte: 1,
         }
     }
 }
@@ -221,7 +264,8 @@ impl Default for ExtCostsConfig {
 impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
-            input_byte: 0,
+            input_base: 0,
+            input_per_byte: 0,
             storage_read_base: 0,
             storage_read_key_byte: 0,
             storage_read_value_byte: 0,
@@ -243,10 +287,15 @@ impl ExtCostsConfig {
             read_register_byte: 0,
             write_register_base: 0,
             write_register_byte: 0,
+            read_memory_base: 0,
+            read_memory_byte: 0,
+            write_memory_base: 0,
+            write_memory_byte: 0,
             account_balance: 0,
             prepaid_gas: 0,
             used_gas: 0,
-            random_seed: 0,
+            random_seed_base: 0,
+            random_seed_per_byte: 0,
             sha256: 0,
             sha256_byte: 0,
             attached_deposit: 0,
@@ -261,6 +310,14 @@ impl ExtCostsConfig {
             signer_account_pk_byte: 0,
             predecessor_account_id: 0,
             predecessor_account_id_byte: 0,
+            promise_and_base: 0,
+            promise_and_per_promise: 0,
+            promise_result_base: 0,
+            promise_result_byte: 0,
+            promise_results_count: 0,
+            promise_return: 0,
+            log_base: 0,
+            log_per_byte: 0,
         }
     }
 }

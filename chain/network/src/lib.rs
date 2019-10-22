@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 pub use peer_manager::PeerManagerActor;
 pub use types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
@@ -5,10 +8,13 @@ pub use types::{
 };
 
 mod codec;
+mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;
-pub mod types;
 mod rate_counter;
+pub mod routing;
+pub mod types;
+mod utils;
 
 pub mod test_utils;

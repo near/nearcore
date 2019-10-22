@@ -17,6 +17,8 @@ EOF
 
 fi
 
+ulimit -c unlimited
+
 echo "Bootnodes: ${BOOT_NODES}"
 
 near --home=${NEAR_HOME} run --boot-nodes=${BOOT_NODES}

@@ -7,9 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
-use near_crypto::{
-    BlsSecretKey, BlsSignature, InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey,
-};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -20,7 +18,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
@@ -29,18 +27,17 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
-    Weight,
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePart, StatePartKey,
+    ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
-use near_primitives::merkle::merklize;
+use near_primitives::errors::RuntimeError;
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
+
+pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
-
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone)]
-struct StateRoot(CryptoHash, CryptoHash, CryptoHash);
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 struct KVState {
@@ -53,14 +50,18 @@ struct KVState {
 pub struct KeyValueRuntime {
     store: Arc<Store>,
     trie: Arc<Trie>,
-    root: MerkleHash,
+    root: StateRoot,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: ShardId,
+    epoch_length: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<MerkleHash, KVState>>,
+    state_parts: RwLock<HashMap<CryptoHash, StatePart>>,
+    state_proofs: RwLock<HashMap<CryptoHash, MerklePath>>,
 
+    headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
@@ -85,7 +86,7 @@ fn create_receipt_nonce(from: String, to: String, amount: Balance, nonce: Nonce)
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1)
+        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
@@ -93,6 +94,7 @@ impl KeyValueRuntime {
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
         num_shards: ShardId,
+        epoch_length: u64,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut initial_amounts = HashMap::new();
@@ -116,10 +118,13 @@ impl KeyValueRuntime {
                 tx_nonces: HashSet::default(),
             },
         );
+        // TODO MOO initializing for StateRoot::default()?
+        let state_parts = HashMap::new();
+        let state_proofs = HashMap::new();
         KeyValueRuntime {
             store,
             trie,
-            root: MerkleHash::default(),
+            root: StateRoot::default(),
             validators: validators
                 .iter()
                 .map(|account_ids| {
@@ -127,7 +132,8 @@ impl KeyValueRuntime {
                         .iter()
                         .map(|account_id| ValidatorStake {
                             account_id: account_id.clone(),
-                            public_key: BlsSecretKey::from_seed(account_id).public_key(),
+                            public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
+                                .public_key(),
                             amount: 1_000_000,
                         })
                         .collect()
@@ -135,7 +141,11 @@ impl KeyValueRuntime {
                 .collect(),
             validator_groups,
             num_shards,
+            epoch_length,
             state: RwLock::new(state),
+            state_parts: RwLock::new(state_parts),
+            state_proofs: RwLock::new(state_proofs),
+            headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
@@ -143,8 +153,20 @@ impl KeyValueRuntime {
         }
     }
 
-    pub fn get_root(&self) -> MerkleHash {
-        self.root
+    pub fn get_root(&self) -> CryptoHash {
+        self.root.hash
+    }
+
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
+        let mut headers_cache = self.headers_cache.write().unwrap();
+        if headers_cache.get(hash).is_some() {
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        if let Some(result) = self.store.get_ser(COL_BLOCK_HEADER, hash.as_ref())? {
+            headers_cache.insert(hash.clone(), result);
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        Ok(None)
     }
 
     fn get_prev_height(
@@ -155,9 +177,8 @@ impl KeyValueRuntime {
             return Ok(0);
         }
         let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+            .get_block_header(prev_hash)?
+            .ok_or(format!("Missing block {} when computing the epoch", prev_hash))?;
         Ok(prev_block_header.inner.height)
     }
 
@@ -168,12 +189,9 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or_else(|| {
-                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
-            })?;
+        let prev_block_header = self.get_block_header(&prev_hash)?.ok_or_else(|| {
+            ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
+        })?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -191,7 +209,7 @@ impl KeyValueRuntime {
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner.height - prev_epoch_start >= 5;
+            || prev_block_header.inner.height - prev_epoch_start >= self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -236,10 +254,15 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
         (
             self.store.store_update(),
-            ((0..self.num_shards()).map(|_| MerkleHash::default()).collect()),
+            ((0..self.num_shards())
+                .map(|_| StateRoot {
+                    hash: CryptoHash::default(),
+                    num_parts: DEFAULT_STATE_NUM_PARTS, /* TODO MOO */
+                })
+                .collect()),
         )
     }
 
@@ -260,24 +283,22 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &BlsSignature,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &Signature,
     ) -> ValidatorSignatureVerificationResult {
-        if let Some(validator) = self
-            .validators
-            .iter()
-            .flatten()
-            .find(|&validator_stake| &validator_stake.account_id == account_id)
-        {
-            if signature.verify_single(data, &validator.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
-        } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
-        }
+        ValidatorSignatureVerificationResult::Valid
+    }
+
+    fn verify_approval_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _approval_mask: &[bool],
+        _approval_sigs: &[Signature],
+        _data: &[u8],
+    ) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -324,7 +345,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (1 + (height as usize) % 3)
+        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
     }
 
     fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
@@ -406,7 +427,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: u64,
         _block_timestamp: u64,
         _gas_price: u128,
-        _state_root: CryptoHash,
+        _state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
         transactions
@@ -417,9 +438,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
-        _state_root: CryptoHash,
+        _state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
+    ) -> Result<ValidTransaction, RuntimeError> {
         Ok(ValidTransaction { transaction })
     }
 
@@ -431,9 +452,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
-        _gas_used: Gas,
-        _gas_price: Balance,
         _rent_paid: Balance,
+        _validator_reward: Balance,
+        _balance_burnt: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -442,20 +463,21 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRoot,
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        receipts: &Vec<Receipt>,
-        transactions: &Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
+        let mut state = self.state.read().unwrap().get(&state_root.hash).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -587,22 +609,33 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        let (balances_root, _) = merklize(&new_balances);
-        let mut receipt_vec = state.receipt_nonces.iter().cloned().collect::<Vec<_>>();
-        receipt_vec.sort();
-        let (receipt_root, _) = merklize(&receipt_vec);
-        let mut tx_vec = state.tx_nonces.iter().cloned().collect::<Vec<_>>();
-        tx_vec.sort();
-        let (tx_root, _) = merklize(&tx_vec);
+        let data = state.try_to_vec()?;
+        let state_num_parts = DEFAULT_STATE_NUM_PARTS as usize;
+        let mut parts = vec![];
+        for i in 0..state_num_parts {
+            let begin = data.len() / state_num_parts * i;
+            let mut end = data.len() / state_num_parts * (i + 1);
+            if i + 1 == state_num_parts {
+                end = data.len();
+            }
+            let part = StatePart { shard_id, part_id: i as u64, data: data[begin..end].to_vec() };
+            parts.push(part);
+        }
+        let (state_hash, proofs) = merklize(&parts);
+        let new_state_root = StateRoot { hash: state_hash, num_parts: state_num_parts as u64 };
 
-        let new_state_root =
-            hash(&StateRoot(balances_root, receipt_root, tx_root).try_to_vec().unwrap());
-        self.state.write().unwrap().insert(new_state_root, state);
+        self.state.write().unwrap().insert(new_state_root.hash, state);
+        for i in 0..state_num_parts {
+            let key = hash(&StatePartKey(i as u64, new_state_root.clone()).try_to_vec().unwrap());
+            assert!(verify_path(new_state_root.hash, &proofs[i], &parts[i]));
+            self.state_parts.write().unwrap().insert(key, parts[i].clone());
+            self.state_proofs.write().unwrap().insert(key, proofs[i].clone());
+        }
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
-                TrieChanges::empty(*state_root),
+                TrieChanges::empty(state_root.hash),
             ),
             new_root: new_state_root,
             transaction_results: tx_results,
@@ -610,13 +643,15 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_rent_paid: 0,
+            total_validator_reward: 0,
+            total_balance_burnt: 0,
             proof: None,
         })
     }
 
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: &StateRoot,
         _height: BlockIndex,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
@@ -631,9 +666,9 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .state
                     .read()
                     .unwrap()
-                    .get(&state_root)
+                    .get(&state_root.hash)
                     .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
-                staked: 0,
+                locked: 0,
                 code_hash: CryptoHash::default(),
                 storage_usage: 0,
                 storage_paid_at: 0,
@@ -642,35 +677,72 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn dump_state(
+    fn obtain_state_part(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        self.state.read().unwrap().get(&state_root).unwrap().try_to_vec().map_err(Into::into)
+        shard_id: ShardId,
+        part_id: u64,
+        state_root: &StateRoot,
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
+        if part_id >= state_root.num_parts {
+            return Err("Invalid part_id in obtain_state_part".to_string().into());
+        }
+        if shard_id >= self.num_shards() {
+            return Err("Invalid shard_id in obtain_state_part".to_string().into());
+        }
+        let key = hash(&StatePartKey(part_id, state_root.clone()).try_to_vec().unwrap());
+        let part = self.state_parts.read().unwrap().get(&key).unwrap().clone();
+        let proof = self.state_proofs.read().unwrap().get(&key).unwrap().clone();
+        assert!(verify_path(state_root.hash, &proof, &part));
+        Ok((part, proof.try_to_vec()?))
     }
 
-    fn set_state(
+    fn accept_state_part(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
-        payload: Vec<u8>,
+        state_root: &StateRoot,
+        part: &StatePart,
+        proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let state = KVState::try_from_slice(&payload).unwrap();
-        self.state.write().unwrap().insert(state_root, state);
+        let merkle_proof = MerklePath::try_from_slice(&proof)?;
+        if !verify_path(state_root.hash, &merkle_proof, part) {
+            return Err("set_shard_state failed: invalid StatePart".into());
+        }
+        let key = hash(&StatePartKey(part.part_id, state_root.clone()).try_to_vec().unwrap());
+        self.state_parts.write().unwrap().insert(key, part.clone());
+        self.state_proofs.write().unwrap().insert(key, merkle_proof);
         Ok(())
+    }
+
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error> {
+        let mut data = vec![];
+        for i in 0..state_root.num_parts as usize {
+            let key = hash(&StatePartKey(i as u64, state_root.clone()).try_to_vec().unwrap());
+            match self.state_parts.read().unwrap().get(&key) {
+                Some(part) => {
+                    data.push(part.data.clone());
+                }
+                None => {
+                    return Err(format!("Invalid accept_state, no part {:?}", i)
+                        .to_string()
+                        .into());
+                }
+            }
+        }
+        let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
+        let state = KVState::try_from_slice(&data_flatten).unwrap();
+        self.state.write().unwrap().insert(state_root.hash, state);
+        Ok(true)
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
-            .ok_or_else(|| {
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
-            })?;
+        let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
+            Error::from(ErrorKind::Other(format!(
+                "Missing block {} when computing the epoch",
+                parent_hash
+            )))
+        })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -689,7 +761,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
-        match self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, epoch_id.as_ref())? {
+        match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.inner.height),
             None => Ok(0),
         }
@@ -700,13 +772,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>, Arc<InMemoryBlsSigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     validity: BlockIndex,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>, Arc<InMemoryBlsSigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
@@ -716,8 +788,7 @@ pub fn setup_with_tx_validity_period(
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
-    let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
-    (chain, runtime, signer, bls_signer)
+    (chain, runtime, signer)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {

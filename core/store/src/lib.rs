@@ -1,7 +1,11 @@
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
@@ -10,6 +14,7 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
+pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
@@ -23,7 +28,6 @@ pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
-pub use near_primitives::errors::StorageError;
 
 pub mod test_utils;
 mod trie;
@@ -47,7 +51,8 @@ pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded
 pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
 pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
-const NUM_COLS: u32 = 17;
+pub const COL_STATE_HEADERS: Option<u32> = Some(17);
+const NUM_COLS: u32 = 18;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -90,6 +95,42 @@ impl Store {
         column: Option<u32>,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
+    }
+
+    pub fn save_to_file(&self, column: Option<u32>, filename: &Path) -> Result<(), std::io::Error> {
+        let mut file = File::create(filename)?;
+        for (key, value) in self.storage.iter(column) {
+            file.write_u32::<LittleEndian>(key.len() as u32)?;
+            file.write_all(&key)?;
+            file.write_u32::<LittleEndian>(value.len() as u32)?;
+            file.write_all(&value)?;
+        }
+        Ok(())
+    }
+
+    pub fn load_from_file(
+        &self,
+        column: Option<u32>,
+        filename: &Path,
+    ) -> Result<(), std::io::Error> {
+        let mut file = File::open(filename)?;
+        let mut transaction = self.storage.transaction();
+        loop {
+            let key_len = match file.read_u32::<LittleEndian>() {
+                Ok(key_len) => key_len as usize,
+                Err(ref err) if err.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(err) => return Err(err),
+            };
+            let mut key = Vec::<u8>::with_capacity(key_len);
+            Read::by_ref(&mut file).take(key_len as u64).read_to_end(&mut key)?;
+            let value_len = file.read_u32::<LittleEndian>()? as usize;
+            let mut value = Vec::<u8>::with_capacity(value_len);
+            Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
+            //            println!("{:?} {:?}", key, value);
+            transaction.put(column, &key, &value);
+        }
+        self.storage.write(transaction)?;
+        Ok(())
     }
 }
 

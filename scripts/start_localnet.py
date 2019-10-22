@@ -12,7 +12,8 @@ if __name__ == "__main__":
     print("****************************************************")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--local', action='store_true', help='If set, runs in the local version instead of auto-updatable docker. Otherwise runs locally')
+    parser.add_argument('--local', action='store_true', help='deprecated: use --nodocker')
+    parser.add_argument('--nodocker', action='store_true', help='If set, compiles and runs the node on the machine directly (not inside the docker).')
     parser.add_argument('--debug', action='store_true', help='If set, compiles local nearcore in debug mode')
     parser.add_argument('--verbose', action='store_true', help='If set, prints verbose logs')
     parser.add_argument('--home', default=os.path.expanduser('~/.near/'), help='Home path for storing configs, keys and chain data (Default: ~/.near)')
@@ -21,4 +22,7 @@ if __name__ == "__main__":
         help='Image to run in docker (default: nearprotocol/nearcore)')
     args = parser.parse_args()
 
-    setup_and_run(args.local, not args.debug, args.image, args.home, ['--chain-id='], '', args.verbose)
+    if args.local:
+        print("Flag --local deprecated, please use --nodocker")
+    nodocker = args.nodocker or args.local
+    setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id='], '', args.verbose)

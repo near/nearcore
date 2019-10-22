@@ -5,7 +5,7 @@ use std::iter;
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use near_primitives::types::{AccountId, Balance, Gas, ValidatorId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -41,7 +41,6 @@ pub fn proposals_to_epoch_info(
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashSet<AccountId>,
     validator_reward: HashMap<AccountId, Balance>,
-    total_gas_used: Gas,
     inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
@@ -56,9 +55,11 @@ pub fn proposals_to_epoch_info(
     }
     for r in epoch_info.validators.iter() {
         match ordered_proposals.entry(r.account_id.clone()) {
-            Entry::Occupied(e) => {
-                let p = &*e.get();
+            Entry::Occupied(mut e) => {
+                let p = e.get_mut();
                 let return_stake = if r.amount > p.amount { r.amount - p.amount } else { 0 };
+                let reward = *validator_reward.get(&r.account_id).unwrap_or(&0);
+                p.amount += reward;
                 stake_change.insert(r.account_id.clone(), (p.amount, return_stake));
             }
             Entry::Vacant(e) => {
@@ -149,7 +150,6 @@ pub fn proposals_to_epoch_info(
         chunk_producers,
         fishermen: vec![],
         stake_change: final_stake_change,
-        total_gas_used,
         validator_reward,
         inflation,
     })
@@ -179,7 +179,6 @@ mod tests {
                 vec![stake("test1", 1_000_000)],
                 HashSet::new(),
                 HashMap::default(),
-                0,
                 0
             )
             .unwrap(),
@@ -189,7 +188,6 @@ mod tests {
                 vec![vec![0], vec![0]],
                 vec![],
                 change_stake(vec![("test1", 1_000_000)]),
-                0,
                 HashMap::default(),
                 0
             )
@@ -213,7 +211,6 @@ mod tests {
                 ],
                 HashSet::new(),
                 HashMap::default(),
-                0,
                 0
             )
             .unwrap(),
@@ -234,7 +231,6 @@ mod tests {
                     ("test2", 1_000_000),
                     ("test3", 1_000_000)
                 ]),
-                0,
                 HashMap::default(),
                 0
             )

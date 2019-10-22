@@ -15,17 +15,26 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6.5"
 reed-solomon-erasure = "3.1.1"
+byteorder = "1.2"
+lazy_static = "1.4"
 
-borsh = "0.2.2"
+borsh = "0.2.7"
+cached = "0.9.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]
 tempdir = "0.3.7"
+bencher = "0.1.5"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
 testlib = { path = "../../test-utils/testlib" }
+
+[[bench]]
+name = "graph"
+harness = false

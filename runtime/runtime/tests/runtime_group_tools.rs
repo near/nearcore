@@ -9,13 +9,11 @@ use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use node_runtime::config::RuntimeConfig;
-use node_runtime::ethereum::EthashProvider;
 use node_runtime::{ApplyState, Runtime, StateRecord};
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
-use tempdir::TempDir;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -23,14 +21,11 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
 pub struct StandaloneRuntime {
-    // We hold the reference to the temporary folder to avoid it being cleaned up by the drop.
-    #[allow(dead_code)]
-    pub ethash_dir: TempDir,
     pub apply_state: ApplyState,
     pub runtime: Runtime,
     pub trie: Arc<Trie>,
     pub signer: InMemorySigner,
-    pub root: MerkleHash,
+    pub root: CryptoHash,
 }
 
 impl StandaloneRuntime {
@@ -39,13 +34,9 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let ethash_dir =
-            TempDir::new(format!("ethash_dir_{}", signer.account_id).as_str()).unwrap();
-        let ethash_provider =
-            Arc::new(std::sync::Mutex::new(EthashProvider::new(ethash_dir.path())));
         let runtime_config = RuntimeConfig::default();
 
-        let runtime = Runtime::new(runtime_config, ethash_provider);
+        let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
 
         let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
@@ -60,7 +51,7 @@ impl StandaloneRuntime {
             block_timestamp: 0,
         };
 
-        Self { ethash_dir, apply_state, runtime, trie, signer, root }
+        Self { apply_state, runtime, trie, signer, root: root.hash }
     }
 
     pub fn process_block(
@@ -139,7 +130,7 @@ impl RuntimeGroup {
                     account_id: account_id.to_string(),
                     account: AccountView {
                         amount: TESTING_INIT_BALANCE,
-                        staked: TESTING_INIT_STAKE,
+                        locked: TESTING_INIT_STAKE,
                         code_hash: code_hash.clone().into(),
                         storage_usage: 0,
                         storage_paid_at: 0,

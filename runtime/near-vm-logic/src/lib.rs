@@ -1,8 +1,8 @@
 mod config;
 mod context;
 mod dependencies;
-mod logic;
 mod gas_counter;
+mod logic;
 #[cfg(feature = "mocks")]
 pub mod mocks;
 pub mod serde_with;

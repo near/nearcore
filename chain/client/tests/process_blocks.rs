@@ -4,25 +4,29 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::System;
+use borsh::BorshSerialize;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
+use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::errors::InvalidTxError;
+use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
+use near_primitives::utils::to_timestamp;
 use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -125,7 +129,7 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -134,7 +138,7 @@ fn receive_network_block() {
                 HashMap::default(),
                 0,
                 None,
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -174,7 +178,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
+            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -183,7 +187,7 @@ fn receive_network_block_header() {
                 HashMap::default(),
                 0,
                 None,
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -219,7 +223,7 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemoryBlsSigner::from_seed("test2", "test2"));
+            let signer1 = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -228,13 +232,12 @@ fn produce_block_with_approvals() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer1,
+                &signer1,
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = Arc::new(InMemoryBlsSigner::from_seed(&s, &s));
-                let block_approval =
-                    BlockApproval::new(block.hash(), &*signer, "test2".to_string());
+                let signer = InMemorySigner::from_seed(&s, KeyType::ED25519, &s);
+                let block_approval = BlockApproval::new(block.hash(), &signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
                     s.to_string(),
                     block_approval.hash,
@@ -278,7 +281,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
+            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
@@ -288,7 +291,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer.clone(),
+                &signer,
             );
             block.header.inner.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -305,7 +308,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer.clone(),
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -317,7 +320,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
-                signer,
+                &signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -373,6 +376,7 @@ fn client_sync_headers() {
                             height: 5,
                             total_weight: 100.into(),
                         },
+                        edge_info: EdgeInfo::default(),
                     }],
                     num_active_peers: 1,
                     peer_max_count: 1,
@@ -383,6 +387,7 @@ fn client_sync_headers() {
                             height: 5,
                             total_weight: 100.into(),
                         },
+                        edge_info: EdgeInfo::default(),
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
@@ -441,12 +446,7 @@ fn test_process_invalid_tx() {
         },
     );
     produce_blocks(&mut client, 12);
-    assert_eq!(
-        client.process_tx(tx),
-        NetworkClientResponses::InvalidTx(
-            "Transaction has expired".to_string()
-        )
-    );
+    assert_eq!(client.process_tx(tx), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -454,14 +454,68 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
-            block_hash: CryptoHash::default(),
+            block_hash: hash(&[1]),
             actions: vec![],
         },
     );
-    assert_eq!(
-        client.process_tx(tx2),
-        NetworkClientResponses::InvalidTx(
-            "Transaction is from a different fork".to_string()
-        )
-    );
+    assert_eq!(client.process_tx(tx2), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
+}
+
+/// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
+#[test]
+fn test_time_attack() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+    client.process_block(b1, Provenance::NONE);
+
+    let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
+    assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
+}
+
+// TODO: use real runtime for this test
+#[test]
+#[ignore]
+fn test_invalid_approvals() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    b1.header.inner.approval_mask = vec![true];
+    b1.header.inner.approval_sigs = (0..100)
+        .map(|i| {
+            InMemorySigner::from_seed(
+                &format!("test{}", i),
+                KeyType::ED25519,
+                &format!("test{}", i),
+            )
+            .sign(genesis.hash().as_ref())
+        })
+        .collect();
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+    let (_, tip) = client.process_block(b1, Provenance::NONE);
+    match tip {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidApprovals => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    }
 }

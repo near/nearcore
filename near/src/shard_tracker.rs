@@ -229,7 +229,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::{Arc, RwLock};
 
-    use near_crypto::BlsPublicKey;
+    use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::{BlockIndex, EpochId, ShardId, ValidatorStake};
@@ -237,7 +237,6 @@ mod tests {
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
 
-    const DEFAULT_GAS_PRICE: u128 = 100;
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
     fn get_epoch_manager(num_shards: ShardId) -> Arc<RwLock<EpochManager>> {
@@ -265,7 +264,7 @@ mod tests {
                 reward_calculator,
                 vec![ValidatorStake {
                     account_id: "test".to_string(),
-                    public_key: BlsPublicKey::empty(),
+                    public_key: PublicKey::empty(KeyType::ED25519),
                     amount: 100,
                 }],
             )
@@ -290,7 +289,7 @@ mod tests {
                     vec![],
                     HashSet::default(),
                     0,
-                    DEFAULT_GAS_PRICE,
+                    0,
                     0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),

@@ -55,7 +55,6 @@ pub struct RuntimeFeesConfig {
     pub burnt_gas_reward: Fraction,
 }
 
-
 /// Describes the cost of creating a data receipt, `DataReceipt`.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct DataReceiptCreationConfig {

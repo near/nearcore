@@ -58,7 +58,8 @@ pub fn run<'a>(
     };
     let memory_copy = memory.clone();
 
-    let mut logic = VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
+    let mut logic =
+        VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
 
     let raw_ptr = &mut logic as *mut _ as *mut c_void;
     let import_object = imports::build(memory_copy, raw_ptr);

@@ -72,8 +72,8 @@ pub enum ErrorKind {
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
-    /// One of the chunks is invalid
-    #[fail(display = "Incorrect Chunk")]
+    /// Invalid chunk.
+    #[fail(display = "Invalid Chunk")]
     InvalidChunk,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
@@ -84,6 +84,9 @@ pub enum ErrorKind {
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
+    /// Invalid Approvals
+    #[fail(display = "Invalid Approvals")]
+    InvalidApprovals,
     /// Validator error.
     #[fail(display = "Validator Error")]
     ValidatorError(String),
@@ -164,7 +167,8 @@ impl Error {
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals
-            | ErrorKind::InvalidSignature => true,
+            | ErrorKind::InvalidSignature
+            | ErrorKind::InvalidApprovals => true,
         }
     }
 
@@ -195,6 +199,3 @@ impl From<String> for Error {
 }
 
 impl std::error::Error for Error {}
-
-unsafe impl Send for Error {}
-unsafe impl Sync for Error {}

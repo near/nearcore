@@ -8,6 +8,7 @@ use tokio::timer::Delay;
 use crate::types::{NetworkConfig, PeerId, PeerInfo};
 use futures::future;
 use near_crypto::{KeyType, SecretKey};
+use std::collections::{HashMap, HashSet};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -137,4 +138,36 @@ impl Actor for WaitOrTimeout {
 
 pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|x| x.to_string()).collect()
+}
+
+pub fn random_peer_id() -> PeerId {
+    let sk = SecretKey::from_random(KeyType::ED25519);
+    sk.public_key().into()
+}
+
+pub fn expected_routing_tables(
+    current: HashMap<PeerId, HashSet<PeerId>>,
+    expected: Vec<(PeerId, Vec<PeerId>)>,
+) -> bool {
+    if current.len() != expected.len() {
+        return false;
+    }
+
+    for (peer, paths) in expected.into_iter() {
+        let cur_paths = current.get(&peer);
+        if !cur_paths.is_some() {
+            return false;
+        }
+        let cur_paths = cur_paths.unwrap();
+        if cur_paths.len() != paths.len() {
+            return false;
+        }
+        for next_hop in paths.into_iter() {
+            if !cur_paths.contains(&next_hop) {
+                return false;
+            }
+        }
+    }
+
+    true
 }

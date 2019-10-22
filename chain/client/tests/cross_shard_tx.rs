@@ -31,6 +31,8 @@ fn test_keyvalue_runtime_balances() {
             validator_groups,
             true,
             100,
+            false,
+            5,
             Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             })),
@@ -338,7 +340,7 @@ mod tests {
         }
     }
 
-    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool) {
+    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool, drop_chunks: bool) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -386,7 +388,9 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 75 },
+                600,
+                drop_chunks,
+                20,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -440,24 +444,34 @@ mod tests {
                 );
             }
 
-            // On X1 it takes ~1m 15s
-            near_network::test_utils::wait_or_panic(120000);
+            // After recent slow downs, on X1 it takes ~15m
+            near_network::test_utils::wait_or_panic(1000 * 60 * 15 * 2);
         })
         .unwrap();
     }
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false);
+        test_cross_shard_tx_common(64, false, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_drop_chunks() {
+        test_cross_shard_tx_common(64, false, true);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations() {
-        test_cross_shard_tx_common(8, false);
+        test_cross_shard_tx_common(8, false, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_8_iterations_drop_chunks() {
+        test_cross_shard_tx_common(8, false, true);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation() {
-        test_cross_shard_tx_common(64, true);
+        test_cross_shard_tx_common(64, true, false);
     }
 }

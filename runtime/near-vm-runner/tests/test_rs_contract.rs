@@ -1,9 +1,9 @@
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{Config, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
-use near_runtime_fees::RuntimeFeesConfig;
 use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
@@ -70,8 +70,16 @@ pub fn test_read_write() {
     assert_run_result(result, 0);
 
     let context = create_context(&arr_u64_to_u8(&[10u64]));
-    let result =
-        run(vec![], &code, b"read_value", &mut fake_external, context, &config, &fees, &promise_results);
+    let result = run(
+        vec![],
+        &code,
+        b"read_value",
+        &mut fake_external,
+        context,
+        &config,
+        &fees,
+        &promise_results,
+    );
     assert_run_result(result, 20);
 }
 
@@ -134,7 +142,7 @@ def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &20u64.to_le_bytes());
+def_test_ext!(ext_used_gas, b"ext_used_gas", &19u64.to_le_bytes());
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",

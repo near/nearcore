@@ -6,10 +6,10 @@
 //! --wasm-file=/tmp/main.wasm
 //! ```
 use clap::{App, Arg};
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{Config, VMContext};
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_runner::run;
 use std::fs;
 
@@ -121,8 +121,16 @@ fn main() {
 
     let mut fake_external = MockedExternal::new();
     let fees = RuntimeFeesConfig::default();
-    let (outcome, err) =
-        run(vec![], &code, &method_name, &mut fake_external, context, &config, &fees, &promise_results);
+    let (outcome, err) = run(
+        vec![],
+        &code,
+        &method_name,
+        &mut fake_external,
+        context,
+        &config,
+        &fees,
+        &promise_results,
+    );
 
     if let Some(outcome) = outcome {
         let str = serde_json::to_string(&outcome).unwrap();

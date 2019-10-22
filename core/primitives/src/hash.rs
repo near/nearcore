@@ -1,12 +1,13 @@
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
-use std::io::Read;
 
 #[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
@@ -49,6 +50,27 @@ impl borsh::BorshDeserialize for CryptoHash {
         let mut bytes = [0; 32];
         reader.read(&mut bytes)?;
         Ok(CryptoHash(Digest(bytes)))
+    }
+}
+
+impl Serialize for CryptoHash {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for CryptoHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s)
+            .and_then(|bytes| CryptoHash::try_from(bytes))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -145,11 +167,10 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::views::CryptoHashView;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        hash: CryptoHashView,
+        hash: CryptoHash,
     }
 
     #[test]
@@ -185,7 +206,7 @@ mod tests {
     fn test_deserialize_not_base64() {
         let encoded = "\"---\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }
@@ -194,7 +215,7 @@ mod tests {
     fn test_deserialize_not_crypto_hash() {
         let encoded = "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }

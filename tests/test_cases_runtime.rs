@@ -63,6 +63,12 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_panic_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_panic(node);
+    }
+
+    #[test]
     fn test_smart_contract_self_call_runtime() {
         let node = create_runtime_node();
         test_smart_contract_self_call(node);

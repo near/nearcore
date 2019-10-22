@@ -228,7 +228,9 @@ fn test_guest_panic() {
         make_simple_contract_call(&guest_panic(), b"hello"),
         (
             Some(vm_outcome_with_gas(1)),
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic)))
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
+                "explicit guest panic".to_string()
+            ))))
         )
     );
 }

@@ -8,7 +8,7 @@ use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_crypto::InMemoryBlsSigner;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
@@ -41,8 +41,13 @@ pub fn setup_network_node(
         vec![validators.into_iter().map(Into::into).collect()],
         1,
         1,
+        5,
     ));
-    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id.as_str(), account_id.as_str()));
+    let signer = Arc::new(InMemorySigner::from_seed(
+        account_id.as_str(),
+        KeyType::ED25519,
+        account_id.as_str(),
+    ));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);
@@ -126,7 +131,7 @@ fn check_account_id_propagation(
                                     "Known producers of {}: {:?}",
                                     account_ids_copy[i], known_producers
                                 );
-                                if known_producers.len() == total_nodes - 1 {
+                                if known_producers.len() == total_nodes {
                                     count.fetch_add(1, Ordering::Relaxed);
 
                                     if counters
@@ -199,7 +204,6 @@ fn four_nodes_star() {
 }
 
 #[test]
-#[ignore]
 fn four_nodes_path() {
     heavy_test(|| {
         check_account_id_propagation(
@@ -225,7 +229,6 @@ fn four_nodes_disconnected() {
 }
 
 #[test]
-#[ignore]
 fn four_nodes_directed() {
     heavy_test(|| {
         check_account_id_propagation(

@@ -60,7 +60,7 @@ pub(crate) fn check_rent(
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
 ) -> Result<(), u128> {
-    let buffer_length = if account.staked > 0 {
+    let buffer_length = if account.locked > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
     } else {
         runtime_config.poke_threshold
@@ -204,9 +204,9 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
 ) {
     let mut account = account.as_mut().unwrap();
-    let increment = stake.stake.saturating_sub(account.staked);
+    let increment = stake.stake.saturating_sub(account.locked);
     if account.amount >= increment {
-        if account.staked == 0 && stake.stake == 0 {
+        if account.locked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
             result.result = Err(ActionError::TriesToUnstake(account_id.clone()));
             return;
@@ -216,18 +216,17 @@ pub(crate) fn action_stake(
             public_key: stake.public_key.clone(),
             amount: stake.stake,
         });
-        if stake.stake > account.staked {
+        if stake.stake > account.locked {
             account.amount -= increment;
-            account.staked = stake.stake;
+            account.locked = stake.stake;
         }
     } else {
         result.result = Err(ActionError::TriesToStake(
             account_id.clone(),
             stake.stake,
-            account.staked,
+            account.locked,
             account.amount,
         ));
-        return;
     }
 }
 
@@ -368,7 +367,7 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::DeleteAccount(_) => {
-            if account.as_ref().unwrap().staked != 0 {
+            if account.as_ref().unwrap().locked != 0 {
                 return Err(ActionError::DeleteAccountStaking(account_id.clone()));
             }
             if actor_id != account_id

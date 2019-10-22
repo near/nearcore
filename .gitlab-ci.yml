@@ -1,118 +1,60 @@
-image: parity/rust:a811bb14-20190522 
+stages:
+    - test
 
 variables:
-    CI_SERVER_NAME:  "GitLab CI"
-    CACHE_ROOT: "/tmp/cache/nearcore/${CI_JOB_NAME}"
-    CARGO_HOME:  "/tmp/cache/nearcore/${CI_JOB_NAME}/cargo"
-    BUILD_TARGET: ubuntu
-    BUILD_ARCH: amd64
-    CARGO_TARGET: x86_64-unknown-linux-gnu
-    APT_CACHE_DIR: apt-cache
-
-.setup_rust: &setup_rust
-    rustup default nightly
+    CACHE_ROOT: "/opt/nearcore"
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
-.cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +60 -delete
-
-.code_coverage: &code_coverage
-    mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
-    apt-get -qq -o dir::cache::archives="$APT_CACHE_DIR" install -y binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev cmake gcc &&
-    ./scripts/coverage.sh
-
-stages:
-    - rust
-    - libs
-
-cache:
-    paths:
-        - apt-cache
-
 # Test all but expensive integration tests.
 test_cargo:
-    stage: rust
+    stage: test
     tags:
-    - gcloud
+    - shell
     before_script:
-    - *setup_rust
-    #- rustup component add clippy
     - *setup_cache
     script:
     - rustc --version && cargo --version
-    - cargo check --all --tests --benches
-    - cargo test --all --verbose --features fake_crypto
-    after_script:
-    - *cleanup_obsolete_cache
+    - cargo check --all --tests --benches --all-features
+    - cargo test --all --verbose
 
 # Regression tests.
 test_regression:
-    stage: rust
+    stage: test
     before_script:
-    - *setup_rust
     - *setup_cache
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
     - cargo test --package nearcore --test test_tps_regression test --features "regression_tests,fake_crypto"
     tags:
-        - regression_tests
-    after_script:
-    - *cleanup_obsolete_cache
+    - shell
+    - regression_tests
     only:
-        - schedules
+    - schedules
 
 # A set of expensive tests.
 test_cases_testnet_rpc:
-    stage: rust
+    stage: test
     before_script:
-    - *setup_rust
     - *setup_cache
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests,fake_crypto"
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests"
     tags:
-        - expensive_tests
-    after_script:
-    - *cleanup_obsolete_cache
+    - shell
+    - expensive_tests
     only:
-        - schedules
+    - schedules
 
-release_build:
-   stage: rust
-   tags:
-   - gcloud
-   before_script:
-   - *setup_rust
-   - *setup_cache
-   script:
-   - rustc --version && cargo --version
-   after_script:
-   - *cleanup_obsolete_cache
-#
-#coverage:
-#    stage: libs
-#    before_script:
-#    - *setup_rust
-#    - *setup_cache
-#    script:
-#    - ./scripts/build_wasm.sh
-#    - cargo test --all --no-run
-#    - *code_coverage
-#
 test_nearlib:
-   stage: libs
-   tags:
-   - gcloud
-   before_script:
-   - *setup_rust
-   - *setup_cache
-   dependencies:
-   - release_build
-   script:
-   - ./scripts/test_nearlib.sh
-
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - ./scripts/test_nearlib.sh
