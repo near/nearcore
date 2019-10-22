@@ -1,4 +1,3 @@
-#![feature(await_macro, async_await)]
 extern crate prometheus;
 
 use std::convert::TryFrom;
