@@ -18,6 +18,7 @@ def init_network_pillager():
             print("    chown <group>.<user> /sys/fs/cgroup/net_cls/block/net_cls.classid")
             print("")
             sys.exit(1)
+    _run_process(["iptables", "-A", "OUTPUT", "-m", "cgroup", "--cgroup", "42", "-j", "DROP"])
 
 def stop_network(pid):
     with open('/sys/fs/cgroup/net_cls/block/tasks', 'w') as f:
