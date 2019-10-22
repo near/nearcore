@@ -201,8 +201,8 @@ class GCloudNode(BaseNode):
         retry.retry(lambda: self.machine_status() == 'STOPPED', 60) 
 
     def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
-        self.exec("""tmux send-keys -t node '{cmd}' C-m
-""".format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)))
+        self.exec("""tmux send-keys -t node "{cmd}" C-m
+""".format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)).replace("--verbose", "--verbose ''"))
         )
         self.resource = self.get_gcloud()
         self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
@@ -250,6 +250,8 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
     else:
         instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'),ordinal)
         node = GCloudNode(instance_name, node_dir)
+        if node.machine_status() == 'STOPPED':
+            node.turn_on_machine()
 
     node.start(boot_key, boot_addr)
 
@@ -312,7 +314,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
             num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
     else:
         near_root = config['near_root']
-        node_dirs = subprocess.check_output("find ~/.near/* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
