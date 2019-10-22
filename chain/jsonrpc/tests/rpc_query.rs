@@ -4,11 +4,13 @@ use actix::System;
 use futures::future;
 use futures::future::Future;
 
+use near_crypto::Signature;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
-use near_jsonrpc_client::BlockId;
+use near_jsonrpc_client::{BlockId, ChunkId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::ShardId;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -57,6 +59,47 @@ fn test_block_by_hash() {
             client.block(BlockId::Hash(res.header.hash)).then(move |res| {
                 let res = res.unwrap();
                 assert_eq!(res.header.height, 0);
+                System::current().stop();
+                future::ok(())
+            })
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve blocks via json rpc
+#[test]
+fn test_chunk_by_hash() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64))).then(move |chunk| {
+            let chunk = chunk.unwrap();
+            assert_eq!(chunk.header.balance_burnt, 0);
+            assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
+            assert_eq!(chunk.header.encoded_length, 8);
+            assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
+            assert_eq!(chunk.header.gas_limit, 10000000);
+            assert_eq!(chunk.header.gas_used, 0);
+            assert_eq!(chunk.header.height_created, 0);
+            assert_eq!(chunk.header.height_included, 0);
+            assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
+            assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
+            assert_eq!(chunk.header.prev_state_num_parts, 9);
+            assert_eq!(chunk.header.prev_state_root_hash.as_ref().len(), 32);
+            assert_eq!(chunk.header.rent_paid, 0);
+            assert_eq!(chunk.header.shard_id, 0);
+            assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
+            assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
+            assert_eq!(chunk.header.validator_proposals, vec![]);
+            assert_eq!(chunk.header.validator_reward, 0);
+            let mut client = new_client(&format!("http://{}", addr));
+            client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).then(move |same_chunk| {
+                let same_chunk = same_chunk.unwrap();
+                assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
                 System::current().stop();
                 future::ok(())
             })

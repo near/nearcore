@@ -18,6 +18,12 @@ impl AsRef<[u8]> for ChunkHash {
     }
 }
 
+impl From<CryptoHash> for ChunkHash {
+    fn from(crypto_hash: CryptoHash) -> Self {
+        Self(crypto_hash)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
