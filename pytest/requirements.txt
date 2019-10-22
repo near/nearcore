@@ -4,3 +4,5 @@ tornado
 requests
 ed25519
 base58
+google-api-python-client
+six
