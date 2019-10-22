@@ -336,7 +336,11 @@ pub fn start_http(
             .data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
-            .service(web::resource("/status").route(web::get().to_async(status_handler)))
+            .service(
+                web::resource("/status")
+                    .route(web::get().to_async(status_handler))
+                    .route(web::head().to_async(status_handler)),
+            )
             .service(
                 web::resource("/network_info").route(web::get().to_async(network_info_handler)),
             )
