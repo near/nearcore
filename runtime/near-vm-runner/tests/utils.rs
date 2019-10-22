@@ -47,6 +47,7 @@ pub fn make_simple_contract_call_with_gas(
     run(code_hash, code, method_name, &mut fake_external, context, &config, &promise_results)
 }
 
+#[allow(dead_code)]
 pub fn make_simple_contract_call(
     code: &[u8],
     method_name: &[u8],
@@ -54,6 +55,7 @@ pub fn make_simple_contract_call(
     make_simple_contract_call_with_gas(code, method_name, 1_000_000)
 }
 
+#[allow(dead_code)]
 pub fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
     Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
 }
