@@ -73,37 +73,45 @@ fn test_chunk_by_hash() {
     init_test_logger();
 
     System::run(|| {
-        let (_view_client_addr, addr) = start_all(false);
+        let (_view_client_addr, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr.clone()));
-        actix::spawn(client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64))).then(move |chunk| {
-            let chunk = chunk.unwrap();
-            assert_eq!(chunk.header.balance_burnt, 0);
-            assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
-            assert_eq!(chunk.header.encoded_length, 8);
-            assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-            assert_eq!(chunk.header.gas_limit, 10000000);
-            assert_eq!(chunk.header.gas_used, 0);
-            assert_eq!(chunk.header.height_created, 0);
-            assert_eq!(chunk.header.height_included, 0);
-            assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
-            assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
-            assert_eq!(chunk.header.prev_state_num_parts, 9);
-            assert_eq!(chunk.header.prev_state_root_hash.as_ref().len(), 32);
-            assert_eq!(chunk.header.rent_paid, 0);
-            assert_eq!(chunk.header.shard_id, 0);
-            assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
-            assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
-            assert_eq!(chunk.header.validator_proposals, vec![]);
-            assert_eq!(chunk.header.validator_reward, 0);
-            let mut client = new_client(&format!("http://{}", addr));
-            client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).then(move |same_chunk| {
-                let same_chunk = same_chunk.unwrap();
-                assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
-                System::current().stop();
-                future::ok(())
-            })
-        }));
+        actix::spawn(
+            client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64))).then(
+                move |chunk| {
+                    let chunk = chunk.unwrap();
+                    assert_eq!(chunk.header.balance_burnt, 0);
+                    assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
+                    assert_eq!(chunk.header.encoded_length, 8);
+                    assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
+                    assert_eq!(chunk.header.gas_limit, 1000000);
+                    assert_eq!(chunk.header.gas_used, 0);
+                    assert_eq!(chunk.header.height_created, 0);
+                    assert_eq!(chunk.header.height_included, 0);
+                    assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
+                    assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
+                    assert_eq!(chunk.header.prev_state_num_parts, 17);
+                    assert_eq!(chunk.header.prev_state_root_hash.as_ref().len(), 32);
+                    assert_eq!(chunk.header.rent_paid, 0);
+                    assert_eq!(chunk.header.shard_id, 0);
+                    assert!(if let Signature::ED25519(_) = chunk.header.signature {
+                        true
+                    } else {
+                        false
+                    });
+                    assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
+                    assert_eq!(chunk.header.validator_proposals, vec![]);
+                    assert_eq!(chunk.header.validator_reward, 0);
+                    let mut client = new_client(&format!("http://{}", addr));
+                    client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).then(move |same_chunk| {
+                        let same_chunk = same_chunk.unwrap();
+                        assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
+                        System::current().stop();
+                        future::ok(())
+                    })
+                },
+            ),
+        );
     })
     .unwrap();
 }

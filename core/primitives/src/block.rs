@@ -7,7 +7,7 @@ use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
-use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
     Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
@@ -242,38 +242,48 @@ pub struct Block {
     pub chunks: Vec<ShardChunkHeader>,
 }
 
+pub fn genesis_chunks(
+    state_roots: Vec<StateRoot>,
+    num_shards: ShardId,
+    initial_gas_limit: Gas,
+) -> Vec<ShardChunk> {
+    assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    (0..num_shards)
+        .map(|i| {
+            let (encoded_chunk, _) = EncodedShardChunk::new(
+                CryptoHash::default(),
+                state_roots[i as usize % state_roots.len()].clone(),
+                0,
+                i,
+                3,
+                1,
+                0,
+                initial_gas_limit,
+                0,
+                0,
+                0,
+                CryptoHash::default(),
+                vec![],
+                &vec![],
+                &vec![],
+                CryptoHash::default(),
+                &EmptySigner {},
+            )
+            .expect("Failed to decode genesis chunk");
+            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+        })
+        .collect()
+}
+
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
-        state_roots: Vec<StateRoot>,
+        chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
-        num_shards: ShardId,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
-        assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-        let chunks = (0..num_shards)
-            .map(|i| {
-                ShardChunkHeader::new(
-                    CryptoHash::default(),
-                    state_roots[i as usize % state_roots.len()].clone(),
-                    CryptoHash::default(),
-                    0,
-                    0,
-                    i,
-                    0,
-                    initial_gas_limit,
-                    0,
-                    0,
-                    0,
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    vec![],
-                    &EmptySigner {},
-                )
-            })
-            .collect();
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
