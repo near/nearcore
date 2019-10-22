@@ -1420,7 +1420,7 @@ impl Chain {
 
     /// Returns underlying RuntimeAdapter.
     #[inline]
-    pub fn runtime_adapter(&self) -> Arc<RuntimeAdapter> {
+    pub fn runtime_adapter(&self) -> Arc<dyn RuntimeAdapter> {
         self.runtime_adapter.clone()
     }
 

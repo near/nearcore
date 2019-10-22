@@ -1,5 +1,3 @@
-#![feature(await_macro, async_await)]
-
 use std::time::{Duration, Instant};
 
 use futures03::{compat::Future01CompatExt as _, FutureExt as _};
@@ -10,7 +8,7 @@ use futures03::{compat::Future01CompatExt as _, FutureExt as _};
 /// It is useful when the `futures-preview` is imported as `futures03`.
 macro_rules! select { // replace `::futures_util` with `::futures03` as the crate path
     ($($tokens:tt)*) => {
-        futures03::inner_select::select! {
+        futures03::inner_macro::select! {
             futures_crate_path ( ::futures03 )
             $( $tokens )*
         }

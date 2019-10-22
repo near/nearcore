@@ -64,16 +64,16 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
-[profile.dev.overrides.hex]
+[profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.ring]
+[profile.dev.package.ring]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.rand]
+[profile.dev.package.rand]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.overrides.bs58]
+[profile.dev.package.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
