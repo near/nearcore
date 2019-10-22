@@ -636,10 +636,9 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
-    pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
-        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) =
-            self.clients[id].process_block(block.clone().unwrap(), Provenance::PRODUCED);
+            self.clients[id].process_block(block, Provenance::PRODUCED);
         assert!(result.is_ok(), format!("{:?}", result));
         let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
         accepted_blocks.extend(more_accepted_blocks);
@@ -650,6 +649,11 @@ impl TestEnv {
                 accepted_block.provenance,
             );
         }
+    }
+
+    pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
+        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+        self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }
 
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {

@@ -30,8 +30,13 @@ use near_store::test_utils::create_test_store;
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
+    env.network_adapters[0].pop();
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
+
+    env.process_block(0, b1.clone(), Provenance::NONE);
+    env.network_adapters[0].pop();
+
     let signer = InMemoryBlsSigner::from_seed("test0", "test0");
     let b2 = Block::produce(
         &genesis.header,
@@ -88,6 +93,9 @@ fn test_verify_block_double_sign_challenge() {
         &invalid_challenge
     )
     .is_err());
+
+    let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
+    assert!(result.is_err());
 }
 
 fn create_invalid_proofs_chunk(
