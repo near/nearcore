@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize)]
-pub struct Config {
+pub struct VMConfig {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
 
@@ -39,9 +39,9 @@ pub struct Config {
     pub max_log_len: u64,
 }
 
-impl Default for Config {
-    fn default() -> Config {
-        Config {
+impl Default for VMConfig {
+    fn default() -> VMConfig {
+        VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 1,
@@ -61,7 +61,7 @@ impl Default for Config {
     }
 }
 
-impl Config {
+impl VMConfig {
     /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
     /// secure.
     pub fn non_crypto_hash(&self) -> u64 {

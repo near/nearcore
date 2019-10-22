@@ -3,10 +3,10 @@ mod vm_logic_builder;
 
 use fixtures::get_context;
 use near_vm_errors::HostError;
+use near_vm_logic::VMConfig;
 use vm_logic_builder::VMLogicBuilder;
-use near_vm_logic::Config;
 
-fn check_gas_for_data_len(len: u64, used_gas: u64, config: &Config) {
+fn check_gas_for_data_len(len: u64, used_gas: u64, config: &VMConfig) {
     let base = config.ext_costs.log_base;
     let per_byte = config.ext_costs.log_per_byte;
     assert_eq!(base + per_byte * len, used_gas, "Wrong amount of gas spent");

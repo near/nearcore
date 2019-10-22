@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::VMConfig;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
@@ -21,7 +21,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// Parameters of Wasm and economic parameters.
-    config: &'a Config,
+    config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -76,7 +76,7 @@ impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
-        config: &'a Config,
+        config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
@@ -329,7 +329,7 @@ impl<'a> VMLogic<'a> {
     fn internal_write_register(
         registers: &mut HashMap<u64, Vec<u8>>,
         gas_counter: &mut GasCounter,
-        config: &Config,
+        config: &VMConfig,
         register_id: u64,
         data: &[u8],
     ) -> Result<()> {

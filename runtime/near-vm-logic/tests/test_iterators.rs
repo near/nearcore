@@ -4,7 +4,7 @@ use crate::fixtures::get_context;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, VMLogic};
+use near_vm_logic::{VMConfig, VMLogic};
 
 struct KeyVal<'a>(&'a [u8], &'a [u8]);
 
@@ -90,7 +90,7 @@ fn iter_range_check(
 fn test_iterator(use_register: bool) {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -110,7 +110,7 @@ fn test_iterator(use_register: bool) {
 fn test_iterator_from_second(use_register: bool) {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -134,7 +134,7 @@ fn test_iterator_from_second(use_register: bool) {
 fn test_iterator_invalidation() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -149,7 +149,7 @@ fn test_iterator_invalidation() {
 fn test_iterator_range() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -187,7 +187,7 @@ fn test_iterator_range() {
 fn test_iterator_range_intersect() {
     let mut ext = MockedExternal::default();
     let context = get_context(vec![], false);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();

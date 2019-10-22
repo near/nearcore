@@ -2,13 +2,13 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
 use near_vm_logic::VMContext;
-use near_vm_logic::{Config, VMLogic};
+use near_vm_logic::{VMConfig, VMLogic};
 
 use near_vm_logic::types::PromiseResult;
 
 pub struct VMLogicBuilder {
     pub ext: MockedExternal,
-    pub config: Config,
+    pub config: VMConfig,
     pub fees_config: RuntimeFeesConfig,
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
@@ -17,7 +17,7 @@ pub struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: Config::default(),
+            config: VMConfig::default(),
             fees_config: RuntimeFeesConfig::default(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
@@ -36,5 +36,14 @@ impl VMLogicBuilder {
             &self.promise_results,
             &mut self.memory,
         )
+    }
+    pub fn free() -> Self {
+        VMLogicBuilder {
+            config: VMConfig::free(),
+            fees_config: RuntimeFeesConfig::free(),
+            ext: MockedExternal::default(),
+            memory: MockedMemory::default(),
+            promise_results: vec![],
+        }
     }
 }

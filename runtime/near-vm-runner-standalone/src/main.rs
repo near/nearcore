@@ -9,7 +9,7 @@ use clap::{App, Arg};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Config, VMContext};
+use near_vm_logic::{VMConfig, VMContext};
 use near_vm_runner::run;
 use std::fs;
 
@@ -105,7 +105,7 @@ fn main() {
         .map(|res_str| serde_json::from_str(res_str).unwrap())
         .collect();
 
-    let config: Config = match matches.value_of("config") {
+    let config: VMConfig = match matches.value_of("config") {
         Some(value) => serde_json::from_str(value).unwrap(),
         None => match matches.value_of("config-file") {
             Some(filepath) => {

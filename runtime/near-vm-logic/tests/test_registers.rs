@@ -2,7 +2,7 @@ mod fixtures;
 mod vm_logic_builder;
 
 use fixtures::get_context;
-use near_vm_logic::{Config, HostError, HostErrorOrStorageError};
+use near_vm_logic::{HostError, HostErrorOrStorageError, VMConfig};
 use vm_logic_builder::VMLogicBuilder;
 
 #[test]
@@ -65,8 +65,8 @@ fn test_max_register_size() {
 
 #[test]
 fn test_max_register_memory_limit() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let config = Config::free();
+    let mut logic_builder = VMLogicBuilder::free();
+    let config = VMConfig::free();
     logic_builder.config = config.clone();
     let mut logic = logic_builder.build(get_context(vec![], false));
 

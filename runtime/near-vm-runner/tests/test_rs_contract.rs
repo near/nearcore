@@ -2,7 +2,7 @@ use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{Config, VMContext, VMOutcome};
+use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::mem::size_of;
@@ -53,7 +53,7 @@ pub fn test_read_write() {
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
 
     let promise_results = vec![];
@@ -103,7 +103,7 @@ fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
     path.push("tests/res/test_contract_rs.wasm");
     let code = fs::read(path).unwrap();
     let mut fake_external = MockedExternal::new();
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let context = create_context(&input);
 
@@ -164,7 +164,7 @@ pub fn test_out_of_memory() {
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&[]);
-    let config = Config::default();
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
 
     let promise_results = vec![];

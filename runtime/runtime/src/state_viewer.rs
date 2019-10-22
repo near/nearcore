@@ -12,7 +12,7 @@ use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_primitives::views::ViewStateResult;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
-use near_vm_logic::{Config, ReturnData, VMContext};
+use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
@@ -129,7 +129,7 @@ impl TrieViewer {
                 method_name.as_bytes(),
                 &mut runtime_ext,
                 context,
-                &Config::default(),
+                &VMConfig::default(),
                 &RuntimeFeesConfig::default(),
                 &[],
             )

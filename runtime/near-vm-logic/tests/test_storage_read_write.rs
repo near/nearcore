@@ -2,8 +2,8 @@ mod fixtures;
 mod vm_logic_builder;
 
 use fixtures::get_context;
-use vm_logic_builder::VMLogicBuilder;
 use near_vm_logic::External;
+use vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_storage_write_with_register() {

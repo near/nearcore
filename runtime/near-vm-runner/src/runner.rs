@@ -6,7 +6,7 @@ use crate::{cache, imports};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Config, External, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -35,7 +35,7 @@ pub fn run<'a>(
     method_name: &[u8],
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &'a Config,
+    wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
