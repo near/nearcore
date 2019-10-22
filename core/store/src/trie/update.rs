@@ -12,9 +12,7 @@ use crate::trie::TrieChanges;
 use super::{Trie, TrieIterator};
 use crate::StorageError;
 
-// TODO(#1481): Remove clone after Runtime bug is fixed.
 /// Provides a way to access Storage and record changes with future commit.
-#[derive(Clone)]
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
     root: MerkleHash,
@@ -275,18 +273,6 @@ mod tests {
     use crate::test_utils::create_trie;
 
     use super::*;
-
-    // TODO(#1481): Remove clone after Runtime bug is fixed.
-    #[test]
-    fn trie_clone() {
-        let trie = create_trie();
-        let root = MerkleHash::default();
-        let mut trie_update = TrieUpdate::new(trie.clone(), root);
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
-        let trie_cloned = trie_update.clone();
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"batman"));
-        assert_eq!(trie_cloned.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
-    }
 
     #[test]
     fn trie() {
