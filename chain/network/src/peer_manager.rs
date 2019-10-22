@@ -27,7 +27,7 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
-use crate::routing::{Edge, EdgeInfo, RoutingTable};
+use crate::routing::{Edge, EdgeInfo, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerIdOrHash,
@@ -150,7 +150,7 @@ impl PeerManagerActor {
             },
         );
 
-        assert!(self.routing_table.process_edge(new_edge.clone()));
+        assert!(self.process_edge(ctx, new_edge.clone()));
 
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.
@@ -306,6 +306,18 @@ impl PeerManagerActor {
             .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
             .and_then(|_, _, _| actix::fut::ok(()))
             .spawn(ctx);
+    }
+
+    /// Add an edge update to the routing table and return if it is a new edge update.
+    fn process_edge(&mut self, ctx: &mut Context<Self>, edge: Edge) -> bool {
+        let ProcessEdgeResult { new_edge, schedule_computation } =
+            self.routing_table.process_edge(edge);
+
+        if let Some(duration) = schedule_computation {
+            ctx.run_later(duration, |act, _ctx| act.routing_table.update());
+        }
+
+        new_edge
     }
 
     /// Periodically query peer actors for latest weight and traffic info.
@@ -758,7 +770,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                     //  before saying we are not connected).
                                     //  Also handle the case where we current peer needs to update its nonce.
                                     edge.peer0 != me && edge.peer1 != me &&
-                                    act.routing_table.process_edge(edge.clone())
+                                    act.process_edge(ctx, edge.clone())
                                 })
                                 .collect();
 

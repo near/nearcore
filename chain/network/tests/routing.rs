@@ -468,5 +468,3 @@ fn ping_jump() {
 //      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
 //      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
 //      higher nonce, forget this new connection.
-
-// TODO(MarX, #1312): Test routing (between peers / between validator)

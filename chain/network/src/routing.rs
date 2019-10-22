@@ -5,7 +5,7 @@ use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
 use itertools::{Itertools, MinMaxResult};
-use log::debug;
+use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
@@ -13,6 +13,7 @@ use near_primitives::types::AccountId;
 
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
+use std::time::{Duration, Instant};
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
@@ -204,6 +205,8 @@ pub struct RoutingTable {
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
     route_nonce: HashMap<PeerId, usize>,
+    /// Flag to know if there is state recalculation pending.
+    recalculation_scheduled: Option<Instant>,
     /// Ping received by nonce. Used for testing only.
     ping_info: Option<HashMap<usize, Ping>>,
     /// Ping received by nonce. Used for testing only.
@@ -227,6 +230,7 @@ impl RoutingTable {
             route_back: CloneNone::new(SizedCache::with_size(ROUTE_BACK_CACHE_SIZE)),
             raw_graph: Graph::new(peer_id),
             route_nonce: HashMap::new(),
+            recalculation_scheduled: None,
             ping_info: None,
             pong_info: None,
         }
@@ -315,13 +319,13 @@ impl RoutingTable {
     /// Edge contains about being added or removed (this can trigger both types of events).
     /// Return true if the edge contains new information about the network. Old if this information
     /// is outdated.
-    pub fn process_edge(&mut self, edge: Edge) -> bool {
+    pub fn process_edge(&mut self, edge: Edge) -> ProcessEdgeResult {
         let key = edge.get_pair();
 
         if self.find_nonce(&key) >= edge.nonce {
             // We already have a newer information about this edge. Discard this information.
             debug!(target:"network", "Received outdated edge: {:?}", edge);
-            return false;
+            return ProcessEdgeResult { new_edge: false, schedule_computation: None };
         }
 
         match edge.edge_type() {
@@ -334,9 +338,26 @@ impl RoutingTable {
         }
 
         self.edges_info.insert(key, edge);
-        // TODO(MarX, #1363): Don't recalculate all the time
-        self.peer_forwarding = self.raw_graph.calculate_distance();
-        true
+
+        // Minimum between known routes and 1000
+        let known_routes = std::cmp::min(self.peer_forwarding.len() as u64, 1000);
+
+        let new_schedule = self.recalculation_scheduled.map_or_else(
+            move || Some(Duration::from_millis(known_routes)),
+            |target| {
+                if Instant::now() > target {
+                    Some(Duration::from_millis(known_routes))
+                } else {
+                    None
+                }
+            },
+        );
+
+        if let Some(duration) = new_schedule {
+            self.recalculation_scheduled = Some(Instant::now() + duration);
+        }
+
+        ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -407,6 +428,18 @@ impl RoutingTable {
             peer_forwarding: self.peer_forwarding.clone(),
         }
     }
+
+    /// Recalculate routing table.
+    pub fn update(&mut self) {
+        trace!(target: "network", "Update routing table.");
+        self.recalculation_scheduled = None;
+        self.peer_forwarding = self.raw_graph.calculate_distance();
+    }
+}
+
+pub struct ProcessEdgeResult {
+    pub new_edge: bool,
+    pub schedule_computation: Option<Duration>,
 }
 
 #[derive(Debug)]
