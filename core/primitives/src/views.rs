@@ -396,7 +396,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
                 outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root.into(),
+                tx_root: view.tx_root,
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
             height_included: view.height_included,
