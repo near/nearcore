@@ -16,7 +16,7 @@
 # Supports the following monkeys:
 #  [ ] `node_set`: ocasionally spins up new nodes or kills existing ones, as long as the number of nodes doesn't exceed `N` and doesn't go below `n`. Also makes sure that for each shard there's at least one node that has been live sufficiently long
 #  [ ] `node_restart`: ocasionally restarts nodes
-#  [ ] `local_network`: ocasionally briefly shuts down the network connection for a specific node
+#  [v] `local_network`: ocasionally briefly shuts down the network connection for a specific node
 #  [ ] `global_network`: ocasionally shots down the network globally for several seconds
 #  [v] `transactions`: sends random transactions keeping track of expected balances
 #  [v] `staking`: runs staking transactions for validators. Presently the test doesn't track staking invariants, relying on asserts in the nearcore.
