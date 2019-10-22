@@ -41,3 +41,6 @@ tmp/
 
 # Logs
 *.log
+
+# Vim tmp files
+*.swp

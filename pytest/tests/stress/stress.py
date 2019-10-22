@@ -14,16 +14,16 @@
 #  `k`: number of observers (technically `k+1`, one more observer is used by the test)
 #  `monkeys`: enabled monkeys (see below)
 # Supports the following monkeys:
-#  `node_set`: ocasionally spins up new nodes or kills existing ones, as long as the number of nodes doesn't exceed `N` and doesn't go below `n`. Also makes sure that for each shard there's at least one node that has been live sufficiently long
-#  `node_restart`: ocasionally restarts nodes
-#  `local_network`: ocasionally shuts down the network connection between random nodes
-#  `global_network`: ocasionally shots down the network globally for several seconds
-#  `transactions`: sends random transactions keeping track of expected balances
-#  `staking`: runs staking transactions for validators. Presently the test doesn't track staking invariants, relying on asserts in the nearcore.
-#             `staking2.py` tests some basic stake invariants
+#  [ ] `node_set`: ocasionally spins up new nodes or kills existing ones, as long as the number of nodes doesn't exceed `N` and doesn't go below `n`. Also makes sure that for each shard there's at least one node that has been live sufficiently long
+#  [ ] `node_restart`: ocasionally restarts nodes
+#  [v] `local_network`: ocasionally briefly shuts down the network connection for a specific node
+#  [ ] `global_network`: ocasionally shots down the network globally for several seconds
+#  [v] `transactions`: sends random transactions keeping track of expected balances
+#  [v] `staking`: runs staking transactions for validators. Presently the test doesn't track staking invariants, relying on asserts in the nearcore.
+#                `staking2.py` tests some basic stake invariants
 # This test also completely disables rewards, which simplifies ensuring total supply invariance and balance invariances
 
-import sys, time, base58, random, inspect, traceback
+import sys, time, base58, random, inspect, traceback, requests
 from multiprocessing import Process, Value, Lock
 
 sys.path.append('lib')
@@ -31,16 +31,23 @@ sys.path.append('lib')
 from cluster import init_cluster, spin_up_node
 from utils import TxContext
 from transaction import sign_payment_tx, sign_staking_tx
+from network import init_network_pillager, stop_network, resume_network
 
 TIMEOUT = 1500 # after how much time to shut down the test
 TIMEOUT_SHUTDOWN = 60 # time to wait after the shutdown was initiated before 
 BLOCK_TIMEOUT = 20 # if two blocks are not produced within that many seconds, the test will fail
-BALANCES_TIMEOUT = 10 # how long to tolerate for balances to update after txs are sent
+BALANCES_TIMEOUT = 15 # how long to tolerate for balances to update after txs are sent
 MAX_STAKE = int(1e26)
 EPOCH_LENGTH = 20
 
 assert BALANCES_TIMEOUT * 2 <= TIMEOUT_SHUTDOWN
 assert BLOCK_TIMEOUT * 2 <= TIMEOUT_SHUTDOWN
+
+network_issues_expected = False
+
+def expect_network_issues():
+    global network_issues_expected
+    network_issues_expected = True
 
 def stress_process(func):
     def wrapper(stopped, error, *args):
@@ -76,8 +83,20 @@ def monkey_node_restart():
     pass
 
 @stress_process
-def monkey_local_network():
-    pass
+def monkey_local_network(stopped, error, nodes, nonces):
+    while stopped.value == 0:
+        # "- 2" below is because we don't want to kill the node we use to check stats
+        node_idx = random.randint(0, len(nodes) - 2)
+        pid = nodes[node_idx].handle.pid
+        print("Stopping network for process %s" % pid)
+        stop_network(pid)
+        if node_idx == get_the_guy_to_mess_up_with(nodes):
+            time.sleep(5)
+        else:
+            time.sleep(1)
+        print("Resuming network for process %s" % pid)
+        resume_network(pid)
+        time.sleep(5)
 
 @stress_process
 def monkey_global_network():
@@ -150,7 +169,12 @@ def monkey_transactions(stopped, error, nodes, nonces):
             with nonce_lock:
                 tx = sign_payment_tx(nodes[from_].signer_key, 'test%s' % to, amt, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
                 for validator_id in validator_ids:
-                    tx_hash = nodes[validator_id].send_tx(tx)['result']
+                    try:
+                        tx_hash = nodes[validator_id].send_tx(tx)['result']
+                    except requests.exceptions.ReadTimeout:
+                        if not network_issues_expected:
+                            raise
+
                 last_tx_set.append((tx, from_, to, tx_hash, amt))
                 nonce_val.value = nonce_val.value + 1
 
@@ -202,7 +226,11 @@ def monkey_staking(stopped, error, nodes, nonces):
 
             tx = sign_staking_tx(nodes[whom].signer_key, nodes[whom].validator_key, stake, nonce_val.value, base58.b58decode(hash_.encode('utf8')))
             for validator_id in validator_ids:
-                nodes[validator_id].send_tx(tx)
+                try:
+                    nodes[validator_id].send_tx(tx)
+                except requests.exceptions.ReadTimeout:
+                    if not network_issues_expected:
+                        raise
             nonce_val.value = nonce_val.value + 1
 
         time.sleep(1)
@@ -292,10 +320,15 @@ def blocks_tracker(stopped, error, nodes, nonces):
     print("Largest height:     %s" % largest_height)
     print("Largest divergence: %s" % largest_divergence)
 
-    assert largest_divergence < len(nodes)
+    if not network_issues_expected:
+        assert largest_divergence < len(nodes)
+    else:
+        assert largest_divergence < 2 * len(nodes)
 
 
-def doit(s, n, N, k, monkeys):
+def doit(s, n, N, k, monkeys, timeout):
+    global network_issues_expected
+
     assert 2 <= n <= N
 
     config = {'local': True, 'near_root': '../target/debug/'}
@@ -319,6 +352,13 @@ def doit(s, n, N, k, monkeys):
         else:
             nodes.append(None)
 
+    monkey_names = [x.__name__ for x in monkeys]
+    print(monkey_names)
+    if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
+        print("There are monkeys messing up with network, initializing the infra")
+        init_network_pillager()
+        network_issues_expected = True
+
     stopped = Value('i', 0)
     error = Value('i', 0)
     ps = []
@@ -339,12 +379,12 @@ def doit(s, n, N, k, monkeys):
             assert False, "At least one process failed, check error messages above"
 
     for monkey in monkeys:
-        launch_process(globals()['monkey_%s' % monkey])
+        launch_process(monkey)
 
     launch_process(blocks_tracker)
 
     started = time.time()
-    while time.time() - started < TIMEOUT:
+    while time.time() - started < timeout:
         check_errors()
         time.sleep(1)
     
@@ -386,5 +426,5 @@ if __name__ == "__main__":
     for monkey in monkeys:
         assert monkey in MONKEYS, "Unknown monkey \"%s\"" % monkey
 
-    doit(s, n, N, k, monkeys)
+    doit(s, n, N, k, [globals()["monkey_%s" % x] for x in monkeys], TIMEOUT)
 
