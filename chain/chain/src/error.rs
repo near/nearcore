@@ -199,6 +199,3 @@ impl From<String> for Error {
 }
 
 impl std::error::Error for Error {}
-
-unsafe impl Send for Error {}
-unsafe impl Sync for Error {}
