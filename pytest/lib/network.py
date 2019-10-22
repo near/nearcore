@@ -13,7 +13,7 @@ def init_network_pillager():
     except IOError as e:
         if e[0] == 13:
             print("Failed to modify `/sys/fs/cgroup/net_cls/block/net_cls.classid`.")
-            print("Make sure the current use has access to it, e.g. by changing the owner:")
+            print("Make sure the current user has access to it, e.g. by changing the owner:")
             print("")
             print("    chown <group>.<user> /sys/fs/cgroup/net_cls/block/net_cls.classid")
             print("")
