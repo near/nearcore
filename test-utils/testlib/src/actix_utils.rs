@@ -18,7 +18,6 @@ impl ShutdownableThread {
             f();
             tx.send(System::current()).unwrap();
             system.run().unwrap();
-            ()
         });
 
         let actix_system = rx.recv().unwrap();
