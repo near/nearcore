@@ -263,7 +263,7 @@ impl SecretKey {
                 SecretKey::ED25519(secret_key)
             }
             KeyType::SECP256K1 => {
-                let mut rng = StdRng::from_rng(OsRng::new().unwrap()).unwrap();
+                let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
                 SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut rng))
             }
         }
@@ -601,16 +601,16 @@ mod tests {
 
         let sk = SecretKey::from_seed(KeyType::SECP256K1, "test");
         let pk = sk.public_key();
-        let expected = "\"secp256k1:2xVqteU8PWhadHTv99TGh3bSffGb32cFokopSg8xPAiFVjv5UvRUYfNPzmZctBuXryhQosc9dfY1TKKrV4YiyiZH\"";
+        let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
 
-        let expected = "\"secp256k1:9ZAJB311CURTStj66tvL69fyu6UqWUDNHzdH5Tuixh1Y\"";
+        let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
         assert_eq!(sk, serde_json::from_str(expected).unwrap());
 
         let signature = sk.sign(&data);
-        let expected = "\"secp256k1:Ng9nnxbC1BBWJ8NZ8XyExB7kUMtWNn8xCdxRtVC1m7ghH8EpwcupZU3BAxk6ehamaB89aSzhC6UeME4QgZtfkhtwi\"";
+        let expected = "\"secp256k1:7iA75xRmHw17MbUkSpHxBHFVTuJW6jngzbuJPJutwb3EAwVw21wrjpMHU7fFTAqH7D3YEma8utCdvdtsqcAWqnC7r\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
     }
