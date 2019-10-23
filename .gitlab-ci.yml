@@ -60,7 +60,7 @@ test_nearlib:
     - ./scripts/test_nearlib.sh
 
 coverage:
-    stage: libs
+    stage: test
     tags:
     - shell
     before_script:
