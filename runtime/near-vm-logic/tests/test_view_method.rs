@@ -12,6 +12,7 @@ macro_rules! test_prohibited {
         let config = Config::default();
         let promise_results = vec![];
         let mut memory = MockedMemory::default();
+        #[allow(unused_mut)]
         let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
         let name = stringify!($f);
