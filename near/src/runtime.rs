@@ -5,12 +5,13 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::debug;
 
-use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
+use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
@@ -22,14 +23,16 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StatePart, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges, COL_STATE,
+    get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieIterator, TrieUpdate,
+    WrappedTrieChanges, COL_STATE,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -724,39 +727,47 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: u64,
         state_root: &StateRoot,
     ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
-        if part_id > 0 {
-            /* TODO MOO */
-            return Ok((StatePart { shard_id, part_id, data: vec![] }, vec![]));
-        }
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
+        // TODO #1523 implement this method and uncomment
+        // self.trie.get_state_part_and_proof(shard_id, part_id, state_root)?
+
+        // TODO #1523 remove the following under get_state_part_and_proof
+        let trie = self.trie.recording_reads();
+        let prefix_begin = (256 / state_root.num_parts * part_id) as u8;
+        let mut iterator = TrieIterator::new(&trie, &state_root.hash)?;
+        iterator.seek(&[prefix_begin])?;
         let mut result = vec![];
         let mut cursor = Cursor::new(&mut result);
-        for item in self.trie.iter(&state_root.hash)? {
+        for item in iterator {
             let (key, value) = item?;
+            if key[0] as u64 >= (256 / state_root.num_parts * (part_id + 1)) {
+                break;
+            }
             cursor.write_u32::<LittleEndian>(key.len() as u32)?;
             cursor.write_all(&key)?;
             cursor.write_u32::<LittleEndian>(value.len() as u32)?;
             cursor.write_all(value.as_ref())?;
         }
+        let storage = trie.recorded_storage().expect("storage is a TrieRecordingStorage");
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
         debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root.hash, result.len());
-        // TODO add proof in Nightshade Runtime
-        Ok((StatePart { shard_id, part_id, data: result }, vec![]))
+        Ok((StatePart { shard_id, part_id, data: result }, storage.try_to_vec()?))
     }
 
     fn accept_state_part(
         &self,
         state_root: &StateRoot,
         part: &StatePart,
-        _proof: &Vec<u8>,
+        proof: &Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if part.part_id > 0 {
-            /* TODO MOO */
-            return Ok(());
-        }
         debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root.hash, part.data.len());
-        // TODO prove that the part is valid
+        let storage = PartialStorage::try_from_slice(&proof)?;
+        // TODO #1523 implement this
+        self.trie.prove_state_part(state_root, part, &storage)?;
+        self.trie.accept_state_part(state_root, part)?;
+
+        // TODO #1523 should be moved into trie.accept_state_part
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let state_part_len = part.data.len();
         let mut cursor = Cursor::new(part.data.clone());
@@ -769,17 +780,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.read_exact(&mut value)?;
             state_update.set(key, DBValue::from_slice(&value));
         }
-        let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
-        if root != state_root.hash {
-            return Err("Invalid state root".into());
-        }
+        let (store_update, _) = state_update.finalize()?.1.into(self.trie.clone())?;
         store_update.commit()?;
         Ok(())
     }
 
-    fn confirm_state(&self, _state_root: &StateRoot) -> Result<bool, Error> {
-        // TODO approve that all parts are here
-        Ok(true)
+    fn confirm_state(&self, _state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>> {
+        // Misha: this doesn't need to exist, parts validation should take care of everything
+        // KPR: Technically, we cannot reach confirm_state before accepting all the parts.
+        //      The function is used in test utils (KV storage) and makes sense by design.
+        // TODO #1523 replace the trie here
+        Ok(())
     }
 }
 

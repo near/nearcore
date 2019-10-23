@@ -518,7 +518,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                400,
+                1000,
                 false,
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {

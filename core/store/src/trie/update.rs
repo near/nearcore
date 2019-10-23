@@ -5,7 +5,8 @@ use std::sync::Arc;
 use kvdb::DBValue;
 use log::debug;
 
-use near_primitives::types::MerkleHash;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::StateRoot;
 
 use crate::trie::TrieChanges;
 
@@ -15,13 +16,13 @@ use crate::StorageError;
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
-    root: MerkleHash,
+    root: CryptoHash,
     committed: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 impl TrieUpdate {
-    pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
+    pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, StorageError> {
@@ -77,12 +78,15 @@ impl TrieUpdate {
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
+    pub fn finalize(mut self) -> Result<(StateRoot, TrieChanges), StorageError> {
         if !self.prospective.is_empty() {
             self.commit();
         }
         let TrieUpdate { trie, root, committed, .. } = self;
-        trie.update(&root, committed.into_iter())
+        let trie_changes = trie.update(&root, committed.into_iter())?;
+        // TODO #1523: compute StateRoot in a proper way
+        let state_root = StateRoot { hash: trie_changes.new_root, num_parts: 9 };
+        Ok((state_root, trie_changes))
     }
 
     /// Returns Error if the underlying storage fails
@@ -99,7 +103,7 @@ impl TrieUpdate {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
-    pub fn get_root(&self) -> MerkleHash {
+    pub fn get_root(&self) -> CryptoHash {
         self.root
     }
 }
@@ -277,12 +281,13 @@ mod tests {
     #[test]
     fn trie() {
         let trie = create_trie();
-        let root = MerkleHash::default();
+        let root = CryptoHash::default();
         let mut trie_update = TrieUpdate::new(trie.clone(), root);
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.set(b"xxx".to_vec(), DBValue::from_slice(b"puppy"));
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
         assert_eq!(trie_update2.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
@@ -296,40 +301,45 @@ mod tests {
         let trie = create_trie();
 
         // Delete non-existing element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.remove(b"dog");
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
 
         // Add and right away delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.remove(b"dog");
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
 
         // Add, apply changes and then delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_ne!(new_root, MerkleHash::default());
+        assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
     }
 
     #[test]
     fn trie_iter() {
         let trie = create_trie();
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.set(b"aaa".to_vec(), DBValue::from_slice(b"puppy"));
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            trie_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().ok();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);

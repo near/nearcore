@@ -18,7 +18,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StatePart, StateRoot,
     ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
@@ -28,14 +28,14 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePart, StatePartKey,
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePartKey,
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
 use near_primitives::errors::RuntimeError;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 
-pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
+pub const DEFAULT_STATE_NUM_PARTS: u64 = 17;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -713,7 +713,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error> {
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>> {
         let mut data = vec![];
         for i in 0..state_root.num_parts as usize {
             let key = hash(&StatePartKey(i as u64, state_root.clone()).try_to_vec().unwrap());
@@ -731,7 +731,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
         self.state.write().unwrap().insert(state_root.hash, state);
-        Ok(true)
+        Ok(())
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

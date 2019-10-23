@@ -4,12 +4,14 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::{ShardId, StatePart, StateRoot};
 
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
@@ -20,8 +22,7 @@ pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-/// For fraud proofs
-#[allow(dead_code)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
 pub struct PartialStorage {
     nodes: Vec<(CryptoHash, Vec<u8>)>,
 }
@@ -1458,6 +1459,36 @@ impl Trie {
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    pub fn get_state_part_and_proof(
+        &self,
+        _shard_id: ShardId,
+        _part_id: u64,
+        _state_root: &StateRoot,
+    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
+        // TODO #1523 implement me
+        // TODO #1449: apply subtree sizes here
+        Ok((StatePart::default(), vec![]))
+    }
+
+    pub fn prove_state_part(
+        &self,
+        _state_root: &StateRoot,
+        _part: &StatePart,
+        _storage: &PartialStorage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO #1523 implement me
+        Ok(())
+    }
+
+    pub fn accept_state_part(
+        &self,
+        _state_root: &StateRoot,
+        _part: &StatePart,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO #1523 implement me
         Ok(())
     }
 }

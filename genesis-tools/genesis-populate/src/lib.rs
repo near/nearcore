@@ -170,10 +170,11 @@ impl GenesisBuilder {
             set_account(&mut state_update, &account_id, &account);
         }
         let trie = state_update.trie.clone();
-        let (store_update, root) = state_update.finalize()?.into(trie)?;
+        let (state_root, trie_changes) = state_update.finalize()?;
+        let (store_update, root) = trie_changes.into(trie)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, StateRoot { hash: root, num_parts: 9 /* TODO MOO */ });
+        self.roots.insert(shard_idx, state_root);
         self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
         Ok(())
     }

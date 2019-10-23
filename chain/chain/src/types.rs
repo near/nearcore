@@ -11,7 +11,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StatePart, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
@@ -33,13 +33,6 @@ pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StatePartKey(pub u64, pub StateRoot);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePart {
-    pub shard_id: ShardId,
-    pub part_id: u64,
-    pub data: Vec<u8>,
-}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -348,8 +341,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Should be executed after accepting all the parts.
-    /// Returns `true` if state is set successfully.
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error>;
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {

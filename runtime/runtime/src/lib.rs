@@ -967,9 +967,9 @@ impl Runtime {
             &stats,
         )?;
 
-        let trie_changes = state_update.finalize()?;
+        let (state_root, trie_changes) = state_update.finalize()?;
         Ok(ApplyResult {
-            state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
+            state_root,
             trie_changes,
             validator_proposals,
             new_receipts,
@@ -1116,15 +1116,10 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        let state_update_state = state_update
-            .finalize()
-            .expect("Genesis state update failed")
-            .into(trie)
-            .expect("Genesis state update failed");
-        (
-            state_update_state.0,
-            StateRoot { hash: state_update_state.1, num_parts: 9 /* TODO MOO */ },
-        )
+        let (state_root, trie_changes) =
+            state_update.finalize().expect("Genesis state update failed");
+        let state_update_state = trie_changes.into(trie).expect("Genesis state update failed");
+        (state_update_state.0, state_root)
     }
 }
 
@@ -1156,7 +1151,8 @@ mod tests {
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
-        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            state_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1181,7 +1177,7 @@ mod tests {
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
         let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.1.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         let apply_state =
@@ -1208,7 +1204,7 @@ mod tests {
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
         let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.1.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         let apply_state =

@@ -145,8 +145,8 @@ impl TrieViewer {
             let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
             logs.extend(outcome.logs);
-            let trie_update = state_update.finalize()?;
-            if trie_update.new_root != root {
+            let (state_root, _) = state_update.finalize()?;
+            if state_root.hash != root {
                 return Err("function call for viewing tried to change storage".into());
             }
             let mut result = vec![];
@@ -229,7 +229,7 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root.hash);
         state_update.set(key_for_data(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
-        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (db_changes, new_root) = state_update.finalize().unwrap().1.into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);

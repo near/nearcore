@@ -2163,7 +2163,12 @@ impl<'a> ChainUpdate<'a> {
         // Applying chunk is started here.
 
         // Confirm that state matches the parts we received.
-        self.runtime_adapter.confirm_state(&state_root)?;
+        match self.runtime_adapter.confirm_state(&state_root) {
+            Ok(()) => {}
+            _ => {
+                return Err(ErrorKind::Other(format!("Cannot confirm state")).into());
+            }
+        }
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
