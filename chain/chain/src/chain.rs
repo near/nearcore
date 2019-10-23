@@ -13,7 +13,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::ExecutionOutcome;
+use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::{Store, COL_STATE_HEADERS};
 
@@ -25,6 +25,10 @@ use crate::types::{
     validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList,
     ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
     ShardStateSyncResponsePart, StateHeaderKey, Tip, ValidatorSignatureVerificationResult,
+};
+use near_primitives::views::{
+    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 
 /// Maximum number of orphans chain can store.
@@ -247,7 +251,15 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0, 0, 0),
+                            ChunkExtra::new(
+                                state_root,
+                                vec![],
+                                0,
+                                chain_genesis.gas_limit,
+                                0,
+                                0,
+                                0,
+                            ),
                         );
                     }
 
@@ -1291,6 +1303,72 @@ impl Chain {
 
         Ok(())
     }
+
+    pub fn get_transaction_execution_result(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<ExecutionOutcomeView, String> {
+        match self.get_transaction_result(hash) {
+            Ok(result) => Ok(result.clone().into()),
+            Err(err) => match err.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    Ok(ExecutionOutcome { status: ExecutionStatus::Unknown, ..Default::default() }
+                        .into())
+                }
+                _ => Err(err.to_string()),
+            },
+        }
+    }
+
+    fn get_recursive_transaction_results(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
+        let outcome = self.get_transaction_execution_result(hash)?;
+        let receipt_ids = outcome.receipt_ids.clone();
+        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        for hash in &receipt_ids {
+            transactions
+                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
+        }
+        Ok(transactions)
+    }
+
+    pub fn get_final_transaction_result(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, String> {
+        let mut outcomes = self.get_recursive_transaction_results(hash)?;
+        let mut looking_for_id = (*hash).into();
+        let num_outcomes = outcomes.len();
+        let status = outcomes
+            .iter()
+            .find_map(|outcome_with_id| {
+                if outcome_with_id.id == looking_for_id {
+                    match &outcome_with_id.outcome.status {
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
+                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
+                        ExecutionStatusView::SuccessValue(v) => {
+                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                        }
+                        ExecutionStatusView::SuccessReceiptId(id) => {
+                            looking_for_id = id.clone();
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("results should resolve to a final outcome");
+        let receipts = outcomes.split_off(1);
+        Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
+    }
 }
 
 /// Various chain getters.
@@ -1652,11 +1730,14 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
-                            &block.header,
-                            &t.transaction.block_hash,
-                            self.transaction_validity_period,
-                        ).is_err()
+                        self.chain_store_update
+                            .get_chain_store()
+                            .check_blocks_on_same_chain(
+                                &block.header,
+                                &t.transaction.block_hash,
+                                self.transaction_validity_period,
+                            )
+                            .is_err()
                     });
                     if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
@@ -1693,7 +1774,7 @@ impl<'a> ChainUpdate<'a> {
                             gas_limit,
                             apply_result.total_rent_paid,
                             apply_result.total_validator_reward,
-                            apply_result.total_balance_burnt
+                            apply_result.total_balance_burnt,
                         ),
                     );
                     // Save resulting receipts.
@@ -2200,7 +2281,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_rent_paid,
             apply_result.total_validator_reward,
-            apply_result.total_balance_burnt
+            apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
 

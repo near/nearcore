@@ -15,14 +15,19 @@ fn add_key_vals(logic: &mut VMLogic, key_vals: &[KeyVal]) {
     }
 }
 
-fn iter_prefix_check(logic: &mut VMLogic, prefix: &[u8], key_vals: &[KeyVal], use_register: bool) -> u64 {
+fn iter_prefix_check(
+    logic: &mut VMLogic,
+    prefix: &[u8],
+    key_vals: &[KeyVal],
+    use_register: bool,
+) -> u64 {
     let iter_id = if use_register {
         logic.write_register(3, prefix).unwrap();
         logic.storage_iter_prefix(std::u64::MAX, 3)
     } else {
-        logic
-            .storage_iter_prefix(prefix.len() as _, prefix.as_ptr() as _)
-    }.expect("create iterator ok");
+        logic.storage_iter_prefix(prefix.len() as _, prefix.as_ptr() as _)
+    }
+    .expect("create iterator ok");
 
     for KeyVal(key, val) in key_vals {
         assert_eq!(
@@ -42,19 +47,26 @@ fn iter_prefix_check(logic: &mut VMLogic, prefix: &[u8], key_vals: &[KeyVal], us
     iter_id
 }
 
-fn iter_range_check(logic: &mut VMLogic, start: &[u8], end: &[u8], key_vals: &[KeyVal], use_register: bool) -> u64 {
+fn iter_range_check(
+    logic: &mut VMLogic,
+    start: &[u8],
+    end: &[u8],
+    key_vals: &[KeyVal],
+    use_register: bool,
+) -> u64 {
     let iter_id = if use_register {
         logic.write_register(3, start).unwrap();
         logic.write_register(4, end).unwrap();
         logic.storage_iter_range(std::u64::MAX, 0, std::u64::MAX, 1)
     } else {
         logic.storage_iter_range(
-                start.len() as _,
-                start.as_ptr() as _,
-                end.len() as _,
-                end.as_ptr() as _,
-            )
-    }.expect("create iterator ok");
+            start.len() as _,
+            start.as_ptr() as _,
+            end.len() as _,
+            end.as_ptr() as _,
+        )
+    }
+    .expect("create iterator ok");
 
     for KeyVal(key, val) in key_vals {
         assert_eq!(
@@ -87,7 +99,7 @@ fn test_iterator(use_register: bool) {
         &mut logic,
         b"foo",
         &[KeyVal(b"foo1", b"bar1"), KeyVal(b"foo2", b"bar2")],
-        use_register
+        use_register,
     );
     // iterator exhausted
     assert_eq!(logic.storage_iter_next(iter_id, 0, 1).unwrap(), 0);
@@ -105,8 +117,12 @@ fn test_iterator_from_second(use_register: bool) {
         &mut logic,
         &[KeyVal(b"aaa", b"bar1"), KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")],
     );
-    let iter_id =
-        iter_prefix_check(&mut logic, b"aaa", &[KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")], use_register);
+    let iter_id = iter_prefix_check(
+        &mut logic,
+        b"aaa",
+        &[KeyVal(b"aaa", b"bar2"), KeyVal(b"aaaa", b"bar3")],
+        use_register,
+    );
     // iterator exhausted
     assert_eq!(logic.storage_iter_next(iter_id, 0, 1).unwrap(), 0);
 }
@@ -148,14 +164,16 @@ fn test_iterator_range() {
         b"aaa",
         b"abb",
         &[KeyVal(b"aaa", b"bar2"), KeyVal(b"ab", b"bar2")],
-    false);
+        false,
+    );
     assert_eq!(id0, 0);
     let id1 = iter_range_check(
         &mut logic,
         b"aaa",
         b"abb",
         &[KeyVal(b"aaa", b"bar2"), KeyVal(b"ab", b"bar2")],
-        false);
+        false,
+    );
     assert_eq!(id1, 1);
 }
 

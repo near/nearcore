@@ -162,6 +162,7 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
+        let signer_account_id = tx.transaction.signer_id.clone();
         let result = self
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
@@ -196,6 +197,37 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
+            }
+            NetworkClientResponses::NoResponse => {
+                timeout(self.polling_config.polling_timeout, async {
+                    loop {
+                        let final_tx = self
+                            .client_addr
+                            .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                            .compat()
+                            .await;
+                        if let Ok(NetworkClientResponses::TxStatus(tx_result)) = final_tx {
+                            match tx_result.status {
+                                FinalExecutionStatus::Started
+                                | FinalExecutionStatus::NotStarted => {}
+                                _ => {
+                                    let json = serde_json::to_value(tx_result).map_err(|err| {
+                                        RpcError::server_error(Some(err.to_string()))
+                                    });
+                                    break json;
+                                }
+                            }
+                        }
+                        let _ = delay(self.polling_config.polling_interval).await;
+                    }
+                })
+                .await
+                .map_err(|_| {
+                    RpcError::server_error(Some(ExecutionErrorView {
+                        error_message: "send_tx_commit has timed out".to_string(),
+                        error_type: "TimeoutError".to_string(),
+                    }))
+                })?
             }
             _ => unreachable!(),
         }

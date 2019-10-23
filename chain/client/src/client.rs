@@ -15,8 +15,8 @@ use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
 };
 use near_chain::{
-    BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
-    Tip,
+    BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
+    RuntimeAdapter, Tip,
 };
 use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
 use near_crypto::Signature;
@@ -37,12 +37,16 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
+use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
 const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
+
+/// Max number of transaction status query that we keep.
+const TX_STATUS_REQUEST_LIMIT: usize = 500;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -74,6 +78,8 @@ pub struct Client {
     pub state_sync: StateSync,
     /// Block economics, relevant to changes when new block must be produced.
     block_economics_config: BlockEconomicsConfig,
+    /// Tx status query that needs to be forwarded to other shards
+    pub tx_status_requests: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
 }
 
 impl Client {
@@ -113,6 +119,7 @@ impl Client {
             block_economics_config: BlockEconomicsConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
+            tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
         })
     }
 
@@ -761,22 +768,27 @@ impl Client {
         true
     }
 
-    /// Forwards given transaction to upcoming validators.
-    fn forward_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
-        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
-        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+    /// Find a validator that is responsible for a given shard to forward requests to
+    fn find_validator_for_forwarding(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<AccountId, near_chain::Error> {
+        let head = self.chain.head()?;
         // TODO(MarX, #1366): Forward tx even if I am a validator.
         //  How many validators ahead of current time should we forward tx?
         let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
 
-        let validator = unwrap_or_return!(
-            self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id),
-            {
-                warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
-                NetworkClientResponses::NoResponse
-            }
-        );
+        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
+    }
+
+    /// Forwards given transaction to upcoming validators.
+    fn forward_tx(&self, tx: SignedTransaction) -> NetworkClientResponses {
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let validator = unwrap_or_return!(self.find_validator_for_forwarding(shard_id), {
+            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
+            NetworkClientResponses::NoResponse
+        });
 
         debug!(target: "client",
                "I'm {:?}, routing a transaction to {}, shard_id = {}",
@@ -788,6 +800,49 @@ impl Client {
         // Send message to network to actually forward transaction.
         self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
 
+        NetworkClientResponses::NoResponse
+    }
+
+    pub fn get_tx_status(
+        &mut self,
+        tx_hash: CryptoHash,
+        signer_account_id: AccountId,
+    ) -> NetworkClientResponses {
+        if let Some(res) = self.tx_status_requests.cache_remove(&tx_hash) {
+            return NetworkClientResponses::TxStatus(res);
+        }
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let has_tx_result = match self.chain.get_transaction_result(&tx_hash) {
+            Ok(_) => true,
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => false,
+                _ => {
+                    warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
+                    return NetworkClientResponses::NoResponse;
+                }
+            },
+        };
+        if has_tx_result {
+            let tx_result = unwrap_or_return!(
+                self.chain.get_final_transaction_result(&tx_hash),
+                NetworkClientResponses::NoResponse
+            );
+            return NetworkClientResponses::TxStatus(tx_result);
+        }
+        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+        let validator = unwrap_or_return!(self.find_validator_for_forwarding(target_shard_id), {
+            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx_hash);
+            NetworkClientResponses::NoResponse
+        });
+
+        if let Some(account_id) = me {
+            if account_id == &validator {
+                // this probably means that we are crossing epoch boundary and the current node
+                // does not have state for the next epoch. TODO: figure out what to do in this case
+                return NetworkClientResponses::NoResponse;
+            }
+        }
+        self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
         NetworkClientResponses::NoResponse
     }
 

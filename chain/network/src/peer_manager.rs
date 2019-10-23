@@ -703,6 +703,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::TxStatus(account_id, signer_account_id, tx_hash) => {
+                self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -932,7 +940,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
         let RoutedMessageFrom { msg, from } = msg;
 
         if msg.expect_response() {
-            self.routing_table.add_route_back(msg.hash(), from);
+            self.routing_table.add_route_back(msg.hash(), from.clone());
         }
 
         if self.message_for_me(&msg.target) {
@@ -941,6 +949,28 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             match &msg.body {
                 RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping.clone(), msg.hash()),
                 RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong.clone()),
+                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
+                    self.client_addr
+                        .send(NetworkClientMessages::TxStatus { tx_hash: *tx_hash, signer_account_id: account_id.to_string() })
+                        .into_actor(self)
+                        .then(move |response, act, ctx| {
+                            match response {
+                                Ok(NetworkClientResponses::TxStatus(tx_result)) => {
+                                    let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                                    let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(from), body };
+                                    act.send_message_to_peer(ctx, msg);
+                                }
+                                // Here since we directly send the message to the peer who is supposed to
+                                // have the shard state, `NetworkClientResponses::NoResponse` indicates an error
+                                _ => {
+                                    debug!(target: "network", "Received invalid transaction status from client.");
+                                }
+                            }
+                            actix::fut::ok(())
+                        })
+                        .spawn(ctx);
+                    return true;
+                }
                 _ => return true,
             }
 
