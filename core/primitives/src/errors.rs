@@ -170,6 +170,7 @@ impl Display for InvalidAccessKeyError {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BalanceMismatchError {
     // Input balances
+    pub incoming_validator_rewards: Balance,
     pub initial_accounts_balance: Balance,
     pub incoming_receipts_balance: Balance,
     pub initial_postponed_receipts_balance: Balance,
@@ -186,7 +187,8 @@ impl Display for BalanceMismatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         // Using saturating add to avoid overflow in display
         let initial_balance = self
-            .initial_accounts_balance
+            .incoming_validator_rewards
+            .saturating_add(self.initial_accounts_balance)
             .saturating_add(self.incoming_receipts_balance)
             .saturating_add(self.initial_postponed_receipts_balance);
         let final_balance = self
@@ -200,6 +202,7 @@ impl Display for BalanceMismatchError {
             f,
             "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
              Inputs:\n\
+             \tIncoming validator rewards sum: {}\n\
              \tInitial accounts balance sum: {}\n\
              \tIncoming receipts balance sum: {}\n\
              \tInitial postponed receipts balance sum: {}\n\
@@ -212,6 +215,7 @@ impl Display for BalanceMismatchError {
              \tTotal balance burnt: {}",
             initial_balance,
             final_balance,
+            self.incoming_validator_rewards,
             self.initial_accounts_balance,
             self.incoming_receipts_balance,
             self.initial_postponed_receipts_balance,
