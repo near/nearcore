@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use actix::System;
+use actix::{Actor, System};
 use futures::future;
 use futures::future::Future;
 
@@ -8,6 +8,7 @@ use near_crypto::Signature;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::{BlockId, ChunkId};
+use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::ShardId;
@@ -155,6 +156,32 @@ fn test_status() {
     .unwrap();
 }
 
+/// Retrieve client status failed.
+#[test]
+fn test_status_fail() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.status().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::result(Ok(()))
+                }));
+            }),
+            100,
+            1000,
+        )
+        .start();
+    })
+    .unwrap();
+}
+
 /// Check health fails when node is absent.
 #[test]
 fn test_health_fail() {
@@ -167,6 +194,32 @@ fn test_health_fail() {
             System::current().stop();
             future::result(Ok(()))
         }));
+    })
+    .unwrap();
+}
+
+/// Health fails when node doesn't produce block for period of time.
+#[test]
+fn test_health_fail_no_blocks() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                actix::spawn(client.health().then(|res| {
+                    if res.is_err() {
+                        System::current().stop();
+                    }
+                    future::result(Ok(()))
+                }));
+            }),
+            100,
+            1000,
+        )
+        .start();
     })
     .unwrap();
 }

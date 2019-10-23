@@ -422,6 +422,10 @@ impl Handler<Status> for ClientActor {
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
         let latest_block_time = prev_header.inner.timestamp.clone();
+        let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
+        if elapsed > self.client.config.max_block_production_delay {
+            return Err(format!("No blocks for {:?}.", elapsed));
+        }
         let validators = self
             .client
             .runtime_adapter
