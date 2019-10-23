@@ -713,7 +713,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>> {
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Error> {
         let mut data = vec![];
         for i in 0..state_root.num_parts as usize {
             let key = hash(&StatePartKey(i as u64, state_root.clone()).try_to_vec().unwrap());
@@ -722,9 +722,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     data.push(part.data.clone());
                 }
                 None => {
-                    return Err(format!("Invalid accept_state, no part {:?}", i)
-                        .to_string()
-                        .into());
+                    return Err(Error::from(format!("Invalid accept_state, no part {:?}", i)));
                 }
             }
         }

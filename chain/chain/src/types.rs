@@ -341,7 +341,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Should be executed after accepting all the parts.
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>>;
+    fn confirm_state(&self, state_root: &StateRoot) -> Result<(), Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {

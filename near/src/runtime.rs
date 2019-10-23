@@ -316,9 +316,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
     }
 
     fn get_block_producer(
@@ -785,7 +783,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(())
     }
 
-    fn confirm_state(&self, _state_root: &StateRoot) -> Result<(), Box<dyn std::error::Error>> {
+    fn confirm_state(&self, _state_root: &StateRoot) -> Result<(), Error> {
         // Misha: this doesn't need to exist, parts validation should take care of everything
         // KPR: Technically, we cannot reach confirm_state before accepting all the parts.
         //      The function is used in test utils (KV storage) and makes sense by design.
