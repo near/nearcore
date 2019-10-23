@@ -9,7 +9,7 @@ use chrono::Utc;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
-use near_primitives::block::Block;
+use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::{EpochId, StateRoot};
@@ -33,10 +33,14 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis = Block::genesis(
+    let genesis_chunks = genesis_chunks(
         vec![StateRoot { hash: CryptoHash::default(), num_parts: 1 /* TODO MOO */ }],
-        Utc::now(),
         1,
+        1_000,
+    );
+    let genesis = Block::genesis(
+        genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+        Utc::now(),
         1_000,
         1_000,
         1_000,

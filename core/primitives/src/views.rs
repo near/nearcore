@@ -326,6 +326,7 @@ impl From<BlockHeaderView> for BlockHeader {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChunkHeaderView {
+    pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub prev_state_root_hash: CryptoHash,
     pub prev_state_num_parts: u64,
@@ -351,6 +352,7 @@ pub struct ChunkHeaderView {
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
         ChunkHeaderView {
+            chunk_hash: chunk.hash.0,
             prev_block_hash: chunk.inner.prev_block_hash,
             prev_state_root_hash: chunk.inner.prev_state_root.hash,
             prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
@@ -425,7 +427,6 @@ impl From<Block> for BlockView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkView {
-    pub chunk_hash: CryptoHash,
     pub header: ChunkHeaderView,
     pub transactions: Vec<SignedTransactionView>,
     pub receipts: Vec<ReceiptView>,
@@ -434,7 +435,6 @@ pub struct ChunkView {
 impl From<ShardChunk> for ChunkView {
     fn from(chunk: ShardChunk) -> Self {
         Self {
-            chunk_hash: chunk.chunk_hash.0,
             header: chunk.header.into(),
             transactions: chunk.transactions.into_iter().map(Into::into).collect(),
             receipts: chunk.receipts.into_iter().map(Into::into).collect(),
