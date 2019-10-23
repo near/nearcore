@@ -7,6 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
+use near_primitives::block::genesis_chunks;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -185,10 +186,14 @@ impl Chain {
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_roots) = runtime_adapter.genesis_state();
-        let genesis = Block::genesis(
+        let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            chain_genesis.time,
             runtime_adapter.num_shards(),
+            chain_genesis.gas_limit,
+        );
+        let genesis = Block::genesis(
+            genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
+            chain_genesis.time,
             chain_genesis.gas_limit,
             chain_genesis.gas_price,
             chain_genesis.total_supply,
@@ -227,6 +232,9 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    for chunk in genesis_chunks {
+                        store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
+                    }
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
@@ -247,7 +255,15 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0, 0, 0),
+                            ChunkExtra::new(
+                                state_root,
+                                vec![],
+                                0,
+                                chain_genesis.gas_limit,
+                                0,
+                                0,
+                                0,
+                            ),
                         );
                     }
 
@@ -1420,7 +1436,7 @@ impl Chain {
 
     /// Returns underlying RuntimeAdapter.
     #[inline]
-    pub fn runtime_adapter(&self) -> Arc<RuntimeAdapter> {
+    pub fn runtime_adapter(&self) -> Arc<dyn RuntimeAdapter> {
         self.runtime_adapter.clone()
     }
 
@@ -1652,11 +1668,14 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
-                            &block.header,
-                            &t.transaction.block_hash,
-                            self.transaction_validity_period,
-                        ).is_err()
+                        self.chain_store_update
+                            .get_chain_store()
+                            .check_blocks_on_same_chain(
+                                &block.header,
+                                &t.transaction.block_hash,
+                                self.transaction_validity_period,
+                            )
+                            .is_err()
                     });
                     if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
@@ -1693,7 +1712,7 @@ impl<'a> ChainUpdate<'a> {
                             gas_limit,
                             apply_result.total_rent_paid,
                             apply_result.total_validator_reward,
-                            apply_result.total_balance_burnt
+                            apply_result.total_balance_burnt,
                         ),
                     );
                     // Save resulting receipts.
@@ -2205,7 +2224,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_rent_paid,
             apply_result.total_validator_reward,
-            apply_result.total_balance_burnt
+            apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
 

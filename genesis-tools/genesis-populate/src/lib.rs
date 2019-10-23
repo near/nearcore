@@ -1,11 +1,20 @@
 //! Tools for creating a genesis block.
 
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
+use tempdir::TempDir;
+
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
+use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
@@ -15,12 +24,6 @@ use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
 };
 use node_runtime::StateRecord;
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tempdir::TempDir;
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -180,13 +183,17 @@ impl GenesisBuilder {
     }
 
     fn write_genesis_block(&mut self) -> Result<()> {
-        let genesis = Block::genesis(
+        let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
-            self.config.genesis_time.clone(),
             self.runtime.num_shards(),
-            self.config.gas_limit.clone(),
-            self.config.gas_price.clone(),
-            self.config.total_supply.clone(),
+            self.config.gas_limit,
+        );
+        let genesis = Block::genesis(
+            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            self.config.genesis_time,
+            self.config.gas_limit,
+            self.config.gas_price,
+            self.config.total_supply,
         );
 
         let mut store = ChainStore::new(self.store.clone());
@@ -237,7 +244,7 @@ impl GenesisBuilder {
         let account = AccountView {
             amount: testing_init_balance,
             locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash.clone().into(),
+            code_hash: self.additional_accounts_code_hash.clone(),
             storage_usage: 0,
             storage_paid_at: 0,
         };
@@ -246,7 +253,7 @@ impl GenesisBuilder {
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
             account_id: account_id.clone(),
-            public_key: signer.public_key.clone().into(),
+            public_key: signer.public_key.clone(),
             access_key: AccessKey::full_access().into(),
         };
         set_access_key(
@@ -262,7 +269,7 @@ impl GenesisBuilder {
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
             let contract_record = StateRecord::Contract {
-                account_id: account_id.clone(),
+                account_id,
                 code: wasm_binary_base64.clone(),
             };
             records.push(contract_record);

@@ -2,9 +2,6 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 
-use rand::seq::SliceRandom;
-use rand::{rngs::StdRng, SeedableRng};
-
 use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
@@ -118,10 +115,13 @@ pub fn proposals_to_epoch_info(
     if dup_proposals.len() < num_seats as usize {
         return Err(EpochError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_seats));
     }
-
-    // Shuffle duplicate proposals.
-    let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
-    dup_proposals.shuffle(&mut rng);
+    {
+        use protocol_defining_rand::seq::SliceRandom;
+        use protocol_defining_rand::{rngs::StdRng, SeedableRng};
+        // Shuffle duplicate proposals.
+        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+        dup_proposals.shuffle(&mut rng);
+    }
 
     // Block producers are first `num_block_producers` proposals.
     let block_producers = dup_proposals[..epoch_config.num_block_producers].to_vec();
@@ -236,5 +236,4 @@ mod tests {
             )
         );
     }
-
 }

@@ -297,7 +297,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
             .get_all_block_producer_info(epoch_id, last_known_block_hash)
-            .map_err(|err| Error::from(err))?;
+            .map_err(Error::from)?;
         let mut i = 0;
         for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
             if *is_approved && !is_slashed {
@@ -318,7 +318,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager
             .get_all_block_producers(epoch_id, last_known_block_hash)
-            .map_err(|err| Error::from(err))
+            .map_err(Error::from)
     }
 
     fn get_block_producer(
@@ -403,12 +403,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(|err| err.into())
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_next_epoch_id_from_prev_block(
@@ -416,12 +416,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
@@ -495,7 +495,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
-        assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
+        assert!(block_index > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
         debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -685,7 +685,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             QueryResponse::AccessKeyList(
                                 r.into_iter()
                                     .map(|(public_key, access_key)| AccessKeyInfoView {
-                                        public_key: public_key.into(),
+                                        public_key,
                                         access_key: access_key.into(),
                                     })
                                     .collect(),

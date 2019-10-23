@@ -16,6 +16,7 @@ use near_primitives::types::{ShardId, StatePart, StateRoot};
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
 use self::nibble_slice::NibbleSlice;
+use std::cmp::Ordering;
 
 mod nibble_slice;
 pub mod update;
@@ -625,7 +626,7 @@ impl TrieChanges {
             trie.clone(),
         );
         self.insertions_into(trie.clone(), &mut store_update)?;
-        self.deletions_into(trie.clone(), &mut store_update)?;
+        self.deletions_into(trie, &mut store_update)?;
         Ok((store_update, self.new_root))
     }
 }
@@ -1393,10 +1394,10 @@ impl Trie {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
-            if rc > 0 {
-                insertions.push((key, value, rc as u32));
-            } else if rc < 0 {
-                deletions.push((key, value, (-rc) as u32));
+            match rc.cmp(&0) {
+                Ordering::Greater => insertions.push((key, value, rc as u32)),
+                Ordering::Less => deletions.push((key, value, (-rc) as u32)),
+                Ordering::Equal => {}
             }
         }
         // Sort so that trie changes have unique representation
