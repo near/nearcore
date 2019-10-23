@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -113,6 +113,8 @@ pub struct ApplyTransactionResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
     pub total_rent_paid: Balance,
+    pub total_validator_reward: Balance,
+    pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
 }
 
@@ -139,7 +141,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
+    ) -> Result<ValidTransaction, RuntimeError>;
 
     /// Filter transactions by verifying each one by one in the given order. Every successful
     /// verification stores the updated account balances to be used by next transactions.
@@ -263,9 +265,9 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
-        gas_used: Gas,
-        gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 

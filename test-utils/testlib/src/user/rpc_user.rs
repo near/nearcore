@@ -107,7 +107,7 @@ impl User for RpcUser {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<Signer>) {
+    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
         self.signer = signer;
     }
 }

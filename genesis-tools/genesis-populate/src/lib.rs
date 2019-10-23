@@ -181,11 +181,11 @@ impl GenesisBuilder {
     fn write_genesis_block(&mut self) -> Result<()> {
         let genesis = Block::genesis(
             self.roots.values().cloned().collect(),
-            self.config.genesis_time.clone(),
+            self.config.genesis_time,
             self.runtime.num_shards(),
-            self.config.gas_limit.clone(),
-            self.config.gas_price.clone(),
-            self.config.total_supply.clone(),
+            self.config.gas_limit,
+            self.config.gas_price,
+            self.config.total_supply,
         );
 
         let mut store = ChainStore::new(self.store.clone());
@@ -200,7 +200,7 @@ impl GenesisBuilder {
                 vec![],
                 vec![],
                 0,
-                self.config.gas_price.clone(),
+                0,
                 0,
                 self.config.total_supply.clone(),
             )
@@ -212,7 +212,7 @@ impl GenesisBuilder {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
-                ChunkExtra::new(state_root, vec![], 0, self.config.gas_limit.clone(), 0),
+                ChunkExtra::new(state_root, vec![], 0, self.config.gas_limit.clone(), 0, 0, 0),
             );
         }
 
@@ -236,7 +236,7 @@ impl GenesisBuilder {
         let account = AccountView {
             amount: testing_init_balance,
             locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash.clone().into(),
+            code_hash: self.additional_accounts_code_hash.clone(),
             storage_usage: 0,
             storage_paid_at: 0,
         };
@@ -245,7 +245,7 @@ impl GenesisBuilder {
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
             account_id: account_id.clone(),
-            public_key: signer.public_key.clone().into(),
+            public_key: signer.public_key.clone(),
             access_key: AccessKey::full_access().into(),
         };
         set_access_key(
@@ -261,7 +261,7 @@ impl GenesisBuilder {
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
             let contract_record = StateRecord::Contract {
-                account_id: account_id.clone(),
+                account_id,
                 code: wasm_binary_base64.clone(),
             };
             records.push(contract_record);
