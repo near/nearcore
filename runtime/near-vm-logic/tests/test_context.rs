@@ -34,7 +34,7 @@ macro_rules! decl_test_bytes {
             let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
             let res = vec![0u8; $input.len()];
             logic.$method(0).expect("read bytes into register from context should be ok");
-            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");;
+            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");
             assert_eq!(res, $input);
         }
     };
