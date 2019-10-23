@@ -18,8 +18,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot,
-    ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
@@ -179,7 +178,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(prev_hash)?
-            .ok_or(format!("Missing block {} when computing the epoch", prev_hash))?;
+            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
         Ok(prev_block_header.inner.height)
     }
 
