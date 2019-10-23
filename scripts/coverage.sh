@@ -1,28 +1,18 @@
 #!/bin/sh
 
-wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz
-tar xzf master.tar.gz
-cd kcov-master
-mkdir build
-cd build
-cmake ..
-make
-make install DESTDIR=../../kcov-build
-cd ../..
-rm -rf kcov-master
+rm -rf target/cov
 
-# Remove binaries
-rm -rf target/debug/deps/test*
-rm -rf target/debug/deps/nearcore*
-rm -rf target/debug/deps/alphanet*
-rm -rf target/debug/deps/near
-rm -rf target/debug/deps/near-*
-
-for file in target/debug/deps/*
+for file in `find target/debug/deps/ \
+  ! -name 'test*' \
+  ! -name 'near' \
+  ! -name 'near-*' \
+  ! -name '*.so' \
+  ! -name 'loadtester-*' \
+  `
 do
   if [ -f $file ] && [ -x $file ]; then
     mkdir -p "target/cov/$(basename $file)"
-    ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"
+    kcov --include-pattern=nearcore --verify "target/cov/$(basename $file)" "$file"
   fi
 done
 
