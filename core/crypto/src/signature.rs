@@ -314,6 +314,16 @@ impl SecretKey {
     }
 }
 
+impl std::fmt::Display for SecretKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        let data = match self {
+            SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
+            SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
+        };
+        write!(f, "{}:{}", self.key_type(), data)
+    }
+}
+
 impl serde::Serialize for SecretKey {
     fn serialize<S>(
         &self,

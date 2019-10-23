@@ -31,7 +31,9 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "near/",
+    "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
+    "genesis-tools/keypair-generator",
 ]
 
 [dev-dependencies]

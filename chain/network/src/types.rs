@@ -1,18 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::time::Duration;
-
+use crate::peer::Peer;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
-use tokio::net::TcpStream;
-
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
@@ -23,9 +14,16 @@ use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-
-use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use serde_derive::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
+use tokio::net::TcpStream;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -35,6 +33,10 @@ pub const PROTOCOL_VERSION: u32 = 4;
 pub struct PeerId(PublicKey);
 
 impl PeerId {
+    pub fn new(key: PublicKey) -> Self {
+        Self(key)
+    }
+
     pub fn public_key(&self) -> PublicKey {
         self.0.clone()
     }
@@ -104,13 +106,48 @@ impl PeerInfo {
     }
 }
 
+// Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
 impl fmt::Display for PeerInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(acc) = self.account_id.as_ref() {
-            write!(f, "({}, {:?}, {})", self.id, self.addr, acc)
-        } else {
-            write!(f, "({}, {:?})", self.id, self.addr)
+        write!(f, "{}", self.id)?;
+        if let Some(addr) = &self.addr {
+            write!(f, "@{}", addr)?;
         }
+        if let Some(account_id) = &self.account_id {
+            write!(f, "@{}", account_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for PeerInfo {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let chunks: Vec<&str> = s.split('@').collect();
+        let addr;
+        let account_id;
+        if chunks.len() == 1 {
+            addr = None;
+            account_id = None;
+        } else if chunks.len() == 2 {
+            if let Ok(x) = chunks[1].parse::<SocketAddr>() {
+                addr = Some(x);
+                account_id = None;
+            } else {
+                addr = None;
+                account_id = Some(chunks[1].to_string());
+            }
+        } else if chunks.len() == 3 {
+            addr = Some(chunks[1].parse::<SocketAddr>()?);
+            account_id = Some(chunks[2].to_string());
+        } else {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid PeerInfo format: {:?}", chunks),
+            )));
+        }
+        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
     }
 }
 
@@ -118,19 +155,7 @@ impl TryFrom<&str> for PeerInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let chunks: Vec<_> = s.split('@').collect();
-        if chunks.len() != 2 {
-            return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
-        }
-        Ok(PeerInfo {
-            id: PeerId(chunks[0].try_into()?),
-            addr: Some(
-                chunks[1].parse().map_err(|err| {
-                    format!("Invalid ip address format for {}: {}", chunks[1], err)
-                })?,
-            ),
-            account_id: None,
-        })
+        Self::from_str(s)
     }
 }
 
