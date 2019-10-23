@@ -12,7 +12,7 @@ use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::secretbox::xsalsa20poly1305::Key;
 use tiny_keccak::keccak256;
 
-use crate::{PublicKey, SecretKey};
+use crate::{PublicKey, SecretKey, KeyType};
 
 #[derive(Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct KeyHash([u8; 32]);
@@ -24,16 +24,14 @@ impl KeyHash {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeyFile {
     pub account_id: String,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
-    pub secret_keyview: SecretKeyView,
-    pub key_hash: KeyHash,
-    pub ssb: SodiumoxideSecretBox,
 }
+
+
 
 impl KeyFile {
     pub fn write_to_file(&self, path: &Path) {
@@ -54,46 +52,68 @@ impl KeyFile {
         file.read_to_string(&mut content).expect("Could not read from key file.");
         serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
     }
+}
 
-     //decrypts a file and return an instance of the keyfile
-    pub fn from_encrypted_file(path: &Path, key : &Key, key_file: KeyFile) -> Self {
-        let ssb = key_file.ssb;
-        let decrypted_secretkey = ssb.decrypt(&secretKeyToVec(key_file.secret_key), &key);
-        KeyFile {
-            account_id: key_file.account_id,
-            public_key: key_file.public_key,
-            secret_key: key_file.secret_key,
-            secret_keyview: key_file.secret_keyview,
-            key_hash: KeyHash::default(),
-            ssb: SodiumoxideSecretBox::default(),
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EncryptedKeyFile {
+    pub account_id: String,
+    pub public_key: PublicKey,
+    pub encrypted_secret_key: EncryptedSecretKey,
+    pub key_hash: KeyHash,
+    pub ssb: SodiumoxideSecretBox,
+}
+
+impl EncryptedKeyFile {
+    // TODO implement trait for Keyfile and Encrypted keyFile
+    pub fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let mut perm =
+            file.metadata().expect("Failed to retrieve key file metadata.").permissions();
+        perm.set_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
+        file.set_permissions(perm).expect("Failed to set permissions for a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
         }
     }
+    // TODO implement trait for Keyfile and Encrypted keyFile
+    pub fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
+     //decrypts a file and return an instance of the keyfile
+    // pub fn from_encrypted_file(path: &Path, key : &Key, encrypted_key_file: EncryptedKeyFile) -> Self {
+    //     let ssb = encrypted_key_file.ssb;
+    //     let decrypted_secretkey = ssb.decrypt(&secretKeyToVec(encrypted_key_file.secret_key), &key);
+    //     EncryptedKeyFile {
+    //         account_id: key_file.account_id,
+    //         public_key: key_file.public_key,
+    //         encrypted_secret_key: key_file.encrypted_secret_key,
+    //         key_hash: KeyHash::default(),
+    //         ssb: SodiumoxideSecretBox::default(),
+    //     }
+    // }
 
     pub fn is_encrypted(&self) -> bool{
         !self.key_hash.eq(&KeyHash::default())
     }
 }
 
-//TODO
-pub struct EncryptedKeyFile {
-    pub account_id: String,
-    pub public_key: PublicKey,
-    pub encrypted_secret_key: EncryptedSecretKey,
-    pub key_hashL KeyHash,
-}
+
 
 // SecretKeyView is used to store 64 byte ciphertext produced by salsa cipher
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct SecretKeyView(Vec<u8>);
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
+pub struct EncryptedSecretKey(Vec<u8>);
  
- // modify to u8,64
-impl SecretKeyView {
+impl EncryptedSecretKey {
     fn new(vec: Vec<u8>) -> Self {
-       SecretKeyView(vec)
+       EncryptedSecretKey(vec)
     }
 }
 
-fn secretKeyToVec(secret_key: SecretKey) -> Vec<u8> {
+fn secretkey_to_vec(secret_key: SecretKey) -> Vec<u8> {
         match secret_key {
             SecretKey::ED25519(sk) => { sk.0.to_vec() },
             SecretKey::SECP256K1(sk) => unsafe {
@@ -151,7 +171,7 @@ impl PasswordInput {
 }
 
 // SodiumoxideSecretBox stores nonce for encryption and decruption of secret key
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SodiumoxideSecretBox(secretbox::Nonce);
  
 //https://docs.rs/sodiumoxide/0.2.0/src/sodiumoxide/newtype_macros.rs.html#257-285
@@ -197,6 +217,70 @@ impl Operation for SodiumoxideSecretBox {
 mod tests {
     use super::*;
 
+    #[test] 
+    fn test_encrypt_decrypt() {
+        //encryption
+        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+            let file_name = match key_type {
+                KeyType::ED25519 => "ED25519.txt".to_string(),
+                KeyType::SECP256K1 => "SECP256K1.txt".to_string(),
+            };
+            let secret_key = SecretKey::from_seed(key_type, "test");
+            let public_key  = secret_key.public_key();
+            let account_id = String::from("test");
+            let mut encrypted_key_file = EncryptedKeyFile {
+                account_id: account_id,
+                public_key: public_key,
+                encrypted_secret_key: EncryptedSecretKey::default(),
+                key_hash: KeyHash::default(),
+                ssb: SodiumoxideSecretBox::default(),
+            };
+
+
+            let path = Path::new(&file_name);
+            let input = "qwerty".to_string();
+            //encryption
+            let mut password_input = PasswordInput::process_input(&input).unwrap();
+            let mut  password_slice = password_input.0.as_bytes();
+            assert_eq!(password_slice.len(), 32 as usize);
+            assert!(!password_input.0.is_empty());
+            let secretkey_vec = secretkey_to_vec(secret_key.clone());
+            //assert_eq!(secretkey_vec.len(), 64 as usize);
+            let encryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
+            let key_hash = KeyHash::new(password_slice);
+            let encrypted_secretkey_vec = encrypted_key_file.ssb.encrypt(&secretkey_vec, &encryption_key);
+             // TODO make a test to match encrypted secret key length depending on key type
+            //assert_eq!(encrypted_secretkey_vec.len(), 80 as usize);
+            //key_file.secret_key = secretKeyFromVec(encrypted_secretkey);
+            let encrypted_secret_key = EncryptedSecretKey::new(encrypted_secretkey_vec);
+            encrypted_key_file.encrypted_secret_key = encrypted_secret_key.clone();
+            encrypted_key_file.key_hash = key_hash;
+            encrypted_key_file.write_to_file(&path);
+            assert!(encrypted_key_file.is_encrypted());
+ 
+            //decryption
+            encrypted_key_file = EncryptedKeyFile::from_file(&path);
+            //password is encrypted proceed further, if not Ok(key_file)
+            assert!(encrypted_key_file.is_encrypted());
+            //ask for a password in console
+            password_input = PasswordInput::process_input(&input).unwrap(); 
+            password_slice = password_input.0.as_bytes();
+            // password is not empty decode a file with a passwordm if password empty do nothing
+            assert!(!password_input.0.is_empty()); 
+            let decryption_keyhash = KeyHash::new(password_slice);
+            assert!(decryption_keyhash.eq(&encrypted_key_file.key_hash)); // if hashes of passwords match then decrypt EncryptedKeyfile.encrypted_secret_key
+            let decryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
+            let ciphertext_vec = encrypted_key_file.encrypted_secret_key.0; //encrypted secret key vec
+            let ssb = encrypted_key_file.ssb;
+            let decrypted_secretkey_vec = ssb.decrypt(&ciphertext_vec, &decryption_key);//Vec<u8>
+            let decrypted_secretkey = EncryptedSecretKey::new(decrypted_secretkey_vec);
+            assert_eq!(encrypted_secret_key, decrypted_secretkey);
+            //TODO check the lengtb of decrypted secret key depending on key type
+            //assert_eq!(decrypted_secretkey_vec.len(), 32 as usize );
+            //let decrypted_sk = secretkey_from_vec(decrypted_secretkey_vec);
+            // assert_eq!(decrypted_sk , secret_key);
+        }
+    }
     #[test] 
     fn test_process_input() {
         for input in &vec!["qwerty".to_string(), "".to_string() ] {
