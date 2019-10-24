@@ -44,7 +44,7 @@ pub struct RpcPollingConfig {
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(100),
+            polling_interval: Duration::from_millis(500),
             polling_timeout: Duration::from_secs(5),
         }
     }
@@ -187,17 +187,35 @@ impl JsonRpcHandler {
             .compat()
             .await?;
         match result {
-            NetworkClientResponses::ValidTx => {
+            NetworkClientResponses::ValidTx | NetworkClientResponses::NoResponse => {
+                let needs_routing = result == NetworkClientResponses::NoResponse;
                 timeout(self.polling_config.polling_timeout, async {
                     loop {
-                        let final_tx =
-                            self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
-                        if let Ok(Ok(ref tx)) = final_tx {
-                            match tx.status {
-                                FinalExecutionStatus::Started
-                                | FinalExecutionStatus::NotStarted => {}
-                                _ => {
-                                    break jsonify(final_tx);
+                        if needs_routing {
+                            let final_tx = self
+                                .client_addr
+                                .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                                .compat()
+                                .await;
+                            if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
+                                match tx_result.status {
+                                    FinalExecutionStatus::Started
+                                    | FinalExecutionStatus::NotStarted => {}
+                                    _ => {
+                                        break jsonify_client_response(final_tx);
+                                    }
+                                }
+                            }
+                        } else {
+                            let final_tx =
+                                self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                            if let Ok(Ok(ref tx)) = final_tx {
+                                match tx.status {
+                                    FinalExecutionStatus::Started
+                                    | FinalExecutionStatus::NotStarted => {}
+                                    _ => {
+                                        break jsonify(final_tx);
+                                    }
                                 }
                             }
                         }
@@ -214,34 +232,6 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
-            }
-            NetworkClientResponses::NoResponse => {
-                timeout(self.polling_config.polling_timeout, async {
-                    loop {
-                        let final_tx = self
-                            .client_addr
-                            .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
-                            .compat()
-                            .await;
-                        if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
-                            match tx_result.status {
-                                FinalExecutionStatus::Started
-                                | FinalExecutionStatus::NotStarted => {}
-                                _ => {
-                                    break jsonify_client_response(final_tx);
-                                }
-                            }
-                        }
-                        let _ = delay(self.polling_config.polling_interval).await;
-                    }
-                })
-                .await
-                .map_err(|_| {
-                    RpcError::server_error(Some(ExecutionErrorView {
-                        error_message: "send_tx_commit has timed out".to_string(),
-                        error_type: "TimeoutError".to_string(),
-                    }))
-                })?
             }
             _ => unreachable!(),
         }

@@ -22,6 +22,8 @@ print("BALANCES BEFORE", old_balances)
 status = nodes[1].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 
+time.sleep(5)
+
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
 print(nodes[-2].send_tx_and_wait(tx, timeout=20))
 

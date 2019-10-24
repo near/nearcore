@@ -82,6 +82,8 @@ fn test_tx_propagation() {
     });
 }
 
+/// Starts 2 validators and 2 light clients (not tracking anything).
+/// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction succeeds.
 #[test]
 fn test_tx_propagation_through_rpc() {
     init_integration_logger();
@@ -175,8 +177,6 @@ fn test_tx_status_with_light_client() {
                 let transaction_copy = transaction.clone();
                 let signer_account_id = transaction_copy.transaction.signer_id.clone();
                 let tx_hash_clone = tx_hash.clone();
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
                 actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                     if res.unwrap().unwrap().header.height > 1 {
                         let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
