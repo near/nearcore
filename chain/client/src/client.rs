@@ -10,7 +10,6 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use crate::metrics;
 use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
 };
@@ -32,12 +31,13 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
+use near_primitives::views::FinalExecutionOutcomeView;
 use near_store::Store;
 
+use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -78,8 +78,10 @@ pub struct Client {
     pub state_sync: StateSync,
     /// Block economics, relevant to changes when new block must be produced.
     block_economics_config: BlockEconomicsConfig,
-    /// Tx status query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    /// Transaction query that needs to be forwarded to other shards
+    pub tx_status_requests: SizedCache<CryptoHash, ()>,
+    /// Transaction status response
+    pub tx_status_response: HashMap<CryptoHash, FinalExecutionOutcomeView>,
 }
 
 impl Client {
@@ -120,6 +122,7 @@ impl Client {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
             tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
+            tx_status_response: HashMap::new(),
         })
     }
 
@@ -808,7 +811,8 @@ impl Client {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
     ) -> NetworkClientResponses {
-        if let Some(res) = self.tx_status_requests.cache_remove(&tx_hash) {
+        if let Some(res) = self.tx_status_response.remove(&tx_hash) {
+            self.tx_status_requests.cache_remove(&tx_hash);
             return NetworkClientResponses::TxStatus(res);
         }
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
@@ -842,6 +846,7 @@ impl Client {
                 return NetworkClientResponses::NoResponse;
             }
         }
+        self.tx_status_requests.cache_set(tx_hash, ());
         self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
         NetworkClientResponses::NoResponse
     }

@@ -115,6 +115,22 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
     })
 }
 
+fn jsonify_client_response(client_response: Result<NetworkClientResponses, MailboxError>) -> Result<Value, RpcError> {
+    match client_response {
+        Ok(NetworkClientResponses::TxStatus(tx_result)) => {
+            serde_json::to_value(tx_result).map_err(|err| {
+                RpcError::server_error(Some(err.to_string()))
+            })
+        }
+        Ok(_) => {
+            Err(RpcError::server_error(Some("Wrong response for transaction status query".to_string())))
+        }
+        Err(e) => {
+            Err(RpcError::server_error(Some(e.to_string())))
+        }
+    }
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -206,15 +222,12 @@ impl JsonRpcHandler {
                             .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
                             .compat()
                             .await;
-                        if let Ok(NetworkClientResponses::TxStatus(tx_result)) = final_tx {
+                        if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
                             match tx_result.status {
                                 FinalExecutionStatus::Started
                                 | FinalExecutionStatus::NotStarted => {}
                                 _ => {
-                                    let json = serde_json::to_value(tx_result).map_err(|err| {
-                                        RpcError::server_error(Some(err.to_string()))
-                                    });
-                                    break json;
+                                    break jsonify_client_response(final_tx);
                                 }
                             }
                         }
@@ -248,8 +261,16 @@ impl JsonRpcHandler {
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let tx_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(TxStatus { tx_hash }).compat().await)
+        let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
+            CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
+        })?;
+        jsonify_client_response(self
+            .client_addr
+            .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: account_id })
+            .compat()
+            .await
+        )
     }
 
     async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
