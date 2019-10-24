@@ -1469,6 +1469,12 @@ impl Chain {
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
     }
+
+    /// Check if hash is for a known chunk orphan.
+    #[inline]
+    pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
+        self.blocks_with_missing_chunks.contains(hash)
+    }
 }
 
 /// Chain update helper, contains information that is needed to process block

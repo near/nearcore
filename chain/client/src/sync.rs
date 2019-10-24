@@ -327,7 +327,9 @@ impl BlockSync {
 
         let hashes_to_request = hashes
             .iter()
-            .filter(|x| !chain.get_block(x).is_ok() && !chain.is_orphan(x))
+            .filter(|x| {
+                !chain.get_block(x).is_ok() && !chain.is_orphan(x) && !chain.is_chunk_orphan(x)
+            })
             .take(block_count)
             .collect::<Vec<_>>();
         if hashes_to_request.len() > 0 {
