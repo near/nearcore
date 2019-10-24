@@ -49,7 +49,7 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
         if is_release:
             flags = ['--release'] + flags
         code = subprocess.call(
-            [os.path.expanduser('cargo'), 'build'] + flags)
+            [os.path.expanduser('~/.cargo/bin/cargo'), 'build'] + flags)
         if code != 0:
             print("Compilation failed, aborting")
             exit(code)
