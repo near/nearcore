@@ -81,7 +81,7 @@ pub struct Client {
     /// Transaction query that needs to be forwarded to other shards
     pub tx_status_requests: SizedCache<CryptoHash, ()>,
     /// Transaction status response
-    pub tx_status_response: HashMap<CryptoHash, FinalExecutionOutcomeView>,
+    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
 }
 
 impl Client {
@@ -122,7 +122,7 @@ impl Client {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
             tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
-            tx_status_response: HashMap::new(),
+            tx_status_response: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
         })
     }
 
@@ -811,7 +811,7 @@ impl Client {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
     ) -> NetworkClientResponses {
-        if let Some(res) = self.tx_status_response.remove(&tx_hash) {
+        if let Some(res) = self.tx_status_response.cache_remove(&tx_hash) {
             self.tx_status_requests.cache_remove(&tx_hash);
             return NetworkClientResponses::TxStatus(res);
         }

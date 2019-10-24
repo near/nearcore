@@ -182,8 +182,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::TxStatusResponse(tx_result) => {
                 let tx_hash = tx_result.transaction.id;
-                if let Some(_) = self.client.tx_status_requests.cache_remove(&tx_hash) {
-                    self.client.tx_status_response.insert(tx_hash, tx_result);
+                if self.client.tx_status_requests.cache_remove(&tx_hash).is_some() {
+                    self.client.tx_status_response.cache_set(tx_hash, tx_result);
                 }
                 NetworkClientResponses::NoResponse
             }
