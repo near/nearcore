@@ -32,11 +32,15 @@ impl Default for TelemetryActor {
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
-        let client = Client::build().timeout(CONNECT_TIMEOUT).connector(
+        let client = Client::build()
+            .timeout(CONNECT_TIMEOUT)
+            .connector(
                 Connector::new()
-                .conn_lifetime(Duration::from_secs(u64::max_value()))
-                .conn_keep_alive(Duration::from_secs(30))
-                .finish()).finish();
+                    .conn_lifetime(Duration::from_secs(u64::max_value()))
+                    .conn_keep_alive(Duration::from_secs(30))
+                    .finish(),
+            )
+            .finish();
         Self { config, client }
     }
 }

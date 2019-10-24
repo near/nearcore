@@ -232,7 +232,7 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt
+            total_balance_burnt,
         })
     }
 
@@ -249,7 +249,9 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             validator_online_ratio,
-            total_storage_rent, total_validator_reward, total_balance_burnt,
+            total_storage_rent,
+            total_validator_reward,
+            total_balance_burnt,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
@@ -992,17 +994,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[1],
-                BlockInfo::new(
-                    1,
-                    h[0],
-                    vec![],
-                    vec![],
-                    slashed,
-                    0,
-                    0,
-                    0,
-                    DEFAULT_TOTAL_SUPPLY,
-                ),
+                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, 0, DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()
@@ -1151,13 +1143,8 @@ mod tests {
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test1".to_string(), (0, 0));
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let (validator_reward, inflation) = reward_calculator.calculate_reward(
-            validator_online_ratio,
-            20,
-            20,
-            0,
-            total_supply,
-        );
+        let (validator_reward, inflation) =
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
 
@@ -1252,13 +1239,8 @@ mod tests {
             .unwrap();
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let (validator_reward, inflation) = reward_calculator.calculate_reward(
-            validator_online_ratio,
-            20,
-            20,
-            0,
-            total_supply,
-        );
+        let (validator_reward, inflation) =
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
         assert_eq!(

@@ -184,7 +184,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn tx_details(&mut self, hash: String) -> RpcRequest<ExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;

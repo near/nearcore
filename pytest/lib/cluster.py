@@ -60,19 +60,22 @@ class BaseNode(object):
     def wait_for_rpc(self, timeout=1):
         retry.retry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params):
+    def json_rpc(self, method, params, timeout=1):
         j = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j, timeout=1)
+        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j, timeout=timeout)
         r.raise_for_status()
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
         return self.json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
+
+    def send_tx_and_wait(self, signed_tx, timeout):
+        return self.json_rpc('broadcast_tx_commit', [base64.b64encode(signed_tx).decode('utf8')], timeout=timeout)
 
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=1)
