@@ -187,8 +187,8 @@ impl JsonRpcHandler {
             .compat()
             .await?;
         match result {
-            NetworkClientResponses::ValidTx | NetworkClientResponses::NoResponse => {
-                let needs_routing = result == NetworkClientResponses::NoResponse;
+            NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
+                let needs_routing = result == NetworkClientResponses::RequestRouted;
                 timeout(self.polling_config.polling_timeout, async {
                     loop {
                         if needs_routing {
@@ -201,7 +201,7 @@ impl JsonRpcHandler {
                                 match tx_result.status {
                                     FinalExecutionStatus::Started
                                     | FinalExecutionStatus::NotStarted => {}
-                                    _ => {
+                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify_client_response(final_tx);
                                     }
                                 }
@@ -213,7 +213,7 @@ impl JsonRpcHandler {
                                 match tx.status {
                                     FinalExecutionStatus::Started
                                     | FinalExecutionStatus::NotStarted => {}
-                                    _ => {
+                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify(final_tx);
                                     }
                                 }
@@ -233,6 +233,9 @@ impl JsonRpcHandler {
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
+            NetworkClientResponses::NoResponse => {
+                Err(RpcError::server_error(Some("Failed to include transaction.".to_string())))
+            },
             _ => unreachable!(),
         }
     }

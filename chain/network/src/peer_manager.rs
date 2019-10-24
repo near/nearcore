@@ -960,8 +960,9 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
                                     let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(from), body };
                                     act.send_message_to_peer(ctx, msg);
                                 }
-                                // Here since we directly send the message to the peer who is supposed to
-                                // have the shard state, `NetworkClientResponses::NoResponse` indicates an error
+                                Ok(NetworkClientResponses::RequestRouted) => {
+                                    debug!(target: "network", "Routed transaction status query is again routed");
+                                }
                                 _ => {
                                     debug!(target: "network", "Received invalid transaction status from client.");
                                 }

@@ -903,6 +903,8 @@ pub enum NetworkClientResponses {
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
     InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.

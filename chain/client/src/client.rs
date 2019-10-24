@@ -803,7 +803,7 @@ impl Client {
         // Send message to network to actually forward transaction.
         self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
 
-        NetworkClientResponses::NoResponse
+        NetworkClientResponses::RequestRouted
     }
 
     pub fn get_tx_status(
@@ -848,7 +848,7 @@ impl Client {
         }
         self.tx_status_requests.cache_set(tx_hash, ());
         self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
-        NetworkClientResponses::NoResponse
+        NetworkClientResponses::RequestRouted
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
