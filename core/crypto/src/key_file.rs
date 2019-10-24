@@ -187,15 +187,15 @@ impl SodiumoxideSecretBox {
         SodiumoxideSecretBox(nonce)
     }
  
-    //need to be tested
-    pub fn gen_key(bytes: &[u8]) -> Result<Key, Error> {
-        Key::from_slice(bytes).map(Ok).unwrap_or_else(|| {
-            Err(Error::new(
-                ErrorKind::InvalidInput,
-                "Failed to create key from slice".to_string(),
-            ))
-        })
-    }
+    // //need to be tested
+    // pub fn gen_key(bytes: &[u8]) -> Result<Key, Error> {
+    //     Key::from_slice(bytes).map(Ok).unwrap_or_else(|| {
+    //         Err(Error::new(
+    //             ErrorKind::InvalidInput,
+    //             "Failed to create key from slice".to_string(),
+    //         ))
+    //     })
+    // }
 }
  
 trait Operation {
@@ -218,6 +218,17 @@ mod tests {
     use super::*;
 
     #[test] 
+   // https://github.com/sodiumoxide/sodiumoxide/blob/master/src/crypto/secretbox/xsalsa20poly1305.rs
+
+/*
+
+---- key_file::tests::test_encrypt_decrypt stdout ----
+thread 'key_file::tests::test_encrypt_decrypt' panicked at 'assertion failed: `(left == right)`
+  left: `EncryptedSecretKey([118, 184, 108, 77, 2, 156, 161, 69, 84, 44, 99, 188, 115, 102, 170, 65, 189, 126, 230, 39, 216, 147, 92, 30, 91, 126, 79, 164, 126, 152, 105, 207, 123, 126, 53, 39, 141, 193, 160, 231, 109, 177, 174, 83, 115, 133, 217, 92, 30, 116, 167, 86, 58, 179, 38, 30, 173, 105, 24, 99, 27, 35, 146, 80, 225, 75, 115, 228, 14, 37, 4, 186, 176, 137, 207, 20, 128, 58, 146, 181])`,
+ right: `EncryptedSecretKey([116, 101, 115, 116, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 187, 77, 198, 57, 178, 18, 224, 117, 167, 81, 104, 91, 38, 189, 206, 165, 146, 10, 80, 65, 129, 255, 41, 16, 232, 84, 151, 66, 18, 112, 146, 160])`', core/crypto/src/key_file.rs:279:13
+note: Run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
+
+*/
     fn test_encrypt_decrypt() {
         //encryption
         for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
@@ -235,20 +246,26 @@ mod tests {
                 key_hash: KeyHash::default(),
                 ssb: SodiumoxideSecretBox::default(),
             };
+            let nonce = encrypted_key_file.ssb.0;
 
 
             let path = Path::new(&file_name);
             let input = "qwerty".to_string();
             //encryption
-            let mut password_input = PasswordInput::process_input(&input).unwrap();
-            let mut  password_slice = password_input.0.as_bytes();
+            let password_input = PasswordInput::process_input(&input).unwrap();
+            let password_slice = password_input.0.as_bytes();
             assert_eq!(password_slice.len(), 32 as usize);
             assert!(!password_input.0.is_empty());
             let secretkey_vec = secretkey_to_vec(secret_key.clone());
             //assert_eq!(secretkey_vec.len(), 64 as usize);
-            let encryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
+            let encryption_key = secretbox::gen_key();
             let key_hash = KeyHash::new(password_slice);
             let encrypted_secretkey_vec = encrypted_key_file.ssb.encrypt(&secretkey_vec, &encryption_key);
+
+
+
+            
+            let encryption_secretkey_arr = &encrypted_secretkey_vec.clone();
              // TODO make a test to match encrypted secret key length depending on key type
             //assert_eq!(encrypted_secretkey_vec.len(), 80 as usize);
             //key_file.secret_key = secretKeyFromVec(encrypted_secretkey);
@@ -259,22 +276,30 @@ mod tests {
             assert!(encrypted_key_file.is_encrypted());
  
             //decryption
-            encrypted_key_file = EncryptedKeyFile::from_file(&path);
+            let decrypted_key_file = EncryptedKeyFile::from_file(&path);
+            let decrypted_secretkey_arr = &decrypted_key_file.encrypted_secret_key.0;
+            assert_eq!(decrypted_secretkey_arr, encryption_secretkey_arr);
+            let decrypted_nonce = &decrypted_key_file.ssb.0;
+            assert_eq!(decrypted_nonce, &nonce);
+
+
+            
             //password is encrypted proceed further, if not Ok(key_file)
-            assert!(encrypted_key_file.is_encrypted());
+            assert!(decrypted_key_file.is_encrypted());
             //ask for a password in console
-            password_input = PasswordInput::process_input(&input).unwrap(); 
-            password_slice = password_input.0.as_bytes();
+           // password_input = PasswordInput::process_input(&input).unwrap(); 
+           // password_slice = password_input.0.as_bytes();
             // password is not empty decode a file with a passwordm if password empty do nothing
-            assert!(!password_input.0.is_empty()); 
+          //  assert!(!password_input.0.is_empty()); 
             let decryption_keyhash = KeyHash::new(password_slice);
-            assert!(decryption_keyhash.eq(&encrypted_key_file.key_hash)); // if hashes of passwords match then decrypt EncryptedKeyfile.encrypted_secret_key
-            let decryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
-            let ciphertext_vec = encrypted_key_file.encrypted_secret_key.0; //encrypted secret key vec
+            assert!(decryption_keyhash.eq(&decrypted_key_file.key_hash)); // if hashes of passwords match then decrypt EncryptedKeyfile.encrypted_secret_key
+            //let decryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
+           // let ciphertext_vec = decrypted_secret_key_vec.clone(); //encrypted secret key vec
             let ssb = encrypted_key_file.ssb;
-            let decrypted_secretkey_vec = ssb.decrypt(&ciphertext_vec, &decryption_key);//Vec<u8>
-            let decrypted_secretkey = EncryptedSecretKey::new(decrypted_secretkey_vec);
-            assert_eq!(encrypted_secret_key, decrypted_secretkey);
+            let decrypted_secretkey_vec = ssb.decrypt(decrypted_secretkey_arr, &encryption_key);//Vec<u8>
+            assert_eq!(&decrypted_secretkey_vec, &secretkey_vec);
+            //let decrypted_secretkey = EncryptedSecretKey::new(decrypted_secretkey_vec);
+           // assert_eq!(encrypted_secret_key, decrypted_secretkey);
             //TODO check the lengtb of decrypted secret key depending on key type
             //assert_eq!(decrypted_secretkey_vec.len(), 32 as usize );
             //let decrypted_sk = secretkey_from_vec(decrypted_secretkey_vec);
