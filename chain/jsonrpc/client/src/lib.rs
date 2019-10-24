@@ -6,9 +6,9 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
 };
 
 use crate::message::{from_slice, Message};
@@ -19,6 +19,13 @@ pub mod message;
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockIndex),
+    Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChunkId {
+    BlockShardId(BlockId, ShardId),
     Hash(CryptoHash),
 }
 
@@ -180,6 +187,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn tx_details(&mut self, hash: String) -> RpcRequest<ExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
+    pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
 });
 
 /// Create new JSON RPC client that connects to the given address.

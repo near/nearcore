@@ -105,7 +105,7 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -277,9 +277,9 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key.into(),
-                secret_key: network_key_pair.secret_key.into(),
-                account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
+                public_key: network_key_pair.public_key,
+                secret_key: network_key_pair.secret_key,
+                account_id: block_producer.as_ref().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
                 } else {
@@ -291,7 +291,7 @@ impl NearConfig {
                     config
                         .network
                         .boot_nodes
-                        .split(",")
+                        .split(',')
                         .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
@@ -393,7 +393,7 @@ pub struct GenesisConfig {
     pub protocol_treasury_account: AccountId,
 }
 
-fn get_initial_supply(records: &[StateRecord]) -> Balance {
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
@@ -445,12 +445,12 @@ impl GenesisConfig {
         let default_test_contract = std::fs::read(path).unwrap();
         let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
-        for (i, account) in seeds.iter().enumerate() {
+        for (i, &account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: signer.public_key.clone().into(),
+                    public_key: signer.public_key.clone(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
@@ -567,14 +567,14 @@ fn state_records_account_with_key(
             account: AccountView {
                 amount,
                 locked: staked,
-                code_hash: code_hash.into(),
+                code_hash,
                 storage_usage: 0,
                 storage_paid_at: 0,
             },
         },
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
-            public_key: public_key.clone().into(),
+            public_key: public_key.clone(),
             access_key: AccessKey::full_access().into(),
         },
     ]
@@ -606,7 +606,7 @@ pub fn init_configs(
     }
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
-        .unwrap_or(random_chain_id());
+        .unwrap_or_else(random_chain_id);
     match chain_id.as_ref() {
         "mainnet" => {
             // TODO:
@@ -687,7 +687,7 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.into(),
+                    public_key: signer.public_key,
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,

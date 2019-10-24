@@ -40,7 +40,7 @@ impl BaseDecode for CryptoHash {}
 
 impl borsh::BorshSerialize for CryptoHash {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        writer.write(&(self.0).0)?;
+        writer.write_all(&(self.0).0)?;
         Ok(())
     }
 }
@@ -48,7 +48,7 @@ impl borsh::BorshSerialize for CryptoHash {
 impl borsh::BorshDeserialize for CryptoHash {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; 32];
-        reader.read(&mut bytes)?;
+        reader.read_exact(&mut bytes)?;
         Ok(CryptoHash(Digest(bytes)))
     }
 }
@@ -69,7 +69,7 @@ impl<'de> Deserialize<'de> for CryptoHash {
     {
         let s = String::deserialize(deserializer)?;
         from_base(&s)
-            .and_then(|bytes| CryptoHash::try_from(bytes))
+            .and_then(CryptoHash::try_from)
             .map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }

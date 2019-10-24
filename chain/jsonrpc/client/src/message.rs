@@ -238,7 +238,7 @@ impl Message {
             jsonrpc: Version,
             method,
             params,
-            id: Value::String(Uuid::new_v4().hyphenated().to_string()),
+            id: Value::String(Uuid::new_v4().to_hyphenated().to_string()),
         })
     }
     /// Create a top-level error (without an ID).

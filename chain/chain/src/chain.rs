@@ -7,6 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
+use near_primitives::block::genesis_chunks;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -189,10 +190,14 @@ impl Chain {
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_roots) = runtime_adapter.genesis_state();
-        let genesis = Block::genesis(
+        let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            chain_genesis.time,
             runtime_adapter.num_shards(),
+            chain_genesis.gas_limit,
+        );
+        let genesis = Block::genesis(
+            genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
+            chain_genesis.time,
             chain_genesis.gas_limit,
             chain_genesis.gas_price,
             chain_genesis.total_supply,
@@ -231,6 +236,9 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    for chunk in genesis_chunks {
+                        store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
+                    }
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),

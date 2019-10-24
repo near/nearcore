@@ -178,7 +178,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(prev_hash)?
-            .ok_or(format!("Missing block {} when computing the epoch", prev_hash))?;
+            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
         Ok(prev_block_header.inner.height)
     }
 
