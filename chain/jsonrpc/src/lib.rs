@@ -19,10 +19,10 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetNetworkInfo, Query, Status, TxDetails, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Query, Status, TxDetails, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, BlockId};
+use near_jsonrpc_client::{message, BlockId, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
@@ -143,6 +143,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "tx_details" => self.tx_details(request.params).await,
             "block" => self.block(request.params).await,
+            "chunk" => self.chunk(request.params).await,
             "network_info" => self.network_info().await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
@@ -233,6 +234,22 @@ impl JsonRpcHandler {
                 .send(match block_id {
                     BlockId::Height(height) => GetBlock::Height(height),
                     BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
+                })
+                .compat()
+                .await,
+        )
+    }
+
+    async fn chunk(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (chunk_id,) = parse_params::<(ChunkId,)>(params)?;
+        jsonify(
+            self.view_client_addr
+                .send(match chunk_id {
+                    ChunkId::BlockShardId(block_id, shard_id) => match block_id {
+                        BlockId::Height(block_height) => GetChunk::BlockHeight(block_height, shard_id),
+                        BlockId::Hash(block_hash) => GetChunk::BlockHash(block_hash.into(), shard_id),
+                    },
+                    ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })
                 .compat()
                 .await,

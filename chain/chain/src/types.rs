@@ -483,16 +483,21 @@ mod tests {
     use chrono::Utc;
 
     use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_primitives::block::genesis_chunks;
 
     use super::*;
 
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis = Block::genesis(
+        let genesis_chunks = genesis_chunks(
             vec![StateRoot { hash: CryptoHash::default(), num_parts: 9 /* TODO MOO */ }],
-            Utc::now(),
             num_shards,
+            1_000_000,
+        );
+        let genesis = Block::genesis(
+            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            Utc::now(),
             1_000_000,
             100,
             1_000_000_000,
