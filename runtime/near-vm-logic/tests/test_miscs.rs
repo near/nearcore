@@ -258,7 +258,7 @@ fn test_hash256() {
 
     logic.sha256(data.len() as _, data.as_ptr() as _, 0).unwrap();
     let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _);
+    let _ = logic.read_register(0, res.as_ptr() as _);
     assert_eq!(
         res,
         &[

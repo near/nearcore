@@ -1,5 +1,6 @@
 use near_vm_logic::VMContext;
 
+#[allow(dead_code)]
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
         current_account_id: "alice.near".to_string(),
