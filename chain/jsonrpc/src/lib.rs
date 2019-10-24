@@ -211,7 +211,11 @@ impl JsonRpcHandler {
     }
 
     pub async fn status(&self) -> Result<Value, RpcError> {
-        jsonify(self.client_addr.send(Status {}).compat().await)
+        match self.client_addr.send(Status {}).compat().await {
+            Ok(Ok(result)) => jsonify(Ok(Ok(result))),
+            Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
+            Err(_) => Err(RpcError::server_error::<String>(None)),
+        }
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {

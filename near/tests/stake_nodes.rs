@@ -114,7 +114,11 @@ fn test_stake_nodes() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 actix::spawn(test_nodes[0].client.send(Status {}).then(|res| {
-                    if res.unwrap().unwrap().validators
+                    let res = res.unwrap();
+                    if res.is_err() {
+                        return futures::future::ok(());
+                    }
+                    if res.unwrap().validators
                         == vec![
                             ValidatorInfo { account_id: "near.1".to_string(), is_slashed: false },
                             ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
@@ -196,7 +200,11 @@ fn test_validator_kickout() {
                             is_slashed: false,
                         })
                         .collect();
-                    if res.unwrap().unwrap().validators == expected {
+                    let res = res.unwrap();
+                    if res.is_err() {
+                        return futures::future::ok(());
+                    }
+                    if res.unwrap().validators == expected {
                         for i in 0..num_nodes / 2 {
                             let mark = finalized_mark1[i].clone();
                             actix::spawn(
@@ -336,7 +344,11 @@ fn test_validator_join() {
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
-                    if res.unwrap().unwrap().validators == expected {
+                    let res = res.unwrap();
+                    if res.is_err() {
+                        return futures::future::ok(());
+                    }
+                    if res.unwrap().validators == expected {
                         actix::spawn(
                             test_node1
                                 .view_client
