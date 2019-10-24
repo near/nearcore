@@ -6,9 +6,9 @@ edition = "2018"
 
 [dependencies]
 sodiumoxide = "0.2.5"
-parity-secp256k1 = "0.6.0"
+parity-secp256k1 = "0.7.0"
 
-bs58 = "0.2.4"
+bs58 = "0.3"
 borsh = "0.2.7"
 serde = "1.0"
 serde_derive = "1.0"
