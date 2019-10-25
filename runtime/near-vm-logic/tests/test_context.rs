@@ -31,7 +31,7 @@ macro_rules! decl_test_bytes {
             let mut logic = logic_builder.build(create_context());
             let res = vec![0u8; $input.len()];
             logic.$method(0).expect("read bytes into register from context should be ok");
-            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");;
+            logic.read_register(0, res.as_ptr() as _).expect("read register should be ok");
             assert_eq!(res, $input);
         }
     };

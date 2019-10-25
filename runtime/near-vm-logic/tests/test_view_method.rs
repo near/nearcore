@@ -7,6 +7,7 @@ use vm_logic_builder::VMLogicBuilder;
 macro_rules! test_prohibited {
     ($f: ident $(, $arg: expr )* ) => {
         let mut logic_builder = VMLogicBuilder::default();
+        #[allow(unused_mut)]
         let mut logic = logic_builder.build(get_context(vec![], true));
 
         let name = stringify!($f);
