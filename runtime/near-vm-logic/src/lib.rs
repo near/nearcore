@@ -3,7 +3,7 @@ mod context;
 mod dependencies;
 mod gas_counter;
 mod logic;
-#[cfg(feature = "mocks")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 pub mod serde_with;
 
