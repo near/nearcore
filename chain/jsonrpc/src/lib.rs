@@ -44,8 +44,8 @@ pub struct RpcPollingConfig {
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(100),
-            polling_timeout: Duration::from_secs(5),
+            polling_interval: Duration::from_millis(500),
+            polling_timeout: Duration::from_secs(10),
         }
     }
 }
@@ -115,6 +115,22 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
     })
 }
 
+fn jsonify_client_response(client_response: Result<NetworkClientResponses, MailboxError>) -> Result<Value, RpcError> {
+    match client_response {
+        Ok(NetworkClientResponses::TxStatus(tx_result)) => {
+            serde_json::to_value(tx_result).map_err(|err| {
+                RpcError::server_error(Some(err.to_string()))
+            })
+        }
+        Ok(_) => {
+            Err(RpcError::server_error(Some("Wrong response for transaction status query".to_string())))
+        }
+        Err(e) => {
+            Err(RpcError::server_error(Some(e.to_string())))
+        }
+    }
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -163,6 +179,7 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
+        let signer_account_id = tx.transaction.signer_id.clone();
         let result = self
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
@@ -170,17 +187,35 @@ impl JsonRpcHandler {
             .compat()
             .await?;
         match result {
-            NetworkClientResponses::ValidTx => {
+            NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
+                let needs_routing = result == NetworkClientResponses::RequestRouted;
                 timeout(self.polling_config.polling_timeout, async {
                     loop {
-                        let final_tx =
-                            self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
-                        if let Ok(Ok(ref tx)) = final_tx {
-                            match tx.status {
-                                FinalExecutionStatus::Started
-                                | FinalExecutionStatus::NotStarted => {}
-                                _ => {
-                                    break jsonify(final_tx);
+                        if needs_routing {
+                            let final_tx = self
+                                .client_addr
+                                .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                                .compat()
+                                .await;
+                            if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
+                                match tx_result.status {
+                                    FinalExecutionStatus::Started
+                                    | FinalExecutionStatus::NotStarted => {}
+                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
+                                        break jsonify_client_response(final_tx);
+                                    }
+                                }
+                            }
+                        } else {
+                            let final_tx =
+                                self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                            if let Ok(Ok(ref tx)) = final_tx {
+                                match tx.status {
+                                    FinalExecutionStatus::Started
+                                    | FinalExecutionStatus::NotStarted => {}
+                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
+                                        break jsonify(final_tx);
+                                    }
                                 }
                             }
                         }
@@ -198,6 +233,9 @@ impl JsonRpcHandler {
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
+            NetworkClientResponses::NoResponse => {
+                Err(RpcError::server_error(Some("Failed to include transaction.".to_string())))
+            },
             _ => unreachable!(),
         }
     }
@@ -217,8 +255,16 @@ impl JsonRpcHandler {
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let tx_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(TxStatus { tx_hash }).compat().await)
+        let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
+            CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
+        })?;
+        jsonify_client_response(self
+            .client_addr
+            .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: account_id })
+            .compat()
+            .await
+        )
     }
 
     async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
