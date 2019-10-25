@@ -45,7 +45,7 @@ impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
             polling_interval: Duration::from_millis(500),
-            polling_timeout: Duration::from_secs(5),
+            polling_timeout: Duration::from_secs(10),
         }
     }
 }
