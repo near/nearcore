@@ -4,7 +4,7 @@ use near::config::{
     MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, PROTOCOL_PERCENT,
     TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE, VALIDATOR_KICKOUT_THRESHOLD,
 };
-use near::GenesisConfig;
+use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
 use std::fs::File;
 use std::path::Path;
@@ -33,6 +33,11 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String) {
     config.network.boot_nodes =
         peer_info.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
     let total_supply = get_initial_supply(&records);
+    if chain_id == "mainnet".to_string() {
+        assert_eq!(total_supply, 1_000_000_000, "Total supply should be exactly 1 billion");
+    } else if total_supply > 10_000_000_000 * NEAR_BASE && chain_id == "testnet".to_string() {
+        panic!("Total supply should not be more than 10 billion");
+    }
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         genesis_time,
