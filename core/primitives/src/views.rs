@@ -4,6 +4,7 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
@@ -570,7 +571,7 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     NotStarted,
@@ -602,7 +603,7 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionErrorView {
     pub error_message: String,
     pub error_type: String,
@@ -703,7 +704,7 @@ impl From<InvalidTxError> for ExecutionErrorView {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
@@ -745,7 +746,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
@@ -768,7 +769,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionOutcomeWithIdView {
     pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
@@ -781,7 +782,7 @@ impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts.
-#[derive(Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,

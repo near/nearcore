@@ -96,6 +96,7 @@ impl Row {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Row {
+    genesis_time: Option<DateTime<Utc>>,
     account_id: AccountId,
     #[serde(with = "crate::serde_with::pks_as_str")]
     regular_pks: Vec<PublicKey>,
@@ -123,10 +124,11 @@ struct Row {
 /// * `AccountInfo`s that represent validators;
 /// * `PeerInfo`s that represent boot nodes;
 /// * `AccountId` of the treasury.
+/// *  Genesis time
 pub fn keys_to_state_records<R>(
     reader: R,
     gas_price: Balance,
-) -> Result<(Vec<StateRecord>, Vec<AccountInfo>, Vec<PeerInfo>, AccountId)>
+) -> Result<(Vec<StateRecord>, Vec<AccountInfo>, Vec<PeerInfo>, AccountId, DateTime<Utc>)>
 where
     R: std::io::Read,
 {
@@ -136,6 +138,7 @@ where
     let mut initial_validators = vec![];
     let mut boot_nodes = vec![];
     let mut treasury = None;
+    let mut genesis_time = None;
     for row in reader.deserialize() {
         let row: Row = row?;
         row.verify()?;
@@ -145,6 +148,9 @@ where
             } else {
                 panic!("Only one account can be marked as treasury.");
             }
+        }
+        if row.genesis_time.is_some() {
+            genesis_time = row.genesis_time;
         }
 
         state_records.extend(account_records(&row, gas_price));
@@ -161,7 +167,8 @@ where
         }
     }
     let treasury = treasury.expect("At least one account should be marked as treasury");
-    Ok((state_records, initial_validators, boot_nodes, treasury))
+    let genesis_time = genesis_time.expect("Genesis time must be set");
+    Ok((state_records, initial_validators, boot_nodes, treasury, genesis_time))
 }
 
 /// Returns the records representing state of an individual token holder.
@@ -291,6 +298,7 @@ mod tests {
         let mut writer = WriterBuilder::new().has_headers(true).from_writer(file.reopen().unwrap());
         writer
             .serialize(Row {
+                genesis_time: Some(Utc::now()),
                 account_id: "alice_near".to_string(),
                 regular_pks: vec![
                     PublicKey::empty(KeyType::ED25519),
@@ -317,6 +325,7 @@ mod tests {
             .unwrap();
         writer
             .serialize(Row {
+                genesis_time: None,
                 account_id: "bob_near".to_string(),
                 regular_pks: vec![],
                 privileged_pks: vec![PublicKey::empty(KeyType::ED25519)],
@@ -335,7 +344,6 @@ mod tests {
             })
             .unwrap();
         writer.flush().unwrap();
-        println!("{}", file.path().to_str().unwrap());
         keys_to_state_records(file.reopen().unwrap(), 1).unwrap();
     }
 

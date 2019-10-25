@@ -41,6 +41,7 @@ use crate::types::{
     Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use cached::Cached;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -176,6 +177,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
+            NetworkClientMessages::TxStatus { tx_hash, signer_account_id } => {
+                self.client.get_tx_status(tx_hash, signer_account_id)
+            }
+            NetworkClientMessages::TxStatusResponse(tx_result) => {
+                let tx_hash = tx_result.transaction.id;
+                if self.client.tx_status_requests.cache_remove(&tx_hash).is_some() {
+                    self.client.tx_status_response.cache_set(tx_hash, tx_result);
+                }
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
