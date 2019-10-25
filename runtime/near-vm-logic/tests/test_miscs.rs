@@ -146,21 +146,23 @@ fn test_valid_log_utf16_max_log_len_not_even() {
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context.clone(), &config, &promise_results, &mut memory);
     let string = "ab";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    let mut utf16_bytes: Vec<u8> = Vec::new();
     for u16_ in string.encode_utf16() {
         utf16_bytes.push(u16_ as u8);
         utf16_bytes.push((u16_ >> 8) as u8);
     }
+    utf16_bytes.extend_from_slice(&[0, 0]);
     logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
     assert_eq!(logic.outcome().logs[0], format!("LOG: {}", string));
 
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     let string = "abc";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    let mut utf16_bytes: Vec<u8> = Vec::new();
     for u16_ in string.encode_utf16() {
         utf16_bytes.push(u16_ as u8);
         utf16_bytes.push((u16_ >> 8) as u8);
     }
+    utf16_bytes.extend_from_slice(&[0, 0]);
     assert_eq!(
         logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _),
         Err(HostError::BadUTF16.into())
