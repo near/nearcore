@@ -121,19 +121,21 @@ fn test_valid_log_utf16_max_log_len_not_even() {
     logic_builder.config.max_log_len = 5;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let string = "ab";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    let mut utf16_bytes: Vec<u8> = Vec::new();
     for u16_ in string.encode_utf16() {
         utf16_bytes.push(u16_ as u8);
         utf16_bytes.push((u16_ >> 8) as u8);
     }
+    utf16_bytes.extend_from_slice(&[0, 0]);
     logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
 
     let string = "abc";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    let mut utf16_bytes: Vec<u8> = Vec::new();
     for u16_ in string.encode_utf16() {
         utf16_bytes.push(u16_ as u8);
         utf16_bytes.push((u16_ >> 8) as u8);
     }
+    utf16_bytes.extend_from_slice(&[0, 0]);
     assert_eq!(
         logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _),
         Err(HostError::BadUTF16.into())
