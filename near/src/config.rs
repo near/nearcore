@@ -271,7 +271,7 @@ impl NearConfig {
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
-                catchup_step_period: Duration::from_millis(500),
+                catchup_step_period: Duration::from_millis(100),
                 chunk_request_retry_period: Duration::from_millis(200),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
