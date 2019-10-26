@@ -29,6 +29,7 @@ use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
+use std::cmp::max;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -99,6 +100,9 @@ pub const MAX_INFLATION_RATE: u8 = 5;
 
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
+
+/// Number of seats for block producers
+pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -542,6 +546,14 @@ impl From<&str> for GenesisConfig {
             panic!(format!(
                 "Incorrect version of genesis config {} expected {}",
                 config.protocol_version, PROTOCOL_VERSION
+            ));
+        }
+        let num_shards = config.block_producers_per_shard.len();
+        let num_chunk_producers: ValidatorId = config.block_producers_per_shard.iter().sum();
+        if num_chunk_producers != max(config.num_block_producers, num_shards) {
+            panic!(format!(
+                "Number of chunk producers {} does not match number of block producers {}",
+                num_chunk_producers, config.num_block_producers
             ));
         }
         let total_supply = get_initial_supply(&config.records);
