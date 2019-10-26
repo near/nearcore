@@ -1,6 +1,7 @@
 use clap::{App, Arg, SubCommand};
 use near::get_default_home;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use std::fs;
 use std::path::Path;
 
 fn main() {
@@ -39,6 +40,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    fs::create_dir_all(home_dir).expect("Failed to create directory");
     let account_id = matches.value_of("account-id");
     let generate_config = matches.is_present("generate-config");
 

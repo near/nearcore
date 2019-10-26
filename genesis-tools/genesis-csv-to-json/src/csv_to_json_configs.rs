@@ -1,4 +1,3 @@
-use chrono::Utc;
 use near::config::{
     get_initial_supply, Config, CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH,
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE,
@@ -25,17 +24,18 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String) {
     config.telemetry.endpoints.push(near::config::DEFAULT_TELEMETRY_URL.to_string());
 
     // Construct genesis config.
-    let (records, validators, peer_info, treasury) = crate::csv_parser::keys_to_state_records(
-        File::open(home.join(ACCOUNTS_FILE)).expect("Error opening accounts file."),
-        INITIAL_GAS_PRICE,
-    )
-    .expect("Error parsing accounts file.");
+    let (records, validators, peer_info, treasury, genesis_time) =
+        crate::csv_parser::keys_to_state_records(
+            File::open(home.join(ACCOUNTS_FILE)).expect("Error opening accounts file."),
+            INITIAL_GAS_PRICE,
+        )
+        .expect("Error parsing accounts file.");
     config.network.boot_nodes =
         peer_info.into_iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
     let total_supply = get_initial_supply(&records);
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
-        genesis_time: Utc::now(),
+        genesis_time,
         chain_id,
         num_block_producers: 50,
         block_producers_per_shard: (0..NUM_SHARDS).map(|_| 50).collect(),

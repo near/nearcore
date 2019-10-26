@@ -241,7 +241,7 @@
         "showThresholdLabels": false,
         "showThresholdMarkers": true
       },
-      "pluginVersion": "6.3.5",
+      "pluginVersion": "6.4.3",
       "targets": [
         {
           "expr": "(block_processing_time_sum / block_processing_time_count) * 1000",
@@ -408,7 +408,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "block_height_head",
+          "expr": "max(block_height_head)",
           "refId": "A"
         }
       ],
@@ -425,7 +425,7 @@
           "value": "null"
         }
       ],
-      "valueName": "current"
+      "valueName": "max"
     },
     {
       "cacheTimeout": null,
@@ -491,7 +491,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "http_rpc_requests_total",
+          "expr": "sum(http_rpc_requests_total)",
           "refId": "A"
         }
       ],
@@ -574,7 +574,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "http_status_requests_total",
+          "expr": "sum(http_status_requests_total)",
           "refId": "A"
         }
       ],
@@ -657,7 +657,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "http_prometheus_requests_total",
+          "expr": "sum(http_prometheus_requests_total)",
           "refId": "A"
         }
       ],
@@ -693,11 +693,16 @@
           ],
           "defaults": {
             "mappings": [],
+            "max": 100,
             "min": 0,
             "thresholds": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
           },
@@ -706,7 +711,7 @@
         },
         "orientation": "horizontal"
       },
-      "pluginVersion": "6.3.5",
+      "pluginVersion": "6.4.3",
       "targets": [
         {
           "expr": "action_create_account_total",
@@ -765,11 +770,16 @@
           ],
           "defaults": {
             "mappings": [],
+            "max": 100,
             "min": 0,
             "thresholds": [
               {
                 "color": "orange",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
           },
@@ -778,7 +788,7 @@
         },
         "orientation": "horizontal"
       },
-      "pluginVersion": "6.3.5",
+      "pluginVersion": "6.4.3",
       "targets": [
         {
           "expr": "peer_connections_total",
@@ -875,7 +885,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "validator_active_total",
+          "expr": "sum(validator_active_total)",
           "legendFormat": "",
           "refId": "A"
         }
@@ -900,6 +910,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -982,7 +993,7 @@
     }
   ],
   "refresh": "5s",
-  "schemaVersion": 19,
+  "schemaVersion": 20,
   "style": "dark",
   "tags": [],
   "templating": {
@@ -1009,5 +1020,5 @@
   "timezone": "",
   "title": "nearcore",
   "uid": "qgvhAH2Wk",
-  "version": 12
+  "version": 7
 }

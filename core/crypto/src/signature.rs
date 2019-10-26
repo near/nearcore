@@ -133,24 +133,22 @@ impl Debug for PublicKey {
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             PublicKey::ED25519(public_key) => {
                 0u8.serialize(writer)?;
-                writer.write(&public_key.0)?;
+                writer.write_all(&public_key.0)?;
             }
             PublicKey::SECP256K1(public_key) => {
                 1u8.serialize(writer)?;
-                writer.write(&public_key.0)?;
+                writer.write_all(&public_key.0)?;
             }
         }
         Ok(())
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for PublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
@@ -158,12 +156,12 @@ impl BorshDeserialize for PublicKey {
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-                reader.read(&mut array)?;
+                reader.read_exact(&mut array)?;
                 Ok(PublicKey::ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey(array)))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 64];
-                reader.read(&mut array)?;
+                reader.read_exact(&mut array)?;
                 Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
             }
         }
@@ -454,24 +452,22 @@ impl Default for Signature {
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Signature::ED25519(signature) => {
                 0u8.serialize(writer)?;
-                writer.write(&signature.0)?;
+                writer.write_all(&signature.0)?;
             }
             Signature::SECP256K1(signature) => {
                 1u8.serialize(writer)?;
-                writer.write(&signature.0)?;
+                writer.write_all(&signature.0)?;
             }
         }
         Ok(())
     }
 }
 
-#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for Signature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
@@ -479,12 +475,12 @@ impl BorshDeserialize for Signature {
         match key_type {
             KeyType::ED25519 => {
                 let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-                reader.read(&mut array)?;
+                reader.read_exact(&mut array)?;
                 Ok(Signature::ED25519(sodiumoxide::crypto::sign::ed25519::Signature(array)))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 65];
-                reader.read(&mut array)?;
+                reader.read_exact(&mut array)?;
                 Ok(Signature::SECP256K1(Secp2561KSignature(array)))
             }
         }
@@ -627,6 +623,9 @@ mod tests {
             let signature = sk.sign(&data);
             let bytes = signature.try_to_vec().unwrap();
             assert_eq!(Signature::try_from_slice(&bytes).unwrap(), signature);
+
+            assert!(PublicKey::try_from_slice(&[0]).is_err());
+            assert!(Signature::try_from_slice(&[0]).is_err());
         }
     }
 
