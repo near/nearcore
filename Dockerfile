@@ -30,7 +30,11 @@ RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build -p near --release && \
-    cp /tmp/target/release/near /usr/local/bin/
+    cargo build -p keypair-generator --release && \
+    cargo build -p genesis-csv-to-json --release && \
+    cp /tmp/target/release/near /usr/local/bin/ && \
+    cp /tmp/target/release/keypair-generator /usr/local/bin && \
+    cp /tmp/target/release/genesis-csv-to-json /usr/local/bin
 
 EXPOSE 3030 24567
 
