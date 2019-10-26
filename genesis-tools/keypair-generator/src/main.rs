@@ -43,6 +43,7 @@ fn main() {
         .subcommand(
             SubCommand::with_name("node-key").about("Generate key for the node communication."),
         )
+        .subcommand(SubCommand::with_name("validator-key").about("Generate staking key."))
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
