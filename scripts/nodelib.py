@@ -260,7 +260,7 @@ def start_stakewars(home, is_release, nodocker, image, verbose):
         except subprocess.CalledProcessError as exc:
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
-    create_genesis(home, is_release, nodocker, image, 'testnet')
+    create_genesis(home, is_release, nodocker, image, 'stakewars')
     if nodocker:
         run_nodocker(home, is_release, '', verbose)
     else:
