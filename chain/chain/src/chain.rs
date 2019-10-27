@@ -2028,6 +2028,10 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidEpochHash.into());
         }
 
+        if header.inner.chunk_mask.len() as u64 != self.runtime_adapter.num_shards() {
+            return Err(ErrorKind::InvalidChunkMask.into());
+        }
+
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.inner.timestamp <= prev_header.inner.timestamp {
