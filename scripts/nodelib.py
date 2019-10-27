@@ -200,7 +200,7 @@ def generate_node_key(home, is_release, nodocker, image):
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=""', 'node-key'])
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=''', 'node-key'])
     print("Node key generated")
 
 def generate_validator_key(home, is_release, nodocker, image, account_id):
