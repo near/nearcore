@@ -8,7 +8,8 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
+    StatusResponse,
 };
 
 use crate::message::{from_slice, Message};
