@@ -9,7 +9,7 @@ sodiumoxide = "0.2.5"
 parity-secp256k1 = "0.7.0"
 
 bs58 = "0.3"
-borsh = "0.2.7"
+borsh = "0.2.9"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
