@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -25,11 +26,11 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
+use near_primitives::utils::get_num_block_producers_per_shard;
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
-use std::cmp::max;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -687,8 +688,11 @@ pub fn init_configs(
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
-                num_block_producers: 50,
-                block_producers_per_shard: (0..num_shards).map(|_| 50).collect(),
+                num_block_producers: NUM_BLOCK_PRODUCERS,
+                block_producers_per_shard: get_num_block_producers_per_shard(
+                    num_shards,
+                    NUM_BLOCK_PRODUCERS,
+                ),
                 avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
@@ -734,8 +738,8 @@ pub fn create_testnet_configs_from_seeds(
         .collect::<Vec<_>>();
     let genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
-        seeds.len() - num_non_validators,
-        (0..num_shards).map(|_| std::cmp::max(1, num_validators / num_shards)).collect(),
+        num_validators,
+        get_num_block_producers_per_shard(num_shards as u64, num_validators),
     );
     let mut configs = vec![];
     let first_node_port = open_port();
