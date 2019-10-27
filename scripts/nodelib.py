@@ -235,6 +235,9 @@ def initialize_keys(home, is_release, nodocker, image, account_id):
         generate_validator_key(home, is_release, nodocker, image, account_id)
 
 def create_genesis(home, is_release, nodocker, image, chain_id):
+    if os.path.exists(os.path.join(home, 'genesis.json')):
+        print("Genesis already exists")
+        return
     print("Creating genesis...")
     if not os.path.exists(os.path.join(home, 'accounts.csv')):
         raise Exception("Failed to generate genesis: accounts.csv does not exist")
