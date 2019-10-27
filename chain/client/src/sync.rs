@@ -501,27 +501,28 @@ impl StateSync {
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
+        let init_sync_download = ShardSyncDownload {
+            downloads: vec![
+                DownloadStatus {
+                    start_time: now,
+                    prev_update_time: now,
+                    run_me: true,
+                    error: false,
+                    done: false,
+                };
+                1
+            ],
+            status: ShardSyncStatus::StateDownloadHeader,
+        };
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
             let mut need_shard = false;
-            let mut shard_sync_download = &ShardSyncDownload {
-                downloads: vec![
-                    DownloadStatus {
-                        start_time: now,
-                        prev_update_time: now,
-                        run_me: true,
-                        error: false,
-                        done: false,
-                    };
-                    1
-                ],
-                status: ShardSyncStatus::StateDownloadHeader,
-            };
-            if new_shard_sync.contains_key(&shard_id) {
-                shard_sync_download = &new_shard_sync[&shard_id];
+            let shard_sync_download = if new_shard_sync.contains_key(&shard_id) {
+                &new_shard_sync[&shard_id]
             } else {
                 need_shard = true;
+                &init_sync_download
             };
             let mut new_sync_download = shard_sync_download.clone();
             let mut this_done = false;
@@ -586,12 +587,21 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadFinalize => {
-                    chain.set_state_finalize(shard_id, sync_hash)?;
-                    update_sync_status = true;
-                    new_sync_download = ShardSyncDownload {
-                        downloads: vec![],
-                        status: ShardSyncStatus::StateDownloadComplete,
-                    };
+                    match chain.set_state_finalize(shard_id, sync_hash) {
+                        Ok(_) => {
+                            update_sync_status = true;
+                            new_sync_download = ShardSyncDownload {
+                                downloads: vec![],
+                                status: ShardSyncStatus::StateDownloadComplete,
+                            }
+                        }
+                        _ => {
+                            // Cannot finalize the downloaded state.
+                            // The reasonable behavior here is to start from the very beginning.
+                            update_sync_status = true;
+                            new_sync_download = init_sync_download.clone();
+                        }
+                    }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     this_done = true;
@@ -800,13 +810,13 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockNetworkAdapter::default());
         let mut header_sync = HeaderSync::new(mock_adapter.clone());
-        let (mut chain, _, _, signer) = setup();
+        let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
             chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
-        let (mut chain2, _, _, signer2) = setup();
+        let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);

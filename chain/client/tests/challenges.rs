@@ -11,7 +11,7 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, StateItem,
@@ -30,14 +30,12 @@ use near_store::test_utils::create_test_store;
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
-    env.network_adapters[0].pop();
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);
-    env.network_adapters[0].pop();
 
-    let signer = InMemoryBlsSigner::from_seed("test0", "test0");
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::produce(
         &genesis.header,
         2,
@@ -174,10 +172,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let bls_signer = InMemoryBlsSigner::from_seed("test0", "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
-    env.network_adapters[0].pop();
     env.clients[0].process_tx(SignedTransaction::send_money(
         0,
         "test0".to_string(),
@@ -187,7 +183,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         genesis_hash,
     ));
     env.produce_block(0, 2);
-    env.network_adapters[0].pop();
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
@@ -202,12 +197,14 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             1_000,
             0,
+            0,
+            0,
             vec![],
             &vec![],
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
-            &bls_signer,
+            &signer,
         )
         .unwrap();
 
@@ -234,7 +231,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         0,
         None,
         vec![],
-        &bls_signer,
+        &signer,
     );
 
     let prev_merkle_proofs = Block::compute_chunk_headers_root(&last_block.chunks).1;
@@ -242,10 +239,11 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Create challenge with this block / chunk.
     let partial_state = vec![StateItem {
-        key: CryptoHash::try_from("9zNZkjBRwp6zmrsEgQ3ie84U8LWgnAJ3x62ALHcZAbtt").unwrap(),
+        key: CryptoHash::try_from("6J7uDHQoyBjrFq5X1fGQnLwkdych7D5RVw9SaeRPyyAx").unwrap(),
         value: vec![
-            3, 1, 0, 0, 0, 16, 204, 203, 139, 184, 207, 61, 202, 84, 144, 157, 169, 23, 220, 55,
-            235, 52, 122, 37, 211, 194, 34, 195, 167, 148, 9, 62, 95, 210, 83, 46, 8, 5,
+            3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107, 71, 32,
+            36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210, 44, 242, 167,
+            124, 2, 0, 0, 0, 0, 0,
         ],
     }];
     let challenge = Challenge::produce(
@@ -264,7 +262,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             partial_state,
         }),
         "test0".to_string(),
-        &bls_signer,
+        &signer,
     );
     assert_eq!(
         validate_challenge(
@@ -295,7 +293,6 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
-    env.network_adapters[0].pop().unwrap();
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
     assert!(client

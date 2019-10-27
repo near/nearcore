@@ -1,8 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::BlsPublicKey;
-
 use crate::hash::CryptoHash;
+use near_crypto::PublicKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -56,13 +55,13 @@ pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed validator.
-    pub public_key: BlsPublicKey,
+    pub public_key: PublicKey,
     /// Stake / weight of the validator.
     pub amount: Balance,
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: BlsPublicKey, amount: Balance) -> Self {
+    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
         ValidatorStake { account_id, public_key, amount }
     }
 }
@@ -80,6 +79,10 @@ pub struct ChunkExtra {
     pub gas_limit: Gas,
     /// Total rent paid after processing the current chunk
     pub rent_paid: Balance,
+    /// Total validation execution reward after processing the current chunk
+    pub validator_reward: Balance,
+    /// Total balance burnt after processing the current chunk
+    pub balance_burnt: Balance,
 }
 
 impl ChunkExtra {
@@ -89,8 +92,18 @@ impl ChunkExtra {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
     ) -> Self {
-        Self { state_root: state_root.clone(), validator_proposals, gas_used, gas_limit, rent_paid }
+        Self {
+            state_root: state_root.clone(),
+            validator_proposals,
+            gas_used,
+            gas_limit,
+            rent_paid,
+            validator_reward,
+            balance_burnt,
+        }
     }
 }
 

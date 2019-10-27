@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{BlsSignature, BlsSigner};
+use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
@@ -113,6 +113,8 @@ pub struct ApplyTransactionResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
     pub total_rent_paid: Balance,
+    pub total_validator_reward: Balance,
+    pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
 }
 
@@ -139,7 +141,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
+    ) -> Result<ValidTransaction, RuntimeError>;
 
     /// Filter transactions by verifying each one by one in the given order. Every successful
     /// verification stores the updated account balances to be used by next transactions.
@@ -158,7 +160,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &BlsSignature,
+        signature: &Signature,
     ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
@@ -170,7 +172,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         approval_mask: &[bool],
-        approval_sig: &BlsSignature,
+        approval_sig: &[Signature],
         data: &[u8],
     ) -> Result<bool, Error>;
 
@@ -263,9 +265,9 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
-        gas_used: Gas,
-        gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
@@ -429,12 +431,12 @@ impl Tip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockApproval {
     pub hash: CryptoHash,
-    pub signature: BlsSignature,
+    pub signature: Signature,
     pub target: AccountId,
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn BlsSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -466,27 +468,32 @@ pub struct ShardStateSyncResponse {
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{BlsSignature, InMemoryBlsSigner};
+    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_primitives::block::genesis_chunks;
 
     use super::*;
 
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis = Block::genesis(
+        let genesis_chunks = genesis_chunks(
             vec![StateRoot { hash: CryptoHash::default(), num_parts: 9 /* TODO MOO */ }],
-            Utc::now(),
             num_shards,
+            1_000_000,
+        );
+        let genesis = Block::genesis(
+            genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+            Utc::now(),
             1_000_000,
             100,
             1_000_000_000,
         );
-        let signer = InMemoryBlsSigner::from_seed("other", "other");
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
-        let other_signer = InMemoryBlsSigner::from_seed("other2", "other2");
-        let approvals: HashMap<usize, BlsSignature> =
+        let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
+        let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,

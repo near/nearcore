@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use near_crypto::BlsSecretKey;
+use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
@@ -30,7 +30,6 @@ pub fn epoch_info(
     chunk_producers: Vec<Vec<usize>>,
     fishermen: Vec<ValidatorWeight>,
     stake_change: BTreeMap<AccountId, Balance>,
-    total_gas_used: Gas,
     validator_reward: HashMap<AccountId, Balance>,
     inflation: u128,
 ) -> EpochInfo {
@@ -44,7 +43,7 @@ pub fn epoch_info(
             .into_iter()
             .map(|(account_id, amount)| ValidatorStake {
                 account_id: account_id.to_string(),
-                public_key: BlsSecretKey::from_seed(account_id).public_key(),
+                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 amount,
             })
             .collect(),
@@ -53,7 +52,6 @@ pub fn epoch_info(
         chunk_producers,
         fishermen,
         stake_change,
-        total_gas_used,
         validator_reward,
         inflation,
     }
@@ -77,7 +75,7 @@ pub fn epoch_config(
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
-    let public_key = BlsSecretKey::from_seed(account_id).public_key();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
@@ -172,7 +170,7 @@ pub fn record_block(
                 vec![],
                 HashSet::default(),
                 0,
-                DEFAULT_GAS_PRICE,
+                0,
                 0,
                 DEFAULT_TOTAL_SUPPLY,
             ),

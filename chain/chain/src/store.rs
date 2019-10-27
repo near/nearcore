@@ -1,5 +1,4 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
@@ -27,6 +26,7 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use near_primitives::errors::InvalidTxError;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -35,7 +35,8 @@ const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 
 /// lru cache size
-const CACHE_SIZE: usize = 20;
+const CACHE_SIZE: usize = 100;
+const CHUNK_CACHE_SIZE: usize = 1024;
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
@@ -54,6 +55,97 @@ pub struct StateSyncInfo {
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+}
+
+/// Header cache used for transaction history validation.
+/// The headers stored here should be all on the same fork.
+pub struct HeaderList {
+    queue: VecDeque<CryptoHash>,
+    headers: HashMap<CryptoHash, BlockHeader>,
+}
+
+impl HeaderList {
+    pub fn new() -> Self {
+        HeaderList { queue: VecDeque::default(), headers: HashMap::default() }
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn contains(&self, hash: &CryptoHash) -> bool {
+        self.headers.contains_key(hash)
+    }
+
+    pub fn push_back(&mut self, block_header: BlockHeader) {
+        self.queue.push_back(block_header.hash);
+        self.headers.insert(block_header.hash, block_header);
+    }
+
+    pub fn push_front(&mut self, block_header: BlockHeader) {
+        let block_hash = block_header.hash;
+        self.queue.push_front(block_hash);
+        self.headers.insert(block_hash, block_header);
+    }
+
+    pub fn pop_front(&mut self) -> Option<BlockHeader> {
+        let front = if let Some(hash) = self.queue.pop_front() {
+            hash
+        } else {
+            return None;
+        };
+        let header = self.headers.remove(&front).unwrap();
+        Some(header)
+    }
+
+    pub fn pop_back(&mut self) -> Option<BlockHeader> {
+        let back = if let Some(hash) = self.queue.pop_back() {
+            hash
+        } else {
+            return None;
+        };
+        let header = self.headers.remove(&back).unwrap();
+        Some(header)
+    }
+
+    pub fn from_headers(headers: Vec<BlockHeader>) -> Self {
+        let mut res = Self::new();
+        for header in headers {
+            res.push_back(header);
+        }
+        res
+    }
+
+    /// Tries to update the cache. if `hash` is in the cache, remove everything before `hash`
+    /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
+    /// from higher height to lower height.
+    /// Returns true if `hash` is in the cache and false otherwise.
+    fn update(&mut self, hash: &CryptoHash, new_list: &[BlockHeader]) -> bool {
+        if !self.headers.contains_key(hash) {
+            return false;
+        }
+        loop {
+            let front = if let Some(elem) = self.queue.front() {
+                elem.clone()
+            } else {
+                break;
+            };
+            if &front == hash {
+                break;
+            } else {
+                self.queue.pop_front();
+                self.headers.remove(&front);
+            }
+        }
+        for header in new_list.into_iter().rev() {
+            self.push_front(header.clone());
+        }
+        true
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -120,6 +212,23 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    fn get_header_on_chain_by_height(
+        &mut self,
+        sync_hash: &CryptoHash,
+        height: BlockIndex,
+    ) -> Result<&BlockHeader, Error> {
+        let mut header = self.get_block_header(sync_hash)?;
+        let mut hash = sync_hash.clone();
+        while header.inner.height > height {
+            hash = header.inner.prev_hash;
+            header = self.get_block_header(&hash)?;
+        }
+        if header.inner.height < height {
+            return Err(ErrorKind::InvalidBlockHeight.into());
+        }
+        self.get_block_header(&hash)
+    }
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
@@ -158,12 +267,14 @@ pub struct ChainStore {
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
+    /// Cache with headers for transaction validation.
+    header_history: HeaderList,
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
-    chunks: HashMap<ChunkHash, ShardChunk>,
+    chunks: SizedCache<Vec<u8>, ShardChunk>,
     /// Cache with chunk one parts
-    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
+    chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     // Cache with index to hash on the main chain.
@@ -193,8 +304,9 @@ impl ChainStore {
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
-            chunks: HashMap::new(),
-            chunk_one_parts: HashMap::new(),
+            header_history: HeaderList::new(),
+            chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
@@ -248,6 +360,74 @@ impl ChainStore {
             }
         }
     }
+
+    pub fn check_blocks_on_same_chain(
+        &mut self,
+        cur_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+        max_difference_in_height: u64,
+    ) -> Result<(), InvalidTxError> {
+        // first step: update cache head
+        if self.header_history.is_empty() {
+            self.header_history.push_back(cur_header.clone());
+        }
+        let mut prev_block_hash = cur_header.inner.prev_hash;
+
+        let contains_hash = self.header_history.update(&cur_header.hash, &[]);
+        if !contains_hash {
+            let mut header_list = vec![cur_header.clone()];
+            let mut found_ancestor = false;
+            while !self.header_history.is_empty() {
+                let prev_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash)
+                {
+                    header.clone()
+                } else {
+                    return Err(InvalidTxError::InvalidChain);
+                };
+                self.header_history.pop_front();
+                if self.header_history.update(&prev_block_header.hash, &header_list) {
+                    found_ancestor = true;
+                    break;
+                }
+                prev_block_hash = prev_block_header.inner.prev_hash;
+                header_list.push(prev_block_header);
+            }
+            if !found_ancestor {
+                self.header_history = HeaderList::from_headers(header_list);
+            }
+            // It is possible that cur_len is max_difference_in_height + 1 after the above update.
+            let cur_len = self.header_history.len() as u64;
+            if cur_len > max_difference_in_height {
+                for _ in 0..cur_len - max_difference_in_height {
+                    self.header_history.pop_back();
+                }
+            }
+        }
+
+        // second step: check if `base_block_hash` exists
+        assert!(max_difference_in_height >= self.header_history.len() as u64);
+        if self.header_history.contains(base_block_hash) {
+            return Ok(());
+        }
+        let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
+        // here the queue cannot be empty so it is safe to unwrap
+        let last_hash = self.header_history.queue.back().unwrap();
+        prev_block_hash = self.header_history.headers.get(last_hash).unwrap().inner.prev_hash;
+        for _ in 0..num_to_fetch {
+            let cur_block_header = if let Ok(header) = self.get_block_header(&prev_block_hash) {
+                header.clone()
+            } else {
+                return Err(InvalidTxError::InvalidChain);
+            };
+            prev_block_hash = cur_block_header.inner.prev_hash;
+            let cur_block_hash = cur_block_header.hash;
+            self.header_history.push_back(cur_block_header);
+            if &cur_block_hash == base_block_hash {
+                return Ok(());
+            }
+        }
+        Err(InvalidTxError::Expired)
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -289,34 +469,22 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        let entry = self.chunks.entry(chunk_hash.clone());
-        match entry {
-            Entry::Occupied(s) => Ok(s.into_mut()),
-            Entry::Vacant(s) => {
-                if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, chunk_hash.as_ref()) {
-                    Ok(s.insert(chunk))
-                } else {
-                    Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into())
-                }
-            }
+        match read_with_cache(&*self.store, COL_CHUNKS, &mut self.chunks, chunk_hash.as_ref()) {
+            Ok(Some(shard_chunk)) => Ok(shard_chunk),
+            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
     /// Get Chunk one part.
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        let chunk_hash = header.chunk_hash();
-        let entry = self.chunk_one_parts.entry(chunk_hash.clone());
-        match entry {
-            Entry::Occupied(s) => Ok(s.into_mut()),
-            Entry::Vacant(s) => {
-                if let Ok(Some(chunk_one_part)) =
-                    self.store.get_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref())
-                {
-                    Ok(s.insert(chunk_one_part))
-                } else {
-                    Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
-                }
-            }
+        match read_with_cache(
+            &*self.store,
+            COL_CHUNK_ONE_PARTS,
+            &mut self.chunk_one_parts,
+            header.chunk_hash().as_ref(),
+        ) {
+            Ok(Some(chunk_one_part)) => Ok(chunk_one_part),
+            _ => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
         }
     }
 
@@ -1115,5 +1283,177 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn commit(self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit().map_err(|e| e.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::KeyValueRuntime;
+    use crate::{Chain, ChainGenesis};
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::block::Block;
+    use near_primitives::errors::InvalidTxError;
+    use near_store::test_utils::create_test_store;
+    use std::sync::Arc;
+
+    fn get_chain() -> Chain {
+        let store = create_test_store();
+        let chain_genesis = ChainGenesis::test();
+        let validators = vec![vec!["test1"]];
+        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
+            store.clone(),
+            validators
+                .into_iter()
+                .map(|inner| inner.into_iter().map(Into::into).collect())
+                .collect(),
+            1,
+            1,
+            10,
+        ));
+        Chain::new(store.clone(), runtime_adapter, &chain_genesis).unwrap()
+    }
+
+    #[test]
+    fn test_header_cache_long_fork() {
+        let transaction_validity_period = 5;
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
+        let mut store_update = chain.mut_store().store_update();
+        store_update.save_block_header(short_fork[0].header.clone());
+        store_update.commit().unwrap();
+
+        let short_fork_head = short_fork[0].clone().header;
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(
+                &short_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            )
+            .is_ok());
+        let mut long_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 2) {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            long_fork.push(block);
+        }
+        store_update.commit().unwrap();
+        let valid_base_hash = long_fork[1].hash();
+        let cur_header = &long_fork.last().unwrap().header;
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .is_ok());
+        let invalid_base_hash = long_fork[0].hash();
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                cur_header,
+                &invalid_base_hash,
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
+        assert_eq!(
+            chain.store().header_history.queue.clone().into_iter().collect::<Vec<_>>(),
+            long_fork
+                .iter()
+                .rev()
+                .take(transaction_validity_period as usize)
+                .map(|h| h.hash())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_header_cache_normal_case() {
+        let transaction_validity_period = 5;
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut blocks = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 2) {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            blocks.push(block);
+        }
+        store_update.commit().unwrap();
+        let valid_base_hash = blocks[1].hash();
+        let cur_header = &blocks.last().unwrap().header;
+        assert!(chain
+            .mut_store()
+            .check_blocks_on_same_chain(cur_header, &valid_base_hash, transaction_validity_period)
+            .is_ok());
+        assert_eq!(chain.store().header_history.len(), transaction_validity_period as usize);
+        let new_block = Block::empty_with_height(
+            &blocks.last().unwrap(),
+            transaction_validity_period + 2,
+            &*signer.clone(),
+        );
+        let mut store_update = chain.mut_store().store_update();
+        store_update.save_block_header(new_block.header.clone());
+        store_update.commit().unwrap();
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                &new_block.header,
+                &valid_base_hash,
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
+    }
+
+    #[test]
+    fn test_header_cache_off_by_one() {
+        let transaction_validity_period = 5;
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut short_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period + 1) {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            short_fork.push(block);
+        }
+        store_update.commit().unwrap();
+
+        let short_fork_head = short_fork.last().unwrap().clone().header;
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                &short_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
+        let mut long_fork = vec![];
+        let mut prev_block = genesis.clone();
+        let mut store_update = chain.mut_store().store_update();
+        for i in 1..(transaction_validity_period * 5) {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            prev_block = block.clone();
+            store_update.save_block_header(block.header.clone());
+            long_fork.push(block);
+        }
+        store_update.commit().unwrap();
+        let long_fork_head = &long_fork.last().unwrap().header;
+        assert_eq!(
+            chain.mut_store().check_blocks_on_same_chain(
+                long_fork_head,
+                &genesis.hash(),
+                transaction_validity_period
+            ),
+            Err(InvalidTxError::Expired)
+        );
     }
 }

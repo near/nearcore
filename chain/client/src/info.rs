@@ -106,6 +106,7 @@ impl InfoHelper {
             try_sign_json(
                 json!({
                     "account_id": self.block_producer.clone().map(|bp| bp.account_id).unwrap_or("".to_string()),
+                    "is_validator": is_validator,
                     "node_id": format!("{}", node_id),
                     "status": display_sync_status(&sync_status, &head),
                     "latest_block_hash": to_base(&head.last_block_hash),
@@ -209,8 +210,8 @@ fn gas_used_per_sec(num: u64) -> String {
     if num < 1000 {
         format!("{} gas/s", num)
     } else if num < 1_000_000 {
-        format!("{:.1} Kgas/s", num)
+        format!("{:.1} Kgas/s", num as f64 / 1_000.0)
     } else {
-        format!("{:.1} Mgas/s", num)
+        format!("{:.1} Mgas/s", num as f64 / 1_000_000.0)
     }
 }

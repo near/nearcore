@@ -12,22 +12,29 @@ use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::heavy_test;
+use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
-    chunks_produced_and_distributed_common(1);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(1);
+    });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
-    chunks_produced_and_distributed_common(2);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(2);
+    });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
-    chunks_produced_and_distributed_common(4);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(4);
+    });
 }
 
 /// Runs block producing client and stops after network mock received seven blocks
@@ -35,7 +42,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
 fn chunks_produced_and_distributed_common(validator_groups: u64) {
     let validators_per_shard = 4 / validator_groups;
-    init_test_logger();
+    init_integration_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
@@ -147,7 +154,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
 
 #[test]
 fn test_request_chunk_restart() {
-    init_test_logger();
+    init_integration_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     for i in 1..4 {
         env.produce_block(0, i);

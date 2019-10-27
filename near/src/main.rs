@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -11,22 +12,34 @@ use near::config::init_testnet_configs;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
 
-fn init_logging(verbose: bool) {
-    if verbose {
-        env_logger::Builder::new()
+fn init_logging(verbose: Option<&str>) {
+    let mut builder = env_logger::Builder::new();
+    if let Some(module) = verbose {
+        builder
             .filter_module("tokio_reactor", LevelFilter::Info)
             .filter_module("cranelift_codegen", LevelFilter::Warn)
             .filter_module("cranelift_wasm", LevelFilter::Warn)
-            .filter(None, LevelFilter::Debug)
-            .init();
+            .filter_module("h2", LevelFilter::Warn)
+            .filter_module("trust_dns_resolver", LevelFilter::Warn)
+            .filter_module("trust_dns_proto", LevelFilter::Warn)
+            .filter(Some("near"), LevelFilter::Info)
+            .filter(Some("info"), LevelFilter::Info);
+        if module.is_empty() {
+            builder.filter(None, LevelFilter::Debug);
+        } else {
+            builder.filter_module(&module, LevelFilter::Debug);
+        }
     } else {
-        env_logger::Builder::new()
+        builder
             .filter_module("tokio_reactor", LevelFilter::Info)
             .filter(Some("near"), LevelFilter::Info)
             .filter(Some("info"), LevelFilter::Info)
-            .filter(None, LevelFilter::Warn)
-            .init();
+            .filter(None, LevelFilter::Warn);
     }
+    if env::var("RUST_LOG").is_ok() {
+        builder.parse_filters(&env::var("RUST_LOG").unwrap());
+    }
+    builder.init();
 }
 
 fn main() {
@@ -36,7 +49,7 @@ fn main() {
     let matches = App::new("NEAR Protocol Node")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .version(format!("{} (build {})", version.version, version.build).as_str())
-        .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(false))
+        .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(true))
         .arg(
             Arg::with_name("home")
                 .long("home")
@@ -69,7 +82,7 @@ fn main() {
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
         .get_matches();
 
-    init_logging(matches.is_present("verbose"));
+    init_logging(matches.value_of("verbose"));
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 

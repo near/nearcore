@@ -1,6 +1,6 @@
+use near_vm_errors::HostErrorOrStorageError;
 use near_vm_logic::types::Gas;
 use near_vm_logic::VMLogic;
-use near_vm_errors::HostErrorOrStorageError;
 
 type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
@@ -65,4 +65,3 @@ pub fn promise_batch_action_add_key_with_function_call(
         method_names.as_ptr() as _,
     )
 }
-

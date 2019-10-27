@@ -12,7 +12,7 @@ use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_chain::Block;
 use near_client::{ClientActor, GetBlock};
-use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
@@ -26,7 +26,7 @@ fn add_blocks(
     client: Addr<ClientActor>,
     num: usize,
     epoch_length: BlockIndex,
-    signer: &dyn BlsSigner,
+    signer: &dyn Signer,
 ) -> Vec<Block> {
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
@@ -81,7 +81,7 @@ fn sync_nodes() {
         let dir1 = TempDir::new("sync_nodes_1").unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let signer = InMemoryBlsSigner::from_seed("other", "other");
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let _ = add_blocks(vec![genesis_block], client1, 12, genesis_config.epoch_length, &signer);
 
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
@@ -133,7 +133,7 @@ fn sync_after_sync_nodes() {
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
-        let signer = InMemoryBlsSigner::from_seed("other", "other");
+        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let blocks = add_blocks(
             vec![genesis_block],
             client1.clone(),

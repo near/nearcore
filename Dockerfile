@@ -10,6 +10,7 @@ RUN apt-get update -qq && apt-get install -y \
     pkg-config \
     libssl-dev \
     unzip \
+    systemd-coredump \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -29,14 +30,15 @@ RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build -p near --release && \
-    cp /tmp/target/release/near /usr/local/bin/
+    cargo build -p keypair-generator --release && \
+    cargo build -p genesis-csv-to-json --release && \
+    cp /tmp/target/release/near /usr/local/bin/ && \
+    cp /tmp/target/release/keypair-generator /usr/local/bin && \
+    cp /tmp/target/release/genesis-csv-to-json /usr/local/bin
 
 EXPOSE 3030 24567
 
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
-
-# Remove the files to keep docker smaller.
-RUN rm -rf /near
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 

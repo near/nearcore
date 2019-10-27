@@ -1,7 +1,7 @@
 extern crate log;
 
-use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
+use std::collections::vec_deque::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,17 +9,17 @@ use actix::Recipient;
 use log::{debug, error};
 use rand::Rng;
 
-use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ErrorKind, RuntimeAdapter,
+    byzantine_assert, ChainStore, ChainStoreAccess, collect_receipts, ErrorKind, RuntimeAdapter,
     ValidTransaction,
 };
-use near_crypto::BlsSigner;
-use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
+use near_chain::validate::validate_chunk_proofs;
+use near_crypto::Signer;
 use near_network::NetworkRequests;
+use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
+use near_primitives::merkle::{MerklePath, merklize, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunkHeader,
@@ -912,12 +912,14 @@ impl ShardsManager {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
@@ -931,6 +933,8 @@ impl ShardsManager {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             tx_root,
             validator_proposals,
             transactions,

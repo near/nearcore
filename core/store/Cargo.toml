@@ -15,16 +15,16 @@ serde_derive = "1.0"
 cached = "0.9.0"
 log = "0.4"
 
-borsh = "0.2.2"
+borsh = "0.2.9"
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
 tempdir = "0.3"
-hex-literal = "0.1.1"
+hex-literal = "0.2"
 bencher = "0.1.5"
-rand = "0.6"
+rand = "0.7"
 
 [[bench]]
 name = "trie_bench"

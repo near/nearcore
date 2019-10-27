@@ -45,7 +45,7 @@ impl Decoder for Codec {
         }
         let mut len_bytes: [u8; 4] = [0; 4];
         len_bytes.copy_from_slice(&buf[0..4]);
-        let len = unsafe { std::mem::transmute::<[u8; 4], u32>(len_bytes) }.to_le();
+        let len = u32::from_le_bytes(len_bytes);
         if buf.len() < 4 + len as usize {
             // not enough bytes, keep waiting
             Ok(None)
@@ -67,13 +67,14 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{BlsSecretKey, KeyType, SecretKey};
+    use near_crypto::{KeyType, SecretKey};
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::EpochId;
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
+        AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
+        RoutedMessageBody, SyncData,
     };
 
     use super::*;
@@ -114,14 +115,17 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_account() {
-        let sk = BlsSecretKey::from_random();
+        let sk = SecretKey::from_random(KeyType::ED25519);
         let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::AnnounceAccount(AnnounceAccount {
-            account_id: "test1".to_string(),
-            peer_id: network_sk.public_key().into(),
-            epoch_id: EpochId::default(),
-            signature,
+        let msg = PeerMessage::Sync(SyncData {
+            edges: Vec::new(),
+            accounts: vec![AnnounceAccount {
+                account_id: "test1".to_string(),
+                peer_id: network_sk.public_key().into(),
+                epoch_id: EpochId::default(),
+                signature,
+            }],
         });
         test_codec(msg);
     }
@@ -132,11 +136,11 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
 
-        let bls_sk = BlsSecretKey::from_random();
+        let bls_sk = SecretKey::from_random(KeyType::ED25519);
         let bls_signature = bls_sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(RoutedMessage {
-            target: sk.public_key().into(),
+            target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
             body: RoutedMessageBody::BlockApproval(

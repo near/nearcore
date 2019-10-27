@@ -1,0 +1,10 @@
+FROM phusion/baseimage:0.11
+
+EXPOSE 3030 24567
+
+COPY scripts/run_docker.sh /usr/local/bin/run.sh
+COPY docker-build/* /usr/local/bin/
+
+ENTRYPOINT ["/sbin/my_init", "--"]
+
+CMD ["/usr/local/bin/run.sh"]

@@ -10,7 +10,7 @@ use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_crypto::InMemoryBlsSigner;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
@@ -49,7 +49,11 @@ pub fn setup_network_node(
         1,
         5,
     ));
-    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id.as_str(), account_id.as_str()));
+    let signer = Arc::new(InMemorySigner::from_seed(
+        account_id.as_str(),
+        KeyType::ED25519,
+        account_id.as_str(),
+    ));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);
@@ -80,6 +84,10 @@ enum Action {
     AddEdge(usize, usize),
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
+    // Send ping from `source` with `nonce` to `target`
+    PingTo(usize, usize, usize),
+    // Check for `source` received pings and pongs.
+    CheckPingPong(usize, Vec<(usize, usize)>, Vec<(usize, usize)>),
 }
 
 #[derive(Clone)]
@@ -140,9 +148,6 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    // println!("\nROUTING TABLE: {:?}\n", routing_table);
-                                    // println!("\nEXPECTED: {:?}\n", expected1);
-
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,
@@ -177,6 +182,59 @@ impl StateMachine {
                                         flag.store(true, Ordering::Relaxed);
                                     }
                                 }
+                                future::ok(())
+                            }),
+                    );
+                }));
+            }
+            Action::PingTo(source, nonce, target) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    let target = info.peers_info[target].id.clone();
+                    let _ = info.pm_addr[source].do_send(NetworkRequests::PingTo(nonce, target));
+                    flag.store(true, Ordering::Relaxed);
+                }));
+            }
+            Action::CheckPingPong(source, pings, pongs) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    let pings_expected: Vec<_> = pings
+                        .clone()
+                        .into_iter()
+                        .map(|(nonce, source)| (nonce, info.peers_info[source].id.clone()))
+                        .collect();
+
+                    let pongs_expected: Vec<_> = pongs
+                        .clone()
+                        .into_iter()
+                        .map(|(nonce, source)| (nonce, info.peers_info[source].id.clone()))
+                        .collect();
+
+                    actix::spawn(
+                        info.pm_addr
+                            .get(source)
+                            .unwrap()
+                            .send(NetworkRequests::FetchPingPongInfo)
+                            .map_err(|_| ())
+                            .and_then(move |res| {
+                                if let NetworkResponses::PingPongInfo { pings, pongs } = res {
+                                    let ping_ok =
+                                        pings_expected.into_iter().all(|(nonce, source)| {
+                                            pings
+                                                .get(&nonce)
+                                                .map_or(false, |ping| ping.source == source)
+                                        });
+
+                                    let pong_ok =
+                                        pongs_expected.into_iter().all(|(nonce, source)| {
+                                            pongs
+                                                .get(&nonce)
+                                                .map_or(false, |pong| pong.source == source)
+                                        });
+
+                                    if ping_ok && pong_ok {
+                                        flag.store(true, Ordering::Relaxed);
+                                    }
+                                }
+
                                 future::ok(())
                             }),
                     );
@@ -360,6 +418,43 @@ fn account_propagation() {
         runner.push(Action::CheckAccountId(1, vec![0, 1]));
         runner.push(Action::AddEdge(0, 2));
         runner.push(Action::CheckAccountId(2, vec![0, 1]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn ping_simple() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(2, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+        runner.push(Action::PingTo(0, 0, 1));
+        runner.push(Action::CheckPingPong(1, vec![(0, 0)], vec![]));
+        runner.push(Action::CheckPingPong(0, vec![], vec![(0, 1)]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn ping_jump() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::PingTo(0, 0, 2));
+        runner.push(Action::CheckPingPong(2, vec![(0, 0)], vec![]));
+        runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2)]));
 
         runner.run();
     })

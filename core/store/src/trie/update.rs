@@ -114,15 +114,7 @@ impl<'a, I: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for Me
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = match (self.left.peek(), self.right.peek()) {
-            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => {
-                if left_key < right_key {
-                    std::cmp::Ordering::Less
-                } else if left_key == right_key {
-                    std::cmp::Ordering::Equal
-                } else {
-                    std::cmp::Ordering::Greater
-                }
-            }
+            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => left_key.cmp(&right_key),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => return None,

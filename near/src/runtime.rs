@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fs::File;
@@ -13,18 +12,18 @@ use log::debug;
 
 use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
-use near_crypto::{BlsSignature, PublicKey};
+use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::InvalidTxErrorOrStorageError;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -36,7 +35,7 @@ use near_store::{
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime, StateRecord};
+use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
@@ -125,68 +124,6 @@ impl NightshadeRuntime {
             epoch_manager,
             shard_tracker,
         }
-    }
-
-    /// Iterates over validator accounts in the given shard and updates their accounts to return stake
-    /// and allocate rewards.
-    fn update_validator_accounts(
-        &self,
-        shard_id: ShardId,
-        block_hash: &CryptoHash,
-        last_validator_proposals: &[ValidatorStake],
-        state_update: &mut TrieUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let (stake_info, validator_reward) = epoch_manager.compute_stake_return_info(block_hash)?;
-        let account_to_stake =
-            last_validator_proposals.iter().fold(HashMap::new(), |mut acc, v| {
-                acc.insert(v.account_id.clone(), v.amount);
-                acc
-            });
-
-        for (account_id, max_of_stakes) in stake_info {
-            if self.account_id_to_shard_id(&account_id) == shard_id {
-                let account: Option<Account> = get_account(state_update, &account_id)?;
-                if let Some(mut account) = account {
-                    if let Some(reward) = validator_reward.get(&account_id) {
-                        debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked);
-                        account.locked += *reward;
-                    }
-
-                    debug!(target: "runtime",
-                           "account {} stake {} max_of_stakes: {}",
-                           account_id, account.locked, max_of_stakes
-                    );
-                    assert!(
-                        account.locked >= max_of_stakes,
-                        "FATAL: staking invariant does not hold. Account stake {} is less than maximum of stakes {} in the past three epochs",
-                        account.locked,
-                        max_of_stakes
-                    );
-                    let last_stake = *account_to_stake.get(&account_id).unwrap_or(&0);
-                    let return_stake = account.locked - max(max_of_stakes, last_stake);
-                    debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
-                    account.locked -= return_stake;
-                    account.amount += return_stake;
-
-                    set_account(state_update, &account_id, &account);
-                }
-            }
-        }
-        if self.account_id_to_shard_id(&self.genesis_config.protocol_treasury_account) == shard_id {
-            let mut protocol_treasury_account =
-                get_account(state_update, &self.genesis_config.protocol_treasury_account)?.unwrap();
-            protocol_treasury_account.amount +=
-                *validator_reward.get(&self.genesis_config.protocol_treasury_account).unwrap();
-            set_account(
-                state_update,
-                &self.genesis_config.protocol_treasury_account,
-                &protocol_treasury_account,
-            );
-        }
-        state_update.commit();
-
-        Ok(())
     }
 
     fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRoot>) {
@@ -292,34 +229,44 @@ impl NightshadeRuntime {
         gas_price: Balance,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
-        let mut state_update = TrieUpdate::new(trie.clone(), state_root);
-        let should_update_account = {
+        let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
                    "block index: {}, is next_block_epoch_start {}",
                    block_index,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
-            epoch_manager.is_next_block_epoch_start(prev_block_hash)?
+            if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+                let (stake_info, validator_reward) =
+                    epoch_manager.compute_stake_return_info(prev_block_hash)?;
+                let stake_info = stake_info
+                    .into_iter()
+                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .collect();
+                let validator_rewards = validator_reward
+                    .into_iter()
+                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .collect();
+                let last_proposals = last_validator_proposals
+                    .iter()
+                    .filter(|v| self.account_id_to_shard_id(&v.account_id) == shard_id)
+                    .fold(HashMap::new(), |mut acc, v| {
+                        acc.insert(v.account_id.clone(), v.amount);
+                        acc
+                    });
+                Some(ValidatorAccountsUpdate {
+                    stake_info,
+                    validator_rewards,
+                    last_proposals,
+                    protocol_treasury_account_id: Some(
+                        self.genesis_config.protocol_treasury_account.clone(),
+                    )
+                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
+                })
+            } else {
+                None
+            }
         };
-
-        // If we are starting to apply 1st block in the new epoch.
-        if should_update_account {
-            self.update_validator_accounts(
-                shard_id,
-                prev_block_hash,
-                last_validator_proposals,
-                &mut state_update,
-            )
-            .map_err(|e| {
-                if let Some(e) = e.downcast_ref::<StorageError>() {
-                    panic!(e.to_string())
-                }
-                Error::from(ErrorKind::ValidatorError(e.to_string()))
-            })?;
-        }
-
-        self.process_challenges(shard_id, challenges, &mut state_update).expect("Storage error");
 
         let apply_state = ApplyState {
             block_index,
@@ -330,10 +277,18 @@ impl NightshadeRuntime {
 
         let apply_result = self
             .runtime
-            .apply(state_update, &apply_state, &receipts, &transactions)
+            .apply(
+                trie.clone(),
+                state_root,
+                &validator_accounts_update,
+                &apply_state,
+                &receipts,
+                &transactions,
+            )
             .map_err(|e| match e {
-                InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                InvalidTxErrorOrStorageError::StorageError(_) => ErrorKind::StorageError,
+                RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
+                RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                RuntimeError::StorageError(_) => ErrorKind::StorageError,
             })?;
 
         // Sort the receipts into appropriate outgoing shards.
@@ -354,7 +309,9 @@ impl NightshadeRuntime {
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
-            total_rent_paid: apply_result.total_rent_paid,
+            total_rent_paid: apply_result.stats.total_rent_paid,
+            total_validator_reward: apply_result.stats.total_validator_reward,
+            total_balance_burnt: apply_result.stats.total_balance_burnt,
             proof: trie.recorded_storage(),
         };
 
@@ -425,12 +382,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &BlsSignature,
+        signature: &Signature,
     ) -> ValidatorSignatureVerificationResult {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
         {
-            if signature.verify_single(data, &validator.public_key) {
+            if signature.verify(data, &validator.public_key) {
                 ValidatorSignatureVerificationResult::Valid
             } else {
                 ValidatorSignatureVerificationResult::Invalid
@@ -447,7 +404,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .get_chunk_producer_info(&epoch_id, header.inner.height_created, header.inner.shard_id)
             .map(|vs| vs.public_key);
         if let Ok(public_key) = public_key {
-            Ok(header.signature.verify_single(header.chunk_hash().as_ref(), public_key))
+            Ok(header.signature.verify(header.chunk_hash().as_ref(), public_key))
         } else {
             Ok(false)
         }
@@ -458,20 +415,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         approval_mask: &[bool],
-        approval_sig: &BlsSignature,
+        approval_sigs: &[Signature],
         data: &[u8],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
             .get_all_block_producer_info(epoch_id, last_known_block_hash)
-            .map_err(|err| Error::from(err))?;
-        let mut all_keys = vec![];
+            .map_err(Error::from)?;
+        let mut i = 0;
         for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
             if *is_approved && !is_slashed {
-                all_keys.push(validator.public_key);
+                if !approval_sigs[i].verify(data, &validator.public_key) {
+                    return Ok(false);
+                }
+                i += 1;
             }
         }
-        Ok(approval_sig.verify_aggregate(data, &all_keys))
+        Ok(true)
     }
 
     fn get_epoch_block_producers(
@@ -480,9 +440,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers(epoch_id, last_known_block_hash)
-            .map_err(|err| Error::from(err))
+        epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
     }
 
     fn get_block_producer(
@@ -567,12 +525,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(|err| err.into())
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_next_epoch_id_from_prev_block(
@@ -580,12 +538,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
+        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
@@ -600,7 +558,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
+    ) -> Result<ValidTransaction, RuntimeError> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
         let apply_state = ApplyState {
             block_index,
@@ -653,13 +611,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         chunk_mask: Vec<bool>,
-        gas_used: Gas,
-        gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
-        assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
+        assert!(block_index > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
         debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -673,9 +631,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             chunk_mask,
             slashed,
-            gas_used,
-            gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
         );
         // TODO: add randomness here
@@ -813,7 +771,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             QueryResponse::AccessKeyList(
                                 r.into_iter()
                                     .map(|(public_key, access_key)| AccessKeyInfoView {
-                                        public_key: public_key.into(),
+                                        public_key,
                                         access_key: access_key.into(),
                                     })
                                     .collect(),
@@ -998,7 +956,7 @@ mod test {
     use near_chain::types::ValidatorSignatureVerificationResult;
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
-    use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signer};
+    use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Weight;
     use near_primitives::challenge::{ChallengeResult, ChallengesResult};
     use near_primitives::hash::{hash, CryptoHash};
@@ -1126,7 +1084,7 @@ mod test {
                     vec![],
                     vec![],
                     0,
-                    genesis_config.gas_price,
+                    0,
                     0,
                     genesis_config.total_supply,
                 )
@@ -1191,7 +1149,7 @@ mod test {
                     challenges_result.slashed(),
                     chunk_mask,
                     0,
-                    self.runtime.genesis_config.gas_price,
+                    0,
                     0,
                     self.runtime.genesis_config.total_supply,
                 )
@@ -1248,14 +1206,16 @@ mod test {
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env =
             TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, vec![], vec![]);
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
         let new_account = format!("test{}", num_nodes + 1);
         let new_validator: BlockProducer =
-            InMemoryBlsSigner::from_seed(&new_account, &new_account).into();
+            InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account).into();
         let new_signer = InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account);
         let create_account_transaction = SignedTransaction::create_account(
             2,
@@ -1343,8 +1303,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
 
@@ -1385,8 +1347,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
             .iter()
@@ -1509,8 +1473,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
             .iter()
@@ -1557,7 +1523,7 @@ mod test {
             vec![],
         );
         let data = [0; 32];
-        let signer = InMemoryBlsSigner::from_seed(&validators[0], &validators[0]);
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
         assert_eq!(
             ValidatorSignatureVerificationResult::Valid,
@@ -1576,8 +1542,10 @@ mod test {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
@@ -1608,7 +1576,7 @@ mod test {
                     vec![],
                     vec![true],
                     0,
-                    new_env.runtime.genesis_config.gas_price,
+                    0,
                     0,
                     new_env.runtime.genesis_config.total_supply,
                 )
@@ -1651,8 +1619,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
@@ -1702,8 +1672,10 @@ mod test {
             vec![],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
@@ -1782,8 +1754,10 @@ mod test {
             vec![validators[1].clone()],
             vec![],
         );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let signer = InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
         let staking_transaction = stake(1, &signer, &block_producers[1], 0);
         env.step(

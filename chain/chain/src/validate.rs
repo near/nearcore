@@ -80,7 +80,7 @@ pub fn validate_chunk_with_chunk_extra(
 }
 
 fn validate_double_sign(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     block_double_sign: &BlockDoubleSign,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
@@ -118,7 +118,7 @@ fn validate_double_sign(
 }
 
 fn validate_header_authorship(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
     let block_producer = runtime_adapter
@@ -141,7 +141,7 @@ fn validate_header_authorship(
 }
 
 fn validate_chunk_authorship(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     block_header: &BlockHeader,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
@@ -168,7 +168,7 @@ fn validate_chunk_authorship(
 }
 
 fn validate_chunk_proofs_challenge(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     chunk_proofs: &ChunkProofs,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
@@ -196,7 +196,7 @@ fn validate_chunk_proofs_challenge(
 }
 
 fn validate_chunk_state_challenge(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
@@ -261,7 +261,7 @@ fn validate_chunk_state_challenge(
 
 /// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
-    runtime_adapter: &RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
     challenge: &Challenge,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {

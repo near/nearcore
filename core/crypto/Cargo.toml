@@ -6,22 +6,17 @@ edition = "2018"
 
 [dependencies]
 sodiumoxide = "0.2.5"
-eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
-milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
+parity-secp256k1 = "0.7.0"
 
-bs58 = "0.2.4"
-borsh = "0.2.2"
+bs58 = "0.3"
+borsh = "0.2.9"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 
 lazy_static = "1.4"
-rand = "0.6"
+rand = "0.7"
 libc = "0.2"
 
 [dev-dependencies]
 criterion = "0.3.0"
-
-[[bench]]
-name = "bls"
-harness = false

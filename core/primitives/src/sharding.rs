@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
-use near_crypto::{BlsSignature, BlsSigner};
+use near_crypto::{Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
@@ -15,6 +15,12 @@ pub struct ChunkHash(pub CryptoHash);
 impl AsRef<[u8]> for ChunkHash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl From<CryptoHash> for ChunkHash {
+    fn from(crypto_hash: CryptoHash) -> Self {
+        Self(crypto_hash)
     }
 }
 
@@ -34,6 +40,10 @@ pub struct ShardChunkHeaderInner {
     pub gas_limit: Gas,
     /// Rent paid in the previous chunk
     pub rent_paid: Balance,
+    /// Total validator reward in previous chunk
+    pub validator_reward: Balance,
+    /// Total balance burnt in previous chunk
+    pub balance_burnt: Balance,
     /// Outgoing receipts merkle root.
     pub outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
@@ -50,7 +60,7 @@ pub struct ShardChunkHeader {
     pub height_included: BlockIndex,
 
     /// Signature of the chunk producer.
-    pub signature: BlsSignature,
+    pub signature: Signature,
 
     #[borsh_skip]
     pub hash: ChunkHash,
@@ -78,10 +88,12 @@ impl ShardChunkHeader {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -93,6 +105,8 @@ impl ShardChunkHeader {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -194,12 +208,15 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
+
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
             TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
@@ -232,6 +249,8 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -252,6 +271,8 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -262,7 +283,7 @@ impl EncodedShardChunk {
         data_shards: usize,
         parity_shards: usize,
 
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(data_shards, parity_shards);
@@ -277,6 +298,8 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,

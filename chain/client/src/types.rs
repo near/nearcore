@@ -6,7 +6,7 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{BlsSigner, InMemoryBlsSigner};
+use near_crypto::{InMemorySigner, Signer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -179,17 +179,17 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn BlsSigner>,
+    pub signer: Arc<dyn Signer>,
 }
 
-impl From<InMemoryBlsSigner> for BlockProducer {
-    fn from(signer: InMemoryBlsSigner) -> Self {
+impl From<InMemorySigner> for BlockProducer {
+    fn from(signer: InMemorySigner) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
-impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
-    fn from(signer: Arc<InMemoryBlsSigner>) -> Self {
+impl From<Arc<InMemorySigner>> for BlockProducer {
+    fn from(signer: Arc<InMemorySigner>) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
@@ -255,6 +255,7 @@ impl Message for GetBlock {
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 pub enum GetChunk {
+    BlockHeight(BlockIndex, ShardId),
     BlockHash(CryptoHash, ShardId),
     ChunkHash(ChunkHash),
 }

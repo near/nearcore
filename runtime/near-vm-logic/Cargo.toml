@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "0.3.0"
+version = "0.3.2"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -13,46 +13,42 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-bs58 = "0.2.2"
-sodiumoxide = { version = "0.2.5", optional = true }
+bs58 = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-near-runtime-fees = { path = "../near-runtime-fees", version = "0.3.0" }
-near-vm-errors = { path = "../near-vm-errors" }
+near-runtime-fees = { path = "../near-runtime-fees", version = "0.3.2" }
+near-vm-errors = { path = "../near-vm-errors", version = "0.3.2" }
 
 [dev-dependencies]
 serde_json = {version= "1.0", features= ["preserve_order"]}
 
+
+[[test]]
+name = "test_storage_read_write"
+path = "tests/test_storage_read_write.rs"
+
 [[test]]
 name = "test_context"
 path = "tests/test_context.rs"
-required-features = ["mocks"]
 
 [[test]]
 name = "test_miscs"
 path = "tests/test_miscs.rs"
-required-features = ["mocks"]
 
 [[test]]
 name = "test_registers"
 path = "tests/test_registers.rs"
-required-features = ["mocks"]
 
 [[test]]
 name = "test_storage_usage"
 path = "tests/test_storage_usage.rs"
-required-features = ["mocks"]
 
 [[test]]
 name = "test_promises"
 path = "tests/test_promises.rs"
-required-features = ["mocks"]
 
 [[test]]
 name = "test_iterators"
 path = "tests/test_iterators.rs"
-required-features = ["mocks"]
 
-[features]
-default = []
-# Mocks include some unsafe code to workaround lifetimes and therefore are optional.
-mocks = ["sodiumoxide"]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sodiumoxide =  "0.2.5"

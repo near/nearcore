@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 
-use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
+use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::challenge::Challenges;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, merklize, verify_path};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
     Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
@@ -38,7 +38,7 @@ pub struct BlockHeaderInner {
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures for previous block.
-    pub approval_sigs: BlsSignature,
+    pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
     /// Validator proposals.
@@ -53,6 +53,10 @@ pub struct BlockHeaderInner {
     pub gas_price: Balance,
     /// Sum of all storage rent paid across all chunks.
     pub rent_paid: Balance,
+    /// Sum of all validator reward across all chunks.
+    pub validator_reward: Balance,
+    /// Sum of all burnt balance across all chunks.
+    pub balance_burnt: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges.
@@ -71,7 +75,7 @@ impl BlockHeaderInner {
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
-        approval_sigs: BlsSignature,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -79,6 +83,8 @@ impl BlockHeaderInner {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
         challenges: Challenges,
     ) -> Self {
@@ -101,6 +107,8 @@ impl BlockHeaderInner {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
             challenges,
         }
@@ -114,7 +122,7 @@ pub struct BlockHeader {
     pub inner: BlockHeaderInner,
 
     /// Signature of the block producer.
-    pub signature: BlsSignature,
+    pub signature: Signature,
 
     /// Cached value of hash for this block.
     #[borsh_skip]
@@ -136,7 +144,7 @@ impl BlockHeader {
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
-        approval_sig: BlsSignature,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -145,9 +153,11 @@ impl BlockHeader {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         total_supply: Balance,
         challenges: Challenges,
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -160,7 +170,7 @@ impl BlockHeader {
             timestamp,
             chunks_included,
             approval_mask,
-            approval_sig,
+            approval_sigs,
             total_weight,
             validator_proposals,
             chunk_mask,
@@ -168,6 +178,8 @@ impl BlockHeader {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             total_supply,
             challenges,
         );
@@ -197,7 +209,7 @@ impl BlockHeader {
             to_timestamp(timestamp),
             chunks_included,
             vec![],
-            BlsSignature::empty(),
+            vec![],
             0.into(),
             vec![],
             vec![],
@@ -205,11 +217,13 @@ impl BlockHeader {
             initial_gas_limit,
             initial_gas_price,
             0,
+            0,
+            0,
             initial_total_supply,
             vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: BlsSignature::empty(), hash }
+        Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -217,8 +231,8 @@ impl BlockHeader {
     }
 
     /// Verifies that given public key produced the block.
-    pub fn verify_block_producer(&self, public_key: &BlsPublicKey) -> bool {
-        self.signature.verify_single(self.hash.as_ref(), public_key)
+    pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(self.hash.as_ref(), public_key)
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
@@ -236,36 +250,48 @@ pub struct Block {
     pub chunks: Vec<ShardChunkHeader>,
 }
 
+pub fn genesis_chunks(
+    state_roots: Vec<StateRoot>,
+    num_shards: ShardId,
+    initial_gas_limit: Gas,
+) -> Vec<ShardChunk> {
+    assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    (0..num_shards)
+        .map(|i| {
+            let (encoded_chunk, _) = EncodedShardChunk::new(
+                CryptoHash::default(),
+                state_roots[i as usize % state_roots.len()].clone(),
+                0,
+                i,
+                3,
+                1,
+                0,
+                initial_gas_limit,
+                0,
+                0,
+                0,
+                CryptoHash::default(),
+                vec![],
+                &vec![],
+                &vec![],
+                CryptoHash::default(),
+                &EmptySigner {},
+            )
+            .expect("Failed to decode genesis chunk");
+            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+        })
+        .collect()
+}
+
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
-        state_roots: Vec<StateRoot>,
+        chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
-        num_shards: ShardId,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
-        assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-        let chunks = (0..num_shards)
-            .map(|i| {
-                ShardChunkHeader::new(
-                    CryptoHash::default(),
-                    state_roots[i as usize % state_roots.len()].clone(),
-                    CryptoHash::default(),
-                    0,
-                    0,
-                    i,
-                    0,
-                    initial_gas_limit,
-                    0,
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    vec![],
-                    &EmptyBlsSigner {},
-                )
-            })
-            .collect();
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
@@ -288,19 +314,20 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
-        approvals: HashMap<usize, BlsSignature>,
+        mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
         challenges: Challenges,
-        signer: &dyn BlsSigner,
+        signer: &dyn Signer,
     ) -> Self {
-        let mut approval_sig = BlsSignature::empty();
-        let max_approver = approvals.keys().max().unwrap_or(&0);
-        let approval_mask =
-            (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect::<Vec<bool>>();
-        for (_, sig) in approvals.iter() {
-            approval_sig.add(sig);
-        }
+        let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
+            (
+                (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
+                (0..=*max_approver).filter_map(|i| approvals.remove(&i)).collect(),
+            )
+        } else {
+            (vec![], vec![])
+        };
 
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -309,12 +336,16 @@ impl Block {
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut storage_rent = 0;
+        let mut validator_reward = 0;
+        let mut balance_burnt = 0;
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
                 storage_rent += chunk.inner.rent_paid;
+                validator_reward += chunk.inner.validator_reward;
+                balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -348,7 +379,7 @@ impl Block {
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 approval_mask,
-                approval_sig,
+                approval_sigs,
                 total_weight,
                 validator_proposals,
                 chunk_mask,
@@ -358,6 +389,8 @@ impl Block {
                 // TODO: calculate this correctly
                 new_gas_price,
                 storage_rent,
+                validator_reward,
+                balance_burnt,
                 new_total_supply,
                 challenges,
                 signer,

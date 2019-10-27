@@ -14,7 +14,7 @@ use rand::{thread_rng, Rng};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chunks::NetworkAdapter;
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -77,7 +77,7 @@ pub fn setup(
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
     let config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
@@ -442,9 +442,9 @@ pub fn setup_mock_all_validators(
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (client, _) in connectors1.read().unwrap().iter() {
-                                    client.do_send(NetworkClientMessages::AnnounceAccount(
+                                    client.do_send(NetworkClientMessages::AnnounceAccount(vec![
                                         announce_account.clone(),
-                                    ))
+                                    ]))
                                 }
                             }
                         }
@@ -465,11 +465,15 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BlockHeaderAnnounce { header: _, approval: None } => {}
-                        NetworkRequests::Sync(_) => {}
-                        NetworkRequests::FetchRoutingTable => {}
-                        NetworkRequests::BanPeer { .. } => {}
-                        NetworkRequests::Challenge(_) => {}
+                        NetworkRequests::ForwardTx(_, _)
+                        | NetworkRequests::Sync { .. }
+                        | NetworkRequests::FetchRoutingTable
+                        | NetworkRequests::PingTo(_, _)
+                        | NetworkRequests::FetchPingPongInfo
+                        | NetworkRequests::BanPeer { .. }
+                        | NetworkRequests::BlockHeaderAnnounce { .. }
+                        | NetworkRequests::TxStatus(_, _, _)
+                        | NetworkRequests::Challenge(_) => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -535,7 +539,7 @@ pub fn setup_no_network_with_validity_period(
 
 impl BlockProducer {
     pub fn test(seed: &str) -> Self {
-        Arc::new(InMemoryBlsSigner::from_seed(seed, seed)).into()
+        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
     }
 }
 
@@ -545,9 +549,10 @@ pub fn setup_client_with_runtime(
     account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
-    let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
+    let block_producer =
+        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
     let config = ClientConfig::test(true, 10, num_validators);
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
