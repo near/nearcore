@@ -1,16 +1,19 @@
+use std::fs::File;
+use std::path::Path;
+
 use near::config::{
     get_initial_supply, Config, CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH,
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE,
-    MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, PROTOCOL_PERCENT,
+    MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
     TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE, VALIDATOR_KICKOUT_THRESHOLD,
 };
 use near::GenesisConfig;
 use near_network::types::PROTOCOL_VERSION;
-use std::fs::File;
-use std::path::Path;
+use near_primitives::types::ShardId;
+use near_primitives::utils::get_num_block_producers_per_shard;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const NUM_SHARDS: usize = 1;
+const NUM_SHARDS: usize = 8;
 
 /// Generates `config.json` and `genesis.config` from csv files.
 /// Verifies that `validator_key.json`, and `node_key.json` are present.
@@ -38,7 +41,10 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String) {
         genesis_time,
         chain_id,
         num_block_producers: 50,
-        block_producers_per_shard: (0..NUM_SHARDS).map(|_| 50).collect(),
+        block_producers_per_shard: get_num_block_producers_per_shard(
+            NUM_SHARDS as ShardId,
+            NUM_BLOCK_PRODUCERS,
+        ),
         avg_fisherman_per_shard: (0..NUM_SHARDS).map(|_| 0).collect(),
         dynamic_resharding: false,
         epoch_length: EXPECTED_EPOCH_LENGTH,

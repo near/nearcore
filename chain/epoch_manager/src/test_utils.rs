@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
+use near_primitives::utils::get_num_block_producers_per_shard;
 use near_store::test_utils::create_test_store;
 
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
@@ -68,7 +69,10 @@ pub fn epoch_config(
         epoch_length,
         num_shards,
         num_block_producers,
-        block_producers_per_shard: (0..num_shards).map(|_| num_block_producers).collect(),
+        block_producers_per_shard: get_num_block_producers_per_shard(
+            num_shards,
+            num_block_producers,
+        ),
         avg_fisherman_per_shard: (0..num_shards).map(|_| num_fisherman).collect(),
         validator_kickout_threshold,
     }
