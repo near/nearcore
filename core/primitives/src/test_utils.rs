@@ -165,6 +165,7 @@ impl Block {
             0,
             Some(0),
             vec![],
+            vec![],
             signer,
         )
     }

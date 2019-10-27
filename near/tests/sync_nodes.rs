@@ -45,6 +45,7 @@ fn add_blocks(
             0,
             Some(0),
             vec![],
+            vec![],
             signer,
         );
         let _ = client.do_send(NetworkClientMessages::Block(

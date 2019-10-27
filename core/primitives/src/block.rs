@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::challenge::Challenges;
-use crate::hash::{CryptoHash, hash};
-use crate::merkle::{MerklePath, merklize, verify_path};
+use crate::challenge::{Challenges, ChallengesResult};
+use crate::hash::{hash, CryptoHash};
+use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
     Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
@@ -59,8 +59,8 @@ pub struct BlockHeaderInner {
     pub balance_burnt: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
-    /// List of challenges.
-    pub challenges: Challenges,
+    /// List of challenges result from previous block.
+    pub challenges_result: ChallengesResult,
 }
 
 impl BlockHeaderInner {
@@ -86,7 +86,7 @@ impl BlockHeaderInner {
         validator_reward: Balance,
         balance_burnt: Balance,
         total_supply: Balance,
-        challenges: Challenges,
+        challenges_result: ChallengesResult,
     ) -> Self {
         Self {
             height,
@@ -110,7 +110,7 @@ impl BlockHeaderInner {
             validator_reward,
             balance_burnt,
             total_supply,
-            challenges,
+            challenges_result,
         }
     }
 }
@@ -156,7 +156,7 @@ impl BlockHeader {
         validator_reward: Balance,
         balance_burnt: Balance,
         total_supply: Balance,
-        challenges: Challenges,
+        challenges_result: ChallengesResult,
         signer: &dyn Signer,
     ) -> Self {
         let inner = BlockHeaderInner::new(
@@ -181,7 +181,7 @@ impl BlockHeader {
             validator_reward,
             balance_burnt,
             total_supply,
-            challenges,
+            challenges_result,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
@@ -248,6 +248,7 @@ impl BlockHeader {
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
+    pub challenges: Challenges,
 }
 
 pub fn genesis_chunks(
@@ -305,6 +306,7 @@ impl Block {
                 initial_total_supply,
             ),
             chunks,
+            challenges: vec![],
         }
     }
 
@@ -317,6 +319,7 @@ impl Block {
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
+        challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
     ) -> Self {
@@ -392,10 +395,11 @@ impl Block {
                 validator_reward,
                 balance_burnt,
                 new_total_supply,
-                challenges,
+                challenges_result,
                 signer,
             ),
             chunks,
+            challenges,
         }
     }
 

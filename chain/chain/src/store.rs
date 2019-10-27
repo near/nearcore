@@ -14,13 +14,13 @@ use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::ExecutionOutcome;
-use near_primitives::types::{BlockIndex, ChunkExtra, ShardId};
+use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
-    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHALLENGED_BLOCKS, COL_CHUNKS,
-    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
-    COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_BLOCK_EXTRA, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_BLOCK_PER_HEIGHT,
+    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS,
+    COL_INVALID_CHUNKS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::byzantine_assert;
@@ -197,7 +197,9 @@ pub trait ChainStoreAccess {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
-    /// Get chunk extra info for given chunk hash.
+    /// GEt block extra for given block.
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error>;
+    /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
@@ -212,6 +214,9 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    /// Check if we have block header at given height across any chain.
+    /// Returns a first hash we observed, if double sign observed - this going to be updated to picked hash.
+    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &mut self,
@@ -275,10 +280,14 @@ pub struct ChainStore {
     chunks: SizedCache<Vec<u8>, ShardChunk>,
     /// Cache with chunk one parts
     chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
+    /// Cache with block extra.
+    block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
+    /// Cache with index to hash on any chain.
+    block_hash_per_height: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with outgoing receipts.
     outgoing_receipts: SizedCache<Vec<u8>, Vec<Receipt>>,
     /// Cache with incoming receipts.
@@ -307,8 +316,10 @@ impl ChainStore {
             header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
+            block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
@@ -498,7 +509,20 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&header.inner.prev_hash)
     }
 
-    /// Get state root hash after applying header with given hash.
+    /// Information from applying block.
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_BLOCK_EXTRA,
+                &mut self.block_extras,
+                block_hash.as_ref(),
+            ),
+            &format!("BLOCK EXTRA: {}", block_hash),
+        )
+    }
+
+    /// Information from applying chunk.
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
@@ -539,6 +563,18 @@ impl ChainStoreAccess for ChainStore {
         //            ),
         //            &format!("BLOCK INDEX: {}", height),
         //        )
+    }
+
+    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_BLOCK_PER_HEIGHT,
+                &mut self.block_hash_per_height,
+                &index_to_bytes(height),
+            ),
+            &format!("BLOCK PER HEIGHT: {}", height),
+        )
     }
 
     fn get_outgoing_receipts(
@@ -636,6 +672,7 @@ pub struct ChainStoreUpdate<'a, T> {
     blocks: HashMap<CryptoHash, Block>,
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
+    block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
@@ -668,6 +705,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             deleted_blocks: HashSet::default(),
             headers: HashMap::default(),
             block_index: HashMap::default(),
+            block_extras: HashMap::default(),
             chunk_extras: HashMap::default(),
             chunks: HashMap::default(),
             chunk_one_parts: HashMap::default(),
@@ -796,6 +834,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.get_block_header(&header.inner.prev_hash)
     }
 
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+        if let Some(block_extra) = self.block_extras.get(block_hash) {
+            Ok(block_extra)
+        } else {
+            self.chain_store.get_block_extra(block_hash)
+        }
+    }
+
     /// Get state root hash after applying header with given hash.
     fn get_chunk_extra(
         &mut self,
@@ -821,6 +867,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     /// Get block header from the current chain by height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
         self.chain_store.get_block_hash_by_height(height)
+    }
+
+    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error> {
+        self.chain_store.get_any_block_hash_by_height(height)
     }
 
     /// Get receipts produced for block with given hash.
@@ -1012,7 +1062,12 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.blocks.insert(block.hash(), block);
     }
 
-    /// Save post applying block state root.
+    /// Save post applying block extra info.
+    pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: BlockExtra) {
+        self.block_extras.insert(*block_hash, block_extra);
+    }
+
+    /// Save post applying chunk extra info.
     pub fn save_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
@@ -1150,6 +1205,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             store_update.delete(COL_BLOCK, hash.as_ref());
         }
         for (hash, header) in self.headers.drain() {
+            if self.chain_store.get_any_block_hash_by_height(header.inner.height).is_err() {
+                store_update
+                    .set_ser(COL_BLOCK_PER_HEIGHT, &index_to_bytes(header.inner.height), &hash)
+                    .map_err::<Error, _>(|e| e.into())?;
+            }
             store_update
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)
                 .map_err::<Error, _>(|e| e.into())?;
@@ -1157,6 +1217,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         for ((block_hash, shard_id), chunk_extra) in self.chunk_extras.drain() {
             store_update
                 .set_ser(COL_CHUNK_EXTRA, &get_block_shard_id(&block_hash, shard_id), &chunk_extra)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (block_hash, block_extra) in self.block_extras.drain() {
+            store_update
+                .set_ser(COL_BLOCK_EXTRA, block_hash.as_ref(), &block_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (chunk_hash, chunk) in self.chunks.drain() {

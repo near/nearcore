@@ -5,7 +5,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
 use borsh::BorshSerialize;
@@ -84,6 +84,8 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasure account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
+    /// Accounts to slash.
+    pub slashed_accounts: HashSet<AccountId>,
 }
 
 #[derive(Debug)]
@@ -885,6 +887,13 @@ impl Runtime {
                 account.amount += return_stake;
 
                 set_account(state_update, account_id, &account);
+            }
+        }
+
+        for account_id in validator_accounts_update.slashed_accounts.iter() {
+            if let Some(mut account) = get_account(state_update, &account_id)? {
+                account.locked = 0;
+                set_account(state_update, &account_id, &account);
             }
         }
 

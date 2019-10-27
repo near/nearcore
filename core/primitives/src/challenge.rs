@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{Signature, Signer};
 
-use crate::hash::{CryptoHash, hash};
+use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
@@ -20,6 +20,12 @@ pub type PartialState = Vec<StateItem>;
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,
     pub right_block_header: Vec<u8>,
+}
+
+impl std::fmt::Display for BlockDoubleSign {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
@@ -85,24 +91,5 @@ impl Challenge {
 pub type Challenges = Vec<Challenge>;
 
 /// Result of checking challenge, contains which accounts to slash.
-/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other
-pub struct ChallengeResult {
-    pub account_ids: Vec<AccountId>,
-    pub valid: bool,
-}
-
-#[derive(Default)]
-pub struct ChallengesResult {
-    pub items: Vec<ChallengeResult>,
-}
-
-impl ChallengesResult {
-    pub fn new(items: Vec<ChallengeResult>) -> Self {
-        Self { items }
-    }
-
-    pub fn slashed(&self) -> Vec<AccountId> {
-        // TODO: do we need extra logic for non validators who have submitted invalid challenges?
-        self.items.iter().map(|c| c.account_ids.clone()).flatten().collect()
-    }
-}
+/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
+pub type ChallengesResult = Vec<AccountId>;

@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use near_crypto::PublicKey;
 
@@ -64,6 +65,12 @@ impl ValidatorStake {
     pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
         ValidatorStake { account_id, public_key, amount }
     }
+}
+
+/// Information after block was processed.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct BlockExtra {
+    pub challenges_result: ChallengesResult,
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.

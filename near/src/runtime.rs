@@ -30,8 +30,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_account, set_account, PartialStorage, StorageError, Store, StoreUpdate,
-    Trie, TrieUpdate, WrappedTrieChanges, COL_STATE,
+    get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
+    COL_STATE,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -193,27 +193,6 @@ impl NightshadeRuntime {
         (store_update, state_roots)
     }
 
-    /// Processes challenges and slashes either validators or challenge sender.
-    fn process_challenges(
-        &self,
-        shard_id: ShardId,
-        challenges: &ChallengesResult,
-        state_update: &mut TrieUpdate,
-    ) -> Result<(), StorageError> {
-        for challenge_result in challenges.items.iter() {
-            for account_id in challenge_result.account_ids.iter() {
-                if self.account_id_to_shard_id(&account_id) == shard_id {
-                    if let Some(mut account) = get_account(state_update, &account_id)? {
-                        account.locked = 0;
-                        set_account(state_update, &account_id, &account);
-                    }
-                }
-            }
-        }
-        state_update.commit();
-        Ok(())
-    }
-
     /// Processes state update.
     fn process_state_update(
         &self,
@@ -227,7 +206,7 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
-        challenges: &ChallengesResult,
+        challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -262,9 +241,30 @@ impl NightshadeRuntime {
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
                     .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
+                    slashed_accounts: challenges_result
+                        .iter()
+                        .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id)
+                        .map(Clone::clone)
+                        .collect(),
                 })
             } else {
-                None
+                if !challenges_result.is_empty() {
+                    Some(ValidatorAccountsUpdate {
+                        stake_info: Default::default(),
+                        validator_rewards: Default::default(),
+                        last_proposals: Default::default(),
+                        protocol_treasury_account_id: None,
+                        slashed_accounts: challenges_result
+                            .iter()
+                            .filter(|account_id| {
+                                self.account_id_to_shard_id(account_id) == shard_id
+                            })
+                            .map(Clone::clone)
+                            .collect(),
+                    })
+                } else {
+                    None
+                }
             }
         };
 
@@ -958,7 +958,7 @@ mod test {
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Weight;
-    use near_primitives::challenge::{ChallengeResult, ChallengesResult};
+    use near_primitives::challenge::ChallengesResult;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::init_test_logger;
@@ -1146,7 +1146,7 @@ mod test {
                     new_hash,
                     self.head.height + 1,
                     self.last_proposals.clone(),
-                    challenges_result.slashed(),
+                    challenges_result,
                     chunk_mask,
                     0,
                     0,
@@ -1824,14 +1824,7 @@ mod test {
             vec![],
             vec![],
         );
-        env.step(
-            vec![vec![]],
-            vec![true, true],
-            ChallengesResult::new(vec![ChallengeResult {
-                account_ids: vec!["test2".to_string()],
-                valid: true,
-            }]),
-        );
+        env.step(vec![vec![]], vec![true, true], vec!["test2".to_string()]);
         assert_eq!(env.view_account("test2").locked, 0);
         assert_eq!(
             env.runtime

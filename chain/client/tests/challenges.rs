@@ -45,6 +45,7 @@ fn test_verify_block_double_sign_challenge() {
         0,
         None,
         vec![],
+        vec![],
         &signer,
     );
     let epoch_id = b1.header.inner.epoch_id.clone();
@@ -126,6 +127,7 @@ fn create_invalid_proofs_chunk(
         HashMap::default(),
         0,
         None,
+        vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
     );
@@ -230,6 +232,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         HashMap::default(),
         0,
         None,
+        vec![],
         vec![],
         &signer,
     );
@@ -348,9 +351,6 @@ fn test_block_challenge() {
     );
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
-    assert_eq!(
-        env.clients[0].chain.get_block_by_height(2).unwrap().header.inner.challenges,
-        vec![challenge]
-    );
+    assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }

@@ -4,7 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
-use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::challenge::{BlockDoubleSign, ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
@@ -28,6 +28,9 @@ pub enum ErrorKind {
     /// Peer abusively sending us an old block we already have
     #[fail(display = "Old Block")]
     OldBlock,
+    /// Block is double singed.
+    #[fail(display = "Double signed block {}", _0)]
+    DoubleSign(BlockDoubleSign),
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -168,6 +171,7 @@ impl Error {
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
+            | ErrorKind::DoubleSign(_)
             | ErrorKind::OldBlock
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation

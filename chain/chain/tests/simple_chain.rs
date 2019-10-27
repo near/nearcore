@@ -45,6 +45,7 @@ fn build_chain_with_orhpans() {
         0,
         Some(0),
         vec![],
+        vec![],
         &*signer,
     );
     assert_eq!(

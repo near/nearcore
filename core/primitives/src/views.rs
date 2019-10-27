@@ -9,7 +9,7 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::challenge::Challenge;
+use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
@@ -261,7 +261,7 @@ pub struct BlockHeaderView {
     pub balance_burnt: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
-    pub challenges: Vec<ChallengeView>,
+    pub challenges_result: ChallengesResult,
     pub signature: Signature,
 }
 
@@ -295,7 +295,7 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_reward: header.inner.validator_reward,
             balance_burnt: header.inner.balance_burnt,
             total_supply: header.inner.total_supply,
-            challenges: header.inner.challenges.into_iter().map(|c| c.into()).collect(),
+            challenges_result: header.inner.challenges_result,
             signature: header.signature,
         }
     }
@@ -327,8 +327,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
-                // TODO: implement JSON representation of challenges.
-                challenges: vec![],
+                challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,

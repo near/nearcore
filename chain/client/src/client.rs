@@ -10,22 +10,22 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use near_chain::types::{
+    AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
+};
 use near_chain::{
     BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter, Tip,
 };
-use near_chain::types::{
-    AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
-};
 use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
 use near_crypto::Signature;
-use near_network::{NetworkClientResponses, NetworkRequests};
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
+use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody, Challenges};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
@@ -35,10 +35,10 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_store::Store;
 
-use crate::{BlockProducer, ClientConfig, SyncStatus};
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
+use crate::{BlockProducer, ClientConfig, SyncStatus};
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -249,6 +249,9 @@ impl Client {
             return Ok(None);
         }
 
+        // Get block extra from previous block.
+        let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
+
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
@@ -288,6 +291,7 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
+            prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,
         );

@@ -3,25 +3,27 @@ use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
-use chrono::Duration;
 use chrono::prelude::{DateTime, Utc};
+use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::block::genesis_chunks;
-use near_primitives::challenge::{ChallengeResult, ChallengesResult, ChunkProofs, ChunkState};
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::challenge::{BlockDoubleSign, ChallengesResult, ChunkProofs, ChunkState};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, Gas, ShardId,
+};
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_store::{COL_STATE_HEADERS, Store};
+use near_store::{Store, COL_STATE_HEADERS};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
@@ -255,6 +257,10 @@ impl Chain {
                     )?;
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
+                    store_update.save_block_extra(
+                        &genesis.hash(),
+                        BlockExtra { challenges_result: vec![] },
+                    );
 
                     for (chunk_header, state_root) in genesis.chunks.iter().zip(state_roots.iter())
                     {
@@ -1469,6 +1475,12 @@ impl Chain {
         self.store.block_exists(hash)
     }
 
+    /// Get block extra that was computer after applying previous block.
+    #[inline]
+    pub fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+        self.store.get_block_extra(block_hash)
+    }
+
     /// Get chunk extra that was computed after applying chunk with given hash.
     #[inline]
     pub fn get_chunk_extra(
@@ -1695,7 +1707,7 @@ impl<'a> ChainUpdate<'a> {
             )?;
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
-        let challenges = self.verify_header_challenges(&block.header)?;
+        let challenges_result = self.verify_challenges(&block)?;
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
@@ -1709,7 +1721,7 @@ impl<'a> ChainUpdate<'a> {
                 &prev_chunk.transactions,
                 &prev_chunk.header.inner.validator_proposals,
                 prev_block.header.inner.gas_price,
-                &challenges,
+                &challenges_result,
                 true,
             )
             .unwrap();
@@ -1732,6 +1744,9 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         mode: ApplyChunksMode,
     ) -> Result<(), Error> {
+        let challenges_result = self.verify_challenges(&block)?;
+        self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
+
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks.iter().zip(prev_block.chunks.iter())).enumerate()
         {
@@ -1819,7 +1834,6 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply transactions and receipts.
-                    let challenges = self.verify_header_challenges(&block.header)?;
                     let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
@@ -1833,7 +1847,7 @@ impl<'a> ChainUpdate<'a> {
                             &chunk.transactions,
                             &chunk.header.inner.validator_proposals,
                             block.header.inner.gas_price,
-                            &challenges,
+                            &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1876,7 +1890,6 @@ impl<'a> ChainUpdate<'a> {
                         .get_chunk_extra(&prev_block.hash(), shard_id)?
                         .clone();
 
-                    let challenges = self.verify_header_challenges(&block.header)?;
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
@@ -1890,7 +1903,7 @@ impl<'a> ChainUpdate<'a> {
                             &vec![],
                             &new_extra.validator_proposals,
                             block.header.inner.gas_price,
-                            &challenges,
+                            &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1951,12 +1964,8 @@ impl<'a> ChainUpdate<'a> {
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", me, block.hash(), is_caught_up, needs_to_start_fetching_state);
 
-        // This is a fork in the context of both header and block processing
-        // if this block does not immediately follow the chain head.
-        // let is_fork = !is_next;
-
         // Check the header is valid before we proceed with the full block.
-        let challenges_result = self.process_header_for_block(&block.header, provenance)?;
+        self.process_header_for_block(&block.header, provenance)?;
 
         if !block.check_validity() {
             byzantine_assert!(false);
@@ -2009,7 +2018,7 @@ impl<'a> ChainUpdate<'a> {
             block.hash(),
             block.header.inner.height,
             block.header.inner.validator_proposals.clone(),
-            challenges_result.slashed(),
+            block.header.inner.challenges_result.clone(),
             block.header.inner.chunk_mask.clone(),
             block.header.inner.rent_paid,
             block.header.inner.validator_reward,
@@ -2045,11 +2054,11 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         header: &BlockHeader,
         provenance: &Provenance,
-    ) -> Result<ChallengesResult, Error> {
-        let challenges_result = self.validate_header(header, provenance)?;
+    ) -> Result<(), Error> {
+        self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header.clone());
         self.update_header_head_if_not_challenged(header)?;
-        Ok(challenges_result)
+        Ok(())
     }
 
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -2072,20 +2081,28 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         header: &BlockHeader,
         provenance: &Provenance,
-    ) -> Result<ChallengesResult, Error> {
+    ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
-        if self.chain_store_update.get_block_header(&header.hash).is_ok() {
-            // We never save a header unless it was validated, so skip the unnecessary repetitive
-            //    validation
-            return self.verify_header_challenges(&header);
-        }
-
         // First I/O cost, delay as much as possible.
         self.check_header_signature(header)?;
+
+        // Check we don't know a block with given height already.
+        if let Ok(other_hash) = self
+            .chain_store_update
+            .get_any_block_hash_by_height(header.inner.height)
+            .map(Clone::clone)
+        {
+            let other_header = self.chain_store_update.get_block_header(&other_hash)?;
+            return Err(ErrorKind::DoubleSign(BlockDoubleSign {
+                left_block_header: header.try_to_vec().expect("Failed to serialize"),
+                right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+            })
+            .into());
+        }
 
         let prev_header = self.get_previous_header(header)?.clone();
 
@@ -2125,8 +2142,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        // Verify that challenges are non invalid in the header and return the result.
-        self.verify_header_challenges(&header)
+        Ok(())
     }
 
     /// Update the header head if this header has most work.
@@ -2318,7 +2334,7 @@ impl<'a> ChainUpdate<'a> {
             .get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?
             .clone();
 
-        // Applying chunk is started here.
+        // Applying chunk starts here.
 
         // Confirm that state matches the parts we received.
         self.runtime_adapter.confirm_state(&state_root)?;
@@ -2335,7 +2351,6 @@ impl<'a> ChainUpdate<'a> {
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let gas_limit = chunk.header.inner.gas_limit;
-        let challenges = self.verify_header_challenges(&block_header)?;
         let mut apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk.header.inner.prev_state_root,
@@ -2347,7 +2362,7 @@ impl<'a> ChainUpdate<'a> {
             &chunk.transactions,
             &chunk.header.inner.validator_proposals,
             block_header.inner.gas_price,
-            &challenges,
+            &block_header.inner.challenges_result,
         )?;
 
         self.chain_store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
@@ -2410,7 +2425,6 @@ impl<'a> ChainUpdate<'a> {
                 .get_chunk_extra(&prev_block_header.hash(), shard_id)?
                 .clone();
 
-            let challenges = self.verify_header_challenges(&block_header)?;
             let apply_result = self.runtime_adapter.apply_transactions(
                 shard_id,
                 &chunk_extra.state_root,
@@ -2422,7 +2436,7 @@ impl<'a> ChainUpdate<'a> {
                 &vec![],
                 &chunk_extra.validator_proposals,
                 block_header.inner.gas_price,
-                &challenges,
+                &block_header.inner.challenges_result,
             )?;
 
             self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -2435,27 +2449,25 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Returns correct / malicious challenges or Error if any challenge is invalid.
-    pub fn verify_header_challenges(
-        &mut self,
-        header: &BlockHeader,
-    ) -> Result<ChallengesResult, Error> {
+    pub fn verify_challenges(&mut self, block: &Block) -> Result<ChallengesResult, Error> {
         let mut result = vec![];
-        for challenge in header.inner.challenges.iter() {
-            match validate_challenge(&*self.runtime_adapter, &header.inner.epoch_id, challenge) {
+        for challenge in block.challenges.iter() {
+            match validate_challenge(
+                &*self.runtime_adapter,
+                &block.header.inner.epoch_id,
+                challenge,
+            ) {
                 Ok((hash, account_ids)) => {
                     self.chain_store_update.save_challenged_block(hash);
-                    result.push(ChallengeResult { account_ids, valid: true });
+                    result.extend(account_ids);
                 }
                 Err(ref err) if err.kind() == ErrorKind::MaliciousChallenge => {
-                    result.push(ChallengeResult {
-                        account_ids: vec![challenge.account_id.clone()],
-                        valid: false,
-                    });
+                    result.push(challenge.account_id.clone());
                 }
                 Err(err) => return Err(err),
             }
         }
-        Ok(ChallengesResult::new(result))
+        Ok(result)
     }
 }
 
