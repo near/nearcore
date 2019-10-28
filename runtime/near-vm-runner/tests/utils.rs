@@ -1,5 +1,6 @@
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{Config, VMContext, VMOutcome};
+use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -37,14 +38,15 @@ pub fn make_simple_contract_call_with_gas(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = Config::default();
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
 
     let promise_results = vec![];
 
     let mut hash = DefaultHasher::new();
     code.hash(&mut hash);
     let code_hash = hash.finish().to_le_bytes().to_vec();
-    run(code_hash, code, method_name, &mut fake_external, context, &config, &promise_results)
+    run(code_hash, code, method_name, &mut fake_external, context, &config, &fees, &promise_results)
 }
 
 #[allow(dead_code)]

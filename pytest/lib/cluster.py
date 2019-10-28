@@ -1,7 +1,9 @@
+import multiprocessing
 import threading
 import subprocess
 import json
 import os
+import signal
 import atexit
 import shutil
 import requests
@@ -60,7 +62,7 @@ class BaseNode(object):
     def wait_for_rpc(self, timeout=1):
         retry.retry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params, timeout=1):
+    def json_rpc(self, method, params, timeout=2):
         j = {
             'method': method,
             'params': params,
@@ -78,7 +80,7 @@ class BaseNode(object):
         return self.json_rpc('broadcast_tx_commit', [base64.b64encode(signed_tx).decode('utf8')], timeout=timeout)
 
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=1)
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -109,7 +111,7 @@ class LocalNode(BaseNode):
         self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
 
-        self.handle = None
+        self.pid = multiprocessing.Value('i', 0)
 
         atexit.register(atexit_cleanup, self)
 
@@ -127,14 +129,17 @@ class LocalNode(BaseNode):
         self.stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
         cmd = self._get_command_line(
             self.near_root, self.node_dir, boot_key, boot_node_addr)
-        self.handle = subprocess.Popen(
-            cmd, stdout=self.stdout, stderr=self.stderr, env=env)
-        self.wait_for_rpc()
+        self.pid.value = subprocess.Popen(
+            cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
+        self.wait_for_rpc(5)
 
     def kill(self):
-        if self.handle is not None:
-            self.handle.kill()
-            self.handle = None
+        if self.pid.value != 0:
+            os.kill(self.pid.value, signal.SIGKILL)
+            self.pid.value = 0
+
+    def reset_data(self):
+        shutil.rmtree(os.path.join(self.node_dir, "data"))
 
     def cleanup(self):
         self.kill()

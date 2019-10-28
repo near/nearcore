@@ -6,9 +6,10 @@
 //! --wasm-file=/tmp/main.wasm
 //! ```
 use clap::{App, Arg};
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{Config, VMContext};
+use near_vm_logic::{VMConfig, VMContext};
 use near_vm_runner::run;
 use std::fs;
 
@@ -104,7 +105,7 @@ fn main() {
         .map(|res_str| serde_json::from_str(res_str).unwrap())
         .collect();
 
-    let config: Config = match matches.value_of("config") {
+    let config: VMConfig = match matches.value_of("config") {
         Some(value) => serde_json::from_str(value).unwrap(),
         None => match matches.value_of("config-file") {
             Some(filepath) => {
@@ -119,8 +120,17 @@ fn main() {
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let mut fake_external = MockedExternal::new();
-    let (outcome, err) =
-        run(vec![], &code, &method_name, &mut fake_external, context, &config, &promise_results);
+    let fees = RuntimeFeesConfig::default();
+    let (outcome, err) = run(
+        vec![],
+        &code,
+        &method_name,
+        &mut fake_external,
+        context,
+        &config,
+        &fees,
+        &promise_results,
+    );
 
     if let Some(outcome) = outcome {
         let str = serde_json::to_string(&outcome).unwrap();

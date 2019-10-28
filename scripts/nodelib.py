@@ -41,18 +41,22 @@ def get_chain_id_from_flags(flags):
         return chain_id_flags[0][len('--chain-id='):]
     return ''
 
+"""Compile given package using cargo"""
+def compile_package(package_name, is_release):
+    flags = ['-p', package_name]
+    if is_release:
+        flags = ['--release'] + flags
+    code = subprocess.call(
+        [os.path.expanduser('cargo'), 'build'] + flags)
+    if code != 0:
+        print("Compilation failed, aborting")
+        exit(code)
+
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
 def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
     if nodocker:
-        flags = ['-p', 'near']
-        if is_release:
-            flags = ['--release'] + flags
-        code = subprocess.call(
-            [os.path.expanduser('cargo'), 'build'] + flags)
-        if code != 0:
-            print("Compilation failed, aborting")
-            exit(code)
+        compile_package('near', is_release)
 
     chain_id = get_chain_id_from_flags(init_flags)
     if os.path.exists(os.path.join(home_dir, 'config.json')):
@@ -182,3 +186,87 @@ def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes,
 def stop_docker():
     docker_stop_if_exists('watchtower')
     docker_stop_if_exists('nearcore')
+
+def generate_node_key(home, is_release, nodocker, image):
+    print("Generating node key...")
+    if nodocker:
+        cmd = ['./target/%s/keypair-generator' % ('release' if is_release else 'debug')]
+        cmd.extend(['--home', home])
+        cmd.extend(['--generate-config'])
+        cmd.extend(['--account-id', ''])
+        cmd.extend(['node-key'])
+        try:
+            subprocess.call(cmd)
+        except KeyboardInterrupt:
+            print("\nStopping NEARCore.")
+    else:
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=''', 'node-key'])
+    print("Node key generated")
+
+def generate_validator_key(home, is_release, nodocker, image, account_id):
+    print("Generating validator key...")
+    if nodocker:
+        cmd = ['./target/%s/keypair-generator' % ('release' if is_release else 'debug')]
+        cmd.extend(['--home', home])
+        cmd.extend(['--generate-config'])
+        cmd.extend(['--account-id', account_id])
+        cmd.extend(['signer-keys'])
+        try:
+            subprocess.call(cmd)
+        except KeyboardInterrupt:
+            print("\nStopping NEARCore.")
+    else:
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'signer-keys'])
+    print("Validator key generated")
+
+
+def initialize_keys(home, is_release, nodocker, image, account_id):
+    if nodocker:
+        install_cargo()
+        compile_package('keypair-generator', is_release)
+    else:
+        try:
+            subprocess.check_output(['docker', 'pull', image])
+        except subprocess.CalledProcessError as exc:
+            print("Failed to fetch docker containers: %s" % exc)
+            exit(1)
+    generate_node_key(home, is_release, nodocker, image)
+    if account_id:
+        generate_validator_key(home, is_release, nodocker, image, account_id)
+
+def create_genesis(home, is_release, nodocker, image, chain_id):
+    if os.path.exists(os.path.join(home, 'genesis.json')):
+        print("Genesis already exists")
+        return
+    print("Creating genesis...")
+    if not os.path.exists(os.path.join(home, 'accounts.csv')):
+        raise Exception("Failed to generate genesis: accounts.csv does not exist")
+    if nodocker:
+        cmd = ['./target/%s/genesis-csv-to-json' % ('release' if is_release else 'debug')]
+        cmd.extend(['--home', home])
+        cmd.extend(['--chain-id', chain_id])
+        try:
+            subprocess.call(cmd)
+        except KeyboardInterrupt:
+            print("\nStopping NEARCore.")
+    else:
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id])
+    print("Genesis created")
+
+def start_stakewars(home, is_release, nodocker, image, verbose):
+    if nodocker:
+        install_cargo()
+        compile_package('genesis-csv-to-json', is_release)
+    else:
+        try:
+            subprocess.check_output(['docker', 'pull', image])
+        except subprocess.CalledProcessError as exc:
+            print("Failed to fetch docker containers: %s" % exc)
+            exit(1)
+    create_genesis(home, is_release, nodocker, image, 'stakewars')
+    if nodocker:
+        run_nodocker(home, is_release, '', verbose)
+    else:
+        run_docker(image, home, '', verbose)
+
+

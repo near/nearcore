@@ -38,7 +38,7 @@ def monkey_network_hammering(stopped, error, nodes, nonces):
     s = [False for x in nodes]
     while stopped.value == 0:
         node_idx = random.randint(0, len(nodes) - 2)
-        pid = nodes[node_idx].handle.pid
+        pid = nodes[node_idx].pid.value
         if s[node_idx]:
             print("Resuming network for process %s" % pid)
             resume_network(pid)
@@ -50,7 +50,7 @@ def monkey_network_hammering(stopped, error, nodes, nonces):
         time.sleep(0.5)
     for i, x in enumerate(s):
         if x:
-            pid = nodes[i].handle.pid
+            pid = nodes[i].pid.value
             print("Resuming network for process %s" % pid)
             resume_network(pid)
             

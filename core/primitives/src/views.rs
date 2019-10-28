@@ -881,10 +881,9 @@ impl From<Receipt> for ReceiptView {
                         .collect(),
                     actions: action_receipt.actions.into_iter().map(Into::into).collect(),
                 },
-                ReceiptEnum::Data(data_receipt) => ReceiptEnumView::Data {
-                    data_id: data_receipt.data_id,
-                    data: data_receipt.data,
-                },
+                ReceiptEnum::Data(data_receipt) => {
+                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
+                }
             },
         }
     }
