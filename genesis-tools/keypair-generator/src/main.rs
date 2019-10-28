@@ -65,6 +65,14 @@ fn main() {
                 println!("SK: {}", key);
                 println!("PK: {}", key.public_key());
                 println!();
+                if generate_config {
+                    let account_id = account_id
+                        .expect("Account id must be specified if --generate-config is used");
+                    let key_file_name = format!("signer{}_key.json", i);
+                    let mut path = home_dir.to_path_buf();
+                    path.push(&key_file_name);
+                    generate_key_to_file(account_id, key.clone(), path);
+                }
 
                 pks.push(key.public_key());
             }
