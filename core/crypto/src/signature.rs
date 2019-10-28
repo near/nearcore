@@ -283,7 +283,7 @@ impl SecretKey {
                 let mut buf = [0; 65];
                 buf[0..64].copy_from_slice(&data[0..64]);
                 buf[64] = rec_id.to_i32() as u8;
-                Signature::SECP256K1(Secp2561KSignature(buf))
+                Signature::SECP256K1(Secp256K1Signature(buf))
             }
         }
     }
@@ -381,17 +381,17 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 }
 
 #[derive(Clone)]
-pub struct Secp2561KSignature([u8; 65]);
+pub struct Secp256K1Signature([u8; 65]);
 
-impl Eq for Secp2561KSignature {}
+impl Eq for Secp256K1Signature {}
 
-impl PartialEq for Secp2561KSignature {
+impl PartialEq for Secp256K1Signature {
     fn eq(&self, other: &Self) -> bool {
         self.0[..].eq(&other.0[..])
     }
 }
 
-impl Debug for Secp2561KSignature {
+impl Debug for Secp256K1Signature {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
@@ -401,7 +401,7 @@ impl Debug for Secp2561KSignature {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Signature {
     ED25519(sodiumoxide::crypto::sign::ed25519::Signature),
-    SECP256K1(Secp2561KSignature),
+    SECP256K1(Secp256K1Signature),
 }
 
 impl Signature {
@@ -481,7 +481,7 @@ impl BorshDeserialize for Signature {
             KeyType::SECP256K1 => {
                 let mut array = [0; 65];
                 reader.read_exact(&mut array)?;
-                Ok(Signature::SECP256K1(Secp2561KSignature(array)))
+                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
     }
@@ -548,7 +548,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
                         length
                     )));
                 }
-                Ok(Signature::SECP256K1(Secp2561KSignature(array)))
+                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
     }
