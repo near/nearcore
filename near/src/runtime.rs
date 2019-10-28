@@ -614,7 +614,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -634,7 +633,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             slashed,
             rent_paid,
             validator_reward,
-            balance_burnt,
             total_supply,
         );
         // TODO: add randomness here
@@ -1086,7 +1084,6 @@ mod test {
                     vec![],
                     0,
                     0,
-                    0,
                     genesis_config.total_supply,
                 )
                 .unwrap();
@@ -1149,7 +1146,6 @@ mod test {
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
-                    0,
                     0,
                     0,
                     self.runtime.genesis_config.total_supply,
@@ -1576,7 +1572,6 @@ mod test {
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
-                    0,
                     0,
                     0,
                     new_env.runtime.genesis_config.total_supply,

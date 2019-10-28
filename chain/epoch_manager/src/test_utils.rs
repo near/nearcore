@@ -175,7 +175,6 @@ pub fn record_block(
                 HashSet::default(),
                 0,
                 0,
-                0,
                 DEFAULT_TOTAL_SUPPLY,
             ),
             [0; 32],

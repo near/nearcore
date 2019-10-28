@@ -44,7 +44,6 @@ fn add_blocks(
             HashMap::default(),
             0,
             Some(0),
-            0,
             vec![],
             vec![],
             signer,

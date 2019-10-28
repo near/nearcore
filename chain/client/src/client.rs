@@ -297,7 +297,6 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
-            0,
             prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,

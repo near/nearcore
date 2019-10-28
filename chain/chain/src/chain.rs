@@ -255,7 +255,6 @@ impl Chain {
                         vec![],
                         0,
                         0,
-                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
@@ -482,7 +481,6 @@ impl Chain {
                     header.inner.chunk_mask.clone(),
                     header.inner.rent_paid,
                     header.inner.validator_reward,
-                    header.inner.balance_burnt,
                     header.inner.total_supply,
                 )?;
             }
@@ -2108,7 +2106,6 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner.chunk_mask.clone(),
             block.header.inner.rent_paid,
             block.header.inner.validator_reward,
-            block.header.inner.balance_burnt,
             block.header.inner.total_supply,
         )?;
 

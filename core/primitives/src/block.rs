@@ -55,8 +55,6 @@ pub struct BlockHeaderInner {
     pub rent_paid: Balance,
     /// Sum of all validator reward across all chunks.
     pub validator_reward: Balance,
-    /// Sum of all burnt balance across all chunks.
-    pub balance_burnt: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -84,7 +82,6 @@ impl BlockHeaderInner {
         gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
     ) -> Self {
@@ -108,7 +105,6 @@ impl BlockHeaderInner {
             gas_price,
             rent_paid,
             validator_reward,
-            balance_burnt,
             total_supply,
             challenges_result,
         }
@@ -154,7 +150,6 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn Signer,
@@ -179,7 +174,6 @@ impl BlockHeader {
             gas_price,
             rent_paid,
             validator_reward,
-            balance_burnt,
             total_supply,
             challenges_result,
         );
@@ -216,7 +210,6 @@ impl BlockHeader {
             0,
             initial_gas_limit,
             initial_gas_price,
-            0,
             0,
             0,
             initial_total_supply,
@@ -319,7 +312,6 @@ impl Block {
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
-        burned: Balance,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
@@ -365,7 +357,7 @@ impl Block {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
         };
-        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - burned;
+        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
         let num_approvals: u128 =
             approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
@@ -394,7 +386,6 @@ impl Block {
                 new_gas_price,
                 storage_rent,
                 validator_reward,
-                balance_burnt,
                 new_total_supply,
                 challenges_result,
                 signer,

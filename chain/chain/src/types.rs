@@ -267,7 +267,6 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
