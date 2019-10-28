@@ -312,15 +312,17 @@ impl PeerManagerActor {
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
             let peer_id1 = peer_id.clone();
-            active_peer.addr.send(QueryPeerStats {})
+            active_peer
+                .addr
+                .send(QueryPeerStats {})
                 .into_actor(self)
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
-                        warn!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
+                        trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
                         // TODO(MarX): I think banning peer here leaves a hanging Peer instance.
                         //  We should send signal to peer instead, and expect signal back.
-                        act.ban_peer(&peer_id1, ReasonForBan::Abusive);
+                        // act.ban_peer(&peer_id1, ReasonForBan::Abusive);
                     } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
                         active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
