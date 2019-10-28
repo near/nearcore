@@ -101,6 +101,7 @@ pub struct ApplyStats {
     pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
+    pub total_balance_slashed: Balance,
 }
 
 pub struct ApplyResult {
@@ -860,6 +861,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
+        stats: &mut ApplyStats,
     ) -> Result<(), StorageError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
@@ -892,6 +894,7 @@ impl Runtime {
 
         for account_id in validator_accounts_update.slashed_accounts.iter() {
             if let Some(mut account) = get_account(state_update, &account_id)? {
+                stats.total_balance_slashed += account.locked;
                 account.locked = 0;
                 set_account(state_update, &account_id, &account);
             }
@@ -931,15 +934,20 @@ impl Runtime {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
 
+        let mut stats = ApplyStats::default();
+
         if let Some(validator_accounts_update) = validator_accounts_update {
-            self.update_validator_accounts(&mut state_update, validator_accounts_update)?;
+            self.update_validator_accounts(
+                &mut state_update,
+                validator_accounts_update,
+                &mut stats,
+            )?;
         }
 
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut tx_result = vec![];
-        let mut stats = ApplyStats::default();
 
         for signed_transaction in transactions {
             tx_result.push(self.process_transaction(

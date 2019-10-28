@@ -311,7 +311,8 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_rent_paid: apply_result.stats.total_rent_paid,
             total_validator_reward: apply_result.stats.total_validator_reward,
-            total_balance_burnt: apply_result.stats.total_balance_burnt,
+            total_balance_burnt: apply_result.stats.total_balance_burnt
+                + apply_result.stats.total_balance_slashed,
             proof: trie.recorded_storage(),
         };
 

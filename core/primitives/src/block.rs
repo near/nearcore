@@ -319,6 +319,7 @@ impl Block {
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
+        burned: Balance,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
@@ -364,7 +365,7 @@ impl Block {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
         };
-        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0);
+        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - burned;
 
         let num_approvals: u128 =
             approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();

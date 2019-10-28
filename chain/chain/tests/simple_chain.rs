@@ -46,6 +46,7 @@ fn build_chain_with_orhpans() {
         HashMap::default(),
         0,
         Some(0),
+        0,
         vec![],
         vec![],
         &*signer,
