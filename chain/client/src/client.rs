@@ -442,6 +442,20 @@ impl Client {
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
+    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            for body in challenges.write().unwrap().drain(..) {
+                let challenge = Challenge::produce(
+                    body,
+                    block_producer.account_id.clone(),
+                    &*block_producer.signer,
+                );
+                self.challenges.push(challenge.clone());
+                self.network_adapter.send(NetworkRequests::Challenge(challenge));
+            }
+        }
+    }
+
     pub fn process_block(
         &mut self,
         block: Block,
@@ -450,6 +464,7 @@ impl Client {
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let challenges = Arc::new(RwLock::new(vec![]));
         let result = {
             let me = self
                 .block_producer
@@ -463,8 +478,13 @@ impl Client {
                     accepted_blocks.write().unwrap().push(accepted_block);
                 },
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
+                |challenge| challenges.write().unwrap().push(challenge),
             )
         };
+
+        // Send out challenges that accumulated via on_challenge.
+        self.send_challenges(challenges);
+
         // Send out challenge if the block was found to be invalid.
         if let Some(block_producer) = self.block_producer.as_ref() {
             match &result {
@@ -548,14 +568,23 @@ impl Client {
     }
 
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {
-        self.chain.process_block_header(header)
+        let challenges = Arc::new(RwLock::new(vec![]));
+        self.chain.process_block_header(header, |challenge| {
+            challenges.write().unwrap().push(challenge)
+        })?;
+        self.send_challenges(challenges);
+        Ok(())
     }
 
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
     ) -> Result<(), near_chain::Error> {
-        self.chain.sync_block_headers(headers)
+        let challenges = Arc::new(RwLock::new(vec![]));
+        self.chain
+            .sync_block_headers(headers, |challenge| challenges.write().unwrap().push(challenge))?;
+        self.send_challenges(challenges);
+        Ok(())
     }
 
     /// Gets called when block got accepted.
@@ -706,12 +735,14 @@ impl Client {
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |accepted_block| {
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
-        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
+        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
+        self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
@@ -1024,6 +1055,7 @@ impl Client {
                 StateSyncResult::Completed => {
                     let accepted_blocks = Arc::new(RwLock::new(vec![]));
                     let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                    let challenges = Arc::new(RwLock::new(vec![]));
 
                     self.chain.catchup_blocks(
                         me,
@@ -1034,7 +1066,10 @@ impl Client {
                         |missing_chunks| {
                             blocks_missing_chunks.write().unwrap().push(missing_chunks)
                         },
+                        |challenge| challenges.write().unwrap().push(challenge),
                     )?;
+
+                    self.send_challenges(challenges);
 
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
                         self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
@@ -1051,6 +1086,7 @@ impl Client {
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
     pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+        debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
         if self
             .runtime_adapter
@@ -1062,6 +1098,13 @@ impl Client {
             )
             .valid()
         {
+            // If challenge is not double sign, we should process it right away to invalidate the chain.
+            match challenge.body {
+                ChallengeBody::BlockDoubleSign(_) => {}
+                _ => {
+                    self.chain.process_challenge(&challenge);
+                }
+            }
             self.challenges.push(challenge);
         }
         Ok(())

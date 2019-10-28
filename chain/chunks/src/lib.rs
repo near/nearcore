@@ -1,7 +1,7 @@
 extern crate log;
 
-use std::collections::{HashMap, HashSet};
 use std::collections::vec_deque::VecDeque;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,17 +9,17 @@ use actix::Recipient;
 use log::{debug, error};
 use rand::Rng;
 
+use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
-    byzantine_assert, ChainStore, ChainStoreAccess, collect_receipts, ErrorKind, RuntimeAdapter,
+    byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ErrorKind, RuntimeAdapter,
     ValidTransaction,
 };
-use near_chain::validate::validate_chunk_proofs;
 use near_crypto::Signer;
-use near_network::NetworkRequests;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
+use near_network::NetworkRequests;
 use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, merklize, verify_path};
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunkHeader,
@@ -548,7 +548,7 @@ impl ShardsManager {
         Ok(())
     }
 
-    fn receipts_recipient_filter(
+    pub fn receipts_recipient_filter(
         &self,
         from_shard_id: ShardId,
         tracking_shards: &HashSet<ShardId>,

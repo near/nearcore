@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, StateItem,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
@@ -51,8 +51,8 @@ fn test_verify_block_double_sign_challenge() {
     let epoch_id = b1.header.inner.epoch_id.clone();
     let valid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: b1.header.try_to_vec().unwrap(),
-            right_block_header: b2.header.try_to_vec().unwrap(),
+            left_block_header: b2.header.try_to_vec().unwrap(),
+            right_block_header: b1.header.try_to_vec().unwrap(),
         }),
         signer.account_id.clone(),
         &signer,
@@ -94,7 +94,14 @@ fn test_verify_block_double_sign_challenge() {
     .is_err());
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
-    assert!(result.is_err());
+    let _ = env.network_adapters[0].pop();
+    assert!(result.is_ok());
+    let last_message = env.network_adapters[0].pop().unwrap();
+    if let NetworkRequests::Challenge(network_challenge) = last_message {
+        assert_eq!(network_challenge, valid_challenge);
+    } else {
+        assert!(false);
+    }
 }
 
 fn create_invalid_proofs_chunk(
@@ -294,28 +301,61 @@ fn test_verify_chunk_invalid_state_challenge() {
 #[test]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
+    let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
+    env.process_block(1, block1, Provenance::NONE);
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
     assert!(client
         .shards_mgr
-        .distribute_encoded_chunk(chunk.clone(), merkle_paths, receipts, client.chain.mut_store())
+        .distribute_encoded_chunk(
+            chunk.clone(),
+            merkle_paths.clone(),
+            receipts.clone(),
+            client.chain.mut_store()
+        )
         .is_err());
     let (_, result) = client.process_block(block.clone(), Provenance::NONE);
-    // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
+    // We have declined block with invalid chunk.
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
+    // But everyone who doesn't track this shard have accepted.
+    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts).unwrap();
+    let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+    let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
+        0,
+        &HashSet::default(),
+        &receipts,
+        &receipts_proofs,
+    );
+
+    assert!(env.clients[1]
+        .process_chunk_one_part(chunk.create_chunk_one_part(
+            0,
+            one_part_receipt_proofs,
+            merkle_paths[0].clone()
+        ))
+        .is_ok());
+    env.process_block(1, block.clone(), Provenance::NONE);
+
     // At this point we should create a challenge and send it out.
     let last_message = env.network_adapters[0].pop().unwrap();
     if let NetworkRequests::Challenge(Challenge {
         body: ChallengeBody::ChunkProofs(chunk_proofs),
         ..
-    }) = last_message
+    }) = last_message.clone()
     {
         assert_eq!(chunk_proofs.chunk, chunk);
     } else {
         assert!(false);
+    }
+
+    // The other client processes challenge and invalidates the chain.
+    if let NetworkRequests::Challenge(challenge) = last_message {
+        assert_eq!(env.clients[1].chain.head().unwrap().height, 2);
+        assert!(env.clients[1].process_challenge(challenge).is_ok());
+        assert_eq!(env.clients[1].chain.head().unwrap().height, 1);
     }
 }
 

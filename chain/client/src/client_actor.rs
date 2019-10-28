@@ -1020,6 +1020,7 @@ impl ClientActor {
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let challenges = Arc::new(RwLock::new(vec![]));
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
@@ -1030,7 +1031,10 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |challenge| challenges.write().unwrap().push(challenge)
                         ));
+
+                        self.client.send_challenges(challenges);
 
                         self.process_accepted_blocks(
                             accepted_blocks.write().unwrap().drain(..).collect(),
