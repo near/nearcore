@@ -218,8 +218,24 @@ def generate_validator_key(home, is_release, nodocker, image, account_id):
         subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'validator-key'])
     print("Validator key generated")
 
+def generate_signer_key(home, is_release, nodocker, image, account_id):
+    print("Generating signer keys...")
+    if nodocker:
+        cmd = ['./target/%s/keypair-generator' % ('release' if is_release else 'debug')]
+        cmd.extend(['--home', home])
+        cmd.extend(['--generate-config'])
+        cmd.extend(['--account-id', account_id])
+        cmd.extend(['signer-keys'])
+        try:
+            subprocess.call(cmd)
+        except KeyboardInterrupt:
+            print("\nStopping NEARCore.")
+    else:
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'signer-keys'])
+    print("Signer keys generated")
 
-def initialize_keys(home, is_release, nodocker, image, account_id):
+
+def initialize_keys(home, is_release, nodocker, image, account_id, generate_signer_keys):
     if nodocker:
         install_cargo()
         compile_package('keypair-generator', is_release)
@@ -229,6 +245,8 @@ def initialize_keys(home, is_release, nodocker, image, account_id):
         except subprocess.CalledProcessError as exc:
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
+    if generate_signer_keys:
+        generate_signer_key(home, is_release, nodocker, image, account_id)
     generate_node_key(home, is_release, nodocker, image)
     if account_id:
         generate_validator_key(home, is_release, nodocker, image, account_id)
