@@ -37,6 +37,7 @@ impl VMLogicBuilder {
             &mut self.memory,
         )
     }
+    #[allow(dead_code)]
     pub fn free() -> Self {
         VMLogicBuilder {
             config: VMConfig::free(),

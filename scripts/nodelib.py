@@ -193,14 +193,13 @@ def generate_node_key(home, is_release, nodocker, image):
         cmd = ['./target/%s/keypair-generator' % ('release' if is_release else 'debug')]
         cmd.extend(['--home', home])
         cmd.extend(['--generate-config'])
-        cmd.extend(['--account-id', ''])
         cmd.extend(['node-key'])
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=''', 'node-key'])
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', 'node-key'])
     print("Node key generated")
 
 def generate_validator_key(home, is_release, nodocker, image, account_id):
@@ -210,13 +209,13 @@ def generate_validator_key(home, is_release, nodocker, image, account_id):
         cmd.extend(['--home', home])
         cmd.extend(['--generate-config'])
         cmd.extend(['--account-id', account_id])
-        cmd.extend(['signer-keys'])
+        cmd.extend(['validator-key'])
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'signer-keys'])
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'validator-key'])
     print("Validator key generated")
 
 
