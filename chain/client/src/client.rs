@@ -22,7 +22,7 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::{Challenge, ChallengeBody, Challenges};
+use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -84,7 +84,7 @@ pub struct Client {
     /// Transaction status response
     pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
     /// List of currently accumulated challenges.
-    pub challenges: Challenges,
+    pub challenges: HashMap<CryptoHash, Challenge>,
 }
 
 impl Client {
@@ -148,6 +148,9 @@ impl Client {
                 }
             }
         }
+        for challenge in block.challenges.iter() {
+            self.challenges.remove(&challenge.hash);
+        }
     }
 
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -167,6 +170,9 @@ impl Client {
                     );
                 }
             }
+        }
+        for challenge in block.challenges.iter() {
+            self.challenges.insert(challenge.hash, challenge.clone());
         }
     }
 
@@ -280,8 +286,8 @@ impl Client {
         let approval =
             self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
 
-        // Get all the latest challenges.
-        let challenges = self.challenges.drain(..).collect();
+        // Get all the current challenges.
+        let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
 
         let block = Block::produce(
             &prev_header,
@@ -450,7 +456,7 @@ impl Client {
                     block_producer.account_id.clone(),
                     &*block_producer.signer,
                 );
-                self.challenges.push(challenge.clone());
+                self.challenges.insert(challenge.hash, challenge.clone());
                 self.network_adapter.send(NetworkRequests::Challenge(challenge));
             }
         }
@@ -1086,6 +1092,9 @@ impl Client {
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
     pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+        if self.challenges.contains_key(&challenge.hash) {
+            return Ok(());
+        }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
         if self
@@ -1105,7 +1114,7 @@ impl Client {
                     self.chain.process_challenge(&challenge);
                 }
             }
-            self.challenges.push(challenge);
+            self.challenges.insert(challenge.hash, challenge);
         }
         Ok(())
     }

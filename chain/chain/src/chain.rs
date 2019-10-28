@@ -2295,7 +2295,17 @@ impl<'a> ChainUpdate<'a> {
         challenger_hash: Option<&CryptoHash>,
     ) -> Result<(), Error> {
         info!(target: "chain", "Marking {} as challenged block (challenged in {:?}) and updating the chain.", block_hash, challenger_hash);
-        let block_header = self.chain_store_update.get_block_header(block_hash)?.clone();
+        let block_header = match self.chain_store_update.get_block_header(block_hash) {
+            Ok(block_header) => block_header.clone(),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    // The block wasn't seen yet, still challenge is good.
+                    self.chain_store_update.save_challenged_block(*block_hash);
+                    return Ok(());
+                }
+                _ => return Err(e),
+            },
+        };
 
         let cur_block_at_same_height =
             match self.chain_store_update.get_block_hash_by_height(block_header.inner.height) {
