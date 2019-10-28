@@ -313,9 +313,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_all_block_producers(epoch_id, last_known_block_hash)
-            .map_err(Error::from)
+        epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
     }
 
     fn get_block_producer(

@@ -21,7 +21,7 @@ serde_derive = "1.0"
 serde_json = "1.0"
 lazy_static = "1.4"
 dirs = "2.0.2"
-borsh = "0.2.7"
+borsh = "0.2.9"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }

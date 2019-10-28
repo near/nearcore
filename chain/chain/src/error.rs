@@ -75,6 +75,9 @@ pub enum ErrorKind {
     /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// Invalid chunk mask
+    #[fail(display = "Invalid Chunk Mask")]
+    InvalidChunkMask,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -156,6 +159,7 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkMask
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot

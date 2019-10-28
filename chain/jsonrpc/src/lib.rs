@@ -18,7 +18,8 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Query, Status, TxDetails, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Query, Status, TxDetails, TxStatus,
+    ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
@@ -115,19 +116,16 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
     })
 }
 
-fn jsonify_client_response(client_response: Result<NetworkClientResponses, MailboxError>) -> Result<Value, RpcError> {
+fn jsonify_client_response(
+    client_response: Result<NetworkClientResponses, MailboxError>,
+) -> Result<Value, RpcError> {
     match client_response {
-        Ok(NetworkClientResponses::TxStatus(tx_result)) => {
-            serde_json::to_value(tx_result).map_err(|err| {
-                RpcError::server_error(Some(err.to_string()))
-            })
-        }
-        Ok(_) => {
-            Err(RpcError::server_error(Some("Wrong response for transaction status query".to_string())))
-        }
-        Err(e) => {
-            Err(RpcError::server_error(Some(e.to_string())))
-        }
+        Ok(NetworkClientResponses::TxStatus(tx_result)) => serde_json::to_value(tx_result)
+            .map_err(|err| RpcError::server_error(Some(err.to_string()))),
+        Ok(_) => Err(RpcError::server_error(Some(
+            "Wrong response for transaction status query".to_string(),
+        ))),
+        Err(e) => Err(RpcError::server_error(Some(e.to_string()))),
     }
 }
 
@@ -194,14 +192,18 @@ impl JsonRpcHandler {
                         if needs_routing {
                             let final_tx = self
                                 .client_addr
-                                .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: signer_account_id.clone() })
+                                .send(NetworkClientMessages::TxStatus {
+                                    tx_hash,
+                                    signer_account_id: signer_account_id.clone(),
+                                })
                                 .compat()
                                 .await;
                             if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
                                 match tx_result.status {
                                     FinalExecutionStatus::Started
                                     | FinalExecutionStatus::NotStarted => {}
-                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
+                                    FinalExecutionStatus::Failure(_)
+                                    | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify_client_response(final_tx);
                                     }
                                 }
@@ -213,7 +215,8 @@ impl JsonRpcHandler {
                                 match tx.status {
                                     FinalExecutionStatus::Started
                                     | FinalExecutionStatus::NotStarted => {}
-                                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => {
+                                    FinalExecutionStatus::Failure(_)
+                                    | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify(final_tx);
                                     }
                                 }
@@ -235,7 +238,7 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::NoResponse => {
                 Err(RpcError::server_error(Some("Failed to include transaction.".to_string())))
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -259,11 +262,11 @@ impl JsonRpcHandler {
         let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
             CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
         })?;
-        jsonify_client_response(self
-            .client_addr
-            .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: account_id })
-            .compat()
-            .await
+        jsonify_client_response(
+            self.client_addr
+                .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: account_id })
+                .compat()
+                .await,
         )
     }
 
@@ -291,8 +294,12 @@ impl JsonRpcHandler {
             self.view_client_addr
                 .send(match chunk_id {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
-                        BlockId::Height(block_height) => GetChunk::BlockHeight(block_height, shard_id),
-                        BlockId::Hash(block_hash) => GetChunk::BlockHash(block_hash.into(), shard_id),
+                        BlockId::Height(block_height) => {
+                            GetChunk::BlockHeight(block_height, shard_id)
+                        }
+                        BlockId::Hash(block_hash) => {
+                            GetChunk::BlockHash(block_hash.into(), shard_id)
+                        }
                     },
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })
