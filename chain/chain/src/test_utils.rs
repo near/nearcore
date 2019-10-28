@@ -35,6 +35,8 @@ use crate::{Chain, ChainGenesis, ValidTransaction};
 use near_primitives::errors::RuntimeError;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 
+// This constant is used only in test_utils to show and simulate how does state divide into parts.
+// No deeper meaning here, it can be changed easily.
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
