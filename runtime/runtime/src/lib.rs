@@ -1228,6 +1228,7 @@ mod tests {
             validator_rewards: vec![(account_id.clone(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
+            slashed_accounts: HashSet::default(),
         };
 
         runtime
