@@ -5,4 +5,3 @@ docker-nearcore:
 	docker run -v ${PWD}/docker-build:/opt/mount --rm --entrypoint cp nearcore-dev /usr/local/bin/genesis-csv-to-json /opt/mount/genesis-csv-to-json
 	docker run -v ${PWD}/docker-build:/opt/mount --rm --entrypoint cp nearcore-dev /usr/local/bin/keypair-generator /opt/mount/keypair-generator
 	docker build -t nearcore -f Dockerfile.prod .
-	sudo rm -rf docker-build
