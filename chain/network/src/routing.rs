@@ -4,7 +4,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
-use itertools::{Itertools, MinMaxResult};
 use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
@@ -279,28 +278,35 @@ impl RoutingTable {
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
-            let result = routes
+            let (min_v, max_v) = routes
                 .iter()
                 .map(|peer_id| {
                     let nonce = self.route_nonce.get(&peer_id).cloned().unwrap_or(0usize);
-                    (peer_id.clone(), nonce)
+                    (nonce, peer_id.clone())
                 })
-                .minmax_by_key(|value| value.1);
+                .fold((None, None), |(min_v, max_v), current| {
+                    if min_v.is_none() || current < *min_v.as_ref().unwrap() {
+                        (Some(current), max_v)
+                    } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
+                        (max_v, Some(current))
+                    } else {
+                        (min_v, max_v)
+                    }
+                });
 
-            // TODO(MarX): Remove MinMaxResult usage.
-            let next_hop = match result {
-                MinMaxResult::NoElements => {
+            let next_hop = match (min_v, max_v) {
+                (None, _) => {
                     return Err(FindRouteError::Disconnected);
                 }
-                MinMaxResult::OneElement(value) => value.0,
-                MinMaxResult::MinMax(min, max) => {
-                    if min.1 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max.1 {
+                (Some(min_v), None) => min_v.1,
+                (Some(min_v), Some(max_v)) => {
+                    if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
                         self.route_nonce.insert(
-                            min.0.clone(),
-                            max.1 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
+                            min_v.1.clone(),
+                            max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
                         );
                     }
-                    min.0
+                    min_v.1
                 }
             };
 
