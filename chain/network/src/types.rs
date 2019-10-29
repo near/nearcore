@@ -652,7 +652,7 @@ pub struct PeerList {
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
-    StateResponse(StateResponseInfo, CryptoHash),
+    RouteBack(RoutedMessageBody, CryptoHash),
 }
 
 impl Message for PeerRequest {

@@ -1127,29 +1127,6 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             match &msg.body {
                 RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping.clone(), msg.hash()),
                 RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong.clone()),
-                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
-                    self.client_addr
-                        .send(NetworkClientMessages::TxStatus { tx_hash: *tx_hash, signer_account_id: account_id.to_string() })
-                        .into_actor(self)
-                        .then(move |response, act, ctx| {
-                            match response {
-                                Ok(NetworkClientResponses::TxStatus(tx_result)) => {
-                                    let body = RoutedMessageBody::TxStatusResponse(tx_result);
-                                    let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(from), body };
-                                    act.send_message_to_peer(ctx, msg);
-                                }
-                                Ok(NetworkClientResponses::RequestRouted) => {
-                                    debug!(target: "network", "Routed transaction status query is again routed");
-                                }
-                                _ => {
-                                    debug!(target: "network", "Received invalid transaction status from client.");
-                                }
-                            }
-                            actix::fut::ok(())
-                        })
-                        .spawn(ctx);
-                    return true;
-                }
                 _ => return true,
             }
 
@@ -1182,13 +1159,10 @@ impl Handler<PeerRequest> for PeerManagerActor {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
             }
-            PeerRequest::StateResponse(info, target) => {
+            PeerRequest::RouteBack(body, target) => {
                 self.send_message_to_peer(
                     ctx,
-                    RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::Hash(target),
-                        body: RoutedMessageBody::StateResponse(info),
-                    },
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body },
                 );
                 PeerResponse::NoResponse
             }

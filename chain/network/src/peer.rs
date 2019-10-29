@@ -233,6 +233,8 @@ impl Peer {
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
+        let mut msg_hash = None;
+
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
@@ -265,7 +267,7 @@ impl Peer {
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
-                let msg_hash = routed_message.hash();
+                msg_hash = Some(routed_message.hash());
 
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
@@ -286,17 +288,20 @@ impl Peer {
                             hash,
                             need_header,
                             parts_ranges,
-                            msg_hash,
+                            msg_hash.clone().unwrap(),
                         )
                     }
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
                     RoutedMessageBody::ChunkPartRequest(request) => {
-                        NetworkClientMessages::ChunkPartRequest(request, msg_hash)
+                        NetworkClientMessages::ChunkPartRequest(request, msg_hash.clone().unwrap())
                     }
                     RoutedMessageBody::ChunkOnePartRequest(request) => {
-                        NetworkClientMessages::ChunkOnePartRequest(request, msg_hash)
+                        NetworkClientMessages::ChunkOnePartRequest(
+                            request,
+                            msg_hash.clone().unwrap(),
+                        )
                     }
                     RoutedMessageBody::ChunkOnePart(one_part) => {
                         NetworkClientMessages::ChunkOnePart(one_part)
@@ -326,7 +331,7 @@ impl Peer {
         self.client_addr
             .send(network_client_msg)
             .into_actor(self)
-            .then(|res, act, ctx| {
+            .then(move |res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
@@ -343,7 +348,12 @@ impl Peer {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
                     Ok(NetworkClientResponses::StateResponse(info, hash)) => {
-                        act.peer_manager_addr.do_send(PeerRequest::StateResponse(info, hash));
+                        let body = RoutedMessageBody::StateResponse(info);
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, hash));
+                    }
+                    Ok(NetworkClientResponses::TxStatus(tx_result)) => {
+                        let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
                     }
                     Err(err) => {
                         error!(
