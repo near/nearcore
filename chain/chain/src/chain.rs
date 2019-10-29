@@ -688,7 +688,7 @@ impl Chain {
                             String::new()
                         },
                     );
-                    Err(ErrorKind::Orphan.into())
+                    Err(e)
                 }
                 ErrorKind::ChunksMissing(missing_chunks) => {
                     let block_hash = block.hash();
@@ -702,10 +702,11 @@ impl Chain {
                         "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
                         block_hash, missing_chunks,
                     );
-                    Err(ErrorKind::ChunksMissing(missing_chunks).into())
+                    Err(e)
                 }
                 ErrorKind::EpochOutOfBounds => {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
+                    // Or someone is attacking with invalid chain.
                     debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner.height, block.hash());
                     Ok(Some(prev_head))
                 }
@@ -719,7 +720,7 @@ impl Chain {
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
                 }
-                e => Err(e.into()),
+                _ => Err(e),
             },
         }
     }
@@ -1538,6 +1539,12 @@ impl Chain {
     #[inline]
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
+    }
+
+    /// Check if hash is for a known chunk orphan.
+    #[inline]
+    pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
+        self.blocks_with_missing_chunks.contains(hash)
     }
 }
 

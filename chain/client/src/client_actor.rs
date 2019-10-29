@@ -71,7 +71,7 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     let chrono_seconds = genesis_time.signed_duration_since(now).num_seconds();
     //check if number of seconds in chrono::Duration larger than zero
     if chrono_seconds > 0 {
-        info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
+        info!(target: "near", "Waiting until genesis: {}", chrono_seconds);
         let seconds = Duration::from_secs(chrono_seconds as u64);
         thread::sleep(seconds);
     }
@@ -727,7 +727,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "Received block header {} at {} from {}", hash, header.inner.height, peer_info);
+        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.client.process_block_header(&header);
@@ -735,10 +735,12 @@ impl ClientActor {
         match result {
             Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
                 // Block header is either invalid or arrived too early. We ignore it.
+                debug!(target: "client", "Epoch out of bound for header {}", e);
                 return NetworkClientResponses::NoResponse;
             }
             Err(ref e) if e.is_bad_data() => {
-                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
+                debug!(target: "client", "Error on receival of header: {}", e);
+                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {

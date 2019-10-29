@@ -93,7 +93,7 @@ fn main() {
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
             let num_shards = args
-                .value_of("num_shards")
+                .value_of("num-shards")
                 .map(|s| s.parse().expect("Number of shards must be a number"))
                 .unwrap_or(1);
             let fast = args.is_present("fast");
