@@ -305,6 +305,7 @@ impl Peer {
             }
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
+            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest

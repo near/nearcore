@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -9,12 +10,11 @@ use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
 
+use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::hash::{hash, CryptoHash};
 
+use crate::trie::nibble_slice::NibbleSlice;
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
-
-use self::nibble_slice::NibbleSlice;
-use std::cmp::Ordering;
 
 mod nibble_slice;
 pub mod update;
@@ -22,9 +22,9 @@ pub mod update;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct PartialStorage {
-    nodes: Vec<(CryptoHash, Vec<u8>)>,
+    pub nodes: PartialState,
 }
 
 #[derive(Clone, Hash, Debug, Copy)]
@@ -686,14 +686,14 @@ impl Trie {
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         let storage = self.storage.as_recording_storage()?;
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
-        let mut nodes: Vec<_> = guard.drain().collect();
+        let mut nodes: Vec<_> =
+            guard.drain().map(|(key, value)| StateItem { key, value }).collect();
         nodes.sort();
         Some(PartialStorage { nodes })
     }
 
-    #[allow(dead_code)]
-    fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
-        let map = partial_storage.nodes.into_iter().collect();
+    pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
+        let map = partial_storage.nodes.into_iter().map(|si| (si.key, si.value)).collect();
         Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }
     }
 

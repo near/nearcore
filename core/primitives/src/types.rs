@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use near_crypto::PublicKey;
 
@@ -66,6 +67,12 @@ impl ValidatorStake {
     }
 }
 
+/// Information after block was processed.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct BlockExtra {
+    pub challenges_result: ChallengesResult,
+}
+
 /// Information after chunk was processed, used to produce or check next chunk.
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct ChunkExtra {
@@ -77,11 +84,11 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Total rent paid after processing the current chunk
+    /// Total rent paid after processing the current chunk.
     pub rent_paid: Balance,
-    /// Total validation execution reward after processing the current chunk
+    /// Total validation execution reward after processing the current chunk.
     pub validator_reward: Balance,
-    /// Total balance burnt after processing the current chunk
+    /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
 }
 

@@ -63,11 +63,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
             let access_key = AccessKey::try_from_slice(&value).unwrap();
             let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
             let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
-            Some(StateRecord::AccessKey {
-                account_id,
-                public_key,
-                access_key: access_key.into(),
-            })
+            Some(StateRecord::AccessKey { account_id, public_key, access_key: access_key.into() })
         }
         col::RECEIVED_DATA => {
             let data = ReceivedData::try_from_slice(&value).unwrap().data;
@@ -239,10 +235,9 @@ fn replay_chain(
                     header.inner.height,
                     header.inner.validator_proposals,
                     vec![],
-                    vec![],
+                    header.inner.chunk_mask,
                     header.inner.rent_paid,
                     header.inner.validator_reward,
-                    header.inner.balance_burnt,
                     header.inner.total_supply,
                 )
                 .unwrap();

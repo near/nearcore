@@ -22,6 +22,7 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -82,6 +83,8 @@ pub struct Client {
     pub tx_status_requests: SizedCache<CryptoHash, ()>,
     /// Transaction status response
     pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    /// List of currently accumulated challenges.
+    pub challenges: HashMap<CryptoHash, Challenge>,
 }
 
 impl Client {
@@ -123,6 +126,7 @@ impl Client {
             },
             tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
             tx_status_response: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
+            challenges: Default::default(),
         })
     }
 
@@ -144,6 +148,9 @@ impl Client {
                 }
             }
         }
+        for challenge in block.challenges.iter() {
+            self.challenges.remove(&challenge.hash);
+        }
     }
 
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -164,6 +171,9 @@ impl Client {
                 }
             }
         }
+        for challenge in block.challenges.iter() {
+            self.challenges.insert(challenge.hash, challenge.clone());
+        }
     }
 
     /// Produce block if we are block producer for given `next_height` index.
@@ -173,6 +183,10 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
+        // Check that this height is not known yet.
+        if next_height <= self.chain.mut_store().get_latest_known()?.height {
+            return Ok(None);
+        }
         let block_producer = self
             .block_producer
             .as_ref()
@@ -241,6 +255,9 @@ impl Client {
             return Ok(None);
         }
 
+        // Get block extra from previous block.
+        let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
+
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
@@ -269,6 +286,9 @@ impl Client {
         let approval =
             self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
 
+        // Get all the current challenges.
+        let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
+
         let block = Block::produce(
             &prev_header,
             next_height,
@@ -277,6 +297,8 @@ impl Client {
             approval.into_iter().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
+            prev_block_extra.challenges_result,
+            challenges,
             &*block_producer.signer,
         );
 
@@ -426,6 +448,20 @@ impl Client {
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
+    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            for body in challenges.write().unwrap().drain(..) {
+                let challenge = Challenge::produce(
+                    body,
+                    block_producer.account_id.clone(),
+                    &*block_producer.signer,
+                );
+                self.challenges.insert(challenge.hash, challenge.clone());
+                self.network_adapter.send(NetworkRequests::Challenge(challenge));
+            }
+        }
+    }
+
     pub fn process_block(
         &mut self,
         block: Block,
@@ -434,6 +470,7 @@ impl Client {
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let challenges = Arc::new(RwLock::new(vec![]));
         let result = {
             let me = self
                 .block_producer
@@ -447,8 +484,36 @@ impl Client {
                     accepted_blocks.write().unwrap().push(accepted_block);
                 },
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
+                |challenge| challenges.write().unwrap().push(challenge),
             )
         };
+
+        // Send out challenges that accumulated via on_challenge.
+        self.send_challenges(challenges);
+
+        // Send out challenge if the block was found to be invalid.
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            match &result {
+                Err(e) => match e.kind() {
+                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+                        self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
+                            ChallengeBody::ChunkProofs(chunk_proofs),
+                            block_producer.account_id.clone(),
+                            &*block_producer.signer,
+                        )));
+                    }
+                    near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
+                        self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
+                            ChallengeBody::ChunkState(chunk_state),
+                            block_producer.account_id.clone(),
+                            &*block_producer.signer,
+                        )));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
@@ -509,14 +574,23 @@ impl Client {
     }
 
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {
-        self.chain.process_block_header(header)
+        let challenges = Arc::new(RwLock::new(vec![]));
+        self.chain.process_block_header(header, |challenge| {
+            challenges.write().unwrap().push(challenge)
+        })?;
+        self.send_challenges(challenges);
+        Ok(())
     }
 
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
     ) -> Result<(), near_chain::Error> {
-        self.chain.sync_block_headers(headers)
+        let challenges = Arc::new(RwLock::new(vec![]));
+        self.chain
+            .sync_block_headers(headers, |challenge| challenges.write().unwrap().push(challenge))?;
+        self.send_challenges(challenges);
+        Ok(())
     }
 
     /// Gets called when block got accepted.
@@ -639,14 +713,15 @@ impl Client {
                             block.header.inner.timestamp,
                             shard_id,
                         ) {
-                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
-                                self.shards_mgr.distribute_encoded_chunk(
+                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
+                                .shards_mgr
+                                .distribute_encoded_chunk(
                                     encoded_chunk,
                                     merkle_paths,
                                     receipts,
                                     self.chain.mut_store(),
                                 )
-                            }
+                                .expect("Failed to process produced chunk"),
                             Ok(None) => {}
                             Err(err) => {
                                 error!(target: "client", "Error producing chunk {:?}", err);
@@ -666,12 +741,14 @@ impl Client {
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |accepted_block| {
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
-        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
+        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
+        self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
         }
@@ -757,6 +834,7 @@ impl Client {
         if let ValidatorSignatureVerificationResult::Invalid =
             self.runtime_adapter.verify_validator_signature(
                 &header.inner.epoch_id,
+                &header.inner.prev_hash,
                 account_id,
                 hash.as_ref(),
                 signature,
@@ -984,6 +1062,7 @@ impl Client {
                 StateSyncResult::Completed => {
                     let accepted_blocks = Arc::new(RwLock::new(vec![]));
                     let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                    let challenges = Arc::new(RwLock::new(vec![]));
 
                     self.chain.catchup_blocks(
                         me,
@@ -994,7 +1073,10 @@ impl Client {
                         |missing_chunks| {
                             blocks_missing_chunks.write().unwrap().push(missing_chunks)
                         },
+                        |challenge| challenges.write().unwrap().push(challenge),
                     )?;
+
+                    self.send_challenges(challenges);
 
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
                         self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
@@ -1007,5 +1089,35 @@ impl Client {
         }
 
         Ok(vec![])
+    }
+
+    /// When accepting challenge, we verify that it's valid given signature with current validators.
+    pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+        if self.challenges.contains_key(&challenge.hash) {
+            return Ok(());
+        }
+        debug!(target: "client", "Received challenge: {:?}", challenge);
+        let head = self.chain.head()?;
+        if self
+            .runtime_adapter
+            .verify_validator_signature(
+                &head.epoch_id,
+                &head.prev_block_hash,
+                &challenge.account_id,
+                challenge.hash.as_ref(),
+                &challenge.signature,
+            )
+            .valid()
+        {
+            // If challenge is not double sign, we should process it right away to invalidate the chain.
+            match challenge.body {
+                ChallengeBody::BlockDoubleSign(_) => {}
+                _ => {
+                    self.chain.process_challenge(&challenge);
+                }
+            }
+            self.challenges.insert(challenge.hash, challenge);
+        }
+        Ok(())
     }
 }
