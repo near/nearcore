@@ -58,9 +58,14 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     assert_eq!(
-        validate_challenge(&*env.clients[1].chain.runtime_adapter, &epoch_id, &valid_challenge)
-            .unwrap()
-            .0,
+        validate_challenge(
+            &*env.clients[1].chain.runtime_adapter,
+            &epoch_id,
+            &genesis.hash(),
+            &valid_challenge
+        )
+        .unwrap()
+        .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -74,6 +79,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(
         &*env.clients[1].chain.runtime_adapter,
         &epoch_id,
+        &genesis.hash(),
         &invalid_challenge
     )
     .is_err());
@@ -89,6 +95,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(
         &*env.clients[1].chain.runtime_adapter,
         &epoch_id,
+        &genesis.hash(),
         &invalid_challenge
     )
     .is_err());
@@ -161,6 +168,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
         validate_challenge(
             &*env.clients[0].chain.runtime_adapter,
             &block.header.inner.epoch_id,
+            &block.header.inner.prev_hash,
             &valid_challenge
         )
         .unwrap(),
@@ -278,6 +286,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         validate_challenge(
             &*client.chain.runtime_adapter,
             &block.header.inner.epoch_id,
+            &block.header.inner.prev_hash,
             &challenge
         )
         .unwrap(),
