@@ -224,7 +224,6 @@ pub fn setup_mock_all_validators(
                     let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
                     let my_account_id = account_id;
-                    // TODO(MarX): Use info to route back messages to current peer.
 
                     match msg {
                         NetworkRequests::FetchInfo { .. } => {

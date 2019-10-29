@@ -434,10 +434,6 @@ impl SyncData {
     }
 }
 
-// TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
-//  is necessary. Some message are routed and others are directed between peers.
-// TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
-//  the client messages are routed.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
@@ -642,13 +638,6 @@ pub struct PeerList {
     pub peers: Vec<PeerInfo>,
 }
 
-/// TODO(MarX): Wrap the following type of messages in this category:
-///     - PeersRequest
-///     - PeersResponse
-///     - Unregister
-///     - Ban
-///     - Consolidate (Maybe not)
-///  check that this messages are only used from peer -> peer manager.
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
