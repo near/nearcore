@@ -29,6 +29,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_primitives::hash::hash;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -169,6 +170,8 @@ pub fn setup_mock_all_validators(
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();
+
+    let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = Utc::now();
     let mut ret = vec![];
 
@@ -192,6 +195,7 @@ pub fn setup_mock_all_validators(
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
+        let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
@@ -207,16 +211,20 @@ pub fn setup_mock_all_validators(
 
                 if perform_default {
                     let mut my_key_pair = None;
+                    let mut my_address = None;
                     let mut my_ord = None;
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if *name == account_id {
                             my_key_pair = Some(key_pairs[i].clone());
+                            my_address = Some(addresses[i].clone());
                             my_ord = Some(i);
                         }
                     }
                     let my_key_pair = my_key_pair.unwrap();
+                    let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
                     let my_account_id = account_id;
+                    // TODO(MarX): Use info to route back messages to current peer.
 
                     match msg {
                         NetworkRequests::FetchInfo { .. } => {
@@ -270,7 +278,7 @@ pub fn setup_mock_all_validators(
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkPartRequest(
                                                 part_request.clone(),
-                                                my_key_pair.id.clone(),
+                                                my_address,
                                             ),
                                         );
                                     }
@@ -287,7 +295,7 @@ pub fn setup_mock_all_validators(
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkOnePartRequest(
                                                 one_part_request.clone(),
-                                                my_key_pair.id.clone(),
+                                                my_address,
                                             ),
                                         );
                                     }
@@ -307,9 +315,9 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                if peer_info.id == *peer_id {
+                        NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
+                            for (i, address) in addresses.iter().enumerate() {
+                                if route_back == address {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkOnePart(
@@ -320,9 +328,9 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::ChunkPart { peer_id, part } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                if peer_info.id == *peer_id {
+                        NetworkRequests::ChunkPart { route_back, part } => {
+                            for (i, address) in addresses.iter().enumerate() {
+                                if route_back == address {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
                                             NetworkClientMessages::ChunkPart(part.clone()),
@@ -411,11 +419,15 @@ pub fn setup_mock_all_validators(
                                                 *hash,
                                                 *need_header,
                                                 parts_ranges.to_vec(),
+                                                my_address,
                                             ))
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
-                                                    NetworkClientResponses::StateResponse(info) => {
+                                                    NetworkClientResponses::StateResponse(
+                                                        info,
+                                                        _,
+                                                    ) => {
                                                         connectors2.read().unwrap()[my_ord]
                                                             .0
                                                             .do_send(

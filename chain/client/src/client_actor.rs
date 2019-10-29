@@ -257,7 +257,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+            NetworkClientMessages::StateRequest(
+                shard_id,
+                hash,
+                need_header,
+                parts_ranges,
+                route_back,
+            ) => {
                 let mut parts = vec![];
                 for Range(from, to) in parts_ranges {
                     for part_id in from..to {
@@ -273,22 +279,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if need_header {
                     match self.client.chain.get_state_response_header(shard_id, hash) {
                         Ok(header) => {
-                            return NetworkClientResponses::StateResponse(StateResponseInfo {
-                                shard_id,
-                                hash,
-                                shard_state: ShardStateSyncResponse { header: Some(header), parts },
-                            });
+                            return NetworkClientResponses::StateResponse(
+                                StateResponseInfo {
+                                    shard_id,
+                                    hash,
+                                    shard_state: ShardStateSyncResponse {
+                                        header: Some(header),
+                                        parts,
+                                    },
+                                },
+                                route_back,
+                            );
                         }
                         Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
                 } else {
-                    return NetworkClientResponses::StateResponse(StateResponseInfo {
-                        shard_id,
-                        hash,
-                        shard_state: ShardStateSyncResponse { header: None, parts },
-                    });
+                    return NetworkClientResponses::StateResponse(
+                        StateResponseInfo {
+                            shard_id,
+                            hash,
+                            shard_state: ShardStateSyncResponse { header: None, parts },
+                        },
+                        route_back,
+                    );
                 }
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
@@ -385,15 +400,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkPartRequest(part_request_msg, route_back) => {
                 let _ =
-                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, peer_id);
+                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, route_back);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_chunk_one_part_request(
                     part_request_msg,
-                    peer_id,
+                    route_back,
                     self.client.chain.mut_store(),
                 );
                 NetworkClientResponses::NoResponse

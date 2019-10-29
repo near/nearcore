@@ -263,47 +263,51 @@ impl Peer {
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
-            PeerMessage::StateRequest(shard_id, hash, need_header, parts_ranges) => {
-                NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
-            }
-            PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             // All Routed messages received at this point are for us.
-            PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                    NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+            PeerMessage::Routed(routed_message) => {
+                let msg_hash = routed_message.hash();
+
+                match routed_message.body {
+                    RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
+                        NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+                    }
+                    RoutedMessageBody::ForwardTx(transaction) => {
+                        NetworkClientMessages::Transaction(transaction)
+                    }
+                    RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash) => {
+                        NetworkClientMessages::TxStatus { tx_hash, signer_account_id }
+                    }
+                    RoutedMessageBody::TxStatusResponse(tx_result) => {
+                        NetworkClientMessages::TxStatusResponse(tx_result)
+                    }
+                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+                        NetworkClientMessages::StateRequest(
+                            shard_id,
+                            hash,
+                            need_header,
+                            parts_ranges,
+                            msg_hash,
+                        )
+                    }
+                    RoutedMessageBody::StateResponse(info) => {
+                        NetworkClientMessages::StateResponse(info)
+                    }
+                    RoutedMessageBody::ChunkPartRequest(request) => {
+                        NetworkClientMessages::ChunkPartRequest(request, msg_hash)
+                    }
+                    RoutedMessageBody::ChunkOnePartRequest(request) => {
+                        NetworkClientMessages::ChunkOnePartRequest(request, msg_hash)
+                    }
+                    RoutedMessageBody::ChunkOnePart(one_part) => {
+                        NetworkClientMessages::ChunkOnePart(one_part)
+                    }
+                    RoutedMessageBody::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
+                    RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
+                        error!(target: "network", "Peer receive_client_message received unexpected type");
+                        return;
+                    }
                 }
-                RoutedMessageBody::ForwardTx(transaction) => {
-                    NetworkClientMessages::Transaction(transaction)
-                }
-                RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash) => {
-                    NetworkClientMessages::TxStatus { tx_hash, signer_account_id }
-                }
-                RoutedMessageBody::TxStatusResponse(tx_result) => {
-                    NetworkClientMessages::TxStatusResponse(tx_result)
-                }
-                RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
-                    NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
-                }
-                RoutedMessageBody::ChunkPartRequest(request) => {
-                    NetworkClientMessages::ChunkPartRequest(request, peer_id)
-                }
-                RoutedMessageBody::ChunkOnePartRequest(request) => {
-                    NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
-                }
-                RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
-                RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
-                    error!(target: "network", "Peer receive_client_message received unexpected type");
-                    return;
-                }
-            },
-            PeerMessage::ChunkPartRequest(request) => {
-                NetworkClientMessages::ChunkPartRequest(request, peer_id)
             }
-            PeerMessage::ChunkOnePartRequest(request) => {
-                NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
-            }
-            PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
-            PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
             PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
@@ -338,8 +342,8 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse(info)) => {
-                        act.send_message(PeerMessage::StateResponse(info))
+                    Ok(NetworkClientResponses::StateResponse(info, hash)) => {
+                        act.peer_manager_addr.do_send(PeerRequest::StateResponse(info, hash));
                     }
                     Err(err) => {
                         error!(

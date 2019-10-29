@@ -288,12 +288,18 @@ pub struct Pong {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
+
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
+
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateResponse(StateResponseInfo),
+
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
+    ChunkPart(ChunkPartMsg),
+
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -386,8 +392,11 @@ impl RoutedMessage {
 
     pub fn expect_response(&self) -> bool {
         match self.body {
-            RoutedMessageBody::Ping(_) => true,
-            RoutedMessageBody::TxStatusRequest(_, _) => true,
+            RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::ChunkPartRequest(_)
+            | RoutedMessageBody::ChunkOnePartRequest(_) => true,
             _ => false,
         }
     }
@@ -453,15 +462,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
-    StateResponse(StateResponseInfo),
     Routed(RoutedMessage),
-
-    ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkOnePartRequestMsg),
-    ChunkPart(ChunkPartMsg),
-    ChunkOnePart(ChunkOnePart),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -482,12 +483,10 @@ impl fmt::Display for PeerMessage {
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
+            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
-            PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
@@ -495,17 +494,15 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::TxStatusResponse(_) => {
                     f.write_str("Transaction status response")
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
+                RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+                RoutedMessageBody::ChunkPart(_) => f.write_str("ChunkPart"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
-            PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
-            PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
-            PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
-            PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
             PeerMessage::Disconnect => f.write_str("Disconnect"),
             PeerMessage::Challenge(_) => f.write_str("Challenge"),
         }
@@ -655,6 +652,7 @@ pub struct PeerList {
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
+    StateResponse(StateResponseInfo, CryptoHash),
 }
 
 impl Message for PeerRequest {
@@ -663,6 +661,7 @@ impl Message for PeerRequest {
 
 #[derive(MessageResponse)]
 pub enum PeerResponse {
+    NoResponse,
     UpdatedEdge(EdgeInfo),
 }
 
@@ -767,7 +766,7 @@ pub enum NetworkRequests {
     },
     /// Response to a peer with chunk part and receipts.
     ChunkOnePartResponse {
-        peer_id: PeerId,
+        route_back: CryptoHash,
         header_and_part: ChunkOnePart,
     },
     /// A chunk header and one part for another validator.
@@ -777,7 +776,7 @@ pub enum NetworkRequests {
     },
     /// A chunk part
     ChunkPart {
-        peer_id: PeerId,
+        route_back: CryptoHash,
         part: ChunkPartMsg,
     },
 
@@ -893,16 +892,16 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
     AnnounceAccount(Vec<AnnounceAccount>),
 
     /// Request chunk part.
-    ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    ChunkPartRequest(ChunkPartRequestMsg, CryptoHash),
     /// Request chunk part.
-    ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg, CryptoHash),
     /// A chunk part.
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part.
@@ -933,7 +932,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Transaction execution outcome

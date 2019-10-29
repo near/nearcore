@@ -767,18 +767,24 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage {
-                        message: PeerMessage::ChunkOnePart(header_and_part),
-                    });
-                }
+            NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
+                    },
+                );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPart { peer_id, part } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
-                }
+            NetworkRequests::ChunkPart { route_back, part } => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::ChunkPart(part),
+                    },
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
@@ -1171,10 +1177,20 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
 impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 
-    fn handle(&mut self, msg: PeerRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
+            }
+            PeerRequest::StateResponse(info, target) => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(target),
+                        body: RoutedMessageBody::StateResponse(info),
+                    },
+                );
+                PeerResponse::NoResponse
             }
         }
     }
