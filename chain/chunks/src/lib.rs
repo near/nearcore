@@ -9,7 +9,7 @@ use actix::Recipient;
 use log::{debug, error};
 use rand::Rng;
 
-use near_chain::types::validate_chunk_proofs;
+use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ErrorKind, RuntimeAdapter,
     ValidTransaction,
@@ -548,7 +548,7 @@ impl ShardsManager {
         Ok(())
     }
 
-    fn receipts_recipient_filter(
+    pub fn receipts_recipient_filter(
         &self,
         from_shard_id: ShardId,
         tracking_shards: &HashSet<ShardId>,
@@ -697,7 +697,7 @@ impl ShardsManager {
                     .get(&chunk_hash)
                     .map(std::clone::Clone::clone)
                     .expect("Present if add_part returns Ok");
-                self.process_encoded_chunk(&chunk, merkle_paths, chain_store)
+                self.process_encoded_chunk(chunk, merkle_paths, chain_store)
             }
             ChunkStatus::Incomplete => Ok(None),
             ChunkStatus::Invalid => {
@@ -709,7 +709,7 @@ impl ShardsManager {
                     self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
                 }
                 self.encoded_chunks.remove(&chunk_hash);
-                Ok(None)
+                Err(Error::InvalidChunk)
             }
         }
     }
@@ -847,6 +847,8 @@ impl ShardsManager {
         self.encoded_chunks.get_mut(&one_part.chunk_hash).unwrap().content.parts
             [one_part.part_id as usize] = Some(one_part.part.clone());
 
+        // Fills in all the rest of the parts if there is enough parts,
+        // so if it's complete, have_all_one_parts will be true after this.
         self.persist_chunk_if_complete(&one_part.chunk_hash, &prev_block_hash, chain_store)?;
 
         let have_all_one_parts = self.has_all_one_parts(
@@ -945,7 +947,7 @@ impl ShardsManager {
 
     pub fn process_encoded_chunk(
         &mut self,
-        chunk: &EncodedShardChunk,
+        chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         chain_store: &mut ChainStore,
     ) -> Result<Option<CryptoHash>, Error> {
@@ -990,14 +992,15 @@ impl ShardsManager {
             return Ok(Some(chunk.header.inner.prev_block_hash));
         } else {
             // Can't decode chunk or has invalid proofs, ignore it
-            error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
-            // TODO: mark chunk invalid.
+            error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, self.me);
             for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
                 self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
             }
+            store_update.save_invalid_chunk(chunk);
+            store_update.commit()?;
             self.encoded_chunks.remove(&chunk_hash);
             self.requested_chunks.remove(&chunk_hash);
-            return Ok(None);
+            return Err(Error::InvalidChunk);
         }
     }
 
@@ -1007,7 +1010,7 @@ impl ShardsManager {
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         chain_store: &mut ChainStore,
-    ) {
+    ) -> Result<(), Error> {
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let chunk_hash = encoded_chunk.chunk_hash();
@@ -1017,6 +1020,7 @@ impl ShardsManager {
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
+
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
@@ -1045,7 +1049,7 @@ impl ShardsManager {
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage
             if Some(&to_whom) == self.me.as_ref() {
-                self.process_chunk_one_part(one_part.clone(), chain_store).unwrap();
+                self.process_chunk_one_part(one_part.clone(), chain_store)?;
             } else {
                 self.network_adapter.send(NetworkRequests::ChunkOnePartMessage {
                     account_id: to_whom.clone(),
@@ -1060,17 +1064,21 @@ impl ShardsManager {
             self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
         }
 
-        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        // Save this chunk into encoded_chunks.
         self.encoded_chunks.insert(chunk_hash.clone(), encoded_chunk.clone());
+
+        // Process encoded chunk to add to the store.
+        let num_parts = encoded_chunk.content.parts.len();
         self.process_encoded_chunk(
-            &encoded_chunk,
-            (0..encoded_chunk.content.parts.len())
+            encoded_chunk,
+            (0..num_parts)
                 .map(|part_id| {
                     self.merkle_paths.get(&(chunk_hash.clone(), part_id as u64)).unwrap().clone()
                 })
                 .collect(),
             chain_store,
-        )
-        .expect("Failed to process just created chunk");
+        )?;
+
+        Ok(())
     }
 }

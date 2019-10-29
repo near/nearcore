@@ -778,6 +778,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::Challenge(challenge) => {
+                // TODO(illia): smarter routing?
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::Challenge(challenge) },
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
                 NetworkResponses::NoResponse

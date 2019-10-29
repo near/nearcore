@@ -4,6 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
@@ -69,12 +70,24 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid challenge (wrong signature or format).
+    #[fail(display = "Invalid Challenge")]
+    InvalidChallenge,
+    /// Incorrect (malicious) challenge (slash the sender).
+    #[fail(display = "Malicious Challenge")]
+    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// One of the chunks has invalid proofs
+    #[fail(display = "Invalid Chunk Proofs")]
+    InvalidChunkProofs(ChunkProofs),
+    /// Invalid chunk state.
+    #[fail(display = "Invalid Chunk State")]
+    InvalidChunkState(ChunkState),
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -105,6 +118,9 @@ pub enum ErrorKind {
     /// Not found record in the DB.
     #[fail(display = "DB Not Found Error: {}", _0)]
     DBNotFoundErr(String),
+    /// Storage error. Used for internal passing the error.
+    #[fail(display = "Storage Error")]
+    StorageError,
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -150,6 +166,7 @@ impl Error {
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
+            | ErrorKind::StorageError
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -159,6 +176,8 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkProofs(_)
+            | ErrorKind::InvalidChunkState(_)
             | ErrorKind::InvalidChunkMask
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
@@ -168,6 +187,8 @@ impl Error {
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
+            | ErrorKind::InvalidChallenge
+            | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals

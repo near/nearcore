@@ -127,9 +127,19 @@ impl ClientActor {
         announce_account: &AnnounceAccount,
     ) -> AccountAnnounceVerificationResult {
         let announce_hash = announce_account.hash();
+        let head = unwrap_or_return!(
+            self.client.chain.head(),
+            AccountAnnounceVerificationResult::UnknownEpoch
+        );
+
+        // If we are currently not at the epoch that this announcement is in, skip it.
+        if announce_account.epoch_id != head.epoch_id {
+            return AccountAnnounceVerificationResult::UnknownEpoch;
+        }
 
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
+            &head.last_block_hash,
             &announce_account.account_id,
             announce_hash.as_ref(),
             &announce_account.signature,
@@ -417,6 +427,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
 
                 NetworkClientResponses::AnnounceAccount(filtered_announce_accounts)
+            }
+            NetworkClientMessages::Challenge(challenge) => {
+                match self.client.process_challenge(challenge) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!(target: "client", "Error processing challenge: {}", err);
+                    }
+                }
+                NetworkClientResponses::NoResponse
             }
         }
     }
@@ -1011,6 +1030,7 @@ impl ClientActor {
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let challenges = Arc::new(RwLock::new(vec![]));
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
@@ -1021,7 +1041,10 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |challenge| challenges.write().unwrap().push(challenge)
                         ));
+
+                        self.client.send_challenges(challenges);
 
                         self.process_accepted_blocks(
                             accepted_blocks.write().unwrap().drain(..).collect(),

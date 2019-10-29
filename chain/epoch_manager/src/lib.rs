@@ -156,7 +156,6 @@ impl EpochManager {
         let mut produced_block_indices = HashSet::new();
         let mut total_storage_rent = 0;
         let mut total_validator_reward = 0;
-        let mut total_balance_burnt = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -199,7 +198,6 @@ impl EpochManager {
 
             total_storage_rent += info.rent_paid;
             total_validator_reward += info.validator_reward;
-            total_balance_burnt += info.balance_burnt;
 
             hash = info.prev_hash;
         }
@@ -236,7 +234,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
         })
     }
 
@@ -255,7 +252,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
@@ -263,7 +259,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -393,7 +388,8 @@ impl EpochManager {
             .clone())
     }
 
-    /// Returns validator for given account id for given epoch. We don't require caller to know about EpochIds.
+    /// Returns validator for given account id for given epoch.
+    /// We don't require caller to know about EpochIds. Doesn't account for slashing.
     pub fn get_validator_by_account_id(
         &mut self,
         epoch_id: &EpochId,
@@ -1007,7 +1003,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[1],
-                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, 0, DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()
@@ -1109,7 +1105,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1128,7 +1123,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1147,7 +1141,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1157,7 +1150,7 @@ mod tests {
         validator_online_ratio.insert("test1".to_string(), (0, 0));
         validator_online_ratio.insert("test2".to_string(), (1, 1));
         let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
 
@@ -1206,7 +1199,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1225,7 +1217,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1244,7 +1235,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1253,7 +1243,7 @@ mod tests {
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test2".to_string(), (1, 1));
         let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
         assert_eq!(
@@ -1331,7 +1321,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1350,7 +1339,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1369,7 +1357,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,

@@ -9,6 +9,7 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
@@ -220,6 +221,17 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChallengeView {
+    // TODO: decide how to represent challenges in json.
+}
+
+impl From<Challenge> for ChallengeView {
+    fn from(_challenge: Challenge) -> Self {
+        Self {}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_id: CryptoHash,
@@ -246,9 +258,8 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
-    pub balance_burnt: Balance,
-    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
+    pub challenges_result: ChallengesResult,
     pub signature: Signature,
 }
 
@@ -280,8 +291,8 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
             validator_reward: header.inner.validator_reward,
-            balance_burnt: header.inner.balance_burnt,
             total_supply: header.inner.total_supply,
+            challenges_result: header.inner.challenges_result,
             signature: header.signature,
         }
     }
@@ -313,9 +324,9 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
+                challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
-                balance_burnt: view.balance_burnt,
             },
             signature: view.signature,
             hash: CryptoHash::default(),

@@ -208,7 +208,6 @@ impl GenesisBuilder {
                 vec![],
                 0,
                 0,
-                0,
                 self.config.total_supply.clone(),
             )
             .unwrap();

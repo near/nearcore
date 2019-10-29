@@ -156,7 +156,7 @@ pub struct ChunkPartMsg {
     pub merkle_path: MerklePath,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
@@ -187,7 +187,7 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,

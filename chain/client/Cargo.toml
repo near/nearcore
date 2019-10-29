@@ -30,6 +30,9 @@ near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
 
+[dev-dependencies]
+near = { path = "../../near" }
+
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
