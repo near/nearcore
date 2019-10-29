@@ -454,7 +454,7 @@ impl ShardsManager {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
-            .insert_transaction(tx);
+            .insert_transaction(tx.transaction);
     }
 
     pub fn remove_transactions(
@@ -475,7 +475,7 @@ impl ShardsManager {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
-            .reintroduce_transactions(transactions);
+            .reintroduce_transactions(transactions.clone());
     }
 
     pub fn process_chunk_part_request(
