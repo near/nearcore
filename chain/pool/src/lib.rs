@@ -26,6 +26,7 @@ impl TransactionPool {
         if self.unique_transactions.contains(&signed_transaction.get_hash()) {
             return;
         }
+        self.unique_transactions.insert(signed_transaction.get_hash());
         let signer_id = signed_transaction.transaction.signer_id.clone();
         let signer_public_key = signed_transaction.transaction.public_key.clone();
         self.transactions
@@ -73,7 +74,7 @@ impl TransactionPool {
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
-    pub fn remove_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+    pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
         transactions
             .iter()
             .filter(|tx| self.unique_transactions.contains(&tx.get_hash()))
@@ -132,32 +133,144 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
 
-    /// Add transactions of nonce from 1..10 in random order. Check that mempool
-    /// orders them correctly.
-    #[test]
-    fn test_order_nonce() {
+    fn generate_transactions(
+        signer_id: &str,
+        signer_seed: &str,
+        starting_nonce: u64,
+        end_nonce: u64,
+    ) -> Vec<SignedTransaction> {
         let signer =
-            Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
-        let mut transactions: Vec<_> = (1..10)
+            Arc::new(InMemorySigner::from_seed(signer_seed, KeyType::ED25519, signer_seed));
+        (starting_nonce..=end_nonce)
             .map(|i| {
                 SignedTransaction::send_money(
                     i,
-                    "alice.near".to_string(),
+                    signer_id.to_string(),
                     "bob.near".to_string(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
                 )
             })
-            .collect();
+            .collect()
+    }
+
+    fn process_txs_to_nonces(
+        mut transactions: Vec<SignedTransaction>,
+        expected_weight: u32,
+    ) -> (Vec<u64>, TransactionPool) {
         let mut pool = TransactionPool::default();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
             pool.insert_transaction(tx);
         }
-        let transactions = pool.prepare_transactions(10).unwrap();
-        let nonces: Vec<u64> = transactions.iter().map(|tx| tx.transaction.nonce).collect();
-        assert_eq!(nonces, (1..10).collect::<Vec<u64>>())
+        (
+            pool.prepare_transactions(expected_weight)
+                .unwrap()
+                .iter()
+                .map(|tx| tx.transaction.nonce)
+                .collect(),
+            pool,
+        )
+    }
+
+    /// Add transactions of nonce from 1..10 in random order. Check that mempool
+    /// orders them correctly.
+    #[test]
+    fn test_order_nonce() {
+        let transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+        let (nonces, _) = process_txs_to_nonces(transactions, 10);
+        assert_eq!(nonces, (1..=10).collect::<Vec<u64>>());
+    }
+
+    /// Add transactions of nonce from 1..10 in random order from 2 signers. Check that mempool
+    /// orders them correctly.
+    #[test]
+    fn test_order_nonce_two_signers() {
+        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+        transactions.extend(generate_transactions("bob.near", "bob.near", 1, 10));
+
+        let (nonces, _) = process_txs_to_nonces(transactions, 10);
+        assert_eq!(nonces, (1..=5).map(|a| vec![a; 2]).flatten().collect::<Vec<u64>>());
+    }
+
+    /// Add transactions of nonce from 1..10 in random order from the same account but with
+    /// different public keys.
+    #[test]
+    fn test_order_nonce_same_account_two_access_keys_variable_nonces() {
+        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+        transactions.extend(generate_transactions("alice.near", "bob.near", 21, 30));
+
+        let (nonces, _) = process_txs_to_nonces(transactions, 10);
+        if nonces[0] == 1 {
+            assert_eq!(nonces, (1..=5).map(|a| vec![a, a + 20]).flatten().collect::<Vec<u64>>());
+        } else {
+            assert_eq!(nonces, (1..=5).map(|a| vec![a + 20, a]).flatten().collect::<Vec<u64>>());
+        }
+    }
+
+    /// Add transactions of nonce from 1..=3 and transactions with nonce 21..=31. Pull 10.
+    /// Then try to get another 10.
+    #[test]
+    fn test_retain() {
+        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);
+        transactions.extend(generate_transactions("alice.near", "bob.near", 21, 31));
+
+        let (nonces, mut pool) = process_txs_to_nonces(transactions, 10);
+        if nonces[0] == 1 {
+            assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
+        } else {
+            assert_eq!(nonces, vec![21, 1, 22, 2, 23, 3, 24, 25, 26, 27]);
+        }
+        let nonces: Vec<u64> =
+            pool.prepare_transactions(10).unwrap().iter().map(|tx| tx.transaction.nonce).collect();
+        assert_eq!(nonces, vec![28, 29, 30, 31]);
+    }
+
+    #[test]
+    fn test_remove_transactions() {
+        let n = 100;
+        let mut transactions = (1..=n)
+            .map(|i| {
+                let signer_seed = format!("user_{}", i % 3);
+                let signer = Arc::new(InMemorySigner::from_seed(
+                    &signer_seed,
+                    KeyType::ED25519,
+                    &signer_seed,
+                ));
+                let signer_id = format!("user_{}", i % 5);
+                SignedTransaction::send_money(
+                    i,
+                    signer_id.to_string(),
+                    "bob.near".to_string(),
+                    &*signer,
+                    i as Balance,
+                    CryptoHash::default(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut pool = TransactionPool::default();
+        let mut rng = thread_rng();
+        transactions.shuffle(&mut rng);
+        for tx in transactions.clone() {
+            println!("{:?}", tx);
+            pool.insert_transaction(tx);
+        }
+        assert_eq!(pool.len(), n as usize);
+
+        transactions.shuffle(&mut rng);
+        let (txs_to_remove, txs_to_check) = transactions.split_at(transactions.len() / 2);
+        pool.remove_transactions(txs_to_remove);
+
+        assert_eq!(pool.len(), txs_to_check.len());
+
+        let mut pool_txs = pool.prepare_transactions(txs_to_check.len() as u32).unwrap();
+        pool_txs.sort_by_key(|tx| tx.transaction.nonce);
+        let mut expected_txs = txs_to_check.to_vec();
+        expected_txs.sort_by_key(|tx| tx.transaction.nonce);
+
+        assert_eq!(pool_txs, expected_txs);
     }
 }
