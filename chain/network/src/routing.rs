@@ -278,21 +278,17 @@ impl RoutingTable {
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
-            let (min_v, max_v) = routes
-                .iter()
-                .map(|peer_id| {
-                    let nonce = self.route_nonce.get(&peer_id).cloned().unwrap_or(0usize);
-                    (nonce, peer_id.clone())
-                })
-                .fold((None, None), |(min_v, max_v), current| {
-                    if min_v.is_none() || current < *min_v.as_ref().unwrap() {
-                        (Some(current), max_v)
-                    } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
-                        (max_v, Some(current))
-                    } else {
-                        (min_v, max_v)
-                    }
-                });
+            let (min_v, max_v) = routes.iter().fold((None, None), |(min_v, max_v), peer_id| {
+                let nonce = self.route_nonce.get(&peer_id).cloned().unwrap_or(0usize);
+                let current = (nonce, peer_id.clone());
+                if min_v.is_none() || current < *min_v.as_ref().unwrap() {
+                    (Some(current), max_v)
+                } else if max_v.is_none() || *max_v.as_ref().unwrap() < current {
+                    (max_v, Some(current))
+                } else {
+                    (min_v, max_v)
+                }
+            });
 
             let next_hop = match (min_v, max_v) {
                 (None, _) => {
