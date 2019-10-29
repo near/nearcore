@@ -834,6 +834,7 @@ impl Client {
         if let ValidatorSignatureVerificationResult::Invalid =
             self.runtime_adapter.verify_validator_signature(
                 &header.inner.epoch_id,
+                &header.inner.prev_hash,
                 account_id,
                 hash.as_ref(),
                 signature,
@@ -1101,6 +1102,7 @@ impl Client {
             .runtime_adapter
             .verify_validator_signature(
                 &head.epoch_id,
+                &head.prev_block_hash,
                 &challenge.account_id,
                 challenge.hash.as_ref(),
                 &challenge.signature,

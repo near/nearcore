@@ -79,6 +79,8 @@ pub fn validate_chunk_with_chunk_extra(
     Ok(())
 }
 
+/// Validates a double sign challenge.
+/// Only valid if ancestors of both blocks are present in the chain.
 fn validate_double_sign(
     runtime_adapter: &dyn RuntimeAdapter,
     block_double_sign: &BlockDoubleSign,
@@ -92,6 +94,7 @@ fn validate_double_sign(
         && runtime_adapter
             .verify_validator_signature(
                 &left_block_header.inner.epoch_id,
+                &left_block_header.inner.prev_hash,
                 &block_producer,
                 left_block_header.hash().as_ref(),
                 &left_block_header.signature,
@@ -100,6 +103,7 @@ fn validate_double_sign(
         && runtime_adapter
             .verify_validator_signature(
                 &right_block_header.inner.epoch_id,
+                &right_block_header.inner.prev_hash,
                 &block_producer,
                 right_block_header.hash().as_ref(),
                 &right_block_header.signature,
@@ -121,50 +125,33 @@ fn validate_header_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    let block_producer = runtime_adapter
-        .get_block_producer(&block_header.inner.epoch_id, block_header.inner.height)?;
-    match runtime_adapter.verify_validator_signature(
-        &block_header.inner.epoch_id,
-        &block_producer,
-        block_header.hash().as_ref(),
-        &block_header.signature,
-    ) {
-        ValidatorSignatureVerificationResult::Valid => {}
-        ValidatorSignatureVerificationResult::Invalid => {
-            return Err(ErrorKind::InvalidChallenge.into())
-        }
+    match runtime_adapter.verify_header_signature(block_header) {
+        ValidatorSignatureVerificationResult::Valid => Ok(()),
+        ValidatorSignatureVerificationResult::Invalid => Err(ErrorKind::InvalidChallenge.into()),
         ValidatorSignatureVerificationResult::UnknownEpoch => {
-            return Err(ErrorKind::EpochOutOfBounds.into())
+            Err(ErrorKind::EpochOutOfBounds.into())
         }
     }
-    Ok(())
 }
 
 fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
-    block_header: &BlockHeader,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    let chunk_producer = runtime_adapter.get_chunk_producer(
-        &block_header.inner.epoch_id,
-        chunk_header.inner.height_created,
-        chunk_header.inner.shard_id,
-    )?;
-    match runtime_adapter.verify_validator_signature(
-        &block_header.inner.epoch_id,
-        &chunk_producer,
-        chunk_header.chunk_hash().as_ref(),
-        &chunk_header.signature,
-    ) {
-        ValidatorSignatureVerificationResult::Valid => {}
-        ValidatorSignatureVerificationResult::Invalid => {
-            return Err(ErrorKind::InvalidChallenge.into())
+    match runtime_adapter.verify_chunk_header_signature(chunk_header) {
+        Ok(true) => {
+            let epoch_id = runtime_adapter
+                .get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
+            let chunk_producer = runtime_adapter.get_chunk_producer(
+                &epoch_id,
+                chunk_header.inner.height_created,
+                chunk_header.inner.shard_id,
+            )?;
+            Ok(chunk_producer)
         }
-        ValidatorSignatureVerificationResult::UnknownEpoch => {
-            return Err(ErrorKind::EpochOutOfBounds.into())
-        }
-    };
-    Ok(chunk_producer)
+        Ok(false) => return Err(ErrorKind::InvalidChallenge.into()),
+        Err(e) => Err(e),
+    }
 }
 
 fn validate_chunk_proofs_challenge(
@@ -173,8 +160,7 @@ fn validate_chunk_proofs_challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer =
-        validate_chunk_authorship(runtime_adapter, &block_header, &chunk_proofs.chunk.header)?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_proofs.chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_proofs.chunk.header,
         &block_header.inner.chunk_headers_root,
@@ -204,11 +190,7 @@ fn validate_chunk_state_challenge(
 
     // Validate previous chunk and block header.
     validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let _ = validate_chunk_authorship(
-        runtime_adapter,
-        &prev_block_header,
-        &chunk_state.prev_chunk.header,
-    )?;
+    let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.prev_chunk.header,
         &prev_block_header.inner.chunk_headers_root,
@@ -219,8 +201,7 @@ fn validate_chunk_state_challenge(
 
     // Validate current chunk and block header.
     validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer =
-        validate_chunk_authorship(runtime_adapter, &block_header, &chunk_state.chunk_header)?;
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.chunk_header,
         &block_header.inner.chunk_headers_root,
@@ -263,12 +244,14 @@ fn validate_chunk_state_challenge(
 pub fn validate_challenge(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
+    last_block_hash: &CryptoHash,
     challenge: &Challenge,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
     if !runtime_adapter
         .verify_validator_signature(
             epoch_id,
+            last_block_hash,
             &challenge.account_id,
             challenge.hash.as_ref(),
             &challenge.signature,

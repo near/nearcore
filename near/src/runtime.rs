@@ -381,6 +381,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
@@ -388,7 +389,39 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
         {
+            let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
+                Ok(slashed) => slashed,
+                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
+            };
+            if slashed.contains(&validator.account_id) {
+                return ValidatorSignatureVerificationResult::Invalid;
+            }
             if signature.verify(data, &validator.public_key) {
+                ValidatorSignatureVerificationResult::Valid
+            } else {
+                ValidatorSignatureVerificationResult::Invalid
+            }
+        } else {
+            ValidatorSignatureVerificationResult::UnknownEpoch
+        }
+    }
+
+    fn verify_header_signature(
+        &self,
+        header: &BlockHeader,
+    ) -> ValidatorSignatureVerificationResult {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        if let Ok(block_producer) =
+            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)
+        {
+            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_hash) {
+                Ok(slashed) => slashed,
+                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
+            };
+            if slashed.contains(&block_producer.account_id) {
+                return ValidatorSignatureVerificationResult::Invalid;
+            }
+            if header.signature.verify(header.hash.as_ref(), &block_producer.public_key) {
                 ValidatorSignatureVerificationResult::Valid
             } else {
                 ValidatorSignatureVerificationResult::Invalid
@@ -400,12 +433,21 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
         let epoch_id = self.get_epoch_id_from_prev_block(&header.inner.prev_block_hash)?;
-        let mut vm = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let public_key = &vm
-            .get_chunk_producer_info(&epoch_id, header.inner.height_created, header.inner.shard_id)
-            .map(|vs| vs.public_key);
-        if let Ok(public_key) = public_key {
-            Ok(header.signature.verify(header.chunk_hash().as_ref(), public_key))
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        if let Ok(chunk_producer) = epoch_manager.get_chunk_producer_info(
+            &epoch_id,
+            header.inner.height_created,
+            header.inner.shard_id,
+        ) {
+            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)
+            {
+                Ok(slashed) => slashed,
+                Err(_) => return Ok(false),
+            };
+            if slashed.contains(&chunk_producer.account_id) {
+                return Ok(false);
+            }
+            Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
         } else {
             Ok(false)
         }
@@ -1525,7 +1567,8 @@ mod test {
         assert_eq!(
             ValidatorSignatureVerificationResult::Valid,
             env.runtime.verify_validator_signature(
-                &EpochId::default(),
+                &env.head.epoch_id,
+                &env.head.last_block_hash,
                 &validators[0],
                 &data,
                 &signature
@@ -1827,6 +1870,19 @@ mod test {
                 .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
                 .unwrap(),
             vec![("test2".to_string(), true), ("test1".to_string(), false)]
+        );
+        let msg = vec![0, 1, 2];
+        let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
+        let signature = signer.sign(&msg);
+        assert_eq!(
+            env.runtime.verify_validator_signature(
+                &env.head.epoch_id,
+                &env.head.last_block_hash,
+                &"test2".to_string(),
+                &msg,
+                &signature,
+            ),
+            ValidatorSignatureVerificationResult::Invalid
         );
     }
 }

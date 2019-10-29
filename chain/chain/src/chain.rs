@@ -414,7 +414,7 @@ impl Chain {
     /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
     /// soon as possible and allow next block producer to skip invalid blocks.  
     pub fn process_challenge(&mut self, challenge: &Challenge) {
-        let epoch_id = unwrap_or_return!(self.head()).epoch_id;
+        let head = unwrap_or_return!(self.head());
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
             self.runtime_adapter.clone(),
@@ -422,7 +422,12 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
         );
-        match chain_update.verify_challenges(&vec![challenge.clone()], &epoch_id, None) {
+        match chain_update.verify_challenges(
+            &vec![challenge.clone()],
+            &head.epoch_id,
+            &head.last_block_hash,
+            None,
+        ) {
             Ok(_) => {}
             Err(err) => {
                 debug!(target: "chain", "Invalid challenge: {}", err);
@@ -1782,6 +1787,7 @@ impl<'a> ChainUpdate<'a> {
         let challenges_result = self.verify_challenges(
             &block.challenges,
             &block.header.inner.epoch_id,
+            &block.header.inner.prev_hash,
             Some(&block.hash()),
         )?;
         let apply_result = self
@@ -1823,6 +1829,7 @@ impl<'a> ChainUpdate<'a> {
         let challenges_result = self.verify_challenges(
             &block.challenges,
             &block.header.inner.epoch_id,
+            &block.header.inner.prev_hash,
             Some(&block.hash()),
         )?;
         self.chain_store_update.save_block_extra(&block.hash(), BlockExtra { challenges_result });
@@ -2148,22 +2155,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        let validator =
-            self.runtime_adapter.get_block_producer(&header.inner.epoch_id, header.inner.height)?;
-        if self.runtime_adapter.verify_validator_signature(
-            &header.inner.epoch_id,
-            &validator,
-            header.hash().as_ref(),
-            &header.signature,
-        ) == ValidatorSignatureVerificationResult::Valid
-        {
-            Ok(())
-        } else {
-            Err(ErrorKind::InvalidSignature.into())
-        }
-    }
-
     fn validate_header<F>(
         &mut self,
         header: &BlockHeader,
@@ -2179,7 +2170,11 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // First I/O cost, delay as much as possible.
-        self.check_header_signature(header)?;
+        if self.runtime_adapter.verify_header_signature(header)
+            != ValidatorSignatureVerificationResult::Valid
+        {
+            return Err(ErrorKind::InvalidSignature.into());
+        };
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
@@ -2567,12 +2562,14 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         challenges: &Vec<Challenge>,
         epoch_id: &EpochId,
+        prev_block_hash: &CryptoHash,
         block_hash: Option<&CryptoHash>,
     ) -> Result<ChallengesResult, Error> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(&*self.runtime_adapter, &epoch_id, challenge) {
+            match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
+            {
                 Ok((hash, account_ids)) => {
                     match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.

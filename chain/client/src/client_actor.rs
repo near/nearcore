@@ -127,9 +127,19 @@ impl ClientActor {
         announce_account: &AnnounceAccount,
     ) -> AccountAnnounceVerificationResult {
         let announce_hash = announce_account.hash();
+        let head = unwrap_or_return!(
+            self.client.chain.head(),
+            AccountAnnounceVerificationResult::UnknownEpoch
+        );
+
+        // If we are currently not at the epoch that this announcement is in, skip it.
+        if announce_account.epoch_id != head.epoch_id {
+            return AccountAnnounceVerificationResult::UnknownEpoch;
+        }
 
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
+            &head.last_block_hash,
             &announce_account.account_id,
             announce_hash.as_ref(),
             &announce_account.signature,

@@ -286,11 +286,23 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
         _data: &[u8],
         _signature: &Signature,
     ) -> ValidatorSignatureVerificationResult {
         ValidatorSignatureVerificationResult::Valid
+    }
+
+    fn verify_header_signature(
+        &self,
+        _header: &BlockHeader,
+    ) -> ValidatorSignatureVerificationResult {
+        ValidatorSignatureVerificationResult::Valid
+    }
+
+    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn verify_approval_signature(
@@ -301,10 +313,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _approval_sigs: &[Signature],
         _data: &[u8],
     ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
         Ok(true)
     }
 

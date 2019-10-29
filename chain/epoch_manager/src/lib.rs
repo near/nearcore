@@ -388,7 +388,8 @@ impl EpochManager {
             .clone())
     }
 
-    /// Returns validator for given account id for given epoch. We don't require caller to know about EpochIds.
+    /// Returns validator for given account id for given epoch.
+    /// We don't require caller to know about EpochIds. Doesn't account for slashing.
     pub fn get_validator_by_account_id(
         &mut self,
         epoch_id: &EpochId,

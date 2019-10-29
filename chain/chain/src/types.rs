@@ -155,13 +155,19 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Vec<SignedTransaction>;
 
     /// Verify validator signature for the given epoch.
+    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
     ) -> ValidatorSignatureVerificationResult;
+
+    /// Verify header signature.
+    fn verify_header_signature(&self, header: &BlockHeader)
+        -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
