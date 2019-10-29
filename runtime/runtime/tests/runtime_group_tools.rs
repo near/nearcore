@@ -1,3 +1,4 @@
+use crate::random_config::random_config;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
@@ -8,7 +9,6 @@ use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
-use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime, StateRecord};
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -34,7 +34,7 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let runtime_config = RuntimeConfig::default();
+        let runtime_config = random_config();
 
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -47,7 +47,7 @@ impl StandaloneRuntime {
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
-            gas_price: 1,
+            gas_price: 100,
             block_timestamp: 0,
         };
 
