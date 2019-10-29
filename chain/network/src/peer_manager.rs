@@ -27,7 +27,7 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
-use crate::routing::{Edge, EdgeInfo, ProcessEdgeResult, RoutingTable};
+use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerIdOrHash,
@@ -42,6 +42,12 @@ use crate::NetworkClientResponses;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
+/// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
+/// This number should be large to handle pair of nodes with high latency.
+const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6000;
+/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
+/// timeout and in case it didn't become an active peer, broadcast edge removal update.
+const WAIT_PEER_BEFORE_REMOVE: u64 = 6000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -81,6 +87,8 @@ pub struct PeerManagerActor {
     routing_table: RoutingTable,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
     monitor_peers_attempts: u64,
+    /// Active peers we have sent new edge update, but we haven't received response so far.
+    pending_update_nonce_request: HashMap<PeerId, u64>,
 }
 
 impl PeerManagerActor {
@@ -102,6 +110,7 @@ impl PeerManagerActor {
             outgoing_peers: HashSet::default(),
             routing_table: RoutingTable::new(me),
             monitor_peers_attempts: 0,
+            pending_update_nonce_request: HashMap::new(),
         })
     }
 
@@ -179,28 +188,40 @@ impl PeerManagerActor {
         });
     }
 
-    fn remove_active_peer(&mut self, peer_id: &PeerId) {
-        // TODO(MarX, #1312): Trigger actions after a peer is removed successfully regarding networking
-        //  (Write specification about the actions)
+    fn remove_active_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId) {
+        println!("\n REMOVE ACTIVE PEER me:{:?} other:{:?}\n", self.peer_id, peer_id);
+        // If the last edge we have with this peer represent a connection addition, create the edge
+        // update the represents the connection removal.
         self.active_peers.remove(&peer_id);
+
+        if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {
+            if edge.edge_type() == EdgeType::Added {
+                let edge_update = edge.remove_edge(self.peer_id.clone(), &self.config.secret_key);
+                self.process_edge(ctx, edge_update.clone());
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::Sync(SyncData::edge(edge_update)) },
+                );
+            }
+        }
     }
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
     /// data from ongoing connection established is removed.
-    fn unregister_peer(&mut self, peer_id: PeerId) {
+    fn unregister_peer(&mut self, ctx: &mut Context<Self>, peer_id: PeerId) {
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
         if self.outgoing_peers.contains(&peer_id) {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        self.remove_active_peer(&peer_id);
+        self.remove_active_peer(ctx, &peer_id);
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
     /// Add peer to ban list.
-    fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
+    fn ban_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
-        self.remove_active_peer(peer_id);
+        self.remove_active_peer(ctx, peer_id);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -318,6 +339,59 @@ impl PeerManagerActor {
         }
 
         new_edge
+    }
+
+    fn wait_peer_or_remove(&mut self, ctx: &mut Context<Self>, edge: Edge) {
+        // This edge says this is an active peer, which is currently not in the set of active peers.
+        // Wait for some time to let the connection begin or broadcast edge removal instead.
+
+        ctx.run_later(Duration::from_millis(WAIT_PEER_BEFORE_REMOVE), move |act, ctx| {
+            let other = edge.other(&act.peer_id).unwrap();
+            if !act.active_peers.contains_key(&other) {
+                // Peer is still not active after waiting a timeout.
+                let new_edge = edge.remove_edge(act.peer_id.clone(), &act.config.secret_key);
+                act.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::Sync(SyncData::edge(new_edge)) },
+                );
+            }
+        });
+    }
+
+    fn try_update_nonce(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
+        let nonce = edge.next_nonce();
+
+        if let Some(last_nonce) = self.pending_update_nonce_request.get(&other) {
+            if *last_nonce >= nonce {
+                // We already tried to update an edge with equal or higher nonce.
+                return;
+            }
+        }
+
+        self.send_message(
+            ctx,
+            &other.clone(),
+            PeerMessage::RequestUpdateNonce(EdgeInfo::new(
+                self.peer_id.clone(),
+                other.clone(),
+                nonce,
+                &self.config.secret_key,
+            )),
+        );
+
+        self.pending_update_nonce_request.insert(other.clone(), nonce);
+
+        ctx.run_later(Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE), move |act, _ctx| {
+            if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
+                if *cur_nonce == nonce {
+                    if let Some(peer) = act.active_peers.get(&other) {
+                        // Send disconnect signal to this peer if we haven't edge update.
+                        peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
+                    }
+                    act.pending_update_nonce_request.remove(&other);
+                }
+            }
+        });
     }
 
     /// Periodically query peer actors for latest weight and traffic info.
@@ -667,7 +741,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     warn!(target: "network", "Try to ban a disconnected peer: {:?}", peer_id);
                     // Call `ban_peer` in peer manager to trigger action that persists information
                     // of ban in disk.
-                    self.ban_peer(&peer_id, ban_reason);
+                    self.ban_peer(ctx, &peer_id, ban_reason);
                 }
 
                 NetworkResponses::NoResponse
@@ -763,14 +837,40 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             let new_edges: Vec<_> = edges
                                 .into_iter()
                                 .filter( |edge| {
-                                    // Don't add edge incoming edge if it is between us and other peers.
-                                    // TODO(Marx): If we receive an edge concerning us
-                                    //  send evidence that we are not already connected to that peer.
-                                    //  Handle this case properly (maybe we are on the middle of a handshake, so wait
-                                    //  before saying we are not connected).
-                                    //  Also handle the case where we current peer needs to update its nonce.
-                                    edge.peer0 != me && edge.peer1 != me &&
-                                    act.process_edge(ctx, edge.clone())
+                                    if let Some(cur_edge) = act.routing_table.get_edge(edge.peer0.clone(), edge.peer1.clone()){
+                                        if cur_edge.nonce >= edge.nonce {
+                                            // We have newer update. Drop this.
+                                            return false;
+                                        }
+                                    }
+                                    // Add new edge update to the routing table.
+                                    act.process_edge(ctx,edge.clone());
+                                    if let Some(other) = edge.other(&me) {
+                                        // We belong to this edge.
+                                        return if act.active_peers.contains_key(&other) {
+                                            // This is an active connection.
+                                            match edge.edge_type() {
+                                                EdgeType::Added => true,
+                                                EdgeType::Removed => {
+                                                    // Try to update the nonce, and in case it fails removes the peer.
+                                                    act.try_update_nonce(ctx, edge.clone(), other);
+                                                    false
+                                                }
+                                            }
+                                        } else {
+                                            match edge.edge_type() {
+                                                EdgeType::Added => {
+                                                    act.wait_peer_or_remove(ctx, edge.clone());
+                                                    false
+                                                }
+                                                EdgeType::Removed => true
+                                            }
+                                        };
+                                    } else {
+
+                                    true
+                                    }
+
                                 })
                                 .collect();
 
@@ -805,6 +905,46 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     SendMessage { message: PeerMessage::Challenge(challenge) },
                 );
                 NetworkResponses::NoResponse
+            NetworkRequests::RequestUpdateNonce(peer_id, edge_info) => {
+                if Edge::partial_verify(self.peer_id.clone(), peer_id.clone(), &edge_info) {
+                    if let Some(cur_edge) =
+                        self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone())
+                    {
+                        if cur_edge.edge_type() == EdgeType::Added
+                            && cur_edge.nonce >= edge_info.nonce
+                        {
+                            return NetworkResponses::EdgeUpdate(cur_edge);
+                        }
+                    }
+
+                    let new_edge = Edge::build_with_secret_key(
+                        self.peer_id.clone(),
+                        peer_id.clone(),
+                        edge_info.nonce,
+                        &self.config.secret_key,
+                        edge_info.signature,
+                    );
+
+                    self.process_edge(ctx, new_edge.clone());
+                    NetworkResponses::EdgeUpdate(new_edge)
+                } else {
+                    NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
+                }
+            }
+            NetworkRequests::ResponseUpdateNonce(edge) => {
+                if edge.contains_peer(&self.peer_id) && edge.verify() {
+                    if self.process_edge(ctx, edge.clone()) {
+                        let other = edge.other(&self.peer_id).unwrap();
+                        if let Some(nonce) = self.pending_update_nonce_request.get(&other) {
+                            if edge.nonce >= *nonce {
+                                self.pending_update_nonce_request.remove(&other);
+                            }
+                        }
+                    }
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
+                }
             }
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
@@ -930,16 +1070,16 @@ impl Handler<Consolidate> for PeerManagerActor {
 impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: Unregister, _ctx: &mut Self::Context) {
-        self.unregister_peer(msg.peer_id);
+    fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
+        self.unregister_peer(ctx, msg.peer_id);
     }
 }
 
 impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: Ban, _ctx: &mut Self::Context) {
-        self.ban_peer(&msg.peer_id, msg.ban_reason);
+    fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
+        self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 }
 

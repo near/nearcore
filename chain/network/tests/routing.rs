@@ -150,6 +150,7 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                    println!("\nROUTING TABLE INFO: {:?}\n", routing_table);
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,
@@ -479,7 +480,7 @@ fn ping_jump() {
 }
 
 #[test]
-fn test_simple_remove() {
+fn simple_remove() {
     init_test_logger();
 
     System::run(|| {
@@ -498,10 +499,25 @@ fn test_simple_remove() {
     .unwrap();
 }
 
-// TODO(Marx, #1312): Test handshake nonce after Added -> Removed -> Added
+#[test]
+fn square() {
+    init_test_logger();
 
-// TODO(MarX, #1312): What happens with Outbound connection if it doesn't receive the Handshake.
-//      In this case new edge will be broadcasted but will be unusable from this node POV.
-//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
-//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
-//      higher nonce, forget this new connection.
+    System::run(|| {
+        let mut runner = Runner::new(4, 4);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::AddEdge(3, 0));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::CheckRoutingTable(0, vec![(3, vec![3]), (2, vec![3])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3]), (0, vec![3])]));
+        runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2]), (0, vec![0])]));
+
+        runner.run();
+    })
+    .unwrap();
+}

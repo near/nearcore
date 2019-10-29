@@ -439,6 +439,8 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     Sync(SyncData),
+    RequestUpdateNonce(EdgeInfo),
+    ResponseUpdateNonce(Edge),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -473,6 +475,8 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::Sync(_) => f.write_str("Sync"),
+            PeerMessage::RequestUpdateNonce(_) => f.write_str("RequestUpdateNonce"),
+            PeerMessage::ResponseUpdateNonce(_) => f.write_str("ResponseUpdateNonce"),
             PeerMessage::LastEdge(_) => f.write_str("LastEdge"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
@@ -759,6 +763,9 @@ pub enum NetworkRequests {
     /// Data to sync routing table from active peer.
     Sync { peer_id: PeerId, sync_data: SyncData },
 
+    RequestUpdateNonce(PeerId, EdgeInfo),
+    ResponseUpdateNonce(Edge),
+
     /// Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
     /// Fetch all received ping and pong so far.
@@ -772,6 +779,7 @@ pub enum NetworkRequests {
 #[derive(Message)]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
+    UnregisterPeer,
 }
 
 /// Combines peer address info and chain information.
@@ -801,6 +809,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
+    EdgeUpdate(Edge),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses

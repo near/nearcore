@@ -79,8 +79,25 @@ impl Edge {
         Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
     }
 
+    /// Build a new edge with given information from the other party.
+    pub fn build_with_secret_key(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        secret_key: &SecretKey,
+        signature1: Signature,
+    ) -> Self {
+        let hash = if peer0 < peer1 {
+            Edge::build_hash(&peer0, &peer1, nonce)
+        } else {
+            Edge::build_hash(&peer1, &peer0, nonce)
+        };
+        let signature0 = secret_key.sign(hash.as_ref());
+        Edge::new(peer0, peer1, nonce, signature0, signature1)
+    }
+
     /// Create the remove edge change from an added edge change.
-    pub fn remove_edge(&self, me: PeerId, sk: SecretKey) -> Self {
+    pub fn remove_edge(&self, me: PeerId, sk: &SecretKey) -> Self {
         assert_eq!(self.edge_type(), EdgeType::Added);
         let mut edge = self.clone();
         edge.nonce += 1;
@@ -91,6 +108,8 @@ impl Edge {
         edge
     }
 
+    /// Build the hash of the edge given its content.
+    /// It is important that peer0 < peer1 at this point.
     fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let mut buffer = Vec::<u8>::new();
         let peer0: Vec<u8> = peer0.clone().into();
@@ -170,7 +189,7 @@ impl Edge {
 
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
     /// previous edge.
-    fn edge_type(&self) -> EdgeType {
+    pub fn edge_type(&self) -> EdgeType {
         if self.nonce % 2 == 1 {
             EdgeType::Added
         } else {
@@ -184,6 +203,21 @@ impl Edge {
             self.nonce + 2
         } else {
             self.nonce + 1
+        }
+    }
+
+    pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
+        self.peer0 == *peer_id || self.peer1 == *peer_id
+    }
+
+    /// Find a peer id in this edge different from `me`.
+    pub fn other(&self, me: &PeerId) -> Option<PeerId> {
+        if self.peer0 == *me {
+            Some(self.peer1.clone())
+        } else if self.peer1 == *me {
+            Some(self.peer0.clone())
+        } else {
+            None
         }
     }
 }
@@ -253,6 +287,7 @@ impl RoutingTable {
                 })
                 .minmax_by_key(|value| value.1);
 
+            // TODO(MarX): Remove MinMaxResult usage.
             let next_hop = match result {
                 MinMaxResult::NoElements => {
                     return Err(FindRouteError::Disconnected);
