@@ -4,7 +4,6 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
 
-pub mod random_config;
 pub mod runtime_group_tools;
 
 #[test]

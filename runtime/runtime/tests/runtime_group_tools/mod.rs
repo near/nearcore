@@ -1,4 +1,3 @@
-use crate::random_config::random_config;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
@@ -10,10 +9,13 @@ use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use node_runtime::{ApplyState, Runtime, StateRecord};
+use random_config::random_config;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+
+pub mod random_config;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
