@@ -14,7 +14,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
-use near_network::types::OutboundTcpConnect;
+use near_network::types::{OutboundTcpConnect, StopSignal};
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
@@ -88,6 +88,8 @@ enum Action {
     PingTo(usize, usize, usize),
     // Check for `source` received pings and pongs.
     CheckPingPong(usize, Vec<(usize, usize)>, Vec<(usize, usize)>),
+    // Send stop signal to some node.
+    Stop(usize),
 }
 
 #[derive(Clone)]
@@ -192,6 +194,21 @@ impl StateMachine {
                     let target = info.peers_info[target].id.clone();
                     let _ = info.pm_addr[source].do_send(NetworkRequests::PingTo(nonce, target));
                     flag.store(true, Ordering::Relaxed);
+                }));
+            }
+            Action::Stop(source) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    actix::spawn(
+                        info.pm_addr
+                            .get(source)
+                            .unwrap()
+                            .send(StopSignal {})
+                            .map_err(|_| ())
+                            .and_then(move |_| {
+                                flag.store(true, Ordering::Relaxed);
+                                future::ok(())
+                            }),
+                    );
                 }));
             }
             Action::CheckPingPong(source, pings, pongs) => {
@@ -455,6 +472,26 @@ fn ping_jump() {
         runner.push(Action::PingTo(0, 0, 2));
         runner.push(Action::CheckPingPong(2, vec![(0, 0)], vec![]));
         runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2)]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_simple_remove() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 3);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::CheckRoutingTable(0, vec![]));
+        runner.push(Action::CheckRoutingTable(2, vec![]));
 
         runner.run();
     })
