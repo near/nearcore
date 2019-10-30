@@ -52,7 +52,11 @@ pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
 pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
 pub const COL_STATE_HEADERS: Option<u32> = Some(17);
-const NUM_COLS: u32 = 18;
+pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
+pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
+/// Store hash of a block per each height, to detect double signs.
+pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
+const NUM_COLS: u32 = 21;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

@@ -31,14 +31,16 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "near/",
+    "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
+    "genesis-tools/keypair-generator",
 ]
 
 [dev-dependencies]
 actix = "0.8.2"
 lazy_static = "1.4.0"
 log = "0.4.6"
-rand = "0.6"
+rand = "0.7"
 serde_json = "1.0.0"
 reqwest = "0.9"
 futures = "0.1.25"
@@ -64,16 +66,16 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
-[profile.dev.package.hex]
+[profile.dev.overrides.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.package.ring]
+[profile.dev.overrides.ring]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.package.rand]
+[profile.dev.overrides.rand]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.package.bs58]
+[profile.dev.overrides.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]

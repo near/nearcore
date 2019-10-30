@@ -35,7 +35,7 @@ fn configure_logging(log_level: log::LevelFilter) {
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
     });
-    builder.default_format_timestamp_nanos(true);
+    builder.format_timestamp_nanos();
     builder.try_init().unwrap();
 }
 

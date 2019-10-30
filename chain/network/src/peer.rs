@@ -276,6 +276,12 @@ impl Peer {
                 RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)
                 }
+                RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash) => {
+                    NetworkClientMessages::TxStatus { tx_hash, signer_account_id }
+                }
+                RoutedMessageBody::TxStatusResponse(tx_result) => {
+                    NetworkClientMessages::TxStatusResponse(tx_result)
+                }
                 RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
                     NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
                 }
@@ -299,6 +305,7 @@ impl Peer {
             }
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
+            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest

@@ -1,31 +1,40 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
 use futures::{future, Future};
 
-use near_client::test_utils::setup_mock_all_validators;
+use near_chain::ChainGenesis;
+use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::test_utils::heavy_test;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
-    chunks_produced_and_distributed_common(1);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(1);
+    });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
-    chunks_produced_and_distributed_common(2);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(2);
+    });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
-    chunks_produced_and_distributed_common(4);
+    heavy_test(|| {
+        chunks_produced_and_distributed_common(4);
+    });
 }
 
 /// Runs block producing client and stops after network mock received seven blocks
@@ -141,4 +150,37 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
         }));
     })
     .unwrap();
+}
+
+#[test]
+fn test_request_chunk_restart() {
+    init_integration_logger();
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    for i in 1..4 {
+        env.produce_block(0, i);
+        env.network_adapters[0].pop();
+    }
+    let block1 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
+    let request = ChunkOnePartRequestMsg {
+        shard_id: 0,
+        chunk_hash: block1.chunks[0].chunk_hash(),
+        height: block1.header.inner.height,
+        part_id: 0,
+        tracking_shards: HashSet::default(),
+    };
+    let client = &mut env.clients[0];
+    client
+        .shards_mgr
+        .process_chunk_one_part_request(request.clone(), PeerId::random(), client.chain.mut_store())
+        .unwrap();
+    assert!(env.network_adapters[0].pop().is_some());
+
+    env.restart(0);
+    let client = &mut env.clients[0];
+    client
+        .shards_mgr
+        .process_chunk_one_part_request(request, PeerId::random(), client.chain.mut_store())
+        .unwrap();
+    // TODO(1434): should be some() with the same chunk.
+    assert!(env.network_adapters[0].pop().is_none());
 }
