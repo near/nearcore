@@ -44,10 +44,10 @@ use crate::NetworkClientResponses;
 const REQUEST_PEERS_SECS: i64 = 60;
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
-const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6000;
+const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
-const WAIT_PEER_BEFORE_REMOVE: u64 = 6000;
+const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -189,7 +189,6 @@ impl PeerManagerActor {
     }
 
     fn remove_active_peer(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId) {
-        println!("\n REMOVE ACTIVE PEER me:{:?} other:{:?}\n", self.peer_id, peer_id);
         // If the last edge we have with this peer represent a connection addition, create the edge
         // update the represents the connection removal.
         self.active_peers.remove(&peer_id);
@@ -406,6 +405,8 @@ impl PeerManagerActor {
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
                         trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
+                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                        //  network traffic that flags honest peers.
                         // Send ban signal to peer instance. It should send ban signal back and stop the instance.
                         // if let Some(active_peer) = act.active_peers.get(&peer_id1) {
                         //     active_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
