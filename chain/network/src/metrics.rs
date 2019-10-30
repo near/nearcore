@@ -20,4 +20,36 @@ lazy_static! {
             "peer_transaction_received_total",
             "Total number of transactions received by peers"
         );
+
+    // Routing table metrics
+    pub static ref ROUTING_TABLE_RECALCULATIONS: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "routing_table_recalculations",
+            "Number of times routing table have been recalculated from scratch"
+        );
+    pub static ref ROUTING_TABLE_RECALCULATION_MILLISECONDS: near_metrics::Result<IntGauge> =
+        try_create_int_gauge(
+            "routing_table_recalculation_milliseconds",
+            "Time spent recalculating routing table"
+        );
+    pub static ref EDGE_UPDATES: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "edge_updates",
+            "Total edge updates received not previously known"
+        );
+    pub static ref EDGE_ACTIVE: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "edge_active",
+            "Total edges active between peers"
+        );
+    pub static ref EDGE_INACTIVE: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "edge_inactive",
+            "Total edges that where active and are currently inactive"
+        );
+    pub static ref PEER_REACHABLE: near_metrics::Result<IntGauge> =
+        try_create_int_gauge(
+            "peer_reachable",
+            "Total peers such that there is a path potentially through other peers"
+        );
 }

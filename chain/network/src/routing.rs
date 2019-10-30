@@ -7,9 +7,11 @@ use cached::{Cached, SizedCache};
 use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
+use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 
+use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
 use std::time::{Duration, Instant};
@@ -394,6 +396,7 @@ impl RoutingTable {
             self.recalculation_scheduled = Some(Instant::now() + duration);
         }
 
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, 1);
         ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
     }
 
