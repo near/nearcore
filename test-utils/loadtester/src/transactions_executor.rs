@@ -99,7 +99,10 @@ impl Executor {
                                             Generator::call_heavy_storage_blocks(&node, signer_ind)
                                         }
                                     };
-                                    node.write().unwrap().add_transaction_committed(t.clone()).unwrap();
+                                    node.write()
+                                        .unwrap()
+                                        .add_transaction_committed(t.clone())
+                                        .unwrap();
                                     let f = { node.write().unwrap().add_transaction_async(t) };
                                     f.map(|r| debug!("txn submitted: {}", r))
                                         .map_err(|e| warn!("error submitting txn: {}", e))
