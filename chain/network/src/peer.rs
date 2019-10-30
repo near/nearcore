@@ -282,6 +282,12 @@ impl Peer {
                 RoutedMessageBody::TxStatusResponse(tx_result) => {
                     NetworkClientMessages::TxStatusResponse(tx_result)
                 }
+                RoutedMessageBody::QueryRequest { path, data, id } => {
+                    NetworkClientMessages::Query { path, data, id }
+                }
+                RoutedMessageBody::QueryResponse { response, id } => {
+                    NetworkClientMessages::QueryResponse { response, id }
+                }
                 RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
                     NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges)
                 }

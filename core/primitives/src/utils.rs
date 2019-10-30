@@ -11,6 +11,8 @@ use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId, ValidatorId};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use std::cmp::max;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
@@ -266,6 +268,11 @@ pub fn get_num_block_producers_per_shard(
             max(num, 1)
         })
         .collect()
+}
+
+/// Generate random string of given length
+pub fn generate_random_string(len: usize) -> String {
+    thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
 }
 
 #[cfg(test)]

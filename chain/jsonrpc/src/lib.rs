@@ -18,7 +18,7 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Query, Status, TxDetails, TxStatus,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Status, TxStatus,
     ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
@@ -29,12 +29,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
+use near_primitives::utils::generate_random_string;
 
 mod metrics;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
+const QUERY_DATA_MAX_SIZE: usize = 2 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -122,6 +124,7 @@ fn jsonify_client_response(
     match client_response {
         Ok(NetworkClientResponses::TxStatus(tx_result)) => serde_json::to_value(tx_result)
             .map_err(|err| RpcError::server_error(Some(err.to_string()))),
+        Ok(NetworkClientResponses::QueryResponse { response, ..}) => serde_json::to_value(response).map_err(|err| RpcError::server_error(Some(err.to_string()))),
         Ok(_) => Err(RpcError::server_error(Some(
             "Wrong response for transaction status query".to_string(),
         ))),
@@ -154,7 +157,6 @@ impl JsonRpcHandler {
             "health" => self.health().await,
             "status" => self.status().await,
             "tx" => self.tx_status(request.params).await,
-            "tx_details" => self.tx_details(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
             "network_info" => self.network_info().await,
@@ -254,7 +256,21 @@ impl JsonRpcHandler {
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (path, data) = parse_params::<(String, String)>(params)?;
         let data = from_base_or_parse_err(data)?;
-        jsonify(self.view_client_addr.send(Query { path, data }).compat().await)
+        let query_data_size = path.len() + data.len();
+        if query_data_size > QUERY_DATA_MAX_SIZE {
+            return Err(RpcError::server_error(Some(format!("Query data size {} is too large", query_data_size))));
+        }
+        if !path.contains('/') {
+            return Err(RpcError::server_error(Some("At least one query parameter is required".to_string())));
+        }
+        let request_id = generate_random_string(10);
+        let result = self
+            .client_addr
+            .send(NetworkClientMessages::Query { path, data, id: request_id})
+            .compat()
+            .await;
+
+        jsonify_client_response(result)
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -268,11 +284,6 @@ impl JsonRpcHandler {
                 .compat()
                 .await,
         )
-    }
-
-    async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let tx_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(TxDetails { tx_hash }).compat().await)
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {

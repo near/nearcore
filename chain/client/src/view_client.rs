@@ -8,13 +8,11 @@ use actix::{Actor, Context, Handler};
 use near_chain::{Chain, ChainGenesis, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, StateRoot};
-use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
-};
+use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
-use crate::{GetChunk, TxDetails};
+use crate::GetChunk;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -125,13 +123,5 @@ impl Handler<TxStatus> for ViewClientActor {
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
         self.chain.get_final_transaction_result(&msg.tx_hash)
-    }
-}
-
-impl Handler<TxDetails> for ViewClientActor {
-    type Result = Result<ExecutionOutcomeView, String>;
-
-    fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
-        self.chain.get_transaction_execution_result(&msg.tx_hash)
     }
 }
