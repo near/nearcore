@@ -162,7 +162,11 @@ impl RemoteNode {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
-        let user = RpcUser::new(&self.addr.to_string(), self.signers.first().unwrap().clone());
+        let user = RpcUser::new(
+            &self.addr.to_string(),
+            account_id.to_string(),
+            self.signers.first().unwrap().clone(),
+        );
         let access_key = user.get_access_key(account_id, public_key)?;
         info!("get access key of {}", account_id);
         Ok(access_key)
