@@ -28,6 +28,7 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 
 mod metrics;
@@ -174,16 +175,12 @@ impl JsonRpcHandler {
         Ok(Value::String(hash))
     }
 
-    async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let tx = parse_tx(params)?;
-        let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id.clone();
-        let result = self
-            .client_addr
-            .send(NetworkClientMessages::Transaction(tx))
-            .map_err(|err| RpcError::server_error(Some(err.to_string())))
-            .compat()
-            .await?;
+    async fn tx_polling(
+        &self,
+        result: NetworkClientResponses,
+        tx_hash: CryptoHash,
+        account_id: AccountId,
+    ) -> Result<Value, RpcError> {
         match result {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
                 let needs_routing = result == NetworkClientResponses::RequestRouted;
@@ -194,14 +191,16 @@ impl JsonRpcHandler {
                                 .client_addr
                                 .send(NetworkClientMessages::TxStatus {
                                     tx_hash,
-                                    signer_account_id: signer_account_id.clone(),
+                                    signer_account_id: account_id.clone(),
                                 })
                                 .compat()
                                 .await;
                             if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
                                 match tx_result.status {
                                     FinalExecutionStatus::Started
-                                    | FinalExecutionStatus::NotStarted => {}
+                                    | FinalExecutionStatus::NotStarted => {
+                                        println!("waiting for result");
+                                    }
                                     FinalExecutionStatus::Failure(_)
                                     | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify_client_response(final_tx);
@@ -233,6 +232,8 @@ impl JsonRpcHandler {
                     }))
                 })?
             }
+            NetworkClientResponses::TxStatus(tx_result) => serde_json::to_value(tx_result)
+                .map_err(|err| RpcError::server_error(Some(err.to_string()))),
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
@@ -241,6 +242,19 @@ impl JsonRpcHandler {
             }
             _ => unreachable!(),
         }
+    }
+
+    async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let tx = parse_tx(params)?;
+        let tx_hash = tx.get_hash();
+        let signer_account_id = tx.transaction.signer_id.clone();
+        let result = self
+            .client_addr
+            .send(NetworkClientMessages::Transaction(tx))
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))
+            .compat()
+            .await?;
+        self.tx_polling(result, tx_hash, signer_account_id).await
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
@@ -262,12 +276,16 @@ impl JsonRpcHandler {
         let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
             CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
         })?;
-        jsonify_client_response(
-            self.client_addr
-                .send(NetworkClientMessages::TxStatus { tx_hash, signer_account_id: account_id })
-                .compat()
-                .await,
-        )
+        let result = self
+            .client_addr
+            .send(NetworkClientMessages::TxStatus {
+                tx_hash,
+                signer_account_id: account_id.clone(),
+            })
+            .compat()
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))
+            .await?;
+        self.tx_polling(result, tx_hash, account_id).await
     }
 
     async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
