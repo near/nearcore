@@ -143,7 +143,7 @@ pub struct ShardsManager {
     requested_chunks: RequestPool,
 
     requests_fifo: VecDeque<(ShardId, ChunkHash, CryptoHash, u64)>,
-    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<(CryptoHash)>>,
+    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<CryptoHash>>,
 }
 
 impl ShardsManager {
