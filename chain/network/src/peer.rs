@@ -18,7 +18,6 @@ use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::metrics;
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
@@ -28,8 +27,8 @@ use crate::types::{
     PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan,
     RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister, PROTOCOL_VERSION,
 };
-
 use crate::PeerManagerActor;
+use crate::{metrics, NetworkResponses};
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -312,7 +311,9 @@ impl Peer {
             | PeerMessage::PeersResponse(_)
             | PeerMessage::Sync(_)
             | PeerMessage::LastEdge(_)
-            | PeerMessage::Disconnect => {
+            | PeerMessage::Disconnect
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::ResponseUpdateNonce(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -570,11 +571,40 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
+            (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
+                .peer_manager_addr
+                .send(NetworkRequests::RequestUpdateNonce(self.peer_id().unwrap(), edge_info))
+                .into_actor(self)
+                .then(|res, act, ctx| {
+                    match res {
+                        Ok(NetworkResponses::EdgeUpdate(edge)) => {
+                            act.send_message(PeerMessage::ResponseUpdateNonce(edge));
+                        }
+                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
+                            act.ban_peer(ctx, reason_for_ban);
+                        }
+                        _ => {}
+                    }
+                    actix::fut::ok(())
+                })
+                .spawn(ctx),
+            (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
+                .peer_manager_addr
+                .send(NetworkRequests::ResponseUpdateNonce(edge))
+                .into_actor(self)
+                .then(|res, act, ctx| {
+                    match res {
+                        Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
+                            act.ban_peer(ctx, reason_for_ban);
+                        }
+                        _ => {}
+                    }
+                    actix::fut::ok(())
+                })
+                .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
-                self.peer_manager_addr.do_send(NetworkRequests::Sync {
-                    peer_id: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
-                    sync_data,
-                });
+                self.peer_manager_addr
+                    .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
@@ -586,7 +616,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     self.peer_manager_addr
                         .send(RoutedMessageFrom {
                             msg: routed_message.clone(),
-                            from: self.peer_info.as_ref().as_ref().unwrap().id.clone(),
+                            from: self.peer_id().unwrap(),
                         })
                         .into_actor(self)
                         .then(move |res, act, ctx| {
@@ -643,6 +673,9 @@ impl Handler<PeerManagerRequest> for Peer {
         match pm_request {
             PeerManagerRequest::BanPeer(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
+            }
+            PeerManagerRequest::UnregisterPeer => {
+                ctx.stop();
             }
         }
     }
