@@ -59,6 +59,7 @@ impl RuntimeTestbed {
             epoch_length: 4,
             gas_price: 1,
             block_timestamp: 0,
+            gas_limit: 10_000_000,
         };
         Self { workdir, trie, root, runtime, prev_receipts, apply_state }
     }

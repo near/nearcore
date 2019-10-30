@@ -23,7 +23,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -206,6 +206,7 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
@@ -273,6 +274,7 @@ impl NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit,
         };
 
         let apply_result = self
@@ -599,6 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
+        gas_limit: Gas,
         state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError> {
@@ -608,6 +611,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit,
         };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
@@ -626,6 +630,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
+        gas_limit: Gas,
         state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
@@ -635,6 +640,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit,
         };
         transactions
             .into_iter()
@@ -698,6 +704,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -717,6 +724,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         ) {
             Ok(result) => Ok(result),
@@ -742,6 +750,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
@@ -756,6 +765,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         )
     }
@@ -1007,7 +1017,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
     use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
     use near_store::create_store;
@@ -1051,6 +1061,7 @@ mod test {
             transactions: &[SignedTransaction],
             last_proposals: &[ValidatorStake],
             gas_price: Balance,
+            gas_limit: Gas,
             challenges: &ChallengesResult,
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
@@ -1065,6 +1076,7 @@ mod test {
                     transactions,
                     last_proposals,
                     gas_price,
+                    gas_limit,
                     challenges,
                 )
                 .unwrap();
@@ -1168,6 +1180,7 @@ mod test {
                     &transactions[i as usize],
                     self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
                     self.runtime.genesis_config.gas_price,
+                    u64::max_value(),
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;

@@ -8,7 +8,7 @@ extern crate lazy_static;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use kvdb::DBValue;
 
 use near_crypto::PublicKey;
@@ -24,9 +24,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, is_valid_account_id, key_for_delayed_receipt,
+    key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
+    key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -47,6 +47,7 @@ pub use crate::store::StateRecord;
 use near_primitives::errors::{
     ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
 };
+use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use std::cmp::max;
 use std::sync::Arc;
 
@@ -72,6 +73,8 @@ pub struct ApplyState {
     pub gas_price: Balance,
     /// A block timestamp
     pub block_timestamp: u64,
+    /// Gas limit for a given chunk
+    pub gas_limit: Gas,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -111,6 +114,15 @@ pub struct ApplyResult {
     pub new_receipts: Vec<Receipt>,
     pub tx_result: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
+}
+
+/// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
+#[derive(Default, BorshSerialize, BorshDeserialize)]
+pub struct DelayedReceiptIndices {
+    // First inclusive index in the queue.
+    first_index: u64,
+    // Exclusive end index of the queue
+    next_available_index: u64,
 }
 
 #[derive(Debug)]
@@ -913,6 +925,7 @@ impl Runtime {
 
         Ok(())
     }
+
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
@@ -948,21 +961,32 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut tx_result = vec![];
+        let mut total_gas_burnt = 0;
 
         for signed_transaction in transactions {
-            tx_result.push(self.process_transaction(
+            let result = self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
                 &mut stats,
-            )?);
+            )?;
+            total_gas_burnt += result.outcome.gas_burnt;
+
+            tx_result.push(result);
         }
 
-        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
+        let mut delayed_receipts_indices: DelayedReceiptIndices =
+            get(&state_update, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        let mut delayed_receipts_changed = false;
+
+        let mut process_receipt = |receipt: &Receipt,
+                                   state_update: &mut TrieUpdate,
+                                   total_gas_burnt: &mut Gas|
+         -> Result<_, StorageError> {
             self.process_receipt(
-                &mut state_update,
+                state_update,
                 apply_state,
                 receipt,
                 &mut new_receipts,
@@ -970,7 +994,47 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|res| tx_result.push(res));
+            .for_each(|res| {
+                *total_gas_burnt += res.outcome.gas_burnt;
+                tx_result.push(res);
+            });
+            Ok(())
+        };
+
+        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
+            if total_gas_burnt >= apply_state.gas_limit {
+                break;
+            }
+            let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
+            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} should be in the state",
+                    delayed_receipts_indices.first_index
+                ))
+            })?;
+            state_update.remove(&key);
+            delayed_receipts_indices.first_index += 1;
+            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            delayed_receipts_changed = true;
+        }
+
+        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
+            if total_gas_burnt < apply_state.gas_limit {
+                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            } else {
+                // Saving to the state as a delayed receipt.
+                set(
+                    &mut state_update,
+                    key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
+                    receipt,
+                );
+                delayed_receipts_indices.next_available_index += 1;
+                delayed_receipts_changed = true;
+            }
+        }
+
+        if delayed_receipts_changed {
+            set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
         }
 
         check_balance(
@@ -1201,8 +1265,13 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        let apply_state =
-            ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 0,
+            epoch_length: 3,
+            gas_price: 100,
+            block_timestamp: 100,
+            gas_limit: 10_000_000,
+        };
 
         runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
     }
@@ -1228,8 +1297,13 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        let apply_state =
-            ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 0,
+            epoch_length: 3,
+            gas_price: 100,
+            block_timestamp: 100,
+            gas_limit: 10_000_000,
+        };
 
         let validator_accounts_update = ValidatorAccountsUpdate {
             stake_info: vec![(account_id.clone(), initial_locked)].into_iter().collect(),

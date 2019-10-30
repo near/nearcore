@@ -224,7 +224,8 @@ fn validate_chunk_state_challenge(
             &chunk_state.prev_chunk.receipts,
             &chunk_state.prev_chunk.transactions,
             &[],
-            0,
+            prev_block_header.inner.gas_price,
+            chunk_state.prev_chunk.header.inner.gas_limit,
             &ChallengesResult::default(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;

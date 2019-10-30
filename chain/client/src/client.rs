@@ -382,6 +382,7 @@ impl Client {
             next_height,
             prev_block_timestamp,
             block_header.inner.gas_price,
+            chunk_extra.gas_limit,
             chunk_extra.state_root.clone(),
             transactions,
         );
@@ -958,18 +959,20 @@ impl Client {
             )
             .inner
             .gas_price;
-            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
-                Ok(chunk_extra) => chunk_extra.state_root.clone(),
-                Err(_) => {
-                    // Not being able to fetch a state root most likely implies that we haven't
-                    //     caught up with the next epoch yet.
-                    return self.forward_tx(tx);
-                }
-            };
+            let (state_root, gas_limit) =
+                match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
+                    Ok(chunk_extra) => (chunk_extra.state_root.clone(), chunk_extra.gas_limit),
+                    Err(_) => {
+                        // Not being able to fetch a state root most likely implies that we haven't
+                        //     caught up with the next epoch yet.
+                        return self.forward_tx(tx);
+                    }
+                };
             match self.runtime_adapter.validate_tx(
                 head.height + 1,
                 cur_block_header.inner.timestamp,
                 gas_price,
+                gas_limit,
                 state_root,
                 tx,
             ) {

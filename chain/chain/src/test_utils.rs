@@ -21,7 +21,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
@@ -437,7 +438,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _block_index: u64,
         _block_timestamp: u64,
-        _gas_price: u128,
+        _gas_price: Balance,
+        _gas_limit: Gas,
         _state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
@@ -449,6 +451,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
+        _gas_limit: Gas,
         _state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError> {
@@ -482,6 +485,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -673,6 +677,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         _gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();

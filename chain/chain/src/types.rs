@@ -139,6 +139,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
+        gas_limit: Gas,
         state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError>;
@@ -150,6 +151,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
+        gas_limit: Gas,
         state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction>;
@@ -290,6 +292,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
@@ -303,6 +306,7 @@ pub trait RuntimeAdapter: Send + Sync {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges_result,
             false,
         )
@@ -320,6 +324,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
@@ -337,6 +342,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error>;
 
