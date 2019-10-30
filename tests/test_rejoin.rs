@@ -26,7 +26,7 @@ mod test {
     // to ensure they are not run in parallel.
 
     fn send_transaction(
-        nodes: &Vec<Arc<RwLock<dyn Node>>>,
+        nodes: &Vec<Arc<RwLock<Node>>>,
         account_names: &Vec<AccountId>,
         nonces: &Vec<u64>,
         from: usize,
@@ -147,7 +147,7 @@ mod test {
                 }
             })
             .collect();
-        let nodes: Vec<Arc<RwLock<dyn Node>>> =
+        let nodes: Vec<Arc<RwLock<Node>>> =
             nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();

@@ -469,8 +469,7 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::BanPeer { .. }
-                        | NetworkRequests::BlockHeaderAnnounce { .. }
-                        | NetworkRequests::TxStatus(_, _, _) => {}
+                        | NetworkRequests::BlockHeaderAnnounce { .. } => {}
                     };
                 }
                 Box::new(Some(resp))

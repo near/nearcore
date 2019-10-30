@@ -26,12 +26,12 @@ fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
         format!("{} bytes, hash: {}", blob.len(), hash(blob))
     } else {
-        let ugly = blob.iter().any(|&x| x < b' ');
+        let ugly = blob.iter().find(|&&x| x < b' ').is_some();
         if ugly {
             return format!("0x{}", hex::encode(blob));
         }
         match String::from_utf8(blob.to_vec()) {
-            Ok(v) => v,
+            Ok(v) => format!("{}", v),
             Err(_e) => format!("0x{}", hex::encode(blob)),
         }
     }
@@ -63,14 +63,18 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
             let access_key = AccessKey::try_from_slice(&value).unwrap();
             let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
             let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
-            Some(StateRecord::AccessKey { account_id, public_key, access_key: access_key.into() })
+            Some(StateRecord::AccessKey {
+                account_id,
+                public_key: public_key.into(),
+                access_key: access_key.into(),
+            })
         }
         col::RECEIVED_DATA => {
             let data = ReceivedData::try_from_slice(&value).unwrap().data;
             let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
             let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
             let data_id = CryptoHash::try_from(&key[(separator + 1)..]).unwrap();
-            Some(StateRecord::ReceivedData { account_id, data_id, data })
+            Some(StateRecord::ReceivedData { account_id, data_id: data_id.into(), data })
         }
         col::POSTPONED_RECEIPT_ID => None,
         col::PENDING_DATA_COUNT => None,
@@ -216,7 +220,7 @@ fn replay_chain(
     start_index: BlockIndex,
     end_index: BlockIndex,
 ) {
-    let mut chain_store = ChainStore::new(store);
+    let mut chain_store = ChainStore::new(store.clone());
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -235,7 +239,7 @@ fn replay_chain(
                     header.inner.height,
                     header.inner.validator_proposals,
                     vec![],
-                    header.inner.chunk_mask,
+                    vec![],
                     header.inner.rent_paid,
                     header.inner.validator_reward,
                     header.inner.balance_burnt,
@@ -314,7 +318,7 @@ fn main() {
 
     match matches.subcommand() {
         ("peers", Some(_args)) => {
-            let peer_store = PeerStore::new(store, &[]).unwrap();
+            let peer_store = PeerStore::new(store.clone(), &vec![]).unwrap();
             for (peer_id, peer_info) in peer_store.iter() {
                 println!("{} {:?}", peer_id, peer_info);
             }

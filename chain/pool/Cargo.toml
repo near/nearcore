@@ -15,4 +15,4 @@ near-primitives = { path = "../../core/primitives" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]
-rand = "0.7"
+rand = "0.6"

@@ -3,7 +3,7 @@ use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::MerkleHash;
-use near_store::{create_store, Trie, COL_STATE};
+use near_store::{create_store, Trie, TrieUpdate, COL_STATE};
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::fs::File;
@@ -64,16 +64,10 @@ impl RuntimeTestbed {
     }
 
     pub fn process_block(&mut self, transactions: &[SignedTransaction], allow_failures: bool) {
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         let apply_result = self
             .runtime
-            .apply(
-                self.trie.clone(),
-                self.root,
-                &None,
-                &self.apply_state,
-                &self.prev_receipts,
-                transactions,
-            )
+            .apply(state_update, &self.apply_state, &self.prev_receipts, transactions)
             .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();

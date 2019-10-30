@@ -1,6 +1,6 @@
 [package]
 name = "near-runtime-fees"
-version = "0.4.0"
+version = "0.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -9,7 +9,7 @@ categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
 description = """
-Fees applied to near runtime encapsulated in a separate crate. Might merge it later.
+An engine that run smart contracts compiled to Wasm by exposing them `near-vm-logic` through the host functions.
 """
 
 [dependencies]

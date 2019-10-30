@@ -18,7 +18,7 @@ use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near::config::INITIAL_GAS_PRICE;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -69,13 +69,15 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
+            let state_update = TrieUpdate::new(client.trie.clone(), client.state_root);
             let apply_result = client
                 .runtime
-                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
+                .apply(state_update, &apply_state, &receipts, &txs)
                 .map_err(|e| match e {
-                    RuntimeError::InvalidTxError(e) => format!("{}", e),
-                    RuntimeError::BalanceMismatch(e) => panic!("{}", e),
-                    RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
+                    InvalidTxErrorOrStorageError::InvalidTxError(e) => format!("{}", e),
+                    InvalidTxErrorOrStorageError::StorageError(e) => {
+                        panic!("Storage error {:?}", e)
+                    }
                 })?;
             for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results

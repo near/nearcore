@@ -50,7 +50,7 @@ impl ShardTracker {
     ) -> Self {
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
             let shard_id = account_id_to_shard_id(&x, num_shards);
-            acc.entry(shard_id).or_insert_with(HashSet::new).insert(x);
+            acc.entry(shard_id).or_insert_with(|| HashSet::new()).insert(x);
             acc
         });
         let tracked_shards: HashSet<_> = shards.into_iter().collect();
@@ -61,7 +61,7 @@ impl ShardTracker {
         info!(target: "runtime", "Tracking shards: {:?}", actual_tracked_shards);
         ShardTracker {
             tracked_accounts,
-            tracked_shards,
+            tracked_shards: tracked_shards.clone(),
             actual_tracked_shards,
             pending_untracked_accounts: HashSet::default(),
             pending_untracked_shards: HashSet::default(),
@@ -75,7 +75,7 @@ impl ShardTracker {
         let shard_id = account_id_to_shard_id(account_id, self.num_shards);
         self.tracked_accounts
             .entry(shard_id)
-            .or_insert_with(HashSet::new)
+            .or_insert_with(|| HashSet::new())
             .insert(account_id.clone());
         self.actual_tracked_shards.insert(shard_id);
     }

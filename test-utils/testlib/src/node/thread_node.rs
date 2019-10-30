@@ -62,8 +62,7 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        let account_id = self.signer.account_id.clone();
-        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
+        Box::new(RpcUser::new(&self.config.rpc_config.addr, self.signer.clone()))
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {

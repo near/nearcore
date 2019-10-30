@@ -1,4 +1,4 @@
-use crate::config::VMConfig;
+use crate::config::Config;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::GasCounter;
@@ -7,7 +7,6 @@ use crate::types::{
     StorageUsage,
 };
 use crate::{HostError, HostErrorOrStorageError};
-use near_runtime_fees::RuntimeFeesConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
@@ -21,9 +20,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// Parameters of Wasm and economic parameters.
-    config: &'a VMConfig,
-    /// Fees for creating (async) actions on runtime.
-    fees_config: &'a RuntimeFeesConfig,
+    config: &'a Config,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
     /// results of the methods that made the callback are stored in this collection.
     promise_results: &'a [PromiseResult],
@@ -76,8 +73,7 @@ impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
-        config: &'a VMConfig,
-        fees_config: &'a RuntimeFeesConfig,
+        config: &'a Config,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
     ) -> Self {
@@ -89,7 +85,6 @@ impl<'a> VMLogic<'a> {
             ext,
             context,
             config,
-            fees_config,
             promise_results,
             memory,
             current_account_balance,
@@ -204,19 +199,20 @@ impl<'a> VMLogic<'a> {
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `BadUtf8`.
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        self.gas_counter.pay_base(self.config.ext_costs.log_base)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut buf;
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
             if len > max_len {
                 return Err(HostError::BadUTF8.into());
             }
-            self.gas_counter.pay_per_byte(self.config.ext_costs.log_per_byte, len)?;
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                self.gas_counter.pay_per_byte(self.config.ext_costs.log_per_byte, 1)?;
+                self.gas_counter
+                    .pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, 1)?;
                 Self::try_fit_mem(self.memory, ptr + i, 1)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
@@ -237,7 +233,7 @@ impl<'a> VMLogic<'a> {
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        self.gas_counter.pay_base(self.config.ext_costs.log_base)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.log_base)?;
         let mut u16_buffer = Vec::new();
         let max_len = self.config.max_log_len;
         if len != std::u64::MAX {
@@ -245,7 +241,7 @@ impl<'a> VMLogic<'a> {
             if len % 2 != 0 || len > max_len {
                 return Err(HostError::BadUTF16.into());
             }
-            self.gas_counter.pay_per_byte(self.config.ext_costs.log_per_byte, len)?;
+            self.gas_counter.pay_per_byte(self.config.runtime_fees.ext_costs.log_per_byte, len)?;
             for i in 0..((len / 2) as usize) {
                 u16_buffer
                     .push(u16::from_le_bytes([input[i as usize * 2], input[i as usize * 2 + 1]]));
@@ -254,8 +250,10 @@ impl<'a> VMLogic<'a> {
             let limit = max_len / size_of::<u16>() as u64;
             // Takes 2 bytes each iter
             for i in 0..=limit {
-                self.gas_counter
-                    .pay_per_byte(self.config.ext_costs.log_per_byte, size_of::<u16>() as u64)?;
+                self.gas_counter.pay_per_byte(
+                    self.config.runtime_fees.ext_costs.log_per_byte,
+                    size_of::<u16>() as u64,
+                )?;
                 // Self::try_fit_mem will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
                 Self::try_fit_mem(self.memory, start, size_of::<u16>() as u64)?;
@@ -295,10 +293,12 @@ impl<'a> VMLogic<'a> {
     /// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
     pub fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         let Self { registers, memory, config, .. } = self;
-        self.gas_counter.pay_base(config.ext_costs.read_register_base)?;
+        self.gas_counter.pay_base(config.runtime_fees.ext_costs.read_register_base)?;
         let register = registers.get(&register_id).ok_or(HostError::InvalidRegisterId)?;
-        self.gas_counter
-            .pay_per_byte(config.ext_costs.read_register_byte, register.len() as u64)?;
+        self.gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.read_register_byte,
+            register.len() as u64,
+        )?;
         Self::memory_set(*memory, ptr, register)
     }
 
@@ -329,12 +329,13 @@ impl<'a> VMLogic<'a> {
     fn internal_write_register(
         registers: &mut HashMap<u64, Vec<u8>>,
         gas_counter: &mut GasCounter,
-        config: &VMConfig,
+        config: &Config,
         register_id: u64,
         data: &[u8],
     ) -> Result<()> {
-        gas_counter.pay_base(config.ext_costs.write_register_base)?;
-        gas_counter.pay_per_byte(config.ext_costs.write_register_byte, data.len() as u64)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.write_register_base)?;
+        gas_counter
+            .pay_per_byte(config.runtime_fees.ext_costs.write_register_byte, data.len() as u64)?;
         if data.len() as u64 > config.max_register_size
             || registers.len() as u64 == config.max_number_registers
         {
@@ -366,9 +367,12 @@ impl<'a> VMLogic<'a> {
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.current_account_id)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.current_account_id)?;
         let data = context.current_account_id.as_bytes();
-        gas_counter.pay_per_byte(config.ext_costs.signer_account_id_byte, data.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.signer_account_id_byte,
+            data.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, data)
     }
 
@@ -383,12 +387,15 @@ impl<'a> VMLogic<'a> {
     /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.signer_account_id)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.signer_account_id)?;
         if context.is_view {
             return Err(HostError::ProhibitedInView("signer_account_id".to_string()).into());
         }
         let data = context.signer_account_id.as_bytes();
-        gas_counter.pay_per_byte(config.ext_costs.signer_account_id_byte, data.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.signer_account_id_byte,
+            data.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, data)
     }
 
@@ -402,12 +409,15 @@ impl<'a> VMLogic<'a> {
     /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.signer_account_id)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.signer_account_id)?;
         if context.is_view {
             return Err(HostError::ProhibitedInView("signer_account_pk".to_string()).into());
         }
         let data = context.signer_account_pk.as_slice();
-        gas_counter.pay_per_byte(config.ext_costs.signer_account_pk_byte, data.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.signer_account_pk_byte,
+            data.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, data)
     }
 
@@ -421,13 +431,15 @@ impl<'a> VMLogic<'a> {
     /// * If called as view function returns `ProhibitedInView`.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.predecessor_account_id)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.predecessor_account_id)?;
         if context.is_view {
             return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()).into());
         }
         let data = context.predecessor_account_id.as_bytes();
-        gas_counter
-            .pay_per_byte(config.ext_costs.predecessor_account_id_byte, data.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.predecessor_account_id_byte,
+            data.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, data)
     }
 
@@ -436,20 +448,23 @@ impl<'a> VMLogic<'a> {
     /// not provided makes the register "not used", i.e. `register_len` now returns `u64::MAX`.
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.input_base)?;
-        gas_counter.pay_per_byte(config.ext_costs.input_per_byte, context.input.len() as u64)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.input_base)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.input_per_byte,
+            context.input.len() as u64,
+        )?;
         Self::internal_write_register(registers, gas_counter, config, register_id, &context.input)
     }
 
     /// Returns the current block index.
     pub fn block_index(&mut self) -> Result<u64> {
-        self.gas_counter.pay_base(self.config.ext_costs.block_index)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.block_index)?;
         Ok(self.context.block_index)
     }
 
     /// Returns the current block timestamp.
     pub fn block_timestamp(&mut self) -> Result<u64> {
-        self.gas_counter.pay_base(self.config.ext_costs.block_timestamp)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.block_timestamp)?;
         Ok(self.context.block_timestamp)
     }
 
@@ -461,7 +476,7 @@ impl<'a> VMLogic<'a> {
     /// * A small fixed overhead for account metadata.
     ///
     pub fn storage_usage(&mut self) -> Result<StorageUsage> {
-        self.gas_counter.pay_base(self.config.ext_costs.storage_usage)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.storage_usage)?;
         Ok(self.current_storage_usage)
     }
 
@@ -472,7 +487,7 @@ impl<'a> VMLogic<'a> {
     /// The current balance of the given account. This includes the attached_deposit that was
     /// attached to the transaction.
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
-        self.gas_counter.pay_base(self.config.ext_costs.account_balance)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.account_balance)?;
         Self::memory_set(self.memory, balance_ptr, &self.current_account_balance.to_le_bytes())
     }
 
@@ -483,7 +498,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// If called as view function returns `ProhibitedInView``.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
-        self.gas_counter.pay_base(self.config.ext_costs.attached_deposit)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.attached_deposit)?;
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("attached_deposit".to_string()).into());
         }
@@ -496,7 +511,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// If called as view function returns `ProhibitedInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
-        self.gas_counter.pay_base(self.config.ext_costs.prepaid_gas)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.prepaid_gas)?;
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("prepaid_gas".to_string()).into());
         }
@@ -509,7 +524,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// If called as view function returns `ProhibitedInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
-        self.gas_counter.pay_base(self.config.ext_costs.used_gas)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.used_gas)?;
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
         }
@@ -527,9 +542,9 @@ impl<'a> VMLogic<'a> {
     /// If the size of the registers exceed the set limit `MemoryAccessViolation`.
     pub fn random_seed(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.random_seed_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.random_seed_base)?;
         gas_counter.pay_per_byte(
-            config.ext_costs.random_seed_per_byte,
+            config.runtime_fees.ext_costs.random_seed_per_byte,
             context.random_seed.len() as u64,
         )?;
         Self::internal_write_register(
@@ -549,9 +564,9 @@ impl<'a> VMLogic<'a> {
     /// the limit with `MemoryAccessViolation`.
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         let Self { memory, registers, gas_counter, config, ext, .. } = self;
-        gas_counter.pay_base(config.ext_costs.sha256)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.sha256)?;
         let value = Self::get_from_memory_or_register(*memory, registers, value_ptr, value_len)?;
-        gas_counter.pay_per_byte(config.ext_costs.sha256_byte, value.len() as u64)?;
+        gas_counter.pay_per_byte(config.runtime_fees.ext_costs.sha256_byte, value.len() as u64)?;
         let value_hash = ext.sha256(&value)?;
         Self::internal_write_register(registers, gas_counter, config, register_id, &value_hash)
     }
@@ -577,15 +592,15 @@ impl<'a> VMLogic<'a> {
     /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
     ///   their data receipts), where bool indicates whether this is sender=receiver communication.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
-        let fees_config_cfg = &self.fees_config;
-        let mut burn_gas = fees_config_cfg.action_receipt_creation_config.send_fee(sir);
-        let mut use_gas = fees_config_cfg.action_receipt_creation_config.exec_fee();
+        let runtime_fees_cfg = &self.config.runtime_fees;
+        let mut burn_gas = runtime_fees_cfg.action_receipt_creation_config.send_fee(sir);
+        let mut use_gas = runtime_fees_cfg.action_receipt_creation_config.exec_fee();
         for dep in data_dependencies {
             // Both creation and execution for data receipts are considered burnt gas.
             burn_gas = burn_gas
-                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
+                .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
                 .ok_or(HostError::IntegerOverflow)?
-                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.exec_fee())
+                .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
         use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
@@ -704,9 +719,9 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
         }
-        self.gas_counter.pay_base(self.config.ext_costs.promise_and_base)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.promise_and_base)?;
         self.gas_counter.pay_per_byte(
-            self.config.ext_costs.promise_and_per_promise,
+            self.config.runtime_fees.ext_costs.promise_and_per_promise,
             promise_idx_count * size_of::<u64>() as u64,
         )?;
         let promise_indices =
@@ -857,8 +872,10 @@ impl<'a> VMLogic<'a> {
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.create_account_cost, sir)?;
+        self.gas_counter.pay_action_base(
+            &self.config.runtime_fees.action_creation_config.create_account_cost,
+            sir,
+        )?;
 
         self.ext.append_action_create_account(receipt_idx)?;
         Ok(())
@@ -893,10 +910,12 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = code.len() as u64;
-        self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.deploy_contract_cost, sir)?;
+        self.gas_counter.pay_action_base(
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
+            sir,
+        )?;
         self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.deploy_contract_cost_per_byte,
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
         )?;
@@ -953,10 +972,12 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = (method_name.len() + arguments.len()) as u64;
-        self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.function_call_cost, sir)?;
+        self.gas_counter.pay_action_base(
+            &self.config.runtime_fees.action_creation_config.function_call_cost,
+            sir,
+        )?;
         self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.function_call_cost_per_byte,
+            &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
         )?;
@@ -995,7 +1016,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.transfer_cost, sir)?;
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.transfer_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1038,7 +1059,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.stake_cost, sir)?;
+            .pay_action_base(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -1081,7 +1102,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
+            &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
             sir,
         )?;
 
@@ -1153,11 +1174,16 @@ impl<'a> VMLogic<'a> {
         // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
         self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
+            &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
             sir,
         )?;
         self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
+            &self
+                .config
+                .runtime_fees
+                .action_creation_config
+                .add_key_cost
+                .function_call_cost_per_byte,
             num_bytes,
             sir,
         )?;
@@ -1205,8 +1231,10 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.delete_key_cost, sir)?;
+        self.gas_counter.pay_action_base(
+            &self.config.runtime_fees.action_creation_config.delete_key_cost,
+            sir,
+        )?;
 
         self.ext.append_action_delete_key(receipt_idx, public_key)?;
         Ok(())
@@ -1240,8 +1268,10 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter
-            .pay_action_base(&self.fees_config.action_creation_config.delete_account_cost, sir)?;
+        self.gas_counter.pay_action_base(
+            &self.config.runtime_fees.action_creation_config.delete_account_cost,
+            sir,
+        )?;
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
@@ -1287,15 +1317,17 @@ impl<'a> VMLogic<'a> {
         if context.is_view {
             return Err(HostError::ProhibitedInView("promise_result".to_string()).into());
         }
-        gas_counter.pay_base(config.ext_costs.promise_result_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.promise_result_base)?;
         match promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex)?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                gas_counter
-                    .pay_per_byte(config.ext_costs.promise_result_byte, data.len() as u64)?;
+                gas_counter.pay_per_byte(
+                    config.runtime_fees.ext_costs.promise_result_byte,
+                    data.len() as u64,
+                )?;
                 Self::internal_write_register(registers, gas_counter, config, register_id, data)?;
                 Ok(1)
             }
@@ -1314,7 +1346,7 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("promise_return".to_string()).into());
         }
-        self.gas_counter.pay_base(self.config.ext_costs.promise_return)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.promise_return)?;
         match self
             .promises
             .get(promise_idx as usize)
@@ -1344,7 +1376,7 @@ impl<'a> VMLogic<'a> {
             Self::get_from_memory_or_register(self.memory, &self.registers, value_ptr, value_len)?;
         let mut burn_gas: Gas = 0;
         let num_bytes = return_val.len() as u64;
-        let data_cfg = &self.fees_config.data_receipt_creation_config;
+        let data_cfg = &self.config.runtime_fees.data_receipt_creation_config;
         for data_receiver in &self.context.output_data_receivers {
             let sir = data_receiver == &self.context.current_account_id;
             // We deduct for execution here too, because if we later have an OR combinator
@@ -1467,13 +1499,12 @@ impl<'a> VMLogic<'a> {
             registers,
             gas_counter,
             config,
-            fees_config,
             valid_iterators,
             invalid_iterators,
             ext,
             ..
         } = self;
-        gas_counter.pay_base(config.ext_costs.storage_write_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_write_base)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
             ext.storage_iter_drop(invalidated_iter_idx)?;
@@ -1481,10 +1512,16 @@ impl<'a> VMLogic<'a> {
         }
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
         let value = Self::get_from_memory_or_register(*memory, registers, value_ptr, value_len)?;
-        gas_counter.pay_per_byte(config.ext_costs.storage_write_value_byte, key.len() as u64)?;
-        gas_counter.pay_per_byte(config.ext_costs.storage_write_value_byte, value.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_write_value_byte,
+            key.len() as u64,
+        )?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_write_value_byte,
+            value.len() as u64,
+        )?;
         let evicted = self.ext.storage_set(&key, &value)?;
-        let storage_config = &fees_config.storage_usage_config;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match evicted {
             Some(old_value) => {
                 self.current_storage_usage -=
@@ -1523,14 +1560,17 @@ impl<'a> VMLogic<'a> {
     ///   `MemoryAccessViolation`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         let Self { ext, memory, registers, gas_counter, config, .. } = self;
-        gas_counter.pay_base(config.ext_costs.storage_read_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_read_base)?;
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
-        gas_counter.pay_per_byte(config.ext_costs.storage_read_key_byte, key.len() as u64)?;
+        gas_counter
+            .pay_per_byte(config.runtime_fees.ext_costs.storage_read_key_byte, key.len() as u64)?;
         let read = ext.storage_get(&key)?;
         match read {
             Some(value) => {
-                gas_counter
-                    .pay_per_byte(config.ext_costs.storage_read_key_byte, value.len() as u64)?;
+                gas_counter.pay_per_byte(
+                    config.runtime_fees.ext_costs.storage_read_key_byte,
+                    value.len() as u64,
+                )?;
                 Self::internal_write_register(registers, gas_counter, config, register_id, &value)?;
                 Ok(1)
             }
@@ -1557,12 +1597,11 @@ impl<'a> VMLogic<'a> {
             registers,
             gas_counter,
             config,
-            fees_config,
             valid_iterators,
             invalid_iterators,
             ..
         } = self;
-        gas_counter.pay_base(config.ext_costs.storage_remove_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_remove_base)?;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
             ext.storage_iter_drop(invalidated_iter_idx)?;
@@ -1570,13 +1609,16 @@ impl<'a> VMLogic<'a> {
         }
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
 
-        gas_counter.pay_per_byte(config.ext_costs.storage_remove_key_byte, key.len() as u64)?;
+        gas_counter.pay_per_byte(
+            config.runtime_fees.ext_costs.storage_remove_key_byte,
+            key.len() as u64,
+        )?;
         let removed = ext.storage_remove(&key)?;
-        let storage_config = &fees_config.storage_usage_config;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match removed {
             Some(value) => {
                 gas_counter.pay_per_byte(
-                    config.ext_costs.storage_remove_ret_value_byte,
+                    config.runtime_fees.ext_costs.storage_remove_ret_value_byte,
                     value.len() as u64,
                 )?;
                 self.current_storage_usage -=
@@ -1598,11 +1640,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
-        self.gas_counter.pay_base(self.config.ext_costs.storage_has_key_base)?;
+        self.gas_counter.pay_base(self.config.runtime_fees.ext_costs.storage_has_key_base)?;
         let key =
             Self::get_from_memory_or_register(self.memory, &self.registers, key_ptr, key_len)?;
-        self.gas_counter
-            .pay_per_byte(self.config.ext_costs.storage_has_key_byte, key.len() as u64)?;
+        self.gas_counter.pay_per_byte(
+            self.config.runtime_fees.ext_costs.storage_has_key_byte,
+            key.len() as u64,
+        )?;
         let res = self.ext.storage_has_key(&key)?;
         Ok(res as u64)
     }
@@ -1617,7 +1661,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// If `prefix_len + prefix_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
-        self.gas_counter.pay_base(self.config.ext_costs.storage_iter_create_prefix_base)?;
+        self.gas_counter
+            .pay_base(self.config.runtime_fees.ext_costs.storage_iter_create_prefix_base)?;
         let prefix = Self::get_from_memory_or_register(
             self.memory,
             &self.registers,
@@ -1625,7 +1670,7 @@ impl<'a> VMLogic<'a> {
             prefix_len,
         )?;
         self.gas_counter.pay_per_byte(
-            self.config.ext_costs.storage_iter_create_key_byte,
+            self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
             prefix.len() as u64,
         )?;
         let iterator_index = self.ext.storage_iter(&prefix)?;
@@ -1649,17 +1694,18 @@ impl<'a> VMLogic<'a> {
         end_len: u64,
         end_ptr: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(self.config.ext_costs.storage_iter_create_range_base)?;
+        self.gas_counter
+            .pay_base(self.config.runtime_fees.ext_costs.storage_iter_create_range_base)?;
         let start_key =
             Self::get_from_memory_or_register(self.memory, &self.registers, start_ptr, start_len)?;
         let end_key =
             Self::get_from_memory_or_register(self.memory, &self.registers, end_ptr, end_len)?;
         self.gas_counter.pay_per_byte(
-            self.config.ext_costs.storage_iter_create_key_byte,
+            self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
             start_key.len() as u64,
         )?;
         self.gas_counter.pay_per_byte(
-            self.config.ext_costs.storage_iter_create_key_byte,
+            self.config.runtime_fees.ext_costs.storage_iter_create_key_byte,
             end_key.len() as u64,
         )?;
         let iterator_index = self.ext.storage_iter_range(&start_key, &end_key)?;
@@ -1698,7 +1744,7 @@ impl<'a> VMLogic<'a> {
         let Self {
             ext, registers, gas_counter, config, valid_iterators, invalid_iterators, ..
         } = self;
-        gas_counter.pay_base(config.ext_costs.storage_iter_next_base)?;
+        gas_counter.pay_base(config.runtime_fees.ext_costs.storage_iter_next_base)?;
         if invalid_iterators.contains(&iterator_id) {
             return Err(HostError::IteratorWasInvalidated.into());
         } else if !valid_iterators.contains(&iterator_id) {
@@ -1708,10 +1754,12 @@ impl<'a> VMLogic<'a> {
         let value = ext.storage_iter_next(iterator_id)?;
         match value {
             Some((key, value)) => {
-                gas_counter
-                    .pay_per_byte(config.ext_costs.storage_iter_next_key_byte, key.len() as u64)?;
                 gas_counter.pay_per_byte(
-                    config.ext_costs.storage_iter_next_value_byte,
+                    config.runtime_fees.ext_costs.storage_iter_next_key_byte,
+                    key.len() as u64,
+                )?;
+                gas_counter.pay_per_byte(
+                    config.runtime_fees.ext_costs.storage_iter_next_value_byte,
                     value.len() as u64,
                 )?;
                 Self::internal_write_register(

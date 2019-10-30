@@ -82,7 +82,7 @@ pub struct ChunkExtra {
     /// Total validation execution reward after processing the current chunk
     pub validator_reward: Balance,
     /// Total balance burnt after processing the current chunk
-    pub balance_burnt: Balance,
+    pub balance_burnt: Balance
 }
 
 impl ChunkExtra {
@@ -95,15 +95,7 @@ impl ChunkExtra {
         validator_reward: Balance,
         balance_burnt: Balance,
     ) -> Self {
-        Self {
-            state_root: state_root.clone(),
-            validator_proposals,
-            gas_used,
-            gas_limit,
-            rent_paid,
-            validator_reward,
-            balance_burnt,
-        }
+        Self { state_root: state_root.clone(), validator_proposals, gas_used, gas_limit, rent_paid, validator_reward, balance_burnt }
     }
 }
 

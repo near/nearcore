@@ -6,15 +6,20 @@ edition = "2018"
 
 [dependencies]
 actix = "0.8.1"
+typed-arena = "1.4.1"
 futures = "0.1.25"
 tokio = "0.1"
-rand = "0.7"
+rand = "0.6"
+rand_xorshift = "0.1"
 chrono = "0.4.6"
 log = "0.4"
-borsh = "0.2.9"
+borsh = "0.2.2"
 serde = "1.0"
 serde_derive = "1.0"
+elapsed = "0.1"
+protobuf = "2.4"
 reed-solomon-erasure = "3.1.1"
+crossbeam = "0.3.0"
 cached = "0.9.0"
 
 near-crypto = { path = "../../core/crypto" }

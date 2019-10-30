@@ -243,7 +243,7 @@ impl GenesisBuilder {
         let account = AccountView {
             amount: testing_init_balance,
             locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash.clone(),
+            code_hash: self.additional_accounts_code_hash.clone().into(),
             storage_usage: 0,
             storage_paid_at: 0,
         };
@@ -252,7 +252,7 @@ impl GenesisBuilder {
         records.push(account_record);
         let access_key_record = StateRecord::AccessKey {
             account_id: account_id.clone(),
-            public_key: signer.public_key.clone(),
+            public_key: signer.public_key.clone().into(),
             access_key: AccessKey::full_access().into(),
         };
         set_access_key(
@@ -267,8 +267,10 @@ impl GenesisBuilder {
         {
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
-            let contract_record =
-                StateRecord::Contract { account_id, code: wasm_binary_base64.clone() };
+            let contract_record = StateRecord::Contract {
+                account_id: account_id.clone(),
+                code: wasm_binary_base64.clone(),
+            };
             records.push(contract_record);
         }
 

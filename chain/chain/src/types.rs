@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -141,7 +141,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: StateRoot,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError>;
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
 
     /// Filter transactions by verifying each one by one in the given order. Every successful
     /// verification stores the updated account balances to be used by next transactions.

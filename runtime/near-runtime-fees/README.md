@@ -1,3 +1,3 @@
 # near-runtime-fees
 
-Fees applied to near runtime encapsulated in a separate crate. Might merge it later.
+An engine that run smart contracts compiled to Wasm by exposing them `near-vm-logic` through the host functions.

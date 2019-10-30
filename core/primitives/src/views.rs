@@ -4,7 +4,6 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
@@ -44,7 +43,7 @@ impl From<Account> for AccountView {
         AccountView {
             amount: account.amount,
             locked: account.locked,
-            code_hash: account.code_hash,
+            code_hash: account.code_hash.into(),
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
         }
@@ -56,7 +55,7 @@ impl From<AccountView> for Account {
         Self {
             amount: view.amount,
             locked: view.locked,
-            code_hash: view.code_hash,
+            code_hash: view.code_hash.into(),
             storage_usage: view.storage_usage,
             storage_paid_at: view.storage_paid_at,
         }
@@ -256,14 +255,14 @@ impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.inner.height,
-            epoch_id: header.inner.epoch_id.0,
-            hash: header.hash,
-            prev_hash: header.inner.prev_hash,
-            prev_state_root: header.inner.prev_state_root,
-            chunk_receipts_root: header.inner.chunk_receipts_root,
-            chunk_headers_root: header.inner.chunk_headers_root,
-            chunk_tx_root: header.inner.chunk_tx_root,
-            chunks_included: header.inner.chunks_included,
+            epoch_id: header.inner.epoch_id.0.into(),
+            hash: header.hash.into(),
+            prev_hash: header.inner.prev_hash.into(),
+            prev_state_root: header.inner.prev_state_root.into(),
+            chunk_receipts_root: header.inner.chunk_receipts_root.into(),
+            chunk_headers_root: header.inner.chunk_headers_root.into(),
+            chunk_tx_root: header.inner.chunk_tx_root.into(),
+            chunks_included: header.inner.chunks_included.into(),
             timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
             approval_sigs: header.inner.approval_sigs,
@@ -292,13 +291,13 @@ impl From<BlockHeaderView> for BlockHeader {
         let mut header = Self {
             inner: BlockHeaderInner {
                 height: view.height,
-                epoch_id: EpochId(view.epoch_id),
-                prev_hash: view.prev_hash,
-                prev_state_root: view.prev_state_root,
-                chunk_receipts_root: view.chunk_receipts_root,
-                chunk_headers_root: view.chunk_headers_root,
-                chunk_tx_root: view.chunk_tx_root,
-                chunks_included: view.chunks_included,
+                epoch_id: EpochId(view.epoch_id.into()),
+                prev_hash: view.prev_hash.into(),
+                prev_state_root: view.prev_state_root.into(),
+                chunk_receipts_root: view.chunk_receipts_root.into(),
+                chunk_headers_root: view.chunk_headers_root.into(),
+                chunk_tx_root: view.chunk_tx_root.into(),
+                chunks_included: view.chunks_included.into(),
                 timestamp: view.timestamp,
                 approval_mask: view.approval_mask,
                 approval_sigs: view.approval_sigs,
@@ -367,8 +366,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             rent_paid: chunk.inner.rent_paid,
             validator_reward: chunk.inner.validator_reward,
             balance_burnt: chunk.inner.balance_burnt,
-            outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
-            tx_root: chunk.inner.tx_root,
+            outgoing_receipts_root: chunk.inner.outgoing_receipts_root.into(),
+            tx_root: chunk.inner.tx_root.into(),
             validator_proposals: chunk
                 .inner
                 .validator_proposals
@@ -384,12 +383,12 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let mut header = ShardChunkHeader {
             inner: ShardChunkHeaderInner {
-                prev_block_hash: view.prev_block_hash,
+                prev_block_hash: view.prev_block_hash.into(),
                 prev_state_root: StateRoot {
-                    hash: view.prev_state_root_hash,
+                    hash: view.prev_state_root_hash.into(),
                     num_parts: view.prev_state_num_parts,
                 },
-                encoded_merkle_root: view.encoded_merkle_root,
+                encoded_merkle_root: view.encoded_merkle_root.into(),
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
                 shard_id: view.shard_id,
@@ -398,8 +397,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
                 balance_burnt: view.balance_burnt,
-                outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root,
+                outgoing_receipts_root: view.outgoing_receipts_root.into(),
+                tx_root: view.tx_root.into(),
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
             height_included: view.height_included,
@@ -553,7 +552,7 @@ pub struct SignedTransactionView {
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
-        let hash = signed_tx.get_hash();
+        let hash = signed_tx.get_hash().into();
         SignedTransactionView {
             signer_id: signed_tx.transaction.signer_id,
             public_key: signed_tx.transaction.public_key,
@@ -571,7 +570,7 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     NotStarted,
@@ -603,7 +602,7 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionErrorView {
     pub error_message: String,
     pub error_type: String,
@@ -704,7 +703,7 @@ impl From<InvalidTxError> for ExecutionErrorView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
@@ -740,13 +739,13 @@ impl From<ExecutionStatus> for ExecutionStatusView {
             ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e.into()),
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
-                ExecutionStatusView::SuccessReceiptId(receipt_id)
+                ExecutionStatusView::SuccessReceiptId(receipt_id.into())
             }
         }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
@@ -763,13 +762,13 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
         Self {
             status: outcome.status.into(),
             logs: outcome.logs,
-            receipt_ids: outcome.receipt_ids,
+            receipt_ids: outcome.receipt_ids.into_iter().map(|h| h.into()).collect(),
             gas_burnt: outcome.gas_burnt,
         }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ExecutionOutcomeWithIdView {
     pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
@@ -777,12 +776,12 @@ pub struct ExecutionOutcomeWithIdView {
 
 impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
     fn from(outcome_with_id: ExecutionOutcomeWithId) -> Self {
-        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome.into() }
+        Self { id: outcome_with_id.id.into(), outcome: outcome_with_id.outcome.into() }
     }
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,
@@ -860,7 +859,7 @@ impl From<Receipt> for ReceiptView {
         ReceiptView {
             predecessor_id: receipt.predecessor_id,
             receiver_id: receipt.receiver_id,
-            receipt_id: receipt.receipt_id,
+            receipt_id: receipt.receipt_id.into(),
             receipt: match receipt.receipt {
                 ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
                     signer_id: action_receipt.signer_id,
@@ -870,7 +869,7 @@ impl From<Receipt> for ReceiptView {
                         .output_data_receivers
                         .into_iter()
                         .map(|data_receiver| DataReceiverView {
-                            data_id: data_receiver.data_id,
+                            data_id: data_receiver.data_id.into(),
                             receiver_id: data_receiver.receiver_id,
                         })
                         .collect(),
@@ -881,9 +880,10 @@ impl From<Receipt> for ReceiptView {
                         .collect(),
                     actions: action_receipt.actions.into_iter().map(Into::into).collect(),
                 },
-                ReceiptEnum::Data(data_receipt) => {
-                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
-                }
+                ReceiptEnum::Data(data_receipt) => ReceiptEnumView::Data {
+                    data_id: data_receipt.data_id.into(),
+                    data: data_receipt.data,
+                },
             },
         }
     }
@@ -896,7 +896,7 @@ impl TryFrom<ReceiptView> for Receipt {
         Ok(Receipt {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
-            receipt_id: receipt_view.receipt_id,
+            receipt_id: receipt_view.receipt_id.into(),
             receipt: match receipt_view.receipt {
                 ReceiptEnumView::Action {
                     signer_id,
@@ -912,7 +912,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     output_data_receivers: output_data_receivers
                         .into_iter()
                         .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id,
+                            data_id: data_receiver_view.data_id.into(),
                             receiver_id: data_receiver_view.receiver_id,
                         })
                         .collect(),
@@ -923,7 +923,7 @@ impl TryFrom<ReceiptView> for Receipt {
                         .collect::<Result<Vec<_>, _>>()?,
                 }),
                 ReceiptEnumView::Data { data_id, data } => {
-                    ReceiptEnum::Data(DataReceipt { data_id, data })
+                    ReceiptEnum::Data(DataReceipt { data_id: data_id.into(), data })
                 }
             },
         })

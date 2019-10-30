@@ -477,7 +477,7 @@ fn test_time_attack() {
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
-    let _ = client.process_block(b1, Provenance::NONE);
+    client.process_block(b1, Provenance::NONE);
 
     let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
     assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());

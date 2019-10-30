@@ -1,14 +1,18 @@
 mod fixtures;
-mod vm_logic_builder;
 
-use fixtures::get_context;
-use near_vm_logic::External;
-use vm_logic_builder::VMLogicBuilder;
+use crate::fixtures::get_context;
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::mocks::mock_memory::MockedMemory;
+use near_vm_logic::{Config, External, VMLogic};
 
 #[test]
 fn test_storage_write_with_register() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
@@ -18,18 +22,22 @@ fn test_storage_write_with_register() {
 
     logic.storage_write(std::u64::MAX, 1 as _, std::u64::MAX, 2 as _, 0).expect("storage write ok");
 
-    assert_eq!(logic_builder.ext.storage_get(key), Ok(Some(val.to_vec())));
+    assert_eq!(ext.storage_get(key), Ok(Some(val.to_vec())));
 }
 
 #[test]
 fn test_storage_read_with_register() {
-    let mut logic_builder = VMLogicBuilder::default();
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
 
-    logic_builder.ext.storage_set(key, val).unwrap();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    ext.storage_set(key, val).unwrap();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     logic.write_register(1, key).unwrap();
 
@@ -41,12 +49,16 @@ fn test_storage_read_with_register() {
 
 #[test]
 fn test_storage_remove_with_register() {
-    let mut logic_builder = VMLogicBuilder::default();
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
 
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     logic
         .storage_write(key.len() as _, key.as_ptr() as _, val.len() as _, val.as_ptr() as _, 0)
         .expect("storage write ok");
@@ -61,13 +73,17 @@ fn test_storage_remove_with_register() {
 
 #[test]
 fn test_storage_has_key_with_register() {
-    let mut logic_builder = VMLogicBuilder::default();
+    let mut ext = MockedExternal::default();
+    let context = get_context(vec![], false);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
-    logic_builder.ext.storage_set(key, val).unwrap();
+    ext.storage_set(key, val).unwrap();
 
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     logic.write_register(1, key).unwrap();
 

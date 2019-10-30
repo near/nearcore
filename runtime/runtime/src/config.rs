@@ -7,7 +7,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{Balance, BlockIndex, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::VMConfig;
+use near_vm_logic::Config;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
@@ -22,7 +22,7 @@ pub struct RuntimeConfig {
     /// and receipts.
     pub transaction_costs: RuntimeFeesConfig,
     /// Config of wasm operations.
-    pub wasm_config: VMConfig,
+    pub wasm_config: Config,
     /// The baseline cost to store account_id of short length per block.
     /// The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
     /// This value represents `1,000` above adjusted to use per block.
@@ -36,7 +36,7 @@ impl RuntimeConfig {
             storage_cost_byte_per_block: 0,
             poke_threshold: 0,
             transaction_costs: RuntimeFeesConfig::free(),
-            wasm_config: VMConfig::free(),
+            wasm_config: Config::free(),
             account_length_baseline_cost_per_block: 0,
         }
     }

@@ -6,15 +6,15 @@ use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
 
 use near_vm_errors::PrepareError;
-use near_vm_logic::VMConfig;
+use near_vm_logic::Config;
 
 struct ContractModule<'a> {
     module: elements::Module,
-    config: &'a VMConfig,
+    config: &'a Config,
 }
 
 impl<'a> ContractModule<'a> {
-    fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+    fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
@@ -146,7 +146,7 @@ impl<'a> ContractModule<'a> {
 /// - all imported functions from the external environment matches defined by `env` module,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+pub fn prepare_contract(original_code: &[u8], config: &Config) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .standardize_mem()
         .ensure_no_internal_memory()?
@@ -165,7 +165,7 @@ mod tests {
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
-        let config = VMConfig::default();
+        let config = Config::default();
         prepare_contract(wasm.as_ref(), &config)
     }
 
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(VMConfig::default().max_memory_pages, 2048);
+        assert_eq!(Config::default().max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));

@@ -169,7 +169,6 @@ pub(crate) fn action_function_call(
         &mut runtime_ext,
         context,
         &config.wasm_config,
-        &config.transaction_costs,
         promise_results,
     );
     if let Some(err) = err {

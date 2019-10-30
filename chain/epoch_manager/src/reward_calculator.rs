@@ -27,15 +27,13 @@ impl RewardCalculator {
         let max_inflation =
             u128::from(self.max_inflation_rate) * total_supply * u128::from(self.epoch_length)
                 / (100 * u128::from(self.num_blocks_per_year));
-        let epoch_fee = total_validator_reward + total_storage_rent;
+        let epoch_fee =
+            total_validator_reward + total_storage_rent;
         let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
         let epoch_total_reward = max(max_inflation, epoch_fee);
         let epoch_protocol_treasury =
             epoch_total_reward * u128::from(self.protocol_reward_percentage) / 100;
-        res.insert(
-            self.protocol_treasury_account.clone(),
-            epoch_protocol_treasury + total_balance_burnt,
-        );
+        res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury + total_balance_burnt);
         if num_validators == 0 {
             return (res, inflation);
         }

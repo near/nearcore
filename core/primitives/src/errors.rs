@@ -166,95 +166,24 @@ impl Display for InvalidAccessKeyError {
     }
 }
 
-/// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct BalanceMismatchError {
-    // Input balances
-    pub incoming_validator_rewards: Balance,
-    pub initial_accounts_balance: Balance,
-    pub incoming_receipts_balance: Balance,
-    pub initial_postponed_receipts_balance: Balance,
-    // Output balances
-    pub final_accounts_balance: Balance,
-    pub outgoing_receipts_balance: Balance,
-    pub final_postponed_receipts_balance: Balance,
-    pub total_rent_paid: Balance,
-    pub total_validator_reward: Balance,
-    pub total_balance_burnt: Balance,
-}
-
-impl Display for BalanceMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        // Using saturating add to avoid overflow in display
-        let initial_balance = self
-            .incoming_validator_rewards
-            .saturating_add(self.initial_accounts_balance)
-            .saturating_add(self.incoming_receipts_balance)
-            .saturating_add(self.initial_postponed_receipts_balance);
-        let final_balance = self
-            .final_accounts_balance
-            .saturating_add(self.outgoing_receipts_balance)
-            .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.total_rent_paid)
-            .saturating_add(self.total_validator_reward)
-            .saturating_add(self.total_balance_burnt);
-        write!(
-            f,
-            "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
-             Inputs:\n\
-             \tIncoming validator rewards sum: {}\n\
-             \tInitial accounts balance sum: {}\n\
-             \tIncoming receipts balance sum: {}\n\
-             \tInitial postponed receipts balance sum: {}\n\
-             Outputs:\n\
-             \tFinal accounts balance sum: {}\n\
-             \tOutgoing receipts balance sum: {}\n\
-             \tFinal postponed receipts balance sum: {}\n\
-             \tTotal rent paid: {}\n\
-             \tTotal validators reward: {}\n\
-             \tTotal balance burnt: {}",
-            initial_balance,
-            final_balance,
-            self.incoming_validator_rewards,
-            self.initial_accounts_balance,
-            self.incoming_receipts_balance,
-            self.initial_postponed_receipts_balance,
-            self.final_accounts_balance,
-            self.outgoing_receipts_balance,
-            self.final_postponed_receipts_balance,
-            self.total_rent_paid,
-            self.total_validator_reward,
-            self.total_balance_burnt
-        )
-    }
-}
-
-/// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimeError {
+pub enum InvalidTxErrorOrStorageError {
     InvalidTxError(InvalidTxError),
     StorageError(StorageError),
-    BalanceMismatch(BalanceMismatchError),
 }
 
-impl From<StorageError> for RuntimeError {
+impl From<StorageError> for InvalidTxErrorOrStorageError {
     fn from(e: StorageError) -> Self {
-        RuntimeError::StorageError(e)
+        InvalidTxErrorOrStorageError::StorageError(e)
     }
 }
 
-impl From<BalanceMismatchError> for RuntimeError {
-    fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatch(e)
-    }
-}
-
-impl<T> From<T> for RuntimeError
+impl<T> From<T> for InvalidTxErrorOrStorageError
 where
     T: Into<InvalidTxError>,
 {
     fn from(e: T) -> Self {
-        RuntimeError::InvalidTxError(e.into())
+        InvalidTxErrorOrStorageError::InvalidTxError(e.into())
     }
 }
 

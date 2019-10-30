@@ -10,29 +10,22 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::heavy_test;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
-    heavy_test(|| {
-        chunks_produced_and_distributed_common(1);
-    });
+    chunks_produced_and_distributed_common(1);
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
-    heavy_test(|| {
-        chunks_produced_and_distributed_common(2);
-    });
+    chunks_produced_and_distributed_common(2);
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
-    heavy_test(|| {
-        chunks_produced_and_distributed_common(4);
-    });
+    chunks_produced_and_distributed_common(4);
 }
 
 /// Runs block producing client and stops after network mock received seven blocks

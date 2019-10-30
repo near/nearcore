@@ -1,5 +1,5 @@
-use lazy_static::lazy_static;
 use near_metrics::IntCounter;
+use lazy_static::lazy_static;
 
 lazy_static! {
     pub static ref PROMETHEUS_REQUEST_COUNT: near_metrics::Result<IntCounter> =

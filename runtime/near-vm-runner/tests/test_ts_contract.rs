@@ -1,8 +1,7 @@
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, HostError, VMConfig, VMContext};
+use near_vm_logic::{Config, External, HostError, VMContext};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::path::PathBuf;
@@ -22,21 +21,12 @@ pub fn test_ts_contract() {
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&[]);
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let config = Config::default();
 
     // Call method that panics.
     let promise_results = vec![];
-    let result = run(
-        vec![],
-        &code,
-        b"try_panic",
-        &mut fake_external,
-        context,
-        &config,
-        &fees,
-        &promise_results,
-    );
+    let result =
+        run(vec![], &code, b"try_panic", &mut fake_external, context, &config, &promise_results);
     assert_eq!(
         result.1,
         Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
@@ -53,7 +43,6 @@ pub fn test_ts_contract() {
         &mut fake_external,
         context,
         &config,
-        &fees,
         &promise_results,
     )
     .0
@@ -73,7 +62,6 @@ pub fn test_ts_contract() {
         &mut fake_external,
         context,
         &config,
-        &fees,
         &promise_results,
     );
 

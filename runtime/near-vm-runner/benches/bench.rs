@@ -1,19 +1,15 @@
 use bencher::{benchmark_group, benchmark_main, Bencher};
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ReturnData, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{Config, ReturnData, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
 
-fn setup(
-    input: u64,
-) -> (MockedExternal, VMContext, VMConfig, RuntimeFeesConfig, Vec<PromiseResult>, Vec<u8>) {
+fn setup(input: u64) -> (MockedExternal, VMContext, Config, Vec<PromiseResult>, Vec<u8>) {
     let fake_external = MockedExternal::new();
-    let config = VMConfig::default();
-    let fees_config = RuntimeFeesConfig::default();
+    let config = Config::default();
 
     let input = input.to_le_bytes().to_vec();
     let context = VMContext {
@@ -35,7 +31,7 @@ fn setup(
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests/res/test_contract_rs.wasm");
     let code = fs::read(path).unwrap();
-    (fake_external, context, config, fees_config, vec![], code)
+    (fake_external, context, config, vec![], code)
 }
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
@@ -58,7 +54,7 @@ fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expec
 }
 
 fn pass_through(bench: &mut Bencher) {
-    let (mut external, context, config, fees_config, promise_results, code) = setup(42);
+    let (mut external, context, config, promise_results, code) = setup(42);
     bench.iter(move || {
         let result = run(
             vec![],
@@ -67,7 +63,6 @@ fn pass_through(bench: &mut Bencher) {
             &mut external,
             context.clone(),
             &config,
-            &fees_config,
             &promise_results,
         );
         assert_run_result(result, 42);
@@ -75,7 +70,7 @@ fn pass_through(bench: &mut Bencher) {
 }
 
 fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
-    let (mut external, context, config, fees_config, promise_results, code) = setup(1000);
+    let (mut external, context, config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
             vec![],
@@ -84,7 +79,6 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
             &mut external,
             context.clone(),
             &config,
-            &fees_config,
             &promise_results,
         );
         assert_run_result(result, 999 * 1000 / 2);
@@ -92,7 +86,7 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
 }
 
 fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
-    let (mut external, context, config, fees_config, promise_results, code) = setup(1000);
+    let (mut external, context, config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
             vec![],
@@ -101,7 +95,6 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
             &mut external,
             context.clone(),
             &config,
-            &fees_config,
             &promise_results,
         );
         assert_run_result(result, 999 * 1000 / 2);
@@ -109,18 +102,10 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
 }
 
 fn sum_n_1000000(bench: &mut Bencher) {
-    let (mut external, context, config, fees_config, promise_results, code) = setup(1000000);
+    let (mut external, context, config, promise_results, code) = setup(1000000);
     bench.iter(move || {
-        let result = run(
-            vec![],
-            &code,
-            b"sum_n",
-            &mut external,
-            context.clone(),
-            &config,
-            &fees_config,
-            &promise_results,
-        );
+        let result =
+            run(vec![], &code, b"sum_n", &mut external, context.clone(), &config, &promise_results);
         assert_run_result(result, (1000000 - 1) * 1000000 / 2);
     });
 }

@@ -27,7 +27,7 @@ use std::fmt;
 /// # Example
 /// ```snippet
 /// use patricia_trie::nibbleslice::NibbleSlice;
-/// {
+/// fn main() {
 ///   let d1 = &[0x01u8, 0x23, 0x45];
 ///   let d2 = &[0x34u8, 0x50, 0x12];
 ///   let d3 = &[0x00u8, 0x12];

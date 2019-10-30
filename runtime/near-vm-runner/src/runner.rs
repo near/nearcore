@@ -3,10 +3,9 @@ use std::ffi::c_void;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
-use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{Config, External, VMContext, VMLogic, VMOutcome};
 use wasmer_runtime::Module;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -35,8 +34,7 @@ pub fn run<'a>(
     method_name: &[u8],
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
+    config: &'a Config,
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if method_name.is_empty() {
@@ -48,18 +46,17 @@ pub fn run<'a>(
         );
     }
 
-    let module = match cache::compile_cached_module(code_hash, code, wasm_config) {
+    let module = match cache::compile_cached_module(code_hash, code, config) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(wasm_config) {
+    let mut memory = match WasmerMemory::new(config) {
         Ok(x) => x,
         Err(_err) => panic!("Cannot create memory for a contract call"),
     };
     let memory_copy = memory.clone();
 
-    let mut logic =
-        VMLogic::new(ext, context, wasm_config, fees_config, promise_results, &mut memory);
+    let mut logic = VMLogic::new(ext, context, config, promise_results, &mut memory);
 
     let raw_ptr = &mut logic as *mut _ as *mut c_void;
     let import_object = imports::build(memory_copy, raw_ptr);

@@ -312,17 +312,15 @@ impl PeerManagerActor {
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
             let peer_id1 = peer_id.clone();
-            active_peer
-                .addr
-                .send(QueryPeerStats {})
+            active_peer.addr.send(QueryPeerStats {})
                 .into_actor(self)
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
-                        trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
+                        warn!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
                         // TODO(MarX): I think banning peer here leaves a hanging Peer instance.
                         //  We should send signal to peer instead, and expect signal back.
-                        // act.ban_peer(&peer_id1, ReasonForBan::Abusive);
+                        act.ban_peer(&peer_id1, ReasonForBan::Abusive);
                     } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
                         active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
@@ -705,14 +703,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx));
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::TxStatus(account_id, signer_account_id, tx_hash) => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
-                );
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -942,7 +932,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
         let RoutedMessageFrom { msg, from } = msg;
 
         if msg.expect_response() {
-            self.routing_table.add_route_back(msg.hash(), from.clone());
+            self.routing_table.add_route_back(msg.hash(), from);
         }
 
         if self.message_for_me(&msg.target) {
@@ -951,29 +941,6 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             match &msg.body {
                 RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping.clone(), msg.hash()),
                 RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong.clone()),
-                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
-                    self.client_addr
-                        .send(NetworkClientMessages::TxStatus { tx_hash: *tx_hash, signer_account_id: account_id.to_string() })
-                        .into_actor(self)
-                        .then(move |response, act, ctx| {
-                            match response {
-                                Ok(NetworkClientResponses::TxStatus(tx_result)) => {
-                                    let body = RoutedMessageBody::TxStatusResponse(tx_result);
-                                    let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(from), body };
-                                    act.send_message_to_peer(ctx, msg);
-                                }
-                                Ok(NetworkClientResponses::RequestRouted) => {
-                                    debug!(target: "network", "Routed transaction status query is again routed");
-                                }
-                                _ => {
-                                    debug!(target: "network", "Received invalid transaction status from client.");
-                                }
-                            }
-                            actix::fut::ok(())
-                        })
-                        .spawn(ctx);
-                    return true;
-                }
                 _ => return true,
             }
 
