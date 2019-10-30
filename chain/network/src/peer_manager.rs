@@ -906,6 +906,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     SendMessage { message: PeerMessage::Challenge(challenge) },
                 );
                 NetworkResponses::NoResponse
+            }
             NetworkRequests::RequestUpdateNonce(peer_id, edge_info) => {
                 if Edge::partial_verify(self.peer_id.clone(), peer_id.clone(), &edge_info) {
                     if let Some(cur_edge) =
