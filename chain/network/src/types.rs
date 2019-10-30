@@ -720,14 +720,25 @@ pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block {
+        block: Block,
+    },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
+    BlockHeaderAnnounce {
+        header: BlockHeader,
+        approval: Option<BlockApproval>,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
@@ -737,20 +748,38 @@ pub enum NetworkRequests {
         account_id: AccountId,
     },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
-    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    ChunkPartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
     /// Request chunk part and receipts
-    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
+    ChunkOnePartRequest {
+        account_id: AccountId,
+        one_part_request: ChunkOnePartRequestMsg,
+    },
     /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    ChunkOnePartResponse {
+        peer_id: PeerId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk header and one part for another validator.
-    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
+    ChunkOnePartMessage {
+        account_id: AccountId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk part
-    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+    ChunkPart {
+        peer_id: PeerId,
+        part: ChunkPartMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -761,7 +790,10 @@ pub enum NetworkRequests {
     /// Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync { peer_id: PeerId, sync_data: SyncData },
+    Sync {
+        peer_id: PeerId,
+        sync_data: SyncData,
+    },
 
     RequestUpdateNonce(PeerId, EdgeInfo),
     ResponseUpdateNonce(Edge),

@@ -474,7 +474,7 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::BlockHeaderAnnounce { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Challenge(_) => {}
-                        | NetworkRequests::RequestUpdateNonce(_, _)
+                        NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_) => {}
                     };
                 }
