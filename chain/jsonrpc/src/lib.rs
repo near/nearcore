@@ -198,9 +198,7 @@ impl JsonRpcHandler {
                             if let Ok(NetworkClientResponses::TxStatus(ref tx_result)) = final_tx {
                                 match tx_result.status {
                                     FinalExecutionStatus::Started
-                                    | FinalExecutionStatus::NotStarted => {
-                                        println!("waiting for result");
-                                    }
+                                    | FinalExecutionStatus::NotStarted => {}
                                     FinalExecutionStatus::Failure(_)
                                     | FinalExecutionStatus::SuccessValue(_) => {
                                         break jsonify_client_response(final_tx);
@@ -233,12 +231,18 @@ impl JsonRpcHandler {
                 })?
             }
             NetworkClientResponses::TxStatus(tx_result) => serde_json::to_value(tx_result)
-                .map_err(|err| RpcError::server_error(Some(err.to_string()))),
+                .map_err(|err| RpcError::server_error(Some(ExecutionErrorView {
+                    error_message: err.to_string(),
+                    error_type: "SerializationError".to_string(),
+                }))),
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
             NetworkClientResponses::NoResponse => {
-                Err(RpcError::server_error(Some("Failed to include transaction.".to_string())))
+                Err(RpcError::server_error( Some(ExecutionErrorView {
+                    error_message: "send_tx_commit has timed out".to_string(),
+                    error_type: "TimeoutError".to_string(),
+                })))
             }
             _ => unreachable!(),
         }
