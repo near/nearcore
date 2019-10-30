@@ -1076,11 +1076,15 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Err(e) => {
-                    error!(target: "client", "Sync: received error or incorrect result: {}", e);
+                Err(_)
+                | Ok(NetworkResponses::BanPeer(_))
+                | Ok(NetworkResponses::RoutingTableInfo(_))
+                | Ok(NetworkResponses::PingPongInfo { .. })
+                | Ok(NetworkResponses::NoResponse)
+                | Ok(NetworkResponses::EdgeUpdate(_)) => {
+                    error!(target: "client", "Sync: received error or incorrect result.");
                     actix::fut::err(())
                 }
-                _ => actix::fut::ok(()),
             })
             .wait(ctx);
 

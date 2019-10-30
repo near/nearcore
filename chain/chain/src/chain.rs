@@ -2192,11 +2192,15 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // First I/O cost, delay as much as possible.
-        if self.runtime_adapter.verify_header_signature(header)
-            != ValidatorSignatureVerificationResult::Valid
-        {
-            return Err(ErrorKind::InvalidSignature.into());
-        };
+        match self.runtime_adapter.verify_header_signature(header) {
+            ValidatorSignatureVerificationResult::Valid => {}
+            ValidatorSignatureVerificationResult::Invalid => {
+                return Err(ErrorKind::InvalidSignature.into());
+            }
+            ValidatorSignatureVerificationResult::UnknownEpoch => {
+                return Err(ErrorKind::EpochOutOfBounds.into());
+            }
+        }
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
