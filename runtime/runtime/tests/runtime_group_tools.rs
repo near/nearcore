@@ -59,9 +59,10 @@ impl StandaloneRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
-        let apply_result =
-            self.runtime.apply(state_update, &self.apply_state, receipts, transactions).unwrap();
+        let apply_result = self
+            .runtime
+            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
+            .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
         self.root = root;
