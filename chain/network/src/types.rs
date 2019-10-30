@@ -1,18 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::time::Duration;
-
+use crate::peer::Peer;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
-use tokio::net::TcpStream;
-
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
@@ -23,9 +14,17 @@ use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-
-use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use near_primitives::views::FinalExecutionOutcomeView;
+use serde_derive::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
+use tokio::net::TcpStream;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -35,6 +34,10 @@ pub const PROTOCOL_VERSION: u32 = 4;
 pub struct PeerId(PublicKey);
 
 impl PeerId {
+    pub fn new(key: PublicKey) -> Self {
+        Self(key)
+    }
+
     pub fn public_key(&self) -> PublicKey {
         self.0.clone()
     }
@@ -104,13 +107,48 @@ impl PeerInfo {
     }
 }
 
+// Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
 impl fmt::Display for PeerInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(acc) = self.account_id.as_ref() {
-            write!(f, "({}, {:?}, {})", self.id, self.addr, acc)
-        } else {
-            write!(f, "({}, {:?})", self.id, self.addr)
+        write!(f, "{}", self.id)?;
+        if let Some(addr) = &self.addr {
+            write!(f, "@{}", addr)?;
         }
+        if let Some(account_id) = &self.account_id {
+            write!(f, "@{}", account_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for PeerInfo {
+    type Err = Box<dyn std::error::Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let chunks: Vec<&str> = s.split('@').collect();
+        let addr;
+        let account_id;
+        if chunks.len() == 1 {
+            addr = None;
+            account_id = None;
+        } else if chunks.len() == 2 {
+            if let Ok(x) = chunks[1].parse::<SocketAddr>() {
+                addr = Some(x);
+                account_id = None;
+            } else {
+                addr = None;
+                account_id = Some(chunks[1].to_string());
+            }
+        } else if chunks.len() == 3 {
+            addr = Some(chunks[1].parse::<SocketAddr>()?);
+            account_id = Some(chunks[2].to_string());
+        } else {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid PeerInfo format: {:?}", chunks),
+            )));
+        }
+        Ok(PeerInfo { id: PeerId(chunks[0].try_into()?), addr, account_id })
     }
 }
 
@@ -118,19 +156,7 @@ impl TryFrom<&str> for PeerInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let chunks: Vec<_> = s.split('@').collect();
-        if chunks.len() != 2 {
-            return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
-        }
-        Ok(PeerInfo {
-            id: PeerId(chunks[0].try_into()?),
-            addr: Some(
-                chunks[1].parse().map_err(|err| {
-                    format!("Invalid ip address format for {}: {}", chunks[1], err)
-                })?,
-            ),
-            account_id: None,
-        })
+        Self::from_str(s)
     }
 }
 
@@ -261,6 +287,8 @@ pub struct Pong {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
+    TxStatusRequest(AccountId, CryptoHash),
+    TxStatusResponse(FinalExecutionOutcomeView),
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
@@ -358,6 +386,7 @@ impl RoutedMessage {
     pub fn expect_response(&self) -> bool {
         match self.body {
             RoutedMessageBody::Ping(_) => true,
+            RoutedMessageBody::TxStatusRequest(_, _) => true,
             _ => false,
         }
     }
@@ -455,6 +484,10 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
+                RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
+                RoutedMessageBody::TxStatusResponse(_) => {
+                    f.write_str("Transaction status response")
+                }
                 RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
@@ -679,14 +712,25 @@ pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block {
+        block: Block,
+    },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
+    BlockHeaderAnnounce {
+        header: BlockHeader,
+        approval: Option<BlockApproval>,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
@@ -696,23 +740,43 @@ pub enum NetworkRequests {
         account_id: AccountId,
     },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
-    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    ChunkPartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
     /// Request chunk part and receipts
-    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
+    ChunkOnePartRequest {
+        account_id: AccountId,
+        one_part_request: ChunkOnePartRequestMsg,
+    },
     /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    ChunkOnePartResponse {
+        peer_id: PeerId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk header and one part for another validator.
-    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
+    ChunkOnePartMessage {
+        account_id: AccountId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk part
-    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+    ChunkPart {
+        peer_id: PeerId,
+        part: ChunkPartMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
+    /// Query transaction status
+    TxStatus(AccountId, AccountId, CryptoHash),
 
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// Fetch current routing table.
@@ -793,6 +857,11 @@ pub struct StateResponseInfo {
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
+    TxStatus {
+        tx_hash: CryptoHash,
+        signer_account_id: AccountId,
+    },
+    TxStatusResponse(FinalExecutionOutcomeView),
     /// Received block header.
     BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
@@ -834,6 +903,8 @@ pub enum NetworkClientResponses {
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
     InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
@@ -846,6 +917,8 @@ pub enum NetworkClientResponses {
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
+    /// Transaction execution outcome
+    TxStatus(FinalExecutionOutcomeView),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

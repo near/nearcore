@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-errors"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -8,5 +8,8 @@ readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
+description = """
+Error that can occur inside Near Runtime encapsulated in a separate crate. Might merge it later.
+"""
 
 [dependencies]
