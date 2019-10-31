@@ -532,6 +532,7 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNREACHABLE_PEER);
                 trace!(target: "network", "Drop message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
                       msg.target,
                       find_route_error,
@@ -559,6 +560,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
                 trace!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
                       account_id,
                       find_route_error,

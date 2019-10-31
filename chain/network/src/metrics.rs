@@ -77,7 +77,16 @@ lazy_static! {
             "account_known",
             "Total accounts known"
         );
-
+    pub static ref DROP_MESSAGE_UNKNOWN_ACCOUNT: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "drop_message_unknown_account",
+            "Total messages dropped because target account is not known"
+        );
+    pub static ref DROP_MESSAGE_UNREACHABLE_PEER: near_metrics::Result<IntCounter> =
+        try_create_int_counter(
+            "drop_message_unreachable_peer",
+            "Total messages dropped because target peer is not reachable"
+        );
 }
 
 type_messages!(HANDSHAKE_RECEIVED_TOTAL, HANDSHAKE_RECEIVED_BYTES);
