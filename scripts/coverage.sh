@@ -11,8 +11,9 @@ for file in `find target/debug/deps/ \
   `
 do
   if [ -f $file ] && [ -x $file ]; then
-    mkdir -p "target/cov/$(basename $file)"
-    kcov --include-pattern=nearcore --verify "target/cov/$(basename $file)" "$file"
+  echo "$file"
+    # mkdir -p "target/cov/$(basename $file)"
+    # kcov --include-pattern=nearcore --verify "target/cov/$(basename $file)" "$file"
   fi
 done
 
