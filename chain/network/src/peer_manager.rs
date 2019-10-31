@@ -1,3 +1,4 @@
+use crate::metrics;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
