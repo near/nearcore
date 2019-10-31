@@ -30,6 +30,7 @@ fn test_send_tx_async() {
         let tx_hash2 = Arc::new(Mutex::new(None));
         let tx_hash2_1 = tx_hash2.clone();
         let tx_hash2_2 = tx_hash2.clone();
+        let signer_account_id = "test1".to_string();
 
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
@@ -37,7 +38,7 @@ fn test_send_tx_async() {
             let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
                 1,
-                "test1".to_string(),
+                signer_account_id,
                 "test2".to_string(),
                 &signer,
                 100,
@@ -54,10 +55,11 @@ fn test_send_tx_async() {
         let mut client1 = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
             Box::new(move |_| {
+                let signer_account_id = "test1".to_string();
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
-                            .tx((&tx_hash).into())
+                            .tx((&tx_hash).into(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map(|result| {
                                 if let FinalExecutionStatus::SuccessValue(_) = result.status {

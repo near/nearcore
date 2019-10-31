@@ -124,5 +124,4 @@ mod tests {
         let nonces: Vec<u64> = transactions.iter().map(|tx| tx.transaction.nonce).collect();
         assert_eq!(nonces, (1..10).collect::<Vec<u64>>())
     }
-
 }

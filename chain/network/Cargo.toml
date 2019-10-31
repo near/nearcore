@@ -13,12 +13,12 @@ futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 serde = "1.0"
 serde_derive = "1.0"
-rand = "0.6.5"
+rand = "0.7"
 reed-solomon-erasure = "3.1.1"
 byteorder = "1.2"
 lazy_static = "1.4"
 
-borsh = "0.2.7"
+borsh = "0.2.9"
 cached = "0.9.0"
 
 near-crypto = { path = "../../core/crypto" }
