@@ -1217,6 +1217,9 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
+    use near_crypto::KeyType;
+    use near_primitives::transaction::TransferAction;
+    use testlib::fees_utils::{gas_burnt_to_reward, GAS_PRICE};
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1248,46 +1251,16 @@ mod tests {
     /* Apply tests */
     /***************/
 
-    #[test]
-    fn test_apply_no_op() {
+    fn setup_runtime(
+        initial_balance: Balance,
+        initial_locked: Balance,
+        gas_limit: Gas,
+    ) -> (Runtime, Arc<Trie>, CryptoHash, ApplyState) {
         let trie = create_trie();
         let root = MerkleHash::default();
         let runtime = Runtime::new(RuntimeConfig::default());
 
         let account_id = alice_account();
-
-        let initial_balance = 1_000_000;
-
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
-        set_account(&mut initial_state, &account_id, &initial_account);
-        let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
-        store_update.commit().unwrap();
-
-        let apply_state = ApplyState {
-            block_index: 0,
-            epoch_length: 3,
-            gas_price: 100,
-            block_timestamp: 100,
-            gas_limit: 10_000_000,
-        };
-
-        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
-    }
-
-    #[test]
-    fn test_apply_check_balance_validation_rewards() {
-        let trie = create_trie();
-        let root = MerkleHash::default();
-        let runtime = Runtime::new(RuntimeConfig::default());
-
-        let account_id = alice_account();
-
-        let initial_balance = 1_000_000;
-        let initial_locked = 500_000;
-        let reward = 10_000_000;
-        let small_refund = 500;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
@@ -1300,14 +1273,31 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
-            gas_price: 100,
+            gas_price: GAS_PRICE,
             block_timestamp: 100,
-            gas_limit: 10_000_000,
+            gas_limit,
         };
 
+        (runtime, trie, root, apply_state)
+    }
+
+    #[test]
+    fn test_apply_no_op() {
+        let (runtime, trie, root, apply_state) = setup_runtime(1_000_000, 0, 10_000_000);
+        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
+    }
+
+    #[test]
+    fn test_apply_check_balance_validation_rewards() {
+        let initial_locked = 500_000;
+        let reward = 10_000_000;
+        let small_refund = 500;
+        let (runtime, trie, root, apply_state) =
+            setup_runtime(1_000_000, initial_locked, 10_000_000);
+
         let validator_accounts_update = ValidatorAccountsUpdate {
-            stake_info: vec![(account_id.clone(), initial_locked)].into_iter().collect(),
-            validator_rewards: vec![(account_id.clone(), reward)].into_iter().collect(),
+            stake_info: vec![(alice_account(), initial_locked)].into_iter().collect(),
+            validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
             slashed_accounts: HashSet::default(),
@@ -1319,9 +1309,60 @@ mod tests {
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
-                &[Receipt::new_refund(&account_id, small_refund)],
+                &[Receipt::new_refund(&alice_account(), small_refund)],
                 &[],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, mut root, apply_state) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts: Vec<_> = (0..n)
+            .map(|i| Receipt {
+                predecessor_id: bob_account(),
+                receiver_id: alice_account(),
+                receipt_id: create_nonce_with_nonce(&CryptoHash::default(), i),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: bob_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction {
+                        deposit: small_transfer + Balance::from(i),
+                    })],
+                }),
+            })
+            .collect();
+
+        let reward_per_receipt = gas_burnt_to_reward(
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
+        );
+
+        for i in 1..=n {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result =
+                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(i)
+                    + Balance::from(i * (i - 1) / 2)
+            )
+        }
     }
 }

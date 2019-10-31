@@ -2,12 +2,15 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas,
 };
-use crate::{ApplyStats, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
+use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
 use near_primitives::errors::{BalanceMismatchError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{key_for_postponed_receipt_id, system_account};
+use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
+use near_primitives::utils::{
+    key_for_delayed_receipt, key_for_postponed_receipt_id, system_account,
+};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get, get_account, get_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -24,11 +27,42 @@ pub(crate) fn check_balance(
     new_receipts: &[Receipt],
     stats: &ApplyStats,
 ) -> Result<(), RuntimeError> {
+    // Delayed receipts
+    let initial_delayed_receipt_indices: DelayedReceiptIndices =
+        get(&initial_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+    let final_delayed_receipt_indices: DelayedReceiptIndices =
+        get(&final_state, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+    let get_delayed_receipts = |from_index, to_index, state| {
+        (from_index..to_index)
+            .map(|index| {
+                get(state, &key_for_delayed_receipt(index))?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} should be in the state",
+                        index
+                    ))
+                })
+            })
+            .collect::<Result<Vec<Receipt>, StorageError>>()
+    };
+    // Previously delayed receipts that were processed during this time.
+    let processed_delayed_receipts = get_delayed_receipts(
+        initial_delayed_receipt_indices.first_index,
+        final_delayed_receipt_indices.first_index,
+        &initial_state,
+    )?;
+    // Receipts that were not processed during this time and now delayed.
+    let new_delayed_receipts = get_delayed_receipts(
+        initial_delayed_receipt_indices.next_available_index,
+        final_delayed_receipt_indices.next_available_index,
+        &final_state,
+    )?;
+
     // Accounts
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter()
         .map(|tx| tx.transaction.signer_id.clone())
         .chain(prev_receipts.iter().map(|r| r.receiver_id.clone()))
+        .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id.clone()))
         .collect();
     let incoming_validator_rewards =
         if let Some(validator_accounts_update) = validator_accounts_update {
@@ -86,12 +120,15 @@ pub(crate) fn check_balance(
     };
     let incoming_receipts_balance = receipts_cost(prev_receipts);
     let outgoing_receipts_balance = receipts_cost(new_receipts);
+    let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts);
+    let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts);
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
     // execution.
     let all_potential_postponed_receipt_ids = prev_receipts
         .iter()
+        .chain(processed_delayed_receipts.iter())
         .map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
@@ -132,9 +169,11 @@ pub(crate) fn check_balance(
     let initial_balance = incoming_validator_rewards
         + initial_accounts_balance
         + incoming_receipts_balance
+        + processed_delayed_receipts_balance
         + initial_postponed_receipts_balance;
     let final_balance = final_accounts_balance
         + outgoing_receipts_balance
+        + new_delayed_receipts_balance
         + final_postponed_receipts_balance
         + stats.total_rent_paid
         + stats.total_validator_reward
@@ -142,12 +181,16 @@ pub(crate) fn check_balance(
         + stats.total_balance_slashed;
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
+            // Inputs
             incoming_validator_rewards,
             initial_accounts_balance,
-            final_accounts_balance,
             incoming_receipts_balance,
-            outgoing_receipts_balance,
+            processed_delayed_receipts_balance,
             initial_postponed_receipts_balance,
+            // Outputs
+            final_accounts_balance,
+            outgoing_receipts_balance,
+            new_delayed_receipts_balance,
             final_postponed_receipts_balance,
             total_rent_paid: stats.total_rent_paid,
             total_validator_reward: stats.total_validator_reward,
