@@ -1,7 +1,5 @@
 #!/bin/sh
 
-rm -rf target/cov
-
 for file in `find target/debug/deps/ \
   ! -name 'test*' \
   ! -name 'near' \
@@ -11,13 +9,14 @@ for file in `find target/debug/deps/ \
   `
 do
   if [ -f $file ] && [ -x $file ]; then
-    mkdir -p "target/cov/$(basename $file)"
-    kcov --include-pattern=nearcore --verify "target/cov/$(basename $file)" "$file"
+      # codecov script cannot follow symlinks, so place here and mv it to target
+    mkdir -p "target2/cov/$(basename $file)"
+    kcov --include-pattern=nearcore --verify "target2/cov/$(basename $file)" "$file"
     break
   fi
 done
 
-pwd
-ls -l
+rm target
+mv target2 target
 curl -s https://codecov.io/bash | bash
 echo "Uploaded code coverage"
