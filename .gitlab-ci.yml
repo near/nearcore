@@ -84,5 +84,5 @@ test_nearlib_release:
     - schedules
     # TODO: "only: branch" doesn't work, gitlab bot sync PR as branch, lost info of which branch
     # the PR is going to merge with. Before fix in bot, keep different version of .gitlab-ci.yml 
-    # in staging and master
+    # in staging and master.
     # - master 
