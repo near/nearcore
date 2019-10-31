@@ -66,9 +66,9 @@ coverage:
     before_script:
     - *setup_cache
     script:
-    # - ./scripts/build_wasm.sh
-    # - ./scripts/cleanup_binary.sh
-    # - cargo test --workspace --no-run
+    - ./scripts/build_wasm.sh
+    - ./scripts/cleanup_binary.sh
+    - cargo test --workspace --no-run
     - ./scripts/coverage.sh
 
 test_nearlib_release:
