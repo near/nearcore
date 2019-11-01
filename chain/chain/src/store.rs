@@ -14,7 +14,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::ExecutionOutcome;
-use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, ShardId};
+use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
@@ -215,8 +215,13 @@ pub trait ChainStoreAccess {
         self.get_block_header(&hash)
     }
     /// Check if we have block header at given height across any chain.
-    /// Returns a first hash we observed, if double sign observed - this going to be updated to picked hash.
-    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error>;
+    /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
+    /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
+    /// height must be the same.
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &mut self,
@@ -287,7 +292,7 @@ pub struct ChainStore {
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with index to hash on any chain.
-    block_hash_per_height: SizedCache<Vec<u8>, CryptoHash>,
+    block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
     /// Cache with outgoing receipts.
     outgoing_receipts: SizedCache<Vec<u8>, Vec<Receipt>>,
     /// Cache with incoming receipts.
@@ -565,7 +570,10 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
-    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error> {
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
@@ -869,7 +877,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.chain_store.get_block_hash_by_height(height)
     }
 
-    fn get_any_block_hash_by_height(&mut self, height: BlockIndex) -> Result<&CryptoHash, Error> {
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
 
@@ -1205,10 +1216,31 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             store_update.delete(COL_BLOCK, hash.as_ref());
         }
         for (hash, header) in self.headers.drain() {
-            if self.chain_store.get_any_block_hash_by_height(header.inner.height).is_err() {
-                store_update
-                    .set_ser(COL_BLOCK_PER_HEIGHT, &index_to_bytes(header.inner.height), &hash)
-                    .map_err::<Error, _>(|e| e.into())?;
+            match self.chain_store.get_any_block_hash_by_height(header.inner.height) {
+                Ok(map) => {
+                    if !map.contains_key(&header.inner.epoch_id) {
+                        let mut new_map = map.clone();
+                        new_map.insert(header.inner.epoch_id.clone(), hash);
+                        store_update
+                            .set_ser(
+                                COL_BLOCK_PER_HEIGHT,
+                                &index_to_bytes(header.inner.height),
+                                &new_map,
+                            )
+                            .map_err::<Error, _>(|e| e.into())?;
+                    }
+                }
+                Err(_) => {
+                    let mut epoch_id_to_hash = HashMap::new();
+                    epoch_id_to_hash.insert(header.inner.epoch_id.clone(), hash);
+                    store_update
+                        .set_ser(
+                            COL_BLOCK_PER_HEIGHT,
+                            &index_to_bytes(header.inner.height),
+                            &epoch_id_to_hash,
+                        )
+                        .map_err::<Error, _>(|e| e.into())?;
+                }
             }
             store_update
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)

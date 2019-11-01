@@ -203,6 +203,10 @@ impl Client {
             &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
             next_height,
         )?;
+        println!(
+            "block producer {} next block proposer {} next height {}",
+            block_producer.account_id, next_block_proposer, next_height
+        );
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(None);
