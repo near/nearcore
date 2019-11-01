@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 
 try:
     input = raw_input
@@ -22,7 +23,7 @@ def install_cargo():
 
 def check_docker_installed():
     try:
-        subprocess.check_output(["docker"])
+        subprocess.Popen(["docker"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     except OSError:
         print("Docker is required to run in docker mode.")
         print("On ubuntu: sudo apt update && sudo apt install -y docker.io")
@@ -117,11 +118,11 @@ def print_staking_key(home_dir):
 """Stops and removes given docker container."""
 def docker_stop_if_exists(name):
     try:
-        subprocess.check_output(['docker', 'stop', name])
+        subprocess.Popen(['docker', 'stop', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     except subprocess.CalledProcessError:
         pass
     try:
-        subprocess.check_output(['docker', 'rm', name])
+        subprocess.Popen(['docker', 'rm', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     except subprocess.CalledProcessError:
         pass
 
