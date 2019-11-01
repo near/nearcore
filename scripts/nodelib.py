@@ -17,11 +17,21 @@ def install_cargo():
         subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'), '--version'])
     except OSError:
         print("Installing Rust...")
-        subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y', shell=True)
+        subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2019-10-04', shell=True)
+
+
+def check_docker_installed():
+    try:
+        subprocess.check_output(["docker"])
+    except OSError:
+        print("Docker is required to run in docker mode.")
+        print("On ubuntu: sudo apt update && sudo apt install -y docker.io")
+        print("On mac/windows: https://www.docker.com/products/docker-desktop")
 
 
 """Inits the node configuration using docker."""
 def docker_init(image, home_dir, init_flags):
+    check_docker_installed()
     subprocess.check_output(['docker', 'run',
         '-v', '%s:/srv/near' % home_dir, '-it',
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
@@ -122,6 +132,7 @@ def get_port(home_dir, net):
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
 def run_docker(image, home_dir, boot_nodes, verbose):
+    check_docker_installed()
     print("Starting NEAR client and Watchtower dockers...")
     docker_stop_if_exists('watchtower')
     docker_stop_if_exists('nearcore')
@@ -285,5 +296,3 @@ def start_stakewars(home, is_release, nodocker, image, verbose):
         run_nodocker(home, is_release, '', verbose)
     else:
         run_docker(image, home, '', verbose)
-
-
