@@ -176,6 +176,7 @@ def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes,
     if nodocker:
         install_cargo()
     else:
+        check_docker_installed()
         try:
             subprocess.check_output(['docker', 'pull', image])
             subprocess.check_output(['docker', 'pull', 'v2tec/watchtower'])
