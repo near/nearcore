@@ -67,7 +67,7 @@ pub struct OrphanBlockPool {
 }
 
 impl OrphanBlockPool {
-    fn new() -> OrphanBlockPool {
+    pub fn new() -> OrphanBlockPool {
         OrphanBlockPool {
             orphans: HashMap::default(),
             height_idx: HashMap::default(),
@@ -1629,7 +1629,7 @@ impl Chain {
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
-struct ChainUpdate<'a> {
+pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
@@ -1762,13 +1762,13 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    fn create_chunk_state_challenge(
+    pub fn create_chunk_state_challenge(
         &mut self,
         prev_block: &Block,
         block: &Block,
-        prev_chunk_header: &ShardChunkHeader,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkState, Error> {
+        let prev_chunk_header = &prev_block.chunks[chunk_header.inner.shard_id as usize];
         let prev_merkle_proofs = Block::compute_chunk_headers_root(&prev_block.chunks).1;
         let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks).1;
         let prev_chunk = self
@@ -1880,12 +1880,7 @@ impl<'a> ChainUpdate<'a> {
                     )
                     .map_err(|_| {
                         byzantine_assert!(false);
-                        match self.create_chunk_state_challenge(
-                            &prev_block,
-                            &block,
-                            prev_chunk_header,
-                            chunk_header,
-                        ) {
+                        match self.create_chunk_state_challenge(&prev_block, &block, chunk_header) {
                             Ok(chunk_state) => {
                                 Error::from(ErrorKind::InvalidChunkState(chunk_state))
                             }

@@ -14,7 +14,7 @@ use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, StateItem,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, StateItem,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -252,36 +252,44 @@ fn test_verify_chunk_invalid_state_challenge() {
         &signer,
     );
 
-    let prev_merkle_proofs = Block::compute_chunk_headers_root(&last_block.chunks).1;
-    let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks).1;
+    let challenge_body = {
+        use near_chain::chain::{ChainUpdate, OrphanBlockPool};
+        let chain = &mut client.chain;
+        let adapter = chain.runtime_adapter.clone();
+        let validity_period = chain.transaction_validity_period;
+        let empty_block_pool = OrphanBlockPool::new();
 
-    // Create challenge with this block / chunk.
-    let partial_state = vec![StateItem {
-        key: CryptoHash::try_from("6J7uDHQoyBjrFq5X1fGQnLwkdych7D5RVw9SaeRPyyAx").unwrap(),
-        value: vec![
-            3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107, 71, 32,
-            36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210, 44, 242, 167,
-            124, 2, 0, 0, 0, 0, 0,
-        ],
-    }];
-    let challenge = Challenge::produce(
-        ChallengeBody::ChunkState(ChunkState {
-            prev_block_header: last_block.header.try_to_vec().unwrap(),
-            block_header: block.header.try_to_vec().unwrap(),
-            prev_merkle_proof: prev_merkle_proofs[0].clone(),
-            merkle_proof: merkle_proofs[0].clone(),
-            prev_chunk: client
-                .chain
-                .mut_store()
-                .get_chunk_clone_from_header(&last_block.chunks[0])
-                .unwrap()
-                .clone(),
-            chunk_header: block.chunks[0].clone(),
-            partial_state,
-        }),
-        "test0".to_string(),
-        &signer,
-    );
+        let mut chain_update = ChainUpdate::new(
+            chain.mut_store(),
+            adapter,
+            &empty_block_pool,
+            &empty_block_pool,
+            validity_period,
+        );
+
+        chain_update
+            .create_chunk_state_challenge(&last_block, &block, &block.chunks[0].clone())
+            .unwrap()
+    };
+    {
+        let prev_merkle_proofs = Block::compute_chunk_headers_root(&last_block.chunks).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(&block.chunks).1;
+        assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
+        assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
+        assert_eq!(
+            vec![StateItem {
+                key: CryptoHash::try_from("6J7uDHQoyBjrFq5X1fGQnLwkdych7D5RVw9SaeRPyyAx").unwrap(),
+                value: vec![
+                    3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107,
+                    71, 32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210,
+                    44, 242, 167, 124, 2, 0, 0, 0, 0, 0,
+                ],
+            }],
+            challenge_body.partial_state
+        );
+    }
+    let challenge =
+        Challenge::produce(ChallengeBody::ChunkState(challenge_body), "test0".to_string(), &signer);
     assert_eq!(
         validate_challenge(
             &*client.chain.runtime_adapter,
