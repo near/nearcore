@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -25,6 +26,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
+use near_primitives::utils::get_num_block_producers_per_shard;
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
@@ -100,12 +102,15 @@ pub const MAX_INFLATION_RATE: u8 = 5;
 /// Number of blocks for which a given transaction is valid
 pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 
+/// Number of seats for block producers
+pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
+pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -393,7 +398,7 @@ pub struct GenesisConfig {
     pub protocol_treasury_account: AccountId,
 }
 
-fn get_initial_supply(records: &[StateRecord]) -> Balance {
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
@@ -544,6 +549,14 @@ impl From<&str> for GenesisConfig {
                 config.protocol_version, PROTOCOL_VERSION
             ));
         }
+        let num_shards = config.block_producers_per_shard.len();
+        let num_chunk_producers: ValidatorId = config.block_producers_per_shard.iter().sum();
+        if num_chunk_producers != max(config.num_block_producers, num_shards) {
+            panic!(format!(
+                "Number of chunk producers {} does not match number of block producers {}",
+                num_chunk_producers, config.num_block_producers
+            ));
+        }
         let total_supply = get_initial_supply(&config.records);
         config.total_supply = total_supply;
         config
@@ -675,8 +688,11 @@ pub fn init_configs(
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
-                num_block_producers: 50,
-                block_producers_per_shard: (0..num_shards).map(|_| 50).collect(),
+                num_block_producers: NUM_BLOCK_PRODUCERS,
+                block_producers_per_shard: get_num_block_producers_per_shard(
+                    num_shards,
+                    NUM_BLOCK_PRODUCERS,
+                ),
                 avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
@@ -722,8 +738,8 @@ pub fn create_testnet_configs_from_seeds(
         .collect::<Vec<_>>();
     let genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
-        seeds.len() - num_non_validators,
-        (0..num_shards).map(|_| std::cmp::max(1, num_validators / num_shards)).collect(),
+        num_validators,
+        get_num_block_producers_per_shard(num_shards as u64, num_validators),
     );
     let mut configs = vec![];
     let first_node_port = open_port();

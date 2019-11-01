@@ -4,10 +4,12 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
@@ -219,6 +221,17 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChallengeView {
+    // TODO: decide how to represent challenges in json.
+}
+
+impl From<Challenge> for ChallengeView {
+    fn from(_challenge: Challenge) -> Self {
+        Self {}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_id: CryptoHash,
@@ -245,9 +258,8 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub validator_reward: Balance,
     #[serde(with = "u128_dec_format")]
-    pub balance_burnt: Balance,
-    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
+    pub challenges_result: ChallengesResult,
     pub signature: Signature,
 }
 
@@ -279,8 +291,8 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
             validator_reward: header.inner.validator_reward,
-            balance_burnt: header.inner.balance_burnt,
             total_supply: header.inner.total_supply,
+            challenges_result: header.inner.challenges_result,
             signature: header.signature,
         }
     }
@@ -312,9 +324,9 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
+                challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
-                balance_burnt: view.balance_burnt,
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -570,7 +582,7 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     NotStarted,
@@ -602,7 +614,7 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionErrorView {
     pub error_message: String,
     pub error_type: String,
@@ -703,7 +715,7 @@ impl From<InvalidTxError> for ExecutionErrorView {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
@@ -745,7 +757,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
@@ -768,7 +780,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionOutcomeWithIdView {
     pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
@@ -781,7 +793,7 @@ impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts.
-#[derive(Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,
@@ -880,10 +892,9 @@ impl From<Receipt> for ReceiptView {
                         .collect(),
                     actions: action_receipt.actions.into_iter().map(Into::into).collect(),
                 },
-                ReceiptEnum::Data(data_receipt) => ReceiptEnumView::Data {
-                    data_id: data_receipt.data_id,
-                    data: data_receipt.data,
-                },
+                ReceiptEnum::Data(data_receipt) => {
+                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
+                }
             },
         }
     }

@@ -208,7 +208,6 @@ impl GenesisBuilder {
                 vec![],
                 0,
                 0,
-                0,
                 self.config.total_supply.clone(),
             )
             .unwrap();
@@ -267,10 +266,8 @@ impl GenesisBuilder {
         {
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
-            let contract_record = StateRecord::Contract {
-                account_id,
-                code: wasm_binary_base64.clone(),
-            };
+            let contract_record =
+                StateRecord::Contract { account_id, code: wasm_binary_base64.clone() };
             records.push(contract_record);
         }
 

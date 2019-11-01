@@ -25,8 +25,12 @@ def stop_network(pid):
         f.write(str(pid))
 
 def resume_network(pid):
-    with open('/sys/fs/cgroup/net_cls/tasks', 'w') as f:
-        f.write(str(pid))
+    try:
+        with open('/sys/fs/cgroup/net_cls/tasks', 'w') as f:
+            f.write(str(pid))
+    except ProcessLookupError:
+        # the process was killed in the meantime
+        pass
 
 if __name__ == "__main__":
     import time

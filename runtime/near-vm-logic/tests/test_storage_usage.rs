@@ -1,20 +1,14 @@
 mod fixtures;
+mod vm_logic_builder;
 
 use crate::fixtures::get_context;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, VMLogic};
+use vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_storage_write_counter() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
-
-    let data_record_cost = config.runtime_fees.storage_usage_config.data_record_cost;
+    let mut logic_builder = VMLogicBuilder::default();
+    let data_record_cost = logic_builder.fees_config.storage_usage_config.data_record_cost;
+    let mut logic = logic_builder.build(get_context(vec![], false));
     let key = b"foo";
     let val = b"bar";
 
@@ -38,12 +32,8 @@ fn test_storage_write_counter() {
 
 #[test]
 fn test_storage_remove() {
-    let mut ext = MockedExternal::default();
-    let context = get_context(vec![], false);
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
 
     let key = b"foo";
     let val = b"bar";
