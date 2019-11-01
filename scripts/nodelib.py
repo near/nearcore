@@ -18,7 +18,8 @@ def install_cargo():
         subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'), '--version'])
     except OSError:
         print("Installing Rust...")
-        subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2019-10-04', shell=True)
+        current_toolchain = open(os.path.join(os.path.dirname(__FILE__), "../rust-toolchain")).read().strip()
+        subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain ' + current_toolchain, shell=True)
 
 
 def check_docker_installed():
