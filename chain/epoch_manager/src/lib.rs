@@ -306,8 +306,13 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
+                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?;
+                // Keep slashed from previous block if they are still in the epoch info stake change
+                // (e.g. we need to keep track that they are still slashed for not returning stake).
                 for item in prev_block_info.slashed.iter() {
-                    block_info.slashed.insert(item.clone());
+                    if epoch_info.stake_change.contains_key(item) {
+                        block_info.slashed.insert(item.clone());
+                    }
                 }
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
@@ -513,14 +518,16 @@ impl EpochManager {
             "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
             next_next_epoch_id, next_epoch_id, epoch_id
         );
+        // Fetch last block info to get the slashed accounts.
+        let last_block_info = self.get_block_info(last_block_hash)?.clone();
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
         // is the prev_prev_stake_change.
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
         debug!(target: "epoch_manager",
-            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
-            prev_prev_stake_change, prev_stake_change, stake_change
+            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}, slashed: {:?}",
+            prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed
         );
         let mut all_keys = HashSet::new();
         for (key, _) in
@@ -530,6 +537,9 @@ impl EpochManager {
         }
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
+            if last_block_info.slashed.contains(account_id) {
+                continue;
+            }
             let new_stake = *stake_change.get(account_id).unwrap_or(&0);
             let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
             let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&0);
