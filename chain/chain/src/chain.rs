@@ -472,8 +472,12 @@ impl Chain {
                     self.transaction_validity_period,
                 );
 
-                if chain_update.check_header_known(header).is_err() {
-                    continue;
+                match chain_update.check_header_known(header) {
+                    Ok(_) => {}
+                    Err(e) => match e.kind() {
+                        ErrorKind::Unfit(_) => continue,
+                        _ => return Err(e),
+                    },
                 }
 
                 chain_update.validate_header(header, &Provenance::SYNC, on_challenge)?;
@@ -2349,9 +2353,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Quick in-memory check to fast-reject any block header we've already handled
-    /// recently. Keeps duplicates from the network in check.
-    /// ctx here is specific to the header_head (tip of the header chain)
+    /// Check if header is recent or in the store
     fn check_header_known(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let header_head = self.chain_store_update.header_head()?;
         if header.hash() == header_head.last_block_hash
