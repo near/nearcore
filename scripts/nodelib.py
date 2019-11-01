@@ -27,6 +27,7 @@ def check_docker_installed():
         print("Docker is required to run in docker mode.")
         print("On ubuntu: sudo apt update && sudo apt install -y docker.io")
         print("On mac/windows: https://www.docker.com/products/docker-desktop")
+        exit(1)
 
 
 """Inits the node configuration using docker."""
