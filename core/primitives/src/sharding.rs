@@ -128,14 +128,12 @@ impl ShardChunkHeader {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ChunkOnePart {
+pub struct PartialEncodedChunk {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
-    pub header: ShardChunkHeader,
-    pub part_id: u64,
-    pub part: Box<[u8]>,
-    pub receipt_proofs: Vec<ReceiptProof>,
-    pub merkle_path: MerklePath,
+    pub header: Option<ShardChunkHeader>,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<ReceiptProof>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -150,20 +148,18 @@ pub struct ShardProof {
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct PartialEncodedChunkPart {
+    pub part_ord: u64,
+    pub part: Box<[u8]>,
+    pub merkle_proof: MerklePath,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunk {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<Receipt>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartMsg {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub part_id: u64,
-    pub part: Shard,
-    pub merkle_path: MerklePath,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -184,9 +180,14 @@ impl EncodedShardChunkBody {
         fetched_parts
     }
 
-    pub fn reconstruct(&mut self, data_shards: usize, parity_shards: usize) {
+    // Returns true if reconstruction was successful
+    pub fn reconstruct(
+        &mut self,
+        data_shards: usize,
+        parity_shards: usize,
+    ) -> Result<(), reed_solomon_erasure::Error> {
         let rs = ReedSolomon::new(data_shards, parity_shards).unwrap();
-        rs.reconstruct_shards(self.parts.as_mut_slice()).unwrap();
+        rs.reconstruct_shards(self.parts.as_mut_slice())
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
@@ -299,7 +300,7 @@ impl EncodedShardChunk {
         signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
-        content.reconstruct(data_shards, parity_shards);
+        content.reconstruct(data_shards, parity_shards).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         let header = ShardChunkHeader::new(
             prev_block_hash,
@@ -327,30 +328,28 @@ impl EncodedShardChunk {
         self.header.chunk_hash()
     }
 
-    pub fn create_chunk_one_part(
+    pub fn create_partial_encoded_chunk(
         &self,
-        part_id: u64,
-        receipt_proofs: Vec<ReceiptProof>,
-        merkle_path: MerklePath,
-    ) -> ChunkOnePart {
-        ChunkOnePart {
-            shard_id: self.header.inner.shard_id,
-            chunk_hash: self.header.chunk_hash(),
-            header: self.header.clone(),
-            part_id,
-            part: self.content.parts[part_id as usize].clone().unwrap(),
-            receipt_proofs,
-            merkle_path,
-        }
-    }
+        part_ords: Vec<u64>,
+        include_header: bool,
+        receipts: Vec<ReceiptProof>,
+        merkle_paths: &[MerklePath],
+    ) -> PartialEncodedChunk {
+        let parts = part_ords
+            .iter()
+            .map(|part_ord| PartialEncodedChunkPart {
+                part_ord: *part_ord,
+                part: self.content.parts[*part_ord as usize].clone().unwrap(),
+                merkle_proof: merkle_paths[*part_ord as usize].clone(),
+            })
+            .collect();
 
-    pub fn create_chunk_part_msg(&self, part_id: u64, merkle_path: MerklePath) -> ChunkPartMsg {
-        ChunkPartMsg {
+        PartialEncodedChunk {
             shard_id: self.header.inner.shard_id,
             chunk_hash: self.header.chunk_hash(),
-            part_id,
-            part: self.content.parts[part_id as usize].clone().unwrap(),
-            merkle_path,
+            header: if include_header { Some(self.header.clone()) } else { None },
+            parts,
+            receipts,
         }
     }
 

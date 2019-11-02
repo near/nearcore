@@ -45,7 +45,7 @@ pub const COL_PEERS: Option<u32> = Some(9);
 pub const COL_EPOCH_INFO: Option<u32> = Some(10);
 pub const COL_BLOCK_INFO: Option<u32> = Some(11);
 pub const COL_CHUNKS: Option<u32> = Some(12);
-pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
+pub const COL_PARTIAL_CHUNKS: Option<u32> = Some(13);
 /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
 pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded

@@ -32,6 +32,7 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
+use crate::test_utils::display_chain;
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
@@ -695,6 +696,10 @@ impl Chain {
         match maybe_new_head {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.commit()?;
+
+                if block.header.inner.height % 5 == 0 {
+                    display_chain(me, self, block.header.inner.height % 35 != 0);
+                }
 
                 if needs_to_start_fetching_state {
                     debug!("Downloading state for block {}", block.hash());
@@ -1748,7 +1753,9 @@ impl<'a> ChainUpdate<'a> {
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();
 
-                if let Err(_) = self.chain_store_update.get_chunk_one_part(chunk_header) {
+                if let Err(_) =
+                    self.chain_store_update.get_partial_chunk(&chunk_header.chunk_hash())
+                {
                     missing.push(chunk_header.clone());
                 } else if self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
@@ -1779,14 +1786,15 @@ impl<'a> ChainUpdate<'a> {
 
         for chunk_header in block.chunks.iter() {
             if chunk_header.height_included == height {
-                let one_part = self.chain_store_update.get_chunk_one_part(chunk_header).unwrap();
-                for receipt_proof in one_part.receipt_proofs.iter() {
-                    let ReceiptProof(_, shard_proof) = receipt_proof;
+                let partial_encoded_chunk =
+                    self.chain_store_update.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+                for receipt in partial_encoded_chunk.receipts.iter() {
+                    let ReceiptProof(_, shard_proof) = receipt;
                     let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
                     receipt_proofs_by_shard_id
                         .entry(*to_shard_id)
                         .or_insert_with(Vec::new)
-                        .push(receipt_proof.clone());
+                        .push(receipt.clone());
                 }
             }
         }

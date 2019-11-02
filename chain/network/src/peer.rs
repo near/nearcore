@@ -301,19 +301,15 @@ impl Peer {
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
-                    RoutedMessageBody::ChunkPartRequest(request) => {
-                        NetworkClientMessages::ChunkPartRequest(request, msg_hash.clone().unwrap())
-                    }
-                    RoutedMessageBody::ChunkOnePartRequest(request) => {
-                        NetworkClientMessages::ChunkOnePartRequest(
+                    RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                        NetworkClientMessages::PartialEncodedChunkRequest(
                             request,
                             msg_hash.clone().unwrap(),
                         )
                     }
-                    RoutedMessageBody::ChunkOnePart(one_part) => {
-                        NetworkClientMessages::ChunkOnePart(one_part)
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
+                        NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
                     }
-                    RoutedMessageBody::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
                     RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type");
                         return;
