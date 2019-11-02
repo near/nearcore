@@ -384,7 +384,7 @@ fn client_sync_headers() {
                     active_peers: vec![FullPeerInfo {
                         peer_info: peer_info1.clone(),
                         chain_info: PeerChainInfo {
-                            genesis: Default::default(),
+                            genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
                         },
@@ -395,7 +395,7 @@ fn client_sync_headers() {
                     most_weight_peers: vec![FullPeerInfo {
                         peer_info: peer_info1.clone(),
                         chain_info: PeerChainInfo {
-                            genesis: Default::default(),
+                            genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
                         },
