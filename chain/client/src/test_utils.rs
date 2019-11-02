@@ -21,7 +21,7 @@ use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, Weight};
+use near_primitives::block::{Block, GenesisId, Weight};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId};
 use near_store::test_utils::create_test_store;
@@ -71,8 +71,16 @@ pub fn setup(
         num_shards,
         epoch_length,
     ));
-    let chain_genesis =
-        ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period);
+    let chain_genesis = ChainGenesis::new(
+        "unittest".to_string(),
+        genesis_time,
+        1_000_000,
+        100,
+        1_000_000_000,
+        0,
+        0,
+        tx_validity_period,
+    );
 
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
@@ -228,7 +236,10 @@ pub fn setup_mock_all_validators(
                                 .map(|(i, peer_info)| FullPeerInfo {
                                     peer_info: peer_info.clone(),
                                     chain_info: PeerChainInfo {
-                                        genesis: Default::default(),
+                                        genesis_id: GenesisId {
+                                            chain_id: "unittest".to_string(),
+                                            hash: Default::default(),
+                                        },
                                         height: last_height_weight1[i].0,
                                         total_weight: last_height_weight1[i].1,
                                     },

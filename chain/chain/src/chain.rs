@@ -145,6 +145,7 @@ impl OrphanBlockPool {
 /// Chain genesis configuration.
 #[derive(Clone)]
 pub struct ChainGenesis {
+    pub chain_id: String,
     pub time: DateTime<Utc>,
     pub gas_limit: Gas,
     pub gas_price: Balance,
@@ -156,6 +157,7 @@ pub struct ChainGenesis {
 
 impl ChainGenesis {
     pub fn new(
+        chain_id: String,
         time: DateTime<Utc>,
         gas_limit: Gas,
         gas_price: Balance,
@@ -165,6 +167,7 @@ impl ChainGenesis {
         transaction_validity_period: BlockIndex,
     ) -> Self {
         Self {
+            chain_id,
             time,
             gas_limit,
             gas_price,
@@ -183,6 +186,7 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
+    chain_id: String,
     genesis: BlockHeader,
     pub transaction_validity_period: BlockIndex,
 }
@@ -301,6 +305,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
+            chain_id: chain_genesis.chain_id.clone(),
             genesis: genesis.header,
             transaction_validity_period: chain_genesis.transaction_validity_period,
         })
@@ -1592,6 +1597,11 @@ impl Chain {
     #[inline]
     pub fn runtime_adapter(&self) -> Arc<dyn RuntimeAdapter> {
         self.runtime_adapter.clone()
+    }
+
+    #[inline]
+    pub fn chain_id(&self) -> &String {
+        &self.chain_id
     }
 
     /// Returns genesis block header.

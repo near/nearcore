@@ -63,6 +63,7 @@ pub fn start_with_config(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(
+        config.genesis_config.chain_id.clone(),
         config.genesis_config.genesis_time,
         config.genesis_config.gas_limit,
         config.genesis_config.gas_price,

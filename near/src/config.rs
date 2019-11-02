@@ -411,6 +411,7 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
 impl From<GenesisConfig> for ChainGenesis {
     fn from(genesis_config: GenesisConfig) -> Self {
         ChainGenesis::new(
+            genesis_config.chain_id,
             genesis_config.genesis_time,
             genesis_config.gas_limit,
             genesis_config.gas_price,

@@ -42,6 +42,7 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 use cached::Cached;
+use near_primitives::block::GenesisId;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -229,7 +230,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::GetChainInfo => match self.client.chain.head() {
                 Ok(head) => NetworkClientResponses::ChainInfo {
-                    genesis: self.client.chain.genesis().hash(),
+                    genesis_id: GenesisId {
+                        chain_id: self.client.chain.chain_id().clone(),
+                        hash: self.client.chain.genesis().hash(),
+                    },
                     height: head.height,
                     total_weight: head.total_weight,
                 },

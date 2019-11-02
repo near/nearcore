@@ -39,6 +39,7 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
         vec![],
     ));
     let chain_genesis = ChainGenesis::new(
+        genesis_config.chain_id.clone(),
         genesis_time,
         genesis_config.gas_limit,
         genesis_config.gas_price,

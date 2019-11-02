@@ -13,6 +13,7 @@ use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
 use near_metrics;
+use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
@@ -118,8 +119,8 @@ pub struct Peer {
     client_addr: Recipient<NetworkClientMessages>,
     /// Tracker for requests and responses.
     tracker: Tracker,
-    /// This node genesis hash.
-    genesis: CryptoHash,
+    /// This node genesis id.
+    genesis_id: GenesisId,
     /// Latest chain info from the peer.
     chain_info: PeerChainInfo,
     /// Edge information needed to build the real edge. This is relevant for handshake.
@@ -149,7 +150,7 @@ impl Peer {
             peer_manager_addr,
             client_addr,
             tracker: Default::default(),
-            genesis: Default::default(),
+            genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
         }
@@ -182,8 +183,8 @@ impl Peer {
     fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
         ctx.wait(self.client_addr.send(NetworkClientMessages::GetChainInfo).into_actor(self).then(
             move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
-                    act.genesis = genesis;
+                Ok(NetworkClientResponses::ChainInfo { genesis_id, .. }) => {
+                    act.genesis_id = genesis_id;
                     actix::fut::ok(())
                 }
                 Err(err) => {
@@ -200,11 +201,11 @@ impl Peer {
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
+                Ok(NetworkClientResponses::ChainInfo { genesis_id, height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis, height, total_weight },
+                        PeerChainInfo { genesis_id, height, total_weight },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -412,7 +413,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
+                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
@@ -423,12 +424,12 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
-                if handshake.chain_info.genesis != self.genesis {
+                if handshake.chain_info.genesis_id != self.genesis_id {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis),
+                            HandshakeFailureReason::GenesisMismatch(self.genesis_id.clone()),
                         ),
                     });
                     return;
@@ -482,13 +483,13 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                self.chain_info = handshake.chain_info;
+                self.chain_info = handshake.chain_info.clone();
                 self.peer_manager_addr
                     .send(Consolidate {
                         actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
-                        chain_info: handshake.chain_info,
+                        chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
                     })
@@ -654,7 +655,7 @@ impl Handler<QueryPeerStats> for Peer {
 
     fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         PeerStatsResult {
-            chain_info: self.chain_info,
+            chain_info: self.chain_info.clone(),
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
             sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
             is_abusive: self.is_abusive(),

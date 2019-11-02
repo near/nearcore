@@ -1,12 +1,22 @@
-use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use std::collections::{HashMap, HashSet};
+use std::convert::{From, Into, TryFrom, TryInto};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
+
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
+use tokio::net::TcpStream;
+
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
+use near_primitives::block::GenesisId;
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -16,16 +26,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::FinalExecutionOutcomeView;
-use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::net::TcpStream;
+
+use crate::peer::Peer;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -162,10 +165,10 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
-    /// Genesis hash.
-    pub genesis: CryptoHash,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
@@ -267,7 +270,7 @@ impl AnnounceAccount {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
-    GenesisMismatch(CryptoHash),
+    GenesisMismatch(GenesisId),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -927,7 +930,7 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis: CryptoHash, height: BlockIndex, total_weight: Weight },
+    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
     /// Block response.
     Block(Block),
     /// Headers response.

@@ -515,3 +515,11 @@ impl std::fmt::Display for Weight {
         write!(f, "{}", self.num)
     }
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct GenesisId {
+    /// Chain Id
+    pub chain_id: String,
+    /// Hash of genesis block
+    pub hash: CryptoHash,
+}

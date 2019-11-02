@@ -813,7 +813,16 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity),
+        &ChainGenesis::new(
+            "unittest".to_string(),
+            Utc::now(),
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            validity,
+        ),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
@@ -917,6 +926,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
 impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
+            chain_id: "unittest".to_string(),
             time: Utc::now(),
             gas_limit: 1_000_000,
             gas_price: 1,
