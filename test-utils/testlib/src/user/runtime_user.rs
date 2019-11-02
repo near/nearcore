@@ -77,7 +77,7 @@ impl RuntimeUser {
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                 })?;
-            for outcome_with_id in apply_result.tx_result.into_iter() {
+            for outcome_with_id in apply_result.outcomes.into_iter() {
                 self.transaction_results
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());

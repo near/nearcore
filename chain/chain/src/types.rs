@@ -108,7 +108,8 @@ impl ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
-    pub transaction_results: Vec<ExecutionOutcomeWithId>,
+    pub outcome_root: CryptoHash,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,

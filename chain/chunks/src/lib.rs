@@ -907,6 +907,7 @@ impl ShardsManager {
         &mut self,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -926,6 +927,7 @@ impl ShardsManager {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             height,
             shard_id,
             total_parts,

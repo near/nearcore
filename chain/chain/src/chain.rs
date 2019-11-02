@@ -271,6 +271,7 @@ impl Chain {
                             chunk_header.inner.shard_id,
                             ChunkExtra::new(
                                 state_root,
+                                CryptoHash::default(),
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
@@ -1945,6 +1946,7 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         ChunkExtra::new(
                             &apply_result.new_root,
+                            apply_result.outcome_root,
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
@@ -1967,9 +1969,9 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    for tx_result in apply_result.transaction_results {
+                    for outcome_with_id in apply_result.outcomes {
                         self.chain_store_update
-                            .save_transaction_result(&tx_result.id, tx_result.outcome);
+                            .save_transaction_result(&outcome_with_id.id, outcome_with_id.outcome);
                     }
                 } else {
                     let mut new_extra = self
@@ -2483,6 +2485,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
+            apply_result.outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
@@ -2503,8 +2506,9 @@ impl<'a> ChainUpdate<'a> {
             outgoing_receipts,
         );
         // Saving transaction results.
-        for tx_result in apply_result.transaction_results {
-            self.chain_store_update.save_transaction_result(&tx_result.id, tx_result.outcome);
+        for outcome_with_id in apply_result.outcomes {
+            self.chain_store_update
+                .save_transaction_result(&outcome_with_id.id, outcome_with_id.outcome);
         }
         // Saving all incoming receipts.
         for receipt_proof_response in incoming_receipts_proofs {

@@ -418,6 +418,7 @@ impl Client {
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
+            chunk_extra.outcome_root,
             next_height,
             shard_id,
             chunk_extra.gas_used,

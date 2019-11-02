@@ -47,6 +47,7 @@ pub use crate::store::StateRecord;
 use near_primitives::errors::{
     ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
 };
+use near_primitives::merkle::merklize;
 use std::cmp::max;
 use std::sync::Arc;
 
@@ -109,7 +110,8 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub tx_result: Vec<ExecutionOutcomeWithId>,
+    pub outcomes_root: CryptoHash,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
 }
 
@@ -947,17 +949,20 @@ impl Runtime {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut tx_result = vec![];
+        let mut outcome_hashes = vec![];
+        let mut outcomes = vec![];
 
         for signed_transaction in transactions {
-            tx_result.push(self.process_transaction(
+            let outcome_with_id = self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
                 &mut stats,
-            )?);
+            )?;
+            outcome_hashes.extend(outcome_with_id.outcome.to_hashes());
+            outcomes.push(outcome_with_id);
         }
 
         for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
@@ -970,7 +975,10 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|res| tx_result.push(res));
+            .for_each(|outcome_with_id| {
+                outcome_hashes.extend(outcome_with_id.outcome.to_hashes());
+                outcomes.push(outcome_with_id)
+            });
         }
 
         check_balance(
@@ -985,12 +993,14 @@ impl Runtime {
         )?;
 
         let trie_changes = state_update.finalize()?;
+        let (outcomes_root, _) = merklize(&outcome_hashes);
         Ok(ApplyResult {
             state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
             trie_changes,
             validator_proposals,
             new_receipts,
-            tx_result,
+            outcomes_root,
+            outcomes,
             stats,
         })
     }

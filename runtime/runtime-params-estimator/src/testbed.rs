@@ -82,7 +82,7 @@ impl RuntimeTestbed {
         self.apply_state.block_index += 1;
 
         if !allow_failures {
-            for outcome in &apply_result.tx_result {
+            for outcome in &apply_result.outcomes {
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),
