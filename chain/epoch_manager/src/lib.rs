@@ -307,8 +307,9 @@ impl EpochManager {
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
                 let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?;
-                // Keep slashed from previous block if they are still in the epoch info stake change
-                // (e.g. we need to keep track that they are still slashed for not returning stake).
+                // Keep `slashed` from previous block if they are still in the epoch info stake change
+                // (e.g. we need to keep track that they are still slashed, because when we compute
+                // returned stake we are skipping account ids that are slashed in `stake_change`).
                 for item in prev_block_info.slashed.iter() {
                     if epoch_info.stake_change.contains_key(item) {
                         block_info.slashed.insert(item.clone());

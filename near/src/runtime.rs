@@ -1885,6 +1885,7 @@ mod test {
             ),
             ValidatorSignatureVerificationResult::Invalid
         );
+        // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
