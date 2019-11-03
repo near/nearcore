@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
@@ -14,7 +15,6 @@ use near_primitives::types::AccountId;
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
-use std::time::{Duration, Instant};
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
@@ -477,10 +477,7 @@ impl RoutingTable {
             .map(|(key, value)| (key.clone(), value.peer_id.clone()))
             .collect();
 
-        RoutingTableInfo {
-            account_peers: account_peers,
-            peer_forwarding: self.peer_forwarding.clone(),
-        }
+        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
     /// Recalculate routing table.

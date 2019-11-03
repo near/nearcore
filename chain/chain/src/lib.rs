@@ -9,7 +9,7 @@ pub use types::{
     ValidTransaction, Weight,
 };
 
-mod chain;
+pub mod chain;
 mod error;
 mod metrics;
 mod store;
