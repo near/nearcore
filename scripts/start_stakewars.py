@@ -34,4 +34,4 @@ if __name__ == "__main__":
         print("****************************************************")
         print("* Running NEAR validator node for Stake Wars *")
         print("****************************************************")
-        start_stakewars(args.home, not args.debug, nodocker, args.image, args.verbose, TELEMETRY_URL)
+        start_stakewars(args.home, not args.debug, nodocker, args.image, telemetry_url=TELEMETRY_URL, verbose=args.verbose)

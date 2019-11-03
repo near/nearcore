@@ -21,5 +21,7 @@ if __name__ == "__main__":
     home_dir = os.path.join(os.getcwd(), 'testdir')
     subprocess.call(['rm', '-rf', home_dir])
     setup_and_run(args.local, args.release, args.image, home_dir,
-                  ['--chain-id=', '--test-seed=alice.near', '--account-id=test.near', '--fast'], '', '',
-                  args.verbose)
+                  init_flags=['--chain-id=', '--test-seed=alice.near', '--account-id=test.near', '--fast'],
+                  boot_nodes='',
+                  telemetry_url='',
+                  verbose=args.verbose)

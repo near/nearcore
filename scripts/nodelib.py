@@ -283,8 +283,6 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
             exit(1)
     create_genesis(home, is_release, nodocker, image, 'stakewars')
     if nodocker:
-        run_nodocker(home, is_release, '', telemetry_url, verbose)
+        run_nodocker(home, is_release, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)
     else:
-        run_docker(image, home, '', telemetry_url, verbose)
-
-
+        run_docker(image, home, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)
