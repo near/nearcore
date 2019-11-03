@@ -1635,7 +1635,7 @@ impl Chain {
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    chain_store_update: ChainStoreUpdate<'a, ChainStore>,
+    chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,
