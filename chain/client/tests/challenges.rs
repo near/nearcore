@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,9 +12,7 @@ use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::NetworkRequests;
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, StateItem,
-};
+use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -277,14 +274,11 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         assert_eq!(
-            vec![StateItem {
-                key: CryptoHash::try_from("6J7uDHQoyBjrFq5X1fGQnLwkdych7D5RVw9SaeRPyyAx").unwrap(),
-                value: vec![
-                    3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107,
-                    71, 32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210,
-                    44, 242, 167, 124, 2, 0, 0, 0, 0, 0,
-                ],
-            }],
+            vec![vec![
+                3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107, 71,
+                32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210, 44, 242,
+                167, 124, 2, 0, 0, 0, 0, 0,
+            ]],
             challenge_body.partial_state
         );
     }
