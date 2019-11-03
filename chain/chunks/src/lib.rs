@@ -15,7 +15,7 @@ use near_chain::{
     ValidTransaction,
 };
 use near_crypto::Signer;
-use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
+use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
@@ -142,8 +142,8 @@ pub struct ShardsManager {
     requested_one_parts: RequestPool,
     requested_chunks: RequestPool,
 
-    requests_fifo: VecDeque<(ShardId, ChunkHash, PeerId, u64)>,
-    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<(PeerId)>>,
+    requests_fifo: VecDeque<(ShardId, ChunkHash, CryptoHash, u64)>,
+    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<CryptoHash>>,
 }
 
 impl ShardsManager {
@@ -481,7 +481,7 @@ impl ShardsManager {
     pub fn process_chunk_part_request(
         &mut self,
         request: ChunkPartRequestMsg,
-        peer_id: PeerId,
+        route_back: CryptoHash,
     ) -> Result<(), Error> {
         let mut served = false;
         if let Some(chunk) = self.encoded_chunks.get(&request.chunk_hash) {
@@ -492,7 +492,7 @@ impl ShardsManager {
             if chunk.content.parts[request.part_id as usize].is_some() {
                 served = true;
                 self.network_adapter.send(NetworkRequests::ChunkPart {
-                    peer_id: peer_id.clone(),
+                    route_back: route_back.clone(),
                     part: chunk.create_chunk_part_msg(
                         request.part_id,
                         // Part should never exist in the chunk content if the merkle path for it is
@@ -534,12 +534,12 @@ impl ShardsManager {
                 .requests
                 .entry((request.shard_id, request.chunk_hash.clone(), request.part_id))
                 .or_insert_with(HashSet::default)
-                .insert(peer_id.clone())
+                .insert(route_back.clone())
             {
                 self.requests_fifo.push_back((
                     request.shard_id,
                     request.chunk_hash,
-                    peer_id,
+                    route_back,
                     request.part_id,
                 ));
             }
@@ -581,7 +581,7 @@ impl ShardsManager {
     pub fn process_chunk_one_part_request(
         &mut self,
         request: ChunkOnePartRequestMsg,
-        peer_id: PeerId,
+        route_back: CryptoHash,
         chain_store: &mut ChainStore,
     ) -> Result<(), Error> {
         debug!(target:"chunks", "Received one part request for {:?}, I'm {:?}", request.chunk_hash.0, self.me);
@@ -608,7 +608,7 @@ impl ShardsManager {
                     request.chunk_hash.0, self.me
                 );
                 self.network_adapter.send(NetworkRequests::ChunkOnePartResponse {
-                    peer_id,
+                    route_back,
                     header_and_part: encoded_chunk.create_chunk_one_part(
                         request.part_id,
                         one_part_receipt_proofs,
@@ -829,7 +829,7 @@ impl ShardsManager {
         {
             for whom in send_to {
                 self.network_adapter.send(NetworkRequests::ChunkPart {
-                    peer_id: whom,
+                    route_back: whom,
                     part: ChunkPartMsg {
                         shard_id: one_part.shard_id,
                         chunk_hash: chunk_hash.clone(),

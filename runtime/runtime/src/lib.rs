@@ -876,7 +876,7 @@ impl Runtime {
                 );
                 assert!(
                     account.locked >= *max_of_stakes,
-                    "FATAL: staking invariant does not hold.\
+                    "FATAL: staking invariant does not hold. \
                      Account stake {} is less than maximum of stakes {} in the past three epochs",
                     account.locked,
                     max_of_stakes

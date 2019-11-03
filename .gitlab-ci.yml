@@ -59,3 +59,31 @@ test_nearlib:
     - *setup_cache
     script:
     - ./scripts/test_nearlib.sh
+
+coverage:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - ./scripts/build_wasm.sh
+    - ./scripts/cleanup_binary.sh
+    - cargo test --workspace --no-run
+    - ./scripts/coverage.sh
+
+test_nearlib_release:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - export NEARLIB_RELEASE=true
+    - ./scripts/test_nearlib.sh
+    only:
+    - schedules
+    # TODO: "only: branch" doesn't work, gitlab bot sync PR as branch, lost info of which branch
+    # the PR is going to merge with. Before fix in bot, keep different version of .gitlab-ci.yml 
+    # in staging and master.
+    # - master 
