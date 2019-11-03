@@ -17,7 +17,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, ExecutionStatus};
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId,
 };
@@ -33,9 +33,10 @@ use crate::error::{Error, ErrorKind};
 use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
-    ShardStateSyncResponsePart, StateHeaderKey, Tip, ValidatorSignatureVerificationResult,
+    AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
+    ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
+    ShardStateSyncResponseHeader, ShardStateSyncResponsePart, StateHeaderKey, Tip,
+    ValidatorSignatureVerificationResult,
 };
 use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
 
@@ -271,6 +272,7 @@ impl Chain {
                             chunk_header.inner.shard_id,
                             ChunkExtra::new(
                                 state_root,
+                                CryptoHash::default(),
                                 vec![],
                                 0,
                                 chain_genesis.gas_limit,
@@ -1402,13 +1404,17 @@ impl Chain {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<ExecutionOutcomeView, String> {
-        match self.get_transaction_result(hash) {
+        match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => {
-                    Ok(ExecutionOutcome { status: ExecutionStatus::Unknown, ..Default::default() }
-                        .into())
+                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithProof {
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::Unknown,
+                        ..Default::default()
+                    },
+                    ..Default::default()
                 }
+                .into()),
                 _ => Err(err.to_string()),
             },
         }
@@ -1577,11 +1583,11 @@ impl Chain {
 
     /// Get transaction result for given hash of transaction.
     #[inline]
-    pub fn get_transaction_result(
+    pub fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcome, Error> {
-        self.store.get_transaction_result(hash)
+    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+        self.store.get_execution_outcome(hash)
     }
 
     /// Returns underlying ChainStore.
@@ -1941,6 +1947,9 @@ impl<'a> ChainUpdate<'a> {
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
+                    let (outcome_root, outcome_paths) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+
                     self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                     // Save state root after applying transactions.
                     self.chain_store_update.save_chunk_extra(
@@ -1948,6 +1957,7 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         ChunkExtra::new(
                             &apply_result.new_root,
+                            outcome_root,
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
@@ -1970,10 +1980,8 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    for tx_result in apply_result.transaction_results {
-                        self.chain_store_update
-                            .save_transaction_result(&tx_result.id, tx_result.outcome);
-                    }
+                    self.chain_store_update
+                        .save_outcomes_with_proofs(apply_result.outcomes, outcome_paths);
                 } else {
                     let mut new_extra = self
                         .chain_store_update
@@ -2482,11 +2490,15 @@ impl<'a> ChainUpdate<'a> {
             &block_header.inner.challenges_result,
         )?;
 
+        let (outcome_root, outcome_proofs) =
+            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+
         self.chain_store_update.save_chunk(&chunk.chunk_hash, chunk.clone());
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
+            outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
@@ -2507,9 +2519,7 @@ impl<'a> ChainUpdate<'a> {
             outgoing_receipts,
         );
         // Saving transaction results.
-        for tx_result in apply_result.transaction_results {
-            self.chain_store_update.save_transaction_result(&tx_result.id, tx_result.outcome);
-        }
+        self.chain_store_update.save_outcomes_with_proofs(apply_result.outcomes, outcome_proofs);
         // Saving all incoming receipts.
         for receipt_proof_response in incoming_receipts_proofs {
             self.chain_store_update.save_incoming_receipt(

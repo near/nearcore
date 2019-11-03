@@ -25,6 +25,7 @@ use near_primitives::utils::from_timestamp;
 use near_store::Store;
 
 use crate::codec::Codec;
+use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
@@ -533,6 +534,7 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNREACHABLE_PEER);
                 debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
                       self.config.account_id,
                       msg.target,
@@ -561,6 +563,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
                 debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
                       self.config.account_id,
                       account_id,

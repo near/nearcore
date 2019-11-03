@@ -7,12 +7,12 @@ pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
@@ -108,7 +108,7 @@ impl ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
-    pub transaction_results: Vec<ExecutionOutcomeWithId>,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
@@ -116,6 +116,19 @@ pub struct ApplyTransactionResult {
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
+}
+
+impl ApplyTransactionResult {
+    /// Returns root and paths for all the outcomes in the result.
+    pub fn compute_outcomes_proof(
+        outcomes: &[ExecutionOutcomeWithId],
+    ) -> (MerkleHash, Vec<MerklePath>) {
+        let mut result = vec![];
+        for outcome_with_id in outcomes.iter() {
+            result.extend(outcome_with_id.outcome.to_hashes());
+        }
+        merklize(&result)
+    }
 }
 
 /// Bridge between the chain and the runtime.

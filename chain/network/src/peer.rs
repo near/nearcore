@@ -230,7 +230,7 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
+        near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
         let mut msg_hash = None;
@@ -413,6 +413,7 @@ impl WriteHandler<io::Error> for Peer {}
 impl StreamHandler<Vec<u8>, io::Error> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
@@ -422,6 +423,9 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 return;
             }
         };
+
+        peer_msg.record(msg.len());
+
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
