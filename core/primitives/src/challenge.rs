@@ -7,11 +7,8 @@ use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Ord, PartialOrd)]
-pub struct StateItem {
-    pub key: CryptoHash,
-    pub value: Vec<u8>,
-}
+/// Serialized TrieNodeWithSize
+pub type StateItem = Vec<u8>;
 
 pub type PartialState = Vec<StateItem>;
 
