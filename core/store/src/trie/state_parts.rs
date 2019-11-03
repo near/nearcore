@@ -174,6 +174,9 @@ impl Trie {
         root: &CryptoHash,
         mut on_enter: F,
     ) -> Result<(), StorageError> {
+        if root == &CryptoHash::default() {
+            return Ok(());
+        }
         let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
         let root_node = self.retrieve_node(root)?;
         stack.push((*root, root_node, CrumbStatus::Entering));
@@ -288,6 +291,12 @@ mod tests {
     use crate::trie::tests::gen_changes;
 
     use super::*;
+
+    #[test]
+    fn test_combine_empty_trie_parts() {
+        let state_root = StateRoot { hash: CryptoHash::default(), num_parts: 0 };
+        let _ = Trie::combine_state_parts(&state_root, &vec![]).unwrap();
+    }
 
     #[test]
     fn test_parts() {
