@@ -254,11 +254,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id) => {
-                if self.client.collect_block_approval(&account_id, &hash, &signature, &peer_id) {
+            NetworkClientMessages::BlockApproval(approval, peer_id) => {
+                if self.client.collect_block_approval(&approval, &peer_id) {
                     NetworkClientResponses::NoResponse
                 } else {
-                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
+                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", approval.account_id, approval.parent_hash, approval.signature);
                     NetworkClientResponses::NoResponse
 
                     // TODO(1259): The originator of this message is not the immediate sender so we should not ban him.

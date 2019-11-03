@@ -295,8 +295,8 @@ impl Peer {
                 msg_hash = Some(routed_message.hash());
 
                 match routed_message.body {
-                    RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                        NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+                    RoutedMessageBody::BlockApproval(approval) => {
+                        NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
                         NetworkClientMessages::Transaction(transaction)

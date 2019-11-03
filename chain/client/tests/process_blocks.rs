@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -7,7 +6,7 @@ use actix::System;
 use borsh::BorshSerialize;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
+use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
@@ -18,9 +17,9 @@ use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::block::BlockHeader;
+use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
@@ -49,6 +48,7 @@ fn produce_two_blocks() {
                 NetworkResponses::NoResponse
             }),
         );
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -124,8 +124,8 @@ fn receive_network_block() {
             "test2",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockHeaderAnnounce { approval, .. } = msg {
-                    assert!(approval.is_some());
+                if let NetworkRequests::BlockHeaderAnnounce { approval_message, .. } = msg {
+                    assert!(approval_message.is_some());
                     System::current().stop();
                 }
                 NetworkResponses::NoResponse
@@ -139,16 +139,20 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 None,
                 vec![],
                 vec![],
                 &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
         }));
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -190,12 +194,15 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 None,
                 vec![],
                 vec![],
                 &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -204,6 +211,7 @@ fn receive_network_block_header() {
             *block_holder.write().unwrap() = Some(block);
             future::result(Ok(()))
         }));
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -222,7 +230,7 @@ fn produce_block_with_approvals() {
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    if block.header.num_approvals() == validators.len() as u64 - 2 {
+                    if block.header.num_approvals() == validators.len() as u64 - 1 {
                         System::current().stop();
                     }
                 }
@@ -237,29 +245,29 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer1,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
                 let signer = InMemorySigner::from_seed(&s, KeyType::ED25519, &s);
-                let block_approval = BlockApproval::new(block.hash(), &signer, "test2".to_string());
-                client.do_send(NetworkClientMessages::BlockApproval(
-                    s.to_string(),
-                    block_approval.hash,
-                    block_approval.signature,
-                    PeerInfo::random().id,
-                ));
+                let approval = Approval::new(block.hash(), block.hash(), &signer, s.to_string());
+                client
+                    .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
             }
 
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
 
             future::result(Ok(()))
         }));
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -275,13 +283,13 @@ fn invalid_blocks() {
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
-                    NetworkRequests::BlockHeaderAnnounce { header, approval } => {
+                    NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
                         assert_eq!(header.inner.height, 1);
                         assert_eq!(
                             header.inner.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
-                        assert_eq!(*approval, None);
+                        assert_eq!(*approval_message, None);
                         System::current().stop();
                     }
                     _ => {}
@@ -298,12 +306,15 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             block.header.inner.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -317,12 +328,15 @@ fn invalid_blocks() {
                 block.header.inner.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -331,12 +345,15 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                HashMap::default(),
+                vec![],
                 0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                0.into(),
+                CryptoHash::default(),
+                CryptoHash::default(),
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -536,15 +553,17 @@ fn test_invalid_approvals() {
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner.approval_mask = vec![true];
-    b1.header.inner.approval_sigs = (0..100)
-        .map(|i| {
-            InMemorySigner::from_seed(
+    b1.header.inner.approvals = (0..100)
+        .map(|i| Approval {
+            account_id: format!("test{}", i).to_string(),
+            reference_hash: genesis.hash(),
+            parent_hash: genesis.hash(),
+            signature: InMemorySigner::from_seed(
                 &format!("test{}", i),
                 KeyType::ED25519,
                 &format!("test{}", i),
             )
-            .sign(genesis.hash().as_ref())
+            .sign(Approval::get_data_for_sig(&genesis.hash(), &genesis.hash()).as_ref()),
         })
         .collect();
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
