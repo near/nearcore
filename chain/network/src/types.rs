@@ -1,9 +1,19 @@
-use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use std::collections::{HashMap, HashSet};
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
+
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
+use tokio::net::TcpStream;
+
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
@@ -16,16 +26,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::FinalExecutionOutcomeView;
-use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::net::TcpStream;
+
+use crate::peer::Peer;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -288,12 +291,18 @@ pub struct Pong {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
+
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
+
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateResponse(StateResponseInfo),
+
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
+    ChunkPart(ChunkPartMsg),
+
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -386,8 +395,11 @@ impl RoutedMessage {
 
     pub fn expect_response(&self) -> bool {
         match self.body {
-            RoutedMessageBody::Ping(_) => true,
-            RoutedMessageBody::TxStatusRequest(_, _) => true,
+            RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::ChunkPartRequest(_)
+            | RoutedMessageBody::ChunkOnePartRequest(_) => true,
             _ => false,
         }
     }
@@ -425,10 +437,6 @@ impl SyncData {
     }
 }
 
-// TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
-//  is necessary. Some message are routed and others are directed between peers.
-// TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
-//  the client messages are routed.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
@@ -439,6 +447,8 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     Sync(SyncData),
+    RequestUpdateNonce(EdgeInfo),
+    ResponseUpdateNonce(Edge),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -451,15 +461,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
-    StateResponse(StateResponseInfo),
     Routed(RoutedMessage),
-
-    ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkOnePartRequestMsg),
-    ChunkPart(ChunkPartMsg),
-    ChunkOnePart(ChunkOnePart),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -473,17 +475,17 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::Sync(_) => f.write_str("Sync"),
+            PeerMessage::RequestUpdateNonce(_) => f.write_str("RequestUpdateNonce"),
+            PeerMessage::ResponseUpdateNonce(_) => f.write_str("ResponseUpdateNonce"),
             PeerMessage::LastEdge(_) => f.write_str("LastEdge"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
+            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
-            PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
@@ -491,17 +493,15 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::TxStatusResponse(_) => {
                     f.write_str("Transaction status response")
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
+                RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+                RoutedMessageBody::ChunkPart(_) => f.write_str("ChunkPart"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
-            PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
-            PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
-            PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
-            PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
             PeerMessage::Disconnect => f.write_str("Disconnect"),
             PeerMessage::Challenge(_) => f.write_str("Challenge"),
         }
@@ -641,16 +641,10 @@ pub struct PeerList {
     pub peers: Vec<PeerInfo>,
 }
 
-/// TODO(MarX): Wrap the following type of messages in this category:
-///     - PeersRequest
-///     - PeersResponse
-///     - Unregister
-///     - Ban
-///     - Consolidate (Maybe not)
-///  check that this messages are only used from peer -> peer manager.
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
+    RouteBack(RoutedMessageBody, CryptoHash),
 }
 
 impl Message for PeerRequest {
@@ -659,6 +653,7 @@ impl Message for PeerRequest {
 
 #[derive(MessageResponse)]
 pub enum PeerResponse {
+    NoResponse,
     UpdatedEdge(EdgeInfo),
 }
 
@@ -716,14 +711,25 @@ pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block {
+        block: Block,
+    },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
+    BlockHeaderAnnounce {
+        header: BlockHeader,
+        approval: Option<BlockApproval>,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
@@ -733,20 +739,38 @@ pub enum NetworkRequests {
         account_id: AccountId,
     },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
-    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    ChunkPartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
     /// Request chunk part and receipts
-    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
+    ChunkOnePartRequest {
+        account_id: AccountId,
+        one_part_request: ChunkOnePartRequestMsg,
+    },
     /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    ChunkOnePartResponse {
+        route_back: CryptoHash,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk header and one part for another validator.
-    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
+    ChunkOnePartMessage {
+        account_id: AccountId,
+        header_and_part: ChunkOnePart,
+    },
     /// A chunk part
-    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+    ChunkPart {
+        route_back: CryptoHash,
+        part: ChunkPartMsg,
+    },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -757,7 +781,13 @@ pub enum NetworkRequests {
     /// Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
-    Sync { peer_id: PeerId, sync_data: SyncData },
+    Sync {
+        peer_id: PeerId,
+        sync_data: SyncData,
+    },
+
+    RequestUpdateNonce(PeerId, EdgeInfo),
+    ResponseUpdateNonce(Edge),
 
     /// Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
@@ -772,6 +802,7 @@ pub enum NetworkRequests {
 #[derive(Message)]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
+    UnregisterPeer,
 }
 
 /// Combines peer address info and chain information.
@@ -801,6 +832,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
+    EdgeUpdate(Edge),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -852,16 +884,16 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
     AnnounceAccount(Vec<AnnounceAccount>),
 
     /// Request chunk part.
-    ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    ChunkPartRequest(ChunkPartRequestMsg, CryptoHash),
     /// Request chunk part.
-    ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg, CryptoHash),
     /// A chunk part.
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part.
@@ -892,7 +924,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Transaction execution outcome
