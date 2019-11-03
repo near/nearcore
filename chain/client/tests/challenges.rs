@@ -437,7 +437,6 @@ fn test_challenge_in_different_epoch() {
         networks,
         2,
     );
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut fork_blocks = vec![];
     for i in 1..5 {
         let block1 =

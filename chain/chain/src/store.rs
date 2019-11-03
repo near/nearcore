@@ -331,7 +331,7 @@ impl ChainStore {
         }
     }
 
-    pub fn store(&self) -> Arc<Store> {
+    pub fn owned_store(&self) -> Arc<Store> {
         self.store.clone()
     }
 
@@ -816,7 +816,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
 impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn store(&self) -> &Store {
-        (self.chain_store as &dyn ChainStoreAccess).store()
+        &*self.chain_store.store
     }
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
