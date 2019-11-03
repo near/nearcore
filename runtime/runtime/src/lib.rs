@@ -1,12 +1,14 @@
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
 
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use kvdb::DBValue;
@@ -14,6 +16,9 @@ use kvdb::DBValue;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
@@ -44,12 +49,6 @@ use crate::config::{
     total_prepaid_gas, total_send_fees, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
-use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
-};
-use near_primitives::merkle::merklize;
-use std::cmp::max;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -110,7 +109,6 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub outcomes_root: CryptoHash,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
 }
@@ -949,20 +947,17 @@ impl Runtime {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut outcome_hashes = vec![];
         let mut outcomes = vec![];
 
         for signed_transaction in transactions {
-            let outcome_with_id = self.process_transaction(
+            outcomes.push(self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
                 &mut stats,
-            )?;
-            outcome_hashes.extend(outcome_with_id.outcome.to_hashes());
-            outcomes.push(outcome_with_id);
+            )?);
         }
 
         for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
@@ -975,10 +970,7 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|outcome_with_id| {
-                outcome_hashes.extend(outcome_with_id.outcome.to_hashes());
-                outcomes.push(outcome_with_id)
-            });
+            .for_each(|outcome_with_id| outcomes.push(outcome_with_id));
         }
 
         check_balance(
@@ -993,13 +985,11 @@ impl Runtime {
         )?;
 
         let trie_changes = state_update.finalize()?;
-        let (outcomes_root, _) = merklize(&outcome_hashes);
         Ok(ApplyResult {
             state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
             trie_changes,
             validator_proposals,
             new_receipts,
-            outcomes_root,
             outcomes,
             stats,
         })

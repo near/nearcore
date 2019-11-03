@@ -895,7 +895,7 @@ impl Client {
             return NetworkClientResponses::TxStatus(res);
         }
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let has_tx_result = match self.chain.get_transaction_result(&tx_hash) {
+        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
             Ok(_) => true,
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => false,

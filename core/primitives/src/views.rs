@@ -13,6 +13,7 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
@@ -20,8 +21,8 @@ use crate::serialize::{
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
@@ -773,15 +774,18 @@ pub struct ExecutionOutcomeView {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// Proofs for given execution outcome.
+    pub proof: MerklePath,
 }
 
-impl From<ExecutionOutcome> for ExecutionOutcomeView {
-    fn from(outcome: ExecutionOutcome) -> Self {
+impl From<ExecutionOutcomeWithProof> for ExecutionOutcomeView {
+    fn from(outcome: ExecutionOutcomeWithProof) -> Self {
         Self {
-            status: outcome.status.into(),
-            logs: outcome.logs,
-            receipt_ids: outcome.receipt_ids,
-            gas_burnt: outcome.gas_burnt,
+            status: outcome.outcome.status.into(),
+            logs: outcome.outcome.logs,
+            receipt_ids: outcome.outcome.receipt_ids,
+            gas_burnt: outcome.outcome.gas_burnt,
+            proof: outcome.proof,
         }
     }
 }
@@ -792,9 +796,9 @@ pub struct ExecutionOutcomeWithIdView {
     pub outcome: ExecutionOutcomeView,
 }
 
-impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
-    fn from(outcome_with_id: ExecutionOutcomeWithId) -> Self {
-        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome.into() }
+impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
+    fn from(outcome_with_id: ExecutionOutcomeWithIdAndProof) -> Self {
+        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome_with_proof.into() }
     }
 }
 

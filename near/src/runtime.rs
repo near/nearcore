@@ -305,7 +305,6 @@ impl NightshadeRuntime {
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             new_root: apply_result.state_root,
-            outcome_root: apply_result.outcomes_root,
             outcomes: apply_result.outcomes,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,

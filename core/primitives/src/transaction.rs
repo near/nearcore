@@ -10,6 +10,7 @@ use crate::block::BlockHeader;
 use crate::errors::ExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
+use crate::merkle::MerklePath;
 use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
 
 pub type LogEntry = String;
@@ -246,7 +247,7 @@ impl ExecutionOutcome {
             .expect("Failed to serialize"),
         )];
         for log in self.logs.iter() {
-            result.push(hash(&log.clone().into_bytes()));
+            result.push(hash(log.as_bytes()));
         }
         result
     }
@@ -271,6 +272,20 @@ pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
     pub outcome: ExecutionOutcome,
+}
+
+/// Execution outcome with path from it to the outcome root.
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub outcome: ExecutionOutcome,
+    pub proof: MerklePath,
+}
+
+/// Execution outcome with path from it to the outcome root and ID.
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithIdAndProof {
+    pub id: CryptoHash,
+    pub outcome_with_proof: ExecutionOutcomeWithProof,
 }
 
 pub fn verify_transaction_signature(

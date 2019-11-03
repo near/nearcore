@@ -649,7 +649,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(state_root.hash),
             ),
             new_root: new_state_root,
-            outcome_root: CryptoHash::default(),
             outcomes: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
