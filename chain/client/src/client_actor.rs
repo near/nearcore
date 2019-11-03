@@ -9,6 +9,7 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
+use cached::Cached;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
@@ -41,7 +42,6 @@ use crate::types::{
     Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use cached::Cached;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -131,11 +131,6 @@ impl ClientActor {
             self.client.chain.head(),
             AccountAnnounceVerificationResult::UnknownEpoch
         );
-
-        // If we are currently not at the epoch that this announcement is in, skip it.
-        if announce_account.epoch_id != head.epoch_id {
-            return AccountAnnounceVerificationResult::UnknownEpoch;
-        }
 
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
@@ -437,7 +432,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             filtered_announce_accounts.push(announce_account);
                         }
                         // Filter this account
-                        AccountAnnounceVerificationResult::UnknownEpoch => {}
+                        AccountAnnounceVerificationResult::UnknownEpoch => {
+                            info!(target: "client", "{:?} failed to validate account announce signature: unknown epoch in {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), announce_account);
+                        }
                     }
                 }
 
