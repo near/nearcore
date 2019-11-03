@@ -10,7 +10,7 @@ use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
 
-use near_primitives::challenge::{PartialState, StateItem};
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 
 use crate::trie::nibble_slice::NibbleSlice;
@@ -702,17 +702,17 @@ impl Trie {
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         let storage = self.storage.as_recording_storage()?;
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
-        let mut nodes: Vec<_> =
-            guard.drain().map(|(key, value)| StateItem { key, value }).collect();
+        let mut nodes: Vec<_> = guard.drain().map(|(_key, value)| value).collect();
         nodes.sort();
         Some(PartialStorage { nodes })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
-        let map = partial_storage.nodes.into_iter().map(|si| (si.key, si.value)).collect();
+        let recorded_storage =
+            partial_storage.nodes.into_iter().map(|value| (hash(&value), value)).collect();
         Trie {
             storage: Box::new(TrieMemoryPartialStorage {
-                recorded_storage: map,
+                recorded_storage,
                 visited_nodes: Default::default(),
             }),
         }

@@ -1,11 +1,12 @@
+use std::cmp::min;
+use std::collections::HashMap;
+
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::StateRoot;
+
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{CrumbStatus, NodeHandle, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
-use near_primitives::challenge::StateItem;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::StateRoot;
-use std::cmp::min;
-use std::collections::HashMap;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -33,8 +34,7 @@ impl Trie {
         with_recording.visit_nodes_for_size_range(&state_root.hash, size_start, size_end)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
-        let trie_nodes =
-            recorded.nodes.into_iter().map(|StateItem { key: _, value }| value).collect::<Vec<_>>();
+        let trie_nodes = recorded.nodes;
 
         Ok(trie_nodes)
     }
@@ -150,11 +150,7 @@ impl Trie {
         trie_nodes: &Vec<Vec<u8>>,
     ) -> Result<(), StorageError> {
         assert!(part_id < state_root.num_parts);
-        let nodes = trie_nodes
-            .iter()
-            .map(|data| StateItem { key: hash(data), value: data.clone() })
-            .collect::<Vec<_>>();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.to_vec() });
 
         let root_node = trie.retrieve_node(&state_root.hash)?;
         let num_parts = state_root.num_parts;
@@ -255,7 +251,7 @@ impl Trie {
             .iter()
             .map(|part| part.iter())
             .flatten()
-            .map(|data| StateItem { key: hash(data), value: data.to_vec() })
+            .map(|data| data.to_vec())
             .collect::<Vec<_>>();
         let trie = Trie::from_recorded_storage(PartialStorage { nodes });
         let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
@@ -282,13 +278,16 @@ impl Trie {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use rand::Rng;
+
+    use near_primitives::hash::{hash, CryptoHash};
+
     use crate::test_utils::create_trie;
+    use crate::trie::tests::gen_changes;
 
     use super::*;
-    use crate::trie::tests::gen_changes;
-    use near_primitives::hash::CryptoHash;
-    use rand::Rng;
-    use std::collections::HashMap;
 
     #[test]
     fn test_parts() {
