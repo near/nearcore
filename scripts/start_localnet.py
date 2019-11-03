@@ -25,4 +25,4 @@ if __name__ == "__main__":
     if args.local:
         print("Flag --local deprecated, please use --nodocker")
     nodocker = args.nodocker or args.local
-    setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id='], '', args.verbose)
+    setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id='], '', '', args.verbose)

@@ -17,6 +17,7 @@ if __name__ == "__main__":
         "8K7NG5v2yvSq4A1wQuqSNvyY334BVq3ohvdu9wgpgjLG@104.154.188.160:24567",
         "FNCMYTt9Gexq6Nq3Z67gRX7eeZAh27swd1nrwN3smT9Q@35.246.133.183:24567",
     ])
+    TELEMETRY_URL = 'https://explorer.nearprotocol.com/api/nodes'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--local', action='store_true', help='deprecated: use --nodocker')
@@ -36,4 +37,4 @@ if __name__ == "__main__":
         print("Flag --local deprecated, please use --nodocker")
     nodocker = args.nodocker or args.local
     setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id=testnet'],
-                  args.boot_nodes, args.verbose)
+                  args.boot_nodes, TELEMETRY_URL, args.verbose)
