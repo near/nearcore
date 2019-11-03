@@ -489,6 +489,7 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
+        debug!(target: "network", "{:?} Account announce: {:?}", self.config.account_id, announce_account);
         if self.routing_table.add_account(announce_account.clone()) {
             self.broadcast_message(
                 ctx,
@@ -532,7 +533,8 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                trace!(target: "network", "Drop message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop signed message to {:?} Reason {:?}. Known peers: {:?} Message {:?}",
+                      self.config.account_id,
                       msg.target,
                       find_route_error,
                       self.routing_table.peer_forwarding.keys(),
@@ -559,10 +561,11 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                trace!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                      self.config.account_id,
                       account_id,
                       find_route_error,
-                      self.routing_table.peer_forwarding.keys(),
+                      self.routing_table.account_peers.keys(),
                       msg,
                 );
                 return;
@@ -767,18 +770,24 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage {
-                        message: PeerMessage::ChunkOnePart(header_and_part),
-                    });
-                }
+            NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
+                    },
+                );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPart { peer_id, part } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
-                }
+            NetworkRequests::ChunkPart { route_back, part } => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::ChunkPart(part),
+                    },
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
@@ -876,6 +885,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 .collect();
 
                             // Add accounts to the routing table.
+                            debug!(target: "network", "{:?} Received new accounts: {:?}", act.config.account_id, accounts);
                             for account in accounts.iter() {
                                 act.routing_table.add_account(account.clone());
                             }
@@ -1121,29 +1131,6 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             match &msg.body {
                 RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping.clone(), msg.hash()),
                 RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong.clone()),
-                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
-                    self.client_addr
-                        .send(NetworkClientMessages::TxStatus { tx_hash: *tx_hash, signer_account_id: account_id.to_string() })
-                        .into_actor(self)
-                        .then(move |response, act, ctx| {
-                            match response {
-                                Ok(NetworkClientResponses::TxStatus(tx_result)) => {
-                                    let body = RoutedMessageBody::TxStatusResponse(tx_result);
-                                    let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(from), body };
-                                    act.send_message_to_peer(ctx, msg);
-                                }
-                                Ok(NetworkClientResponses::RequestRouted) => {
-                                    debug!(target: "network", "Routed transaction status query is again routed");
-                                }
-                                _ => {
-                                    debug!(target: "network", "Received invalid transaction status from client.");
-                                }
-                            }
-                            actix::fut::ok(())
-                        })
-                        .spawn(ctx);
-                    return true;
-                }
                 _ => return true,
             }
 
@@ -1171,10 +1158,17 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
 impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 
-    fn handle(&mut self, msg: PeerRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
         match msg {
             PeerRequest::UpdateEdge((peer, nonce)) => {
                 PeerResponse::UpdatedEdge(self.propose_edge(peer, Some(nonce)))
+            }
+            PeerRequest::RouteBack(body, target) => {
+                self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body },
+                );
+                PeerResponse::NoResponse
             }
         }
     }
