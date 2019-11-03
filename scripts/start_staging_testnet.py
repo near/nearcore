@@ -16,6 +16,7 @@ if __name__ == "__main__":
         "BndAG9whZjb99wYNChq2xaTMJHeCPMBiCjGNSTXWbRhf@35.236.26.48:24567",
         "Aksfwi3UXBAPjHhPQ9mCj387N6AcD5ixAi8bvVwvfv3G@104.198.217.61:24567",
     ])
+    TELEMETRY_URL = 'https://explorer.staging.nearprotocol.com/api/nodes'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--local', action='store_true', help='deprecated: use --nodocker')
@@ -35,4 +36,4 @@ if __name__ == "__main__":
         print("Flag --local deprecated, please use --nodocker")
     nodocker = args.nodocker or args.local
     setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id=staging'],
-                  args.boot_nodes, args.verbose)
+                  args.boot_nodes, TELEMETRY_URL, args.verbose)
