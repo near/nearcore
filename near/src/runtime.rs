@@ -300,12 +300,12 @@ impl NightshadeRuntime {
                 .push(receipt);
         }
         let total_gas_burnt =
-            apply_result.tx_result.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             new_root: apply_result.state_root,
-            transaction_results: apply_result.tx_result,
+            outcomes: apply_result.outcomes,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
