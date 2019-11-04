@@ -11,7 +11,13 @@ if __name__ == "__main__":
     print("* Running NEAR validator node for Official TestNet *")
     print("****************************************************")
 
-    DEFAULT_BOOT_NODE = "49ppQ9vkLYvWajZ1KRMdism4AQswFT4yD2e9kRt7B4rC@34.94.33.164:24567"
+    DEFAULT_BOOT_NODE = ','.join([
+        "AJLCcX4Uymeq5ssavjUCyEA8SV6Y365Mh5h4shqMSTDA@34.94.190.204:24567",
+        "EY9mX5FYyR1sqrGwkqCbUrmjgAtXs4DeNaf1sjG9MrkY@35.226.146.230:24567",
+        "8K7NG5v2yvSq4A1wQuqSNvyY334BVq3ohvdu9wgpgjLG@104.154.188.160:24567",
+        "FNCMYTt9Gexq6Nq3Z67gRX7eeZAh27swd1nrwN3smT9Q@35.246.133.183:24567",
+    ])
+    TELEMETRY_URL = 'https://explorer.nearprotocol.com/api/nodes'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--local', action='store_true', help='deprecated: use --nodocker')
@@ -30,5 +36,8 @@ if __name__ == "__main__":
     if args.local:
         print("Flag --local deprecated, please use --nodocker")
     nodocker = args.nodocker or args.local
-    setup_and_run(nodocker, not args.debug, args.image, args.home, ['--chain-id=testnet'],
-                  args.boot_nodes, args.verbose)
+    setup_and_run(nodocker, not args.debug, args.image, args.home,
+                  init_flags=['--chain-id=testnet'],
+                  boot_nodes=args.boot_nodes,
+                  telemetry_url=TELEMETRY_URL,
+                  verbose=args.verbose)

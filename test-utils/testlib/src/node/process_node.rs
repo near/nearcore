@@ -70,7 +70,8 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(&self.config.rpc_config.addr, self.signer.clone()))
+        let account_id = self.signer.account_id.clone();
+        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {

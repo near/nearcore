@@ -1,8 +1,8 @@
 use crate::cases::Metric;
 use crate::stats::{DataStats, Measurements};
 use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, ExtCostsConfig, Fee,
-    Fraction, RuntimeFeesConfig, StorageUsageConfig,
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
+    RuntimeFeesConfig, StorageUsageConfig,
 };
 use std::collections::{BTreeMap, HashMap};
 

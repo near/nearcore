@@ -9,12 +9,13 @@ pub use types::{
     ValidTransaction, Weight,
 };
 
-mod chain;
+pub mod chain;
 mod error;
 mod metrics;
 mod store;
 pub mod test_utils;
 pub mod types;
+pub mod validate;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

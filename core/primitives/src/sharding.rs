@@ -18,11 +18,25 @@ impl AsRef<[u8]> for ChunkHash {
     }
 }
 
+impl From<ChunkHash> for Vec<u8> {
+    fn from(chunk_hash: ChunkHash) -> Self {
+        chunk_hash.0.into()
+    }
+}
+
+impl From<CryptoHash> for ChunkHash {
+    fn from(crypto_hash: CryptoHash) -> Self {
+        Self(crypto_hash)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
+    /// Root of the outcomes from execution transactions and results.
+    pub outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -34,6 +48,10 @@ pub struct ShardChunkHeaderInner {
     pub gas_limit: Gas,
     /// Rent paid in the previous chunk
     pub rent_paid: Balance,
+    /// Total validator reward in previous chunk
+    pub validator_reward: Balance,
+    /// Total balance burnt in previous chunk
+    pub balance_burnt: Balance,
     /// Outgoing receipts merkle root.
     pub outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
@@ -71,6 +89,7 @@ impl ShardChunkHeader {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -78,6 +97,8 @@ impl ShardChunkHeader {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -86,6 +107,7 @@ impl ShardChunkHeader {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
@@ -93,6 +115,8 @@ impl ShardChunkHeader {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -142,7 +166,7 @@ pub struct ChunkPartMsg {
     pub merkle_path: MerklePath,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
@@ -173,7 +197,7 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
@@ -187,6 +211,7 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -194,6 +219,9 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
+
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
@@ -227,11 +255,14 @@ impl EncodedShardChunk {
         let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             height,
             shard_id,
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -247,11 +278,14 @@ impl EncodedShardChunk {
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -270,6 +304,7 @@ impl EncodedShardChunk {
         let header = ShardChunkHeader::new(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height,
@@ -277,6 +312,8 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
+            validator_reward,
+            balance_burnt,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,

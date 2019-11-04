@@ -5,9 +5,10 @@ use chrono::{DateTime, Utc};
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
+use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::merklize;
-use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
+use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
     Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
@@ -30,6 +31,8 @@ pub struct BlockHeaderInner {
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts.
+    pub outcome_root: MerkleHash,
     /// Number of chunks included into the block.
     pub chunks_included: u64,
     /// Timestamp at which the block was built.
@@ -52,8 +55,12 @@ pub struct BlockHeaderInner {
     pub gas_price: Balance,
     /// Sum of all storage rent paid across all chunks.
     pub rent_paid: Balance,
+    /// Sum of all validator reward across all chunks.
+    pub validator_reward: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
+    /// List of challenges result from previous block.
+    pub challenges_result: ChallengesResult,
 }
 
 impl BlockHeaderInner {
@@ -65,6 +72,7 @@ impl BlockHeaderInner {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
@@ -76,7 +84,9 @@ impl BlockHeaderInner {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
         total_supply: Balance,
+        challenges_result: ChallengesResult,
     ) -> Self {
         Self {
             height,
@@ -86,6 +96,7 @@ impl BlockHeaderInner {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            outcome_root,
             timestamp,
             chunks_included,
             approval_mask,
@@ -97,7 +108,9 @@ impl BlockHeaderInner {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
             total_supply,
+            challenges_result,
         }
     }
 }
@@ -128,6 +141,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
@@ -140,7 +154,9 @@ impl BlockHeader {
         gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
+        validator_reward: Balance,
         total_supply: Balance,
+        challenges_result: ChallengesResult,
         signer: &dyn Signer,
     ) -> Self {
         let inner = BlockHeaderInner::new(
@@ -151,6 +167,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            outcome_root,
             timestamp,
             chunks_included,
             approval_mask,
@@ -162,7 +179,9 @@ impl BlockHeader {
             gas_limit,
             gas_price,
             rent_paid,
+            validator_reward,
             total_supply,
+            challenges_result,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
@@ -187,6 +206,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            CryptoHash::default(),
             to_timestamp(timestamp),
             chunks_included,
             vec![],
@@ -198,7 +218,9 @@ impl BlockHeader {
             initial_gas_limit,
             initial_gas_price,
             0,
+            0,
             initial_total_supply,
+            vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
@@ -226,43 +248,57 @@ impl BlockHeader {
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
+    pub challenges: Challenges,
+}
+
+pub fn genesis_chunks(
+    state_roots: Vec<StateRoot>,
+    num_shards: ShardId,
+    initial_gas_limit: Gas,
+) -> Vec<ShardChunk> {
+    assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    (0..num_shards)
+        .map(|i| {
+            let (encoded_chunk, _) = EncodedShardChunk::new(
+                CryptoHash::default(),
+                state_roots[i as usize % state_roots.len()].clone(),
+                CryptoHash::default(),
+                0,
+                i,
+                3,
+                1,
+                0,
+                initial_gas_limit,
+                0,
+                0,
+                0,
+                CryptoHash::default(),
+                vec![],
+                &vec![],
+                &vec![],
+                CryptoHash::default(),
+                &EmptySigner {},
+            )
+            .expect("Failed to decode genesis chunk");
+            encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
+        })
+        .collect()
 }
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
-        state_roots: Vec<StateRoot>,
+        chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
-        num_shards: ShardId,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
-        assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-        let chunks = (0..num_shards)
-            .map(|i| {
-                ShardChunkHeader::new(
-                    CryptoHash::default(),
-                    state_roots[i as usize % state_roots.len()].clone(),
-                    CryptoHash::default(),
-                    0,
-                    0,
-                    i,
-                    0,
-                    initial_gas_limit,
-                    0,
-                    CryptoHash::default(),
-                    CryptoHash::default(),
-                    vec![],
-                    &EmptySigner {},
-                )
-            })
-            .collect();
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
                 timestamp,
@@ -271,6 +307,7 @@ impl Block {
                 initial_total_supply,
             ),
             chunks,
+            challenges: vec![],
         }
     }
 
@@ -283,6 +320,8 @@ impl Block {
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
+        challenges_result: ChallengesResult,
+        challenges: Challenges,
         signer: &dyn Signer,
     ) -> Self {
         let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
@@ -301,12 +340,16 @@ impl Block {
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut storage_rent = 0;
+        let mut validator_reward = 0;
+        let mut balance_burnt = 0;
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
                 storage_rent += chunk.inner.rent_paid;
+                validator_reward += chunk.inner.validator_reward;
+                balance_burnt += chunk.inner.balance_burnt;
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -322,7 +365,7 @@ impl Block {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
         };
-        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0);
+        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
         let num_approvals: u128 =
             approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
@@ -335,8 +378,9 @@ impl Block {
                 prev.hash(),
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
+                Block::compute_outcome_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 approval_mask,
@@ -350,10 +394,13 @@ impl Block {
                 // TODO: calculate this correctly
                 new_gas_price,
                 storage_rent,
+                validator_reward,
                 new_total_supply,
+                challenges_result,
                 signer,
             ),
             chunks,
+            challenges,
         }
     }
 
@@ -377,14 +424,15 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_headers_root(
+        chunks: &Vec<ShardChunkHeader>,
+    ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
                 .iter()
                 .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
-        .0
     }
 
     pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
@@ -393,6 +441,23 @@ impl Block {
 
     pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    }
+
+    pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+        merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
+            .0
+    }
+
+    pub fn validate_chunk_header_proof(
+        chunk: &ShardChunkHeader,
+        chunk_root: &CryptoHash,
+        merkle_path: &MerklePath,
+    ) -> bool {
+        verify_path(
+            *chunk_root,
+            merkle_path,
+            &ChunkHashHeight(chunk.hash.clone(), chunk.height_included),
+        )
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -413,7 +478,7 @@ impl Block {
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks);
+        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
         if self.header.inner.chunk_headers_root != chunk_headers_root {
             return false;
         }

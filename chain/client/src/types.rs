@@ -255,6 +255,7 @@ impl Message for GetBlock {
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 pub enum GetChunk {
+    BlockHeight(BlockIndex, ShardId),
     BlockHash(CryptoHash, ShardId),
     ChunkHash(ChunkHash),
 }

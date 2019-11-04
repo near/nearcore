@@ -9,6 +9,7 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
+use cached::Cached;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
@@ -126,9 +127,14 @@ impl ClientActor {
         announce_account: &AnnounceAccount,
     ) -> AccountAnnounceVerificationResult {
         let announce_hash = announce_account.hash();
+        let head = unwrap_or_return!(
+            self.client.chain.head(),
+            AccountAnnounceVerificationResult::UnknownEpoch
+        );
 
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
+            &head.last_block_hash,
             &announce_account.account_id,
             announce_hash.as_ref(),
             &announce_account.signature,
@@ -176,6 +182,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
+            NetworkClientMessages::TxStatus { tx_hash, signer_account_id } => {
+                self.client.get_tx_status(tx_hash, signer_account_id)
+            }
+            NetworkClientMessages::TxStatusResponse(tx_result) => {
+                let tx_hash = tx_result.transaction.id;
+                if self.client.tx_status_requests.cache_remove(&tx_hash).is_some() {
+                    self.client.tx_status_response.cache_set(tx_hash, tx_result);
+                }
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -236,7 +252,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+            NetworkClientMessages::StateRequest(
+                shard_id,
+                hash,
+                need_header,
+                parts_ranges,
+                route_back,
+            ) => {
                 let mut parts = vec![];
                 for Range(from, to) in parts_ranges {
                     for part_id in from..to {
@@ -252,22 +274,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if need_header {
                     match self.client.chain.get_state_response_header(shard_id, hash) {
                         Ok(header) => {
-                            return NetworkClientResponses::StateResponse(StateResponseInfo {
-                                shard_id,
-                                hash,
-                                shard_state: ShardStateSyncResponse { header: Some(header), parts },
-                            });
+                            return NetworkClientResponses::StateResponse(
+                                StateResponseInfo {
+                                    shard_id,
+                                    hash,
+                                    shard_state: ShardStateSyncResponse {
+                                        header: Some(header),
+                                        parts,
+                                    },
+                                },
+                                route_back,
+                            );
                         }
                         Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
                 } else {
-                    return NetworkClientResponses::StateResponse(StateResponseInfo {
-                        shard_id,
-                        hash,
-                        shard_state: ShardStateSyncResponse { header: None, parts },
-                    });
+                    return NetworkClientResponses::StateResponse(
+                        StateResponseInfo {
+                            shard_id,
+                            hash,
+                            shard_state: ShardStateSyncResponse { header: None, parts },
+                        },
+                        route_back,
+                    );
                 }
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
@@ -364,15 +395,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkPartRequest(part_request_msg, route_back) => {
                 let _ =
-                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, peer_id);
+                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, route_back);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_chunk_one_part_request(
                     part_request_msg,
-                    peer_id,
+                    route_back,
                     self.client.chain.mut_store(),
                 );
                 NetworkClientResponses::NoResponse
@@ -389,20 +420,34 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::AnnounceAccount(announce_account) => {
-                match self.check_signature_account_announce(&announce_account) {
-                    AccountAnnounceVerificationResult::Valid => {
-                        self.network_adapter
-                            .send(NetworkRequests::AnnounceAccount(announce_account));
-                        NetworkClientResponses::NoResponse
-                    }
-                    AccountAnnounceVerificationResult::Invalid(ban_reason) => {
-                        NetworkClientResponses::Ban { ban_reason }
-                    }
-                    AccountAnnounceVerificationResult::UnknownEpoch => {
-                        NetworkClientResponses::NoResponse
+            NetworkClientMessages::AnnounceAccount(announce_accounts) => {
+                let mut filtered_announce_accounts = Vec::new();
+
+                for announce_account in announce_accounts.into_iter() {
+                    match self.check_signature_account_announce(&announce_account) {
+                        AccountAnnounceVerificationResult::Invalid(ban_reason) => {
+                            return NetworkClientResponses::Ban { ban_reason };
+                        }
+                        AccountAnnounceVerificationResult::Valid => {
+                            filtered_announce_accounts.push(announce_account);
+                        }
+                        // Filter this account
+                        AccountAnnounceVerificationResult::UnknownEpoch => {
+                            info!(target: "client", "{:?} failed to validate account announce signature: unknown epoch in {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), announce_account);
+                        }
                     }
                 }
+
+                NetworkClientResponses::AnnounceAccount(filtered_announce_accounts)
+            }
+            NetworkClientMessages::Challenge(challenge) => {
+                match self.client.process_challenge(challenge) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!(target: "client", "Error processing challenge: {}", err);
+                    }
+                }
+                NetworkClientResponses::NoResponse
             }
         }
     }
@@ -649,6 +694,10 @@ impl ClientActor {
         block: Block,
         provenance: Provenance,
     ) -> Result<(), near_chain::Error> {
+        // If we produced the block, send it out before we apply the block.
+        if provenance == Provenance::PRODUCED {
+            self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+        }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
@@ -993,6 +1042,7 @@ impl ClientActor {
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let challenges = Arc::new(RwLock::new(vec![]));
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
@@ -1003,7 +1053,10 @@ impl ClientActor {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |challenge| challenges.write().unwrap().push(challenge)
                         ));
+
+                        self.client.send_challenges(challenges);
 
                         self.process_accepted_blocks(
                             accepted_blocks.write().unwrap().drain(..).collect(),
@@ -1035,11 +1088,13 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                Ok(NetworkResponses::RoutingTableInfo(_)) | Ok(NetworkResponses::NoResponse) => {
-                    actix::fut::ok(())
-                }
-                Err(e) => {
-                    error!(target: "client", "Sync: received error or incorrect result: {}", e);
+                Err(_)
+                | Ok(NetworkResponses::BanPeer(_))
+                | Ok(NetworkResponses::RoutingTableInfo(_))
+                | Ok(NetworkResponses::PingPongInfo { .. })
+                | Ok(NetworkResponses::NoResponse)
+                | Ok(NetworkResponses::EdgeUpdate(_)) => {
+                    error!(target: "client", "Sync: received error or incorrect result.");
                     actix::fut::err(())
                 }
             })

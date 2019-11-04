@@ -42,11 +42,11 @@ impl RuntimeTestbed {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let mut state_roots: Vec<StateRoot> =
+        let mut state_roots: Vec<MerkleHash> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         assert!(state_roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!state_roots.is_empty(), "No state roots found.");
-        let root = state_roots.pop().unwrap().hash;
+        let root = state_roots.pop().unwrap();
 
         let mut runtime_config = RuntimeConfig::default();
         runtime_config.wasm_config.max_log_len = std::u64::MAX;
@@ -73,10 +73,16 @@ impl RuntimeTestbed {
         transactions: &[SignedTransaction],
         allow_failures: bool,
     ) -> Gas {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         let apply_result = self
             .runtime
-            .apply(state_update, &self.apply_state, &self.prev_receipts, transactions)
+            .apply(
+                self.trie.clone(),
+                self.root,
+                &None,
+                &self.apply_state,
+                &self.prev_receipts,
+                transactions,
+            )
             .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
@@ -86,7 +92,7 @@ impl RuntimeTestbed {
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
-            for outcome in &apply_result.tx_result {
+            for outcome in &apply_result.outcomes {
                 total_burnt_gas += outcome.outcome.gas_burnt;
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),

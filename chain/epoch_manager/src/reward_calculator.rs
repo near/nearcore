@@ -1,4 +1,4 @@
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance};
 use std::cmp::max;
 use std::collections::HashMap;
 
@@ -17,9 +17,8 @@ impl RewardCalculator {
     pub fn calculate_reward(
         &self,
         validator_online_ratio: HashMap<AccountId, (u64, u64)>,
-        total_gas_used: Gas,
-        gas_price: Balance,
         total_storage_rent: Balance,
+        total_validator_reward: Balance,
         total_supply: Balance,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
@@ -27,9 +26,7 @@ impl RewardCalculator {
         let max_inflation =
             u128::from(self.max_inflation_rate) * total_supply * u128::from(self.epoch_length)
                 / (100 * u128::from(self.num_blocks_per_year));
-        let total_tx_fee = gas_price * u128::from(total_gas_used);
-        let epoch_fee =
-            u128::from(self.validator_reward_percentage) * total_tx_fee / 100 + total_storage_rent;
+        let epoch_fee = total_validator_reward + total_storage_rent;
         let inflation = if max_inflation > epoch_fee { max_inflation - epoch_fee } else { 0 };
         let epoch_total_reward = max(max_inflation, epoch_fee);
         let epoch_protocol_treasury =

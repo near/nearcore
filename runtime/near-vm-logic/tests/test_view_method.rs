@@ -1,18 +1,14 @@
 mod fixtures;
+mod vm_logic_builder;
 
 use crate::fixtures::get_context;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, VMLogic};
+use vm_logic_builder::VMLogicBuilder;
 
 macro_rules! test_prohibited {
     ($f: ident $(, $arg: expr )* ) => {
-        let mut ext = MockedExternal::default();
-        let context = get_context(vec![], true);
-        let config = Config::default();
-        let promise_results = vec![];
-        let mut memory = MockedMemory::default();
-        let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+        let mut logic_builder = VMLogicBuilder::default();
+        #[allow(unused_mut)]
+        let mut logic = logic_builder.build(get_context(vec![], true));
 
         let name = stringify!($f);
         logic.$f($($arg, )*).expect_err(&format!("{} is not allowed in view calls", name))
@@ -48,12 +44,8 @@ fn test_prohibited_view_methods() {
 
 #[test]
 fn test_allowed_view_method() {
-    let mut ext = MockedExternal::default();
+    let mut logic_builder = VMLogicBuilder::default();
     let context = get_context(vec![], true);
-    let block_index = context.block_index;
-    let config = Config::default();
-    let promise_results = vec![];
-    let mut memory = MockedMemory::default();
-    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
-    assert_eq!(logic.block_index().unwrap(), block_index);
+    let mut logic = logic_builder.build(context.clone());
+    assert_eq!(logic.block_index().unwrap(), context.block_index);
 }

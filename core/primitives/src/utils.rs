@@ -10,7 +10,8 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::AccountId;
+use crate::types::{AccountId, ShardId, ValidatorId};
+use std::cmp::max;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -211,7 +212,7 @@ macro_rules! unwrap_or_return {
     };
 }
 
-/// Macro to either return value if the result is Some, or exit function logging error.
+/// Macro to either return value if the result is Some, or exit function.
 #[macro_export]
 macro_rules! unwrap_option_or_return {
     ($obj: expr, $ret: expr) => {
@@ -246,6 +247,25 @@ pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
 /// Converts DateTime UTC time into timestamp in ns.
 pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
     time.timestamp_nanos() as u64
+}
+
+/// Compute number of block producers per shard given total number of block producers and number
+/// of shards.
+pub fn get_num_block_producers_per_shard(
+    num_shards: ShardId,
+    num_block_producers: ValidatorId,
+) -> Vec<ValidatorId> {
+    (0..num_shards)
+        .map(|i| {
+            let remainder = num_block_producers % num_shards as usize;
+            let num = if i < remainder as u64 {
+                num_block_producers / num_shards as usize + 1
+            } else {
+                num_block_producers / num_shards as usize
+            };
+            max(num, 1)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -466,6 +486,19 @@ mod tests {
                 sub_account_id,
                 signer_id
             );
+        }
+    }
+
+    #[test]
+    fn test_num_chunk_producers() {
+        for num_block_producers in 1..50 {
+            for num_shards in 1..50 {
+                let assignment = get_num_block_producers_per_shard(num_shards, num_block_producers);
+                assert_eq!(
+                    assignment.iter().sum::<usize>(),
+                    max(num_block_producers, num_shards as usize)
+                );
+            }
         }
     }
 }

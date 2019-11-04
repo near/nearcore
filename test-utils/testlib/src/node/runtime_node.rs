@@ -96,5 +96,4 @@ mod tests {
         let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
         assert_eq!(bob2, bob1 + 1 + reward);
     }
-
 }

@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
@@ -9,21 +10,22 @@ use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
 
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 
+use crate::trie::nibble_slice::NibbleSlice;
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
-use self::nibble_slice::NibbleSlice;
-
 mod nibble_slice;
+mod state_parts;
 pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct PartialStorage {
-    nodes: Vec<(CryptoHash, Vec<u8>)>,
+    pub nodes: PartialState,
 }
 
 #[derive(Clone, Hash, Debug, Copy)]
@@ -420,6 +422,10 @@ pub trait TrieStorage: Send + Sync {
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
         None
     }
+
+    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
+        None
+    }
 }
 
 pub struct TrieRecordingStorage {
@@ -441,16 +447,27 @@ impl TrieStorage for TrieRecordingStorage {
     }
 }
 
-#[allow(dead_code)]
+/// Storage for validating recorded partial storage.
+/// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 pub struct TrieMemoryPartialStorage {
     recorded_storage: HashMap<CryptoHash, Vec<u8>>,
+    visited_nodes: Arc<Mutex<HashSet<CryptoHash>>>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        self.recorded_storage
+        let result = self
+            .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()))
+            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
+        if result.is_ok() {
+            self.visited_nodes.lock().expect(POISONED_LOCK_ERR).insert(*hash);
+        }
+        result
+    }
+
+    fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
+        Some(self)
     }
 }
 
@@ -624,7 +641,7 @@ impl TrieChanges {
             trie.clone(),
         );
         self.insertions_into(trie.clone(), &mut store_update)?;
-        self.deletions_into(trie.clone(), &mut store_update)?;
+        self.deletions_into(trie, &mut store_update)?;
         Ok((store_update, self.new_root))
     }
 }
@@ -685,15 +702,20 @@ impl Trie {
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         let storage = self.storage.as_recording_storage()?;
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
-        let mut nodes: Vec<_> = guard.drain().collect();
+        let mut nodes: Vec<_> = guard.drain().map(|(_key, value)| value).collect();
         nodes.sort();
         Some(PartialStorage { nodes })
     }
 
-    #[allow(dead_code)]
-    fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
-        let map = partial_storage.nodes.into_iter().collect();
-        Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }
+    pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
+        let recorded_storage =
+            partial_storage.nodes.into_iter().map(|value| (hash(&value), value)).collect();
+        Trie {
+            storage: Box::new(TrieMemoryPartialStorage {
+                recorded_storage,
+                visited_nodes: Default::default(),
+            }),
+        }
     }
 
     #[cfg(test)]
@@ -1392,10 +1414,10 @@ impl Trie {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
-            if rc > 0 {
-                insertions.push((key, value, rc as u32));
-            } else if rc < 0 {
-                deletions.push((key, value, (-rc) as u32));
+            match rc.cmp(&0) {
+                Ordering::Greater => insertions.push((key, value, rc as u32)),
+                Ordering::Less => deletions.push((key, value, (-rc) as u32)),
+                Ordering::Equal => {}
             }
         }
         // Sort so that trie changes have unique representation
@@ -1516,10 +1538,13 @@ impl<'a> TrieIterator<'a> {
 
     /// Position the iterator on the first element with key => `key`.
     pub fn seek(&mut self, key: &[u8]) -> Result<(), StorageError> {
+        self.seek_nibble_slice(NibbleSlice::new(key))
+    }
+
+    fn seek_nibble_slice(&mut self, mut key: NibbleSlice) -> Result<(), StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
         let mut hash = NodeHandle::Hash(self.root);
-        let mut key = NibbleSlice::new(key);
         loop {
             let node = match hash {
                 NodeHandle::Hash(hash) => self.trie.retrieve_node(&hash)?,
@@ -1899,14 +1924,17 @@ mod tests {
         }
     }
 
-    fn gen_changes(rng: &mut impl Rng) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    pub(crate) fn gen_changes(
+        rng: &mut impl Rng,
+        max_size: usize,
+    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
         let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
         let max_length = rng.gen_range(2, 8);
 
         let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
         let mut result = Vec::new();
         let delete_probability = rng.gen_range(0.1, 0.5);
-        let size = rng.gen_range(1, 20);
+        let size = rng.gen_range(1, max_size);
         for _ in 0..size {
             let key_length = rng.gen_range(1, max_length);
             let key: Vec<u8> =
@@ -1930,7 +1958,7 @@ mod tests {
         result
     }
 
-    fn simplify_changes(
+    pub(crate) fn simplify_changes(
         changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
     ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
         let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
@@ -1951,7 +1979,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let trie = create_trie();
-            let trie_changes = gen_changes(&mut rng);
+            let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
 
             let (_store_update1, root1) = trie

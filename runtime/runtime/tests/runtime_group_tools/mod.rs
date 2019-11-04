@@ -8,12 +8,14 @@ use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
-use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime, StateRecord};
+use random_config::random_config;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+
+pub mod random_config;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -34,7 +36,7 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let runtime_config = RuntimeConfig::default();
+        let runtime_config = random_config();
 
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -47,7 +49,7 @@ impl StandaloneRuntime {
             block_index: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
-            gas_price: 1,
+            gas_price: 100,
             block_timestamp: 0,
         };
 
@@ -59,16 +61,17 @@ impl StandaloneRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
-        let apply_result =
-            self.runtime.apply(state_update, &self.apply_state, receipts, transactions).unwrap();
+        let apply_result = self
+            .runtime
+            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
+            .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
 
-        (apply_result.new_receipts, apply_result.tx_result)
+        (apply_result.new_receipts, apply_result.outcomes)
     }
 }
 

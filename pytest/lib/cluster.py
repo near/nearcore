@@ -1,5 +1,19 @@
-import threading, subprocess, json, os, atexit, shutil, requests, time, base58, base64
+import multiprocessing
+import threading
+import subprocess
+import json
+import os
+import signal
+import atexit
+import shutil
+import requests
+import time
+import base58
+import base64
 import retry
+from gcloud import compute, get_zone, ssh, copy_to_instance
+import uuid
+
 
 def atexit_cleanup(node):
     print("Cleaning up node %s:%s on script exit" % node.addr())
@@ -8,6 +22,7 @@ def atexit_cleanup(node):
     except:
         print("Cleaning failed!")
         pass
+
 
 class Key(object):
     def __init__(self, account_id, pk, sk):
@@ -38,31 +53,34 @@ class BaseNode(object):
     def _get_command_line(self, near_root, node_dir, boot_key, boot_node_addr):
         if boot_key is None:
             assert boot_node_addr is None
-            return [os.path.join(near_root, 'near'), "--verbose", "--home", node_dir, "run"]
+            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run"]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]
-            return [os.path.join(near_root, 'near'), "--verbose", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
+            return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
 
-    def wait_for_rpc(self):
-        retry.retry(lambda: self.get_status(), timeout=1)
+    def wait_for_rpc(self, timeout=1):
+        retry.retry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params):
+    def json_rpc(self, method, params, timeout=2):
         j = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j)
+        r = requests.post("http://%s:%s" % self.rpc_addr(), json=j, timeout=timeout)
         r.raise_for_status()
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
         return self.json_rpc('broadcast_tx_async', [base64.b64encode(signed_tx).decode('utf8')])
 
+    def send_tx_and_wait(self, signed_tx, timeout):
+        return self.json_rpc('broadcast_tx_commit', [base64.b64encode(signed_tx).decode('utf8')], timeout=timeout)
+
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr())
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=2)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -93,10 +111,9 @@ class LocalNode(BaseNode):
         self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
         self.signer_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
 
-        self.handle = None
+        self.pid = multiprocessing.Value('i', 0)
 
         atexit.register(atexit_cleanup, self)
-
 
     def addr(self):
         return ("0.0.0.0", self.port)
@@ -110,14 +127,19 @@ class LocalNode(BaseNode):
 
         self.stdout = open(os.path.join(self.node_dir, 'stdout'), 'a')
         self.stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
-        cmd = self._get_command_line(self.near_root, self.node_dir, boot_key, boot_node_addr)
-        self.handle = subprocess.Popen(cmd, stdout=self.stdout, stderr=self.stderr, env=env)
-        self.wait_for_rpc()
+        cmd = self._get_command_line(
+            self.near_root, self.node_dir, boot_key, boot_node_addr)
+        self.pid.value = subprocess.Popen(
+            cmd, stdout=self.stdout, stderr=self.stderr, env=env).pid
+        self.wait_for_rpc(5)
 
     def kill(self):
-        if self.handle is not None:
-            self.handle.kill()
-            self.handle = None
+        if self.pid.value != 0:
+            os.kill(self.pid.value, signal.SIGKILL)
+            self.pid.value = 0
+
+    def reset_data(self):
+        shutil.rmtree(os.path.join(self.node_dir, "data"))
 
     def cleanup(self):
         self.kill()
@@ -132,14 +154,112 @@ class BotoNode(BaseNode):
     pass
 
 
+class GCloudNode(BaseNode):
+    def __init__(self, instance_name, node_dir):
+        self.instance_name = instance_name
+        self.zone = get_zone(instance_name)
+        self.port = 24567
+        self.rpc_port = 3030
+        self.resource = self.get_gcloud()
+        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        # self.signer_key = Key.from_json_file(
+        #     os.path.join(node_dir, "signer_key.json"))
+
+    def get_gcloud(self):
+        return compute().instances().get(project='near-core', zone=self.zone,
+                                         instance=self.instance_name).execute()
+
+    def addr(self):
+        return (self.ip, self.port)
+
+    def rpc_addr(self):
+        return (self.ip, self.rpc_port)
+    
+    def exec(self, command):
+        return ssh(self.zone, self.instance_name, command)
+
+    def machine_status(self):
+        return self.get_gcloud()['status']
+
+    def is_ready(self):
+        """
+        Raise exception if it's not ready. Ready means instance fully created. compilation
+        finishes and binary exists
+        """
+        assert self.machine_status() == 'RUNNING'
+        assert self.exec("ls /opt/nearcore/target/debug/near")
+    
+    def turn_on_machine(self):
+        """
+        Turn on gcloud instance, wait until it's on.
+        """
+        compute().instances().start(project='near-core', zone=self.zone, instance=self.instance_name)
+        retry.retry(lambda: self.machine_status() == 'RUNNING', 60)
+        self.exec("tmux new -s node -d")
+    
+    def turn_off_machine(self):
+        """
+        Turn off gcloud instance, wait until it's off.
+        """
+        compute().instances().stop(project='near-core', zone=self.zone, instance=self.instance_name)
+        retry.retry(lambda: self.machine_status() == 'STOPPED', 60) 
+
+    def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
+        self.exec("""tmux send-keys -t node "{cmd}" C-m
+""".format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)).replace("--verbose", "--verbose ''"))
+        )
+        self.resource = self.get_gcloud()
+        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+        self.wait_for_rpc(timeout=10)
+
+    def change_version(self, commit):
+        """
+        Fetch and checkout to a different commit or git branch, then recompile
+        """
+        self.kill()
+        self.exec("tmux send-keys -t node 'cd /opt/nearcore' C-m")
+        self.exec("tmux send-keys -t node 'rm /opt/nearcore/target/debug/near' C-m")
+        self.exec("tmux send-keys -t node 'git fetch' C-m")
+        self.exec("tmux send-keys -t node 'git checkout {}' C-m".format(commit))
+        self.exec("tmux send-keys -t node 'cargo build -p near' C-m")
+    
+    def kill(self):
+        self.exec("tmux send-keys -t node C-c")
+
+    def cleanup(self):
+        self.kill()
+        # move the node dir to avoid weird interactions with multiple serial test invocations
+        self.exec("rm -rf /opt/near_finished")
+        self.exec("cp -r /opt/near /opt/near_finished")
+        self.exec("rm -rf /opt/near/data")
+
+    def update_config_files(self, node_dir):
+        copy_to_instance(self.zone, self.instance_name, os.path.join(node_dir, '*.json'), "/opt/near/")
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "signer_key.json"))
+
+
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
     is_local = config['local']
 
-    print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else ("with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
+    print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else (
+        "with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
     if is_local:
-        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root, node_dir)
+        node = LocalNode(24567 + 10 + ordinal, 3030 +
+                         10 + ordinal, near_root, node_dir)
     else:
-        node = BotoNode()
+        instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'),ordinal)
+        node = GCloudNode(instance_name, node_dir)
+        if node.machine_status() == 'STOPPED':
+            node.turn_on_machine()
 
     node.start(boot_key, boot_addr)
 
@@ -147,16 +267,22 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
 
 
 def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+    """
+    Create cluster configuration
+    """
     is_local = config['local']
     near_root = config['near_root']
 
-    print("Starting %s cluster with %s nodes" % ("LOCAL" if is_local else "REMOTE", num_nodes));
+    print("Creating %s cluster configuration with %s nodes" %
+          ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(
+        num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
-    node_dirs = [line.split()[-1] for line in err.decode('utf8').split('\n') if '/test' in line]
+    node_dirs = [line.split()[-1]
+                 for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers
 
     # apply config changes
@@ -191,11 +317,17 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
 
 
 def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
-    near_root, node_dirs = init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
-
+    if not os.path.exists(os.path.expanduser("~/.near/test0")):
+        near_root, node_dirs = init_cluster(
+            num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
+    else:
+        near_root = config['near_root']
+        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
     ret = []
+
     def spin_up_node_and_push(i, boot_key, boot_addr):
-        node = spin_up_node(config, near_root, node_dirs[i], i, boot_key, boot_addr)
+        node = spin_up_node(config, near_root,
+                            node_dirs[i], i, boot_key, boot_addr)
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
@@ -205,7 +337,8 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
 
     handles = []
     for i in range(1, num_nodes + num_observers):
-        handle = threading.Thread(target = spin_up_node_and_push, args=(i, boot_node.node_key.pk, boot_node.addr()))
+        handle = threading.Thread(target=spin_up_node_and_push, args=(
+            i, boot_node.node_key.pk, boot_node.addr()))
         handle.start()
         handles.append(handle)
 
@@ -213,4 +346,3 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
         handle.join()
 
     return ret
-

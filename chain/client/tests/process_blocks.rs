@@ -9,7 +9,7 @@ use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
+use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_network::routing::EdgeInfo;
@@ -20,7 +20,7 @@ use near_network::{
 };
 use near_primitives::block::BlockHeader;
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
@@ -138,6 +138,8 @@ fn receive_network_block() {
                 HashMap::default(),
                 0,
                 None,
+                vec![],
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -187,6 +189,8 @@ fn receive_network_block_header() {
                 HashMap::default(),
                 0,
                 None,
+                vec![],
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -232,6 +236,8 @@ fn produce_block_with_approvals() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
+                vec![],
                 &signer1,
             );
             for i in 3..11 {
@@ -291,6 +297,8 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
+                vec![],
                 &signer,
             );
             block.header.inner.prev_state_root = hash(&[1]);
@@ -308,6 +316,8 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -320,6 +330,8 @@ fn invalid_blocks() {
                 HashMap::default(),
                 0,
                 Some(0),
+                vec![],
+                vec![],
                 &signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
@@ -431,8 +443,16 @@ fn test_process_invalid_tx() {
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.transaction_validity_period = 10;
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+        5,
+    );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -454,14 +474,11 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
-            block_hash: CryptoHash::default(),
+            block_hash: hash(&[1]),
             actions: vec![],
         },
     );
-    assert_eq!(
-        client.process_tx(tx2),
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidChain)
-    );
+    assert_eq!(client.process_tx(tx2), NetworkClientResponses::InvalidTx(InvalidTxError::Expired));
 }
 
 /// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
@@ -471,8 +488,16 @@ fn test_time_attack() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+        5,
+    );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
@@ -480,7 +505,7 @@ fn test_time_attack() {
     let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
-    client.process_block(b1, Provenance::NONE);
+    let _ = client.process_block(b1, Provenance::NONE);
 
     let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
     assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
@@ -494,8 +519,16 @@ fn test_invalid_approvals() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let chain_genesis = ChainGenesis::test();
-    let mut client =
-        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+        5,
+    );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
@@ -521,4 +554,12 @@ fn test_invalid_approvals() {
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
     }
+}
+
+#[test]
+fn test_no_double_sign() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
+    let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    // Second time producing with the same height should fail.
+    assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
 }
