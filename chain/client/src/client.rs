@@ -419,6 +419,7 @@ impl Client {
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
+            chunk_extra.outcome_root,
             next_height,
             shard_id,
             chunk_extra.gas_used,
@@ -895,7 +896,7 @@ impl Client {
             return NetworkClientResponses::TxStatus(res);
         }
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let has_tx_result = match self.chain.get_transaction_result(&tx_hash) {
+        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
             Ok(_) => true,
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => false,

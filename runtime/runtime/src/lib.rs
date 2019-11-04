@@ -1,19 +1,31 @@
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
 
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use kvdb::DBValue;
 
+use crate::actions::*;
+use crate::balance_checker::check_balance;
+use crate::config::{
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    total_prepaid_gas, total_send_fees, RuntimeConfig,
+};
+pub use crate::store::StateRecord;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
@@ -23,6 +35,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
 };
+use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_delayed_receipt,
     key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
@@ -36,20 +49,6 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-
-use crate::actions::*;
-use crate::balance_checker::check_balance;
-use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, total_send_fees, RuntimeConfig,
-};
-pub use crate::store::StateRecord;
-use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
-};
-use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
-use std::cmp::max;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -112,7 +111,7 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub tx_result: Vec<ExecutionOutcomeWithId>,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
 }
 
@@ -888,7 +887,7 @@ impl Runtime {
                 );
                 assert!(
                     account.locked >= *max_of_stakes,
-                    "FATAL: staking invariant does not hold.\
+                    "FATAL: staking invariant does not hold. \
                      Account stake {} is less than maximum of stakes {} in the past three epochs",
                     account.locked,
                     max_of_stakes
@@ -960,11 +959,11 @@ impl Runtime {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut tx_result = vec![];
+        let mut outcomes = vec![];
         let mut total_gas_burnt = 0;
 
         for signed_transaction in transactions {
-            let result = self.process_transaction(
+            let outcome_with_id = self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
@@ -972,9 +971,9 @@ impl Runtime {
                 &mut new_receipts,
                 &mut stats,
             )?;
-            total_gas_burnt += result.outcome.gas_burnt;
+            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
 
-            tx_result.push(result);
+            outcomes.push(outcome_with_id);
         }
 
         let mut delayed_receipts_indices: DelayedReceiptIndices =
@@ -994,9 +993,9 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|res| {
-                *total_gas_burnt += res.outcome.gas_burnt;
-                tx_result.push(res);
+            .for_each(|outcome_with_id| {
+                *total_gas_burnt += outcome_with_id.outcome.gas_burnt;
+                outcomes.push(outcome_with_id);
             });
             Ok(())
         };
@@ -1054,7 +1053,7 @@ impl Runtime {
             trie_changes,
             validator_proposals,
             new_receipts,
-            tx_result,
+            outcomes,
             stats,
         })
     }
