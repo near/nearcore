@@ -361,6 +361,10 @@ impl Peer {
                         let body = RoutedMessageBody::TxStatusResponse(tx_result);
                         act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
                     }
+                    Ok(NetworkClientResponses::QueryResponse { response, id }) => {
+                        let body = RoutedMessageBody::QueryResponse { response, id };
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
+                    }
                     Err(err) => {
                         error!(
                             target: "network",

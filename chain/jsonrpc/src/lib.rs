@@ -6,31 +6,31 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
 use borsh::BorshDeserialize;
-use futures::future::Future;
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
+use futures::future::Future;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use async_utils::{delay, timeout};
-use message::Message;
 use message::{Request, RpcError};
+use message::Message;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetNetworkInfo, Status, TxStatus,
     ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, BlockId, ChunkId};
+use near_jsonrpc_client::{BlockId, ChunkId, message};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, from_base64, BaseEncode};
+use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 use near_primitives::utils::generate_random_string;
+use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 
 mod metrics;
 pub mod test_utils;
@@ -112,13 +112,6 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
-fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
-    let (encoded,) = parse_params::<(String,)>(params)?;
-    from_base_or_parse_err(encoded).and_then(|bytes| {
-        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-    })
-}
-
 fn jsonify_client_response(
     client_response: Result<NetworkClientResponses, MailboxError>,
 ) -> Result<Value, RpcError> {
@@ -136,6 +129,13 @@ fn jsonify_client_response(
 
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
     ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
+}
+
+fn timeout_err() -> RpcError {
+    RpcError::server_error(Some(ExecutionErrorView {
+        error_message: "send_tx_commit has timed out".to_string(),
+        error_type: "TimeoutError".to_string(),
+    }))
 }
 
 struct JsonRpcHandler {
@@ -231,10 +231,7 @@ impl JsonRpcHandler {
                 })
                 .await
                 .map_err(|_| {
-                    RpcError::server_error(Some(ExecutionErrorView {
-                        error_message: "send_tx_commit has timed out".to_string(),
-                        error_type: "TimeoutError".to_string(),
-                    }))
+                    timeout_err()
                 })?
             }
             NetworkClientResponses::TxStatus(tx_result) => {
@@ -290,13 +287,34 @@ impl JsonRpcHandler {
             return Err(RpcError::server_error(Some("At least one query parameter is required".to_string())));
         }
         let request_id = generate_random_string(10);
-        let result = self
-            .client_addr
-            .send(NetworkClientMessages::Query { path, data, id: request_id})
-            .compat()
-            .await;
-
-        jsonify_client_response(result)
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let result = self
+                    .client_addr
+                    .send(NetworkClientMessages::Query { path: path.clone(), data: data.clone(), id: request_id.clone()})
+                    .compat()
+                    .await;
+                match result {
+                    Ok(NetworkClientResponses::QueryResponse { ..}) =>{
+                        println!("here");
+                        break jsonify_client_response(result);
+                    }
+                    Ok(NetworkClientResponses::RequestRouted) | Ok(NetworkClientResponses::NoResponse) => {},
+                    Ok(response) => {
+                        break Err(RpcError::server_error(Some(ExecutionErrorView {
+                            error_message: format!("Wrong client response: {:?}", response),
+                            error_type: "ResponseError".to_string(),
+                        })));
+                    }
+                    Err(e) => break Err(RpcError::server_error(Some(convert_mailbox_error(e)))),
+                }
+                let _ = delay(self.polling_config.polling_interval).await;
+            }
+        })
+            .await
+            .map_err(|_| {
+                timeout_err()
+            })?
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {

@@ -409,7 +409,8 @@ impl RoutedMessage {
             | RoutedMessageBody::TxStatusRequest(_, _)
             | RoutedMessageBody::StateRequest(_, _, _, _)
             | RoutedMessageBody::ChunkPartRequest(_)
-            | RoutedMessageBody::ChunkOnePartRequest(_) => true,
+            | RoutedMessageBody::ChunkOnePartRequest(_)
+            | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
         }
     }
@@ -620,6 +621,20 @@ impl PeerMessage {
                     near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::QueryRequest { .. } => {
+                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_REQUEST_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_QUERY_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::QueryResponse { .. } => {
+                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_QUERY_RESPONSE_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
