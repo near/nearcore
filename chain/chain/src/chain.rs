@@ -1239,7 +1239,7 @@ impl Chain {
         }
 
         // Saving the header data.
-        let mut store_update = self.store.store().store_update();
+        let mut store_update = self.store.owned_store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
         store_update.commit()?;
@@ -1259,7 +1259,7 @@ impl Chain {
                 .into(),
         ));*/
         // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
+        Ok(self.store.owned_store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
     }
 
     pub fn set_state_part(
@@ -1635,7 +1635,7 @@ impl Chain {
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    chain_store_update: ChainStoreUpdate<'a, ChainStore>,
+    chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,

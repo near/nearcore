@@ -707,7 +707,7 @@ impl TestEnv {
     }
 
     pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().store().clone();
+        let store = self.clients[id].chain.store().owned_store().clone();
         self.clients[id] = setup_client(
             store,
             vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
