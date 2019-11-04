@@ -18,6 +18,12 @@ impl AsRef<[u8]> for ChunkHash {
     }
 }
 
+impl From<ChunkHash> for Vec<u8> {
+    fn from(chunk_hash: ChunkHash) -> Self {
+        chunk_hash.0.into()
+    }
+}
+
 impl From<CryptoHash> for ChunkHash {
     fn from(crypto_hash: CryptoHash) -> Self {
         Self(crypto_hash)
@@ -29,6 +35,8 @@ pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
+    /// Root of the outcomes from execution transactions and results.
+    pub outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -81,6 +89,7 @@ impl ShardChunkHeader {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -98,6 +107,7 @@ impl ShardChunkHeader {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
@@ -201,6 +211,7 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -244,6 +255,7 @@ impl EncodedShardChunk {
         let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             height,
             shard_id,
             gas_used,
@@ -266,6 +278,7 @@ impl EncodedShardChunk {
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -291,6 +304,7 @@ impl EncodedShardChunk {
         let header = ShardChunkHeader::new(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height,

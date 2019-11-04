@@ -59,17 +59,17 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "block_processed_total",
+          "expr": "block_processed_total{job=\"staging-testnet\"}",
           "format": "time_series",
           "instant": false,
           "intervalFactor": 1,
-          "legendFormat": "TotalBlocksProcessed",
+          "legendFormat": "TotalBlocksProcessed {{name}}",
           "refId": "A"
         },
         {
-          "expr": "block_processed_successfully_total",
+          "expr": "block_processed_successfully_total{job=\"staging-testnet\"}",
           "hide": false,
-          "legendFormat": "BlocksProcessSuccessfully",
+          "legendFormat": "BlocksProcessSuccessfully {{name}}",
           "refId": "B"
         }
       ],
@@ -77,7 +77,7 @@
       "timeFrom": "15m",
       "timeRegions": [],
       "timeShift": null,
-      "title": "Blocks Processed",
+      "title": "Blocks Processed by Nodes",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -156,7 +156,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "block_produced_total",
+          "expr": "block_produced_total{job=\"staging-testnet\"}",
           "hide": false,
           "legendFormat": "BlocksProduced",
           "refId": "A"
@@ -166,7 +166,7 @@
       "timeFrom": "15m",
       "timeRegions": [],
       "timeShift": null,
-      "title": "Blocks Produced",
+      "title": "Blocks Produced in Network",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -244,7 +244,8 @@
       "pluginVersion": "6.4.3",
       "targets": [
         {
-          "expr": "(block_processing_time_sum / block_processing_time_count) * 1000",
+          "expr": "(block_processing_time_sum{job=\"staging-testnet\"} / block_processing_time_count{job=\"staging-testnet\"}) * 1000",
+          "legendFormat": "{{name}}",
           "refId": "A"
         }
       ],
@@ -293,13 +294,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "transaction_processed_total",
-          "legendFormat": "Transaction Processed",
+          "expr": "transaction_processed_total{job=\"staging-testnet\"}",
+          "legendFormat": "Transaction Processed {{name}}",
           "refId": "A"
         },
         {
-          "expr": "transaction_processed_successefully_total",
-          "legendFormat": "Transactions Processed Successfully",
+          "expr": "transaction_processed_successefully_total{job=\"staging-testnet\"}",
+          "legendFormat": "Transactions Processed Successfully {{name}}",
           "refId": "B"
         }
       ],
@@ -408,7 +409,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "max(block_height_head)",
+          "expr": "max(block_height_head{job=\"staging-testnet\"})",
           "refId": "A"
         }
       ],
@@ -491,7 +492,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(http_rpc_requests_total)",
+          "expr": "sum(http_rpc_requests_total{job=\"staging-testnet\"})",
           "refId": "A"
         }
       ],
@@ -574,7 +575,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(http_status_requests_total)",
+          "expr": "sum(http_status_requests_total{job=\"staging-testnet\"})",
           "refId": "A"
         }
       ],
@@ -657,7 +658,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(http_prometheus_requests_total)",
+          "expr": "sum(http_prometheus_requests_total{job=\"staging-testnet\"})",
           "refId": "A"
         }
       ],
@@ -714,35 +715,43 @@
       "pluginVersion": "6.4.3",
       "targets": [
         {
-          "expr": "action_create_account_total",
+          "expr": "sum(action_create_account_total{job=\"staging-testnet\"})",
+          "legendFormat": "Create Account",
           "refId": "A"
         },
         {
-          "expr": "action_deploy_contract_total",
+          "expr": "sum(action_deploy_contract_total{job=\"staging-testnet\"})",
+          "legendFormat": "Deploy Contract",
           "refId": "B"
         },
         {
-          "expr": "action_function_call_total",
+          "expr": "sum(action_function_call_total{job=\"staging-testnet\"})",
+          "legendFormat": "Function Call",
           "refId": "C"
         },
         {
-          "expr": "action_transfer_total",
+          "expr": "sum(action_transfer_total{job=\"staging-testnet\"})",
+          "legendFormat": "Transfer",
           "refId": "D"
         },
         {
-          "expr": "action_stake_total",
+          "expr": "sum(action_stake_total{job=\"staging-testnet\"})",
+          "legendFormat": "Stake",
           "refId": "E"
         },
         {
-          "expr": "action_add_key_total",
+          "expr": "sum(action_add_key_total{job=\"staging-testnet\"})",
+          "legendFormat": "Add Key",
           "refId": "F"
         },
         {
-          "expr": "action_delete_key_total",
+          "expr": "sum(action_delete_key_total{job=\"staging-testnet\"})",
+          "legendFormat": "Delete Key",
           "refId": "G"
         },
         {
-          "expr": "action_delete_account_total",
+          "expr": "sum(action_delete_account_total{job=\"staging-testnet\"})",
+          "legendFormat": "Delete Account",
           "refId": "H"
         }
       ],
@@ -791,28 +800,28 @@
       "pluginVersion": "6.4.3",
       "targets": [
         {
-          "expr": "peer_connections_total",
-          "legendFormat": "Peer Connections",
+          "expr": "peer_connections_total{job=\"staging-testnet\"}",
+          "legendFormat": "{{name}} Peer Connections",
           "refId": "A"
         },
         {
-          "expr": "peer_block_received_total",
-          "legendFormat": "Peer Blocks Received",
+          "expr": "peer_block_received_total{job=\"staging-testnet\"}",
+          "legendFormat": "{{name}} Peer Blocks Received",
           "refId": "B"
         },
         {
-          "expr": "peer_transaction_received_total",
-          "legendFormat": "Peer Transaction Received",
+          "expr": "peer_transaction_received_total{job=\"staging-testnet\"}",
+          "legendFormat": "{{name}} Peer Transaction Received",
           "refId": "E"
         },
         {
-          "expr": "peer_message_received_total",
-          "legendFormat": "Peer Messages Received",
+          "expr": "peer_message_received_total{job=\"staging-testnet\"}",
+          "legendFormat": "{{name}} Peer Messages Received",
           "refId": "D"
         },
         {
-          "expr": "peer_data_received_bytes",
-          "legendFormat": "Peer Bytes Received",
+          "expr": "peer_data_received_bytes{job=\"staging-testnet\"}",
+          "legendFormat": "{{name}} Peer Bytes Received",
           "refId": "C"
         }
       ],
@@ -885,7 +894,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(validator_active_total)",
+          "expr": "sum(validator_active_total{job=\"staging-testnet\"})",
           "legendFormat": "",
           "refId": "A"
         }
@@ -945,8 +954,8 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "validators_amount_staked",
-          "legendFormat": "Validator Staked Amount",
+          "expr": "validators_amount_staked{job=\"staging-testnet\"}",
+          "legendFormat": "Validator Staked Amount {{name}}",
           "refId": "A"
         }
       ],
@@ -1018,7 +1027,7 @@
     ]
   },
   "timezone": "",
-  "title": "nearcore",
-  "uid": "qgvhAH2Wk",
-  "version": 7
+  "title": "staging-testnet",
+  "uid": "staging-testnet",
+  "version": 11
 }

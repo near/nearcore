@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
@@ -7,12 +8,13 @@ use cached::{Cached, SizedCache};
 use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
+use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 
+use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 use crate::utils::CloneNone;
-use std::time::{Duration, Instant};
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
@@ -244,6 +246,8 @@ pub struct RoutingTable {
     ping_info: Option<HashMap<usize, Ping>>,
     /// Ping received by nonce. Used for testing only.
     pong_info: Option<HashMap<usize, Pong>>,
+    /// Total known edges (even those that were removed).
+    total_edges: u64,
 }
 
 #[derive(Debug)]
@@ -266,6 +270,7 @@ impl RoutingTable {
             recalculation_scheduled: None,
             ping_info: None,
             pong_info: None,
+            total_edges: 0,
         }
     }
 
@@ -340,9 +345,13 @@ impl RoutingTable {
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, announce_account: AnnounceAccount) -> bool {
         let account_id = announce_account.account_id.clone();
-        self.account_peers
-            .insert(account_id, announce_account.clone())
-            .map_or(true, |old_announce_account| old_announce_account == announce_account)
+        self.account_peers.insert(account_id, announce_account.clone()).map_or_else(
+            || {
+                near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
+                true
+            },
+            |old_announce_account| old_announce_account != announce_account,
+        )
     }
 
     pub fn contains_account(&self, announce_account: AnnounceAccount) -> bool {
@@ -393,6 +402,14 @@ impl RoutingTable {
         if let Some(duration) = new_schedule {
             self.recalculation_scheduled = Some(Instant::now() + duration);
         }
+
+        // Update metrics after edge update
+        near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, 1);
+        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
+        near_metrics::set_gauge(
+            &metrics::EDGE_INACTIVE,
+            self.total_edges as i64 - self.raw_graph.total_active_edges as i64,
+        );
 
         ProcessEdgeResult { new_edge: true, schedule_computation: new_schedule }
     }
@@ -460,17 +477,26 @@ impl RoutingTable {
             .map(|(key, value)| (key.clone(), value.peer_id.clone()))
             .collect();
 
-        RoutingTableInfo {
-            account_peers: account_peers,
-            peer_forwarding: self.peer_forwarding.clone(),
-        }
+        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
     /// Recalculate routing table.
     pub fn update(&mut self) {
         trace!(target: "network", "Update routing table.");
         self.recalculation_scheduled = None;
+
+        let start = Instant::now();
+
         self.peer_forwarding = self.raw_graph.calculate_distance();
+
+        let duration = Instant::now().duration_since(start).as_millis();
+
+        near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
+        near_metrics::set_gauge(
+            &metrics::ROUTING_TABLE_RECALCULATION_MILLISECONDS,
+            duration as i64,
+        );
+        near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
     }
 }
 
@@ -489,11 +515,12 @@ pub struct RoutingTableInfo {
 pub struct Graph {
     pub source: PeerId,
     adjacency: HashMap<PeerId, HashSet<PeerId>>,
+    total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
-        Self { source, adjacency: HashMap::new() }
+        Self { source, adjacency: HashMap::new(), total_active_edges: 0 }
     }
 
     fn contains_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {
@@ -518,6 +545,7 @@ impl Graph {
         if !self.contains_edge(&peer0, &peer1) {
             self.add_directed_edge(peer0.clone(), peer1.clone());
             self.add_directed_edge(peer1, peer0);
+            self.total_active_edges += 1;
         }
     }
 
@@ -525,6 +553,7 @@ impl Graph {
         if self.contains_edge(&peer0, &peer1) {
             self.remove_directed_edge(&peer0, &peer1);
             self.remove_directed_edge(&peer1, &peer0);
+            self.total_active_edges -= 1;
         }
     }
 

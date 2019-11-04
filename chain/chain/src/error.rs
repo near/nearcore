@@ -64,6 +64,9 @@ pub enum ErrorKind {
     /// Invalid receipts proof.
     #[fail(display = "Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// Invalid outcomes proof.
+    #[fail(display = "Invalid Outcomes Proof")]
+    InvalidOutcomesProof,
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload,
@@ -182,6 +185,7 @@ impl Error {
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidOutcomesProof
             | ErrorKind::InvalidChunkHeadersRoot
             | ErrorKind::InvalidChunkTxRoot
             | ErrorKind::InvalidReceiptsProof
