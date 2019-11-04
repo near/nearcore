@@ -8,7 +8,7 @@ use futures::{future, Future};
 use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
-use near_network::types::{ChunkOnePartRequestMsg, PeerId};
+use near_network::types::ChunkOnePartRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
@@ -116,13 +116,14 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
                         }
                     }
                     NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part: _ }
-                    | NetworkRequests::ChunkOnePartResponse { peer_id: _, header_and_part: _ } => {
+                    | NetworkRequests::ChunkOnePartResponse { route_back: _, header_and_part: _ } =>
+                    {
                         one_part_msgs += 1;
                     }
                     NetworkRequests::ChunkPartRequest { account_id: _, part_request: _ } => {
                         part_request_msgs += 1;
                     }
-                    NetworkRequests::ChunkPart { peer_id: _, part: _ } => {
+                    NetworkRequests::ChunkPart { route_back: _, part: _ } => {
                         part_msgs += 1;
                     }
                     _ => {}
@@ -171,7 +172,11 @@ fn test_request_chunk_restart() {
     let client = &mut env.clients[0];
     client
         .shards_mgr
-        .process_chunk_one_part_request(request.clone(), PeerId::random(), client.chain.mut_store())
+        .process_chunk_one_part_request(
+            request.clone(),
+            CryptoHash::default(),
+            client.chain.mut_store(),
+        )
         .unwrap();
     assert!(env.network_adapters[0].pop().is_some());
 
@@ -179,7 +184,7 @@ fn test_request_chunk_restart() {
     let client = &mut env.clients[0];
     client
         .shards_mgr
-        .process_chunk_one_part_request(request, PeerId::random(), client.chain.mut_store())
+        .process_chunk_one_part_request(request, CryptoHash::default(), client.chain.mut_store())
         .unwrap();
     // TODO(1434): should be some() with the same chunk.
     assert!(env.network_adapters[0].pop().is_none());

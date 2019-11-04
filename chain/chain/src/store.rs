@@ -12,7 +12,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::ExecutionOutcome;
+use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -26,6 +26,7 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
 use near_primitives::errors::InvalidTxError;
+use near_primitives::merkle::MerklePath;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -249,8 +250,11 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptProof>, Error>;
-    /// Returns transaction result for given tx hash.
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error>;
+    /// Returns transaction and receipt outcome for given hash.
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -297,7 +301,7 @@ pub struct ChainStore {
     /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
-    transaction_results: SizedCache<Vec<u8>, ExecutionOutcome>,
+    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithProof>,
     /// Invalid chunks.
     invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
 }
@@ -326,7 +330,7 @@ impl ChainStore {
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
-            transaction_results: SizedCache::with_size(CACHE_SIZE),
+            outcomes: SizedCache::with_size(CACHE_SIZE),
             invalid_chunks: SizedCache::with_size(CACHE_SIZE),
         }
     }
@@ -616,12 +620,15 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
                 COL_TRANSACTION_RESULT,
-                &mut self.transaction_results,
+                &mut self.outcomes,
                 hash.as_ref(),
             ),
             &format!("TRANSACTION: {}", hash),
@@ -931,8 +938,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
-        self.chain_store.get_transaction_result(hash)
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+        self.chain_store.get_execution_outcome(hash)
     }
 
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
@@ -1143,6 +1153,19 @@ impl<'a> ChainStoreUpdate<'a> {
         receipt_proof: Vec<ReceiptProof>,
     ) {
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
+    }
+
+    pub fn save_outcomes_with_proofs(
+        &mut self,
+        outcomes: Vec<ExecutionOutcomeWithId>,
+        proofs: Vec<MerklePath>,
+    ) {
+        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
+            self.outcomes.insert(
+                outcome_with_id.id,
+                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
+        }
     }
 
     pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: ExecutionOutcome) {
