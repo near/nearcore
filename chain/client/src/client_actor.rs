@@ -9,6 +9,7 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
+use cached::Cached;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
@@ -41,7 +42,6 @@ use crate::types::{
     Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use cached::Cached;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -131,11 +131,6 @@ impl ClientActor {
             self.client.chain.head(),
             AccountAnnounceVerificationResult::UnknownEpoch
         );
-
-        // If we are currently not at the epoch that this announcement is in, skip it.
-        if announce_account.epoch_id != head.epoch_id {
-            return AccountAnnounceVerificationResult::UnknownEpoch;
-        }
 
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
@@ -257,7 +252,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+            NetworkClientMessages::StateRequest(
+                shard_id,
+                hash,
+                need_header,
+                parts_ranges,
+                route_back,
+            ) => {
                 let mut parts = vec![];
                 for Range(from, to) in parts_ranges {
                     for part_id in from..to {
@@ -273,22 +274,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if need_header {
                     match self.client.chain.get_state_response_header(shard_id, hash) {
                         Ok(header) => {
-                            return NetworkClientResponses::StateResponse(StateResponseInfo {
-                                shard_id,
-                                hash,
-                                shard_state: ShardStateSyncResponse { header: Some(header), parts },
-                            });
+                            return NetworkClientResponses::StateResponse(
+                                StateResponseInfo {
+                                    shard_id,
+                                    hash,
+                                    shard_state: ShardStateSyncResponse {
+                                        header: Some(header),
+                                        parts,
+                                    },
+                                },
+                                route_back,
+                            );
                         }
                         Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
                 } else {
-                    return NetworkClientResponses::StateResponse(StateResponseInfo {
-                        shard_id,
-                        hash,
-                        shard_state: ShardStateSyncResponse { header: None, parts },
-                    });
+                    return NetworkClientResponses::StateResponse(
+                        StateResponseInfo {
+                            shard_id,
+                            hash,
+                            shard_state: ShardStateSyncResponse { header: None, parts },
+                        },
+                        route_back,
+                    );
                 }
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
@@ -385,15 +395,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkPartRequest(part_request_msg, route_back) => {
                 let _ =
-                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, peer_id);
+                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, route_back);
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
+            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, route_back) => {
                 let _ = self.client.shards_mgr.process_chunk_one_part_request(
                     part_request_msg,
-                    peer_id,
+                    route_back,
                     self.client.chain.mut_store(),
                 );
                 NetworkClientResponses::NoResponse
@@ -422,7 +432,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             filtered_announce_accounts.push(announce_account);
                         }
                         // Filter this account
-                        AccountAnnounceVerificationResult::UnknownEpoch => {}
+                        AccountAnnounceVerificationResult::UnknownEpoch => {
+                            info!(target: "client", "{:?} failed to validate account announce signature: unknown epoch in {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), announce_account);
+                        }
                     }
                 }
 

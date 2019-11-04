@@ -13,6 +13,7 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
@@ -20,8 +21,8 @@ use crate::serialize::{
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
@@ -241,6 +242,7 @@ pub struct BlockHeaderView {
     pub chunk_receipts_root: CryptoHash,
     pub chunk_headers_root: CryptoHash,
     pub chunk_tx_root: CryptoHash,
+    pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
@@ -275,6 +277,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: header.inner.chunk_headers_root,
             chunk_tx_root: header.inner.chunk_tx_root,
             chunks_included: header.inner.chunks_included,
+            outcome_root: header.inner.outcome_root,
             timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
             approval_sigs: header.inner.approval_sigs,
@@ -310,6 +313,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
+                outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
                 approval_mask: view.approval_mask,
                 approval_sigs: view.approval_sigs,
@@ -340,6 +344,7 @@ impl From<BlockHeaderView> for BlockHeader {
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
+    pub outcome_root: CryptoHash,
     pub prev_state_root_hash: CryptoHash,
     pub prev_state_num_parts: u64,
     pub encoded_merkle_root: CryptoHash,
@@ -366,6 +371,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             chunk_hash: chunk.hash.0,
             prev_block_hash: chunk.inner.prev_block_hash,
+            outcome_root: chunk.inner.outcome_root,
             prev_state_root_hash: chunk.inner.prev_state_root.hash,
             prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
             encoded_merkle_root: chunk.inner.encoded_merkle_root,
@@ -400,6 +406,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     hash: view.prev_state_root_hash,
                     num_parts: view.prev_state_num_parts,
                 },
+                outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
@@ -767,15 +774,18 @@ pub struct ExecutionOutcomeView {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// Proofs for given execution outcome.
+    pub proof: MerklePath,
 }
 
-impl From<ExecutionOutcome> for ExecutionOutcomeView {
-    fn from(outcome: ExecutionOutcome) -> Self {
+impl From<ExecutionOutcomeWithProof> for ExecutionOutcomeView {
+    fn from(outcome: ExecutionOutcomeWithProof) -> Self {
         Self {
-            status: outcome.status.into(),
-            logs: outcome.logs,
-            receipt_ids: outcome.receipt_ids,
-            gas_burnt: outcome.gas_burnt,
+            status: outcome.outcome.status.into(),
+            logs: outcome.outcome.logs,
+            receipt_ids: outcome.outcome.receipt_ids,
+            gas_burnt: outcome.outcome.gas_burnt,
+            proof: outcome.proof,
         }
     }
 }
@@ -786,9 +796,9 @@ pub struct ExecutionOutcomeWithIdView {
     pub outcome: ExecutionOutcomeView,
 }
 
-impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
-    fn from(outcome_with_id: ExecutionOutcomeWithId) -> Self {
-        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome.into() }
+impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
+    fn from(outcome_with_id: ExecutionOutcomeWithIdAndProof) -> Self {
+        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome_with_proof.into() }
     }
 }
 

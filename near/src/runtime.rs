@@ -300,12 +300,12 @@ impl NightshadeRuntime {
                 .push(receipt);
         }
         let total_gas_burnt =
-            apply_result.tx_result.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             new_root: apply_result.state_root,
-            transaction_results: apply_result.tx_result,
+            outcomes: apply_result.outcomes,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
@@ -1154,6 +1154,7 @@ mod test {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards();
             assert_eq!(transactions.len() as ShardId, num_shards);
+            assert_eq!(chunk_mask.len() as ShardId, num_shards);
             let mut all_proposals = vec![];
             let mut new_receipts = HashMap::new();
             for i in 0..num_shards {
@@ -1859,11 +1860,11 @@ mod test {
         let mut env = TestEnv::new(
             "test_challenges",
             vec![vec!["test1".to_string(), "test2".to_string()]],
-            4,
+            2,
             vec![],
             vec![],
         );
-        env.step(vec![vec![]], vec![true, true], vec!["test2".to_string()]);
+        env.step(vec![vec![]], vec![true], vec!["test2".to_string()]);
         assert_eq!(env.view_account("test2").locked, 0);
         assert_eq!(
             env.runtime
@@ -1884,5 +1885,9 @@ mod test {
             ),
             ValidatorSignatureVerificationResult::Invalid
         );
+        // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
+        for _ in 0..6 {
+            env.step(vec![vec![]], vec![true], vec![]);
+        }
     }
 }

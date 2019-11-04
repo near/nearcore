@@ -218,7 +218,16 @@ impl GenesisBuilder {
             store_update.save_chunk_extra(
                 &genesis.hash(),
                 chunk_header.inner.shard_id,
-                ChunkExtra::new(state_root, vec![], 0, self.config.gas_limit.clone(), 0, 0, 0),
+                ChunkExtra::new(
+                    state_root,
+                    CryptoHash::default(),
+                    vec![],
+                    0,
+                    self.config.gas_limit.clone(),
+                    0,
+                    0,
+                    0,
+                ),
             );
         }
 
