@@ -1,5 +1,5 @@
 use crate::utils::{make_simple_contract_call, wat2wasm_no_validate};
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
+use near_vm_errors::{CompilationError, FunctionCallError, PrepareError};
 use near_vm_runner::VMError;
 
 mod utils;
@@ -20,14 +20,12 @@ fn initializer_wrong_signature_contract() -> Vec<u8> {
 fn test_initializer_wrong_signature_contract() {
     assert_eq!(
         make_simple_contract_call(&initializer_wrong_signature_contract(), b"hello"),
-        ((
+        (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::WasmerCompileError(
-                    "Validation error \"invlid start function type\"".to_string()
-                )
-            )))
-        ))
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(CompilationError::PrepareError(
+                PrepareError::Deserialization
+            ))))
+        )
     );
 }
 
@@ -45,12 +43,12 @@ fn function_not_defined_contract() -> Vec<u8> {
 fn test_function_not_defined_contract() {
     assert_eq!(
         make_simple_contract_call(&function_not_defined_contract(), b"hello"),
-        ((
+        (
             None,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+                CompilationError::PrepareError(PrepareError::Deserialization)
             )))
-        ))
+        )
     );
 }
 
@@ -69,12 +67,12 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 fn test_function_type_not_defined_contract_1() {
     assert_eq!(
         make_simple_contract_call(&function_type_not_defined_contract(1), b"hello"),
-        ((
+        (
             None,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+                CompilationError::PrepareError(PrepareError::Deserialization)
             )))
-        ))
+        )
     );
 }
 
@@ -83,12 +81,12 @@ fn test_function_type_not_defined_contract_1() {
 fn test_function_type_not_defined_contract_2() {
     assert_eq!(
         make_simple_contract_call(&function_type_not_defined_contract(0), b"hello"),
-        ((
+        (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
-                MethodResolveError::MethodInvalidSignature
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization)
             )))
-        ))
+        )
     );
 }
 
@@ -96,11 +94,36 @@ fn test_function_type_not_defined_contract_2() {
 fn test_garbage_contract() {
     assert_eq!(
         make_simple_contract_call(&[], b"hello"),
-        ((
+        (
             None,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
-        ))
+        )
+    );
+}
+
+fn evil_function_index() -> Vec<u8> {
+    wat2wasm_no_validate(
+        r#"
+          (module
+            (type (;0;) (func))
+            (func (;0;) (type 0)
+              call 4294967295)
+            (export "abort_with_zero" (func 0))
+          )"#
+    )
+}
+
+#[test]
+fn test_evil_function_index() {
+    assert_eq!(
+        make_simple_contract_call(&evil_function_index(), b"abort_with_zero"),
+        (
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization)
+            )))
+        )
     );
 }
