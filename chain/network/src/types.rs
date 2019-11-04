@@ -1,21 +1,3 @@
-use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message};
-use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
-use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{PublicKey, SecretKey, Signature};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
-pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
-use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
-use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
@@ -24,7 +6,31 @@ use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Addr, Message};
+use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+
+use near_chain::types::ShardStateSyncResponse;
+use near_chain::{Block, BlockApproval, BlockHeader, Weight};
+use near_crypto::{PublicKey, SecretKey, Signature};
+use near_metrics;
+use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
+use near_primitives::hash::{hash, CryptoHash};
+pub use near_primitives::sharding::ChunkPartMsg;
+use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
+use near_primitives::utils::{from_timestamp, to_timestamp};
+use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+
+use crate::metrics;
+use crate::peer::Peer;
+use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -287,6 +293,7 @@ pub struct Pong {
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
+
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
@@ -299,9 +306,13 @@ pub enum RoutedMessageBody {
         id: String,
     },
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateResponse(StateResponseInfo),
+
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
+    ChunkPart(ChunkPartMsg),
+
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -394,8 +405,11 @@ impl RoutedMessage {
 
     pub fn expect_response(&self) -> bool {
         match self.body {
-            RoutedMessageBody::Ping(_) => true,
-            RoutedMessageBody::TxStatusRequest(_, _) => true,
+            RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::ChunkPartRequest(_)
+            | RoutedMessageBody::ChunkOnePartRequest(_) => true,
             _ => false,
         }
     }
@@ -433,10 +447,6 @@ impl SyncData {
     }
 }
 
-// TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
-//  is necessary. Some message are routed and others are directed between peers.
-// TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
-//  the client messages are routed.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
@@ -447,6 +457,8 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     Sync(SyncData),
+    RequestUpdateNonce(EdgeInfo),
+    ResponseUpdateNonce(Edge),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -459,18 +471,12 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
-    StateResponse(StateResponseInfo),
     Routed(RoutedMessage),
-
-    ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkOnePartRequestMsg),
-    ChunkPart(ChunkPartMsg),
-    ChunkOnePart(ChunkOnePart),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
+
+    Challenge(Challenge),
 }
 
 impl fmt::Display for PeerMessage {
@@ -479,17 +485,17 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::Sync(_) => f.write_str("Sync"),
+            PeerMessage::RequestUpdateNonce(_) => f.write_str("RequestUpdateNonce"),
+            PeerMessage::ResponseUpdateNonce(_) => f.write_str("ResponseUpdateNonce"),
             PeerMessage::LastEdge(_) => f.write_str("LastEdge"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
+            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
-            PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
@@ -500,17 +506,181 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
                 RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+                RoutedMessageBody::ChunkPart(_) => f.write_str("ChunkPart"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
-            PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
-            PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
-            PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
-            PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
             PeerMessage::Disconnect => f.write_str("Disconnect"),
+            PeerMessage::Challenge(_) => f.write_str("Challenge"),
+        }
+    }
+}
+
+impl PeerMessage {
+    pub fn record(&self, size: usize) {
+        match self {
+            PeerMessage::Handshake(_) => {
+                near_metrics::inc_counter(&metrics::HANDSHAKE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::HANDSHAKE_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::HandshakeFailure(_, _) => {
+                near_metrics::inc_counter(&metrics::HANDSHAKE_FAILURE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(
+                    &metrics::HANDSHAKE_FAILURE_RECEIVED_BYTES,
+                    size as i64,
+                );
+            }
+            PeerMessage::Sync(_) => {
+                near_metrics::inc_counter(&metrics::SYNC_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::SYNC_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::RequestUpdateNonce(_) => {
+                near_metrics::inc_counter(&metrics::REQUEST_UPDATE_NONCE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(
+                    &metrics::REQUEST_UPDATE_NONCE_RECEIVED_BYTES,
+                    size as i64,
+                );
+            }
+            PeerMessage::ResponseUpdateNonce(_) => {
+                near_metrics::inc_counter(&metrics::RESPONSE_UPDATE_NONCE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(
+                    &metrics::RESPONSE_UPDATE_NONCE_RECEIVED_BYTES,
+                    size as i64,
+                );
+            }
+            PeerMessage::LastEdge(_) => {
+                near_metrics::inc_counter(&metrics::LAST_EDGE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::LAST_EDGE_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::PeersRequest => {
+                near_metrics::inc_counter(&metrics::PEERS_REQUEST_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::PEERS_REQUEST_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::PeersResponse(_) => {
+                near_metrics::inc_counter(&metrics::PEERS_RESPONSE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::PEERS_RESPONSE_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::BlockHeadersRequest(_) => {
+                near_metrics::inc_counter(&metrics::BLOCK_HEADERS_REQUEST_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(
+                    &metrics::BLOCK_HEADERS_REQUEST_RECEIVED_BYTES,
+                    size as i64,
+                );
+            }
+            PeerMessage::BlockHeaders(_) => {
+                near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::BlockHeaderAnnounce(_) => {
+                near_metrics::inc_counter(&metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(
+                    &metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_BYTES,
+                    size as i64,
+                );
+            }
+            PeerMessage::BlockRequest(_) => {
+                near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::BLOCK_REQUEST_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::Block(_) => {
+                near_metrics::inc_counter(&metrics::BLOCK_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::BLOCK_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::Transaction(_) => {
+                near_metrics::inc_counter(&metrics::TRANSACTION_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::TRANSACTION_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::Routed(routed_message) => match routed_message.body {
+                RoutedMessageBody::BlockApproval(_, _, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::ForwardTx(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_FORWARD_TX_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_FORWARD_TX_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::TxStatusRequest(_, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_REQUEST_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_TX_STATUS_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::TxStatusResponse(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::StateRequest(_, _, _, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::StateResponse(_) => {
+                    near_metrics::inc_counter(&metrics::STATE_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::STATE_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::ChunkPartRequest(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::ChunkOnePartRequest(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::ChunkPart(_) => {
+                    near_metrics::inc_counter(&metrics::CHUNK_PART_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(&metrics::CHUNK_PART_RECEIVED_BYTES, size as i64);
+                }
+                RoutedMessageBody::ChunkOnePart(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::Ping(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_PING_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(&metrics::ROUTED_PING_RECEIVED_BYTES, size as i64);
+                }
+                RoutedMessageBody::Pong(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_PONG_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(&metrics::ROUTED_PONG_RECEIVED_BYTES, size as i64);
+                }
+            },
+            PeerMessage::Disconnect => {
+                near_metrics::inc_counter(&metrics::DISCONNECT_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::DISCONNECT_RECEIVED_BYTES, size as i64);
+            }
+            PeerMessage::Challenge(_) => {
+                near_metrics::inc_counter(&metrics::CHALLENGE_RECEIVED_TOTAL);
+                near_metrics::inc_counter_by(&metrics::CHALLENGE_RECEIVED_BYTES, size as i64);
+            }
         }
     }
 }
@@ -648,16 +818,10 @@ pub struct PeerList {
     pub peers: Vec<PeerInfo>,
 }
 
-/// TODO(MarX): Wrap the following type of messages in this category:
-///     - PeersRequest
-///     - PeersResponse
-///     - Unregister
-///     - Ban
-///     - Consolidate (Maybe not)
-///  check that this messages are only used from peer -> peer manager.
 /// Message from peer to peer manager
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
+    RouteBack(RoutedMessageBody, CryptoHash),
 }
 
 impl Message for PeerRequest {
@@ -666,6 +830,7 @@ impl Message for PeerRequest {
 
 #[derive(MessageResponse)]
 pub enum PeerResponse {
+    NoResponse,
     UpdatedEdge(EdgeInfo),
 }
 
@@ -770,7 +935,7 @@ pub enum NetworkRequests {
     },
     /// Response to a peer with chunk part and receipts.
     ChunkOnePartResponse {
-        peer_id: PeerId,
+        route_back: CryptoHash,
         header_and_part: ChunkOnePart,
     },
     /// A chunk header and one part for another validator.
@@ -780,7 +945,7 @@ pub enum NetworkRequests {
     },
     /// A chunk part
     ChunkPart {
-        peer_id: PeerId,
+        route_back: CryptoHash,
         part: ChunkPartMsg,
     },
 
@@ -805,16 +970,23 @@ pub enum NetworkRequests {
         sync_data: SyncData,
     },
 
-    // Start ping to `PeerId` with `nonce`.
+    RequestUpdateNonce(PeerId, EdgeInfo),
+    ResponseUpdateNonce(Edge),
+
+    /// Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
-    // Fetch all received ping and pong so far.
+    /// Fetch all received ping and pong so far.
     FetchPingPongInfo,
+
+    /// A challenge to invalidate a block.
+    Challenge(Challenge),
 }
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
+    UnregisterPeer,
 }
 
 /// Combines peer address info and chain information.
@@ -844,6 +1016,7 @@ pub enum NetworkResponses {
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
+    EdgeUpdate(Edge),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -898,20 +1071,23 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
     AnnounceAccount(Vec<AnnounceAccount>),
 
     /// Request chunk part.
-    ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    ChunkPartRequest(ChunkPartRequestMsg, CryptoHash),
     /// Request chunk part.
-    ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg, CryptoHash),
     /// A chunk part.
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part.
     ChunkOnePart(ChunkOnePart),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
 }
 
 // TODO(#1313): Use Box
@@ -935,7 +1111,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse(StateResponseInfo),
+    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Transaction execution outcome

@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
 use near_crypto::PublicKey;
 
@@ -37,7 +38,9 @@ pub struct StateRoot {
 }
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
-#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+#[derive(
+    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+)]
 pub struct EpochId(pub CryptoHash);
 
 impl AsRef<[u8]> for EpochId {
@@ -66,28 +69,37 @@ impl ValidatorStake {
     }
 }
 
+/// Information after block was processed.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct BlockExtra {
+    pub challenges_result: ChallengesResult,
+}
+
 /// Information after chunk was processed, used to produce or check next chunk.
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
+    /// Root of merklizing results of receipts (transactions) execution.
+    pub outcome_root: CryptoHash,
     /// Validator proposals produced by given chunk.
     pub validator_proposals: Vec<ValidatorStake>,
     /// Actually how much gas were used.
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Total rent paid after processing the current chunk
+    /// Total rent paid after processing the current chunk.
     pub rent_paid: Balance,
-    /// Total validation execution reward after processing the current chunk
+    /// Total validation execution reward after processing the current chunk.
     pub validator_reward: Balance,
-    /// Total balance burnt after processing the current chunk
+    /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
 }
 
 impl ChunkExtra {
     pub fn new(
         state_root: &StateRoot,
+        outcome_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
@@ -97,6 +109,7 @@ impl ChunkExtra {
     ) -> Self {
         Self {
             state_root: state_root.clone(),
+            outcome_root,
             validator_proposals,
             gas_used,
             gas_limit,

@@ -9,13 +9,13 @@ use actix::Recipient;
 use log::{debug, error};
 use rand::Rng;
 
-use near_chain::types::validate_chunk_proofs;
+use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ErrorKind, RuntimeAdapter,
     ValidTransaction,
 };
 use near_crypto::Signer;
-use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
+use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
@@ -142,8 +142,8 @@ pub struct ShardsManager {
     requested_one_parts: RequestPool,
     requested_chunks: RequestPool,
 
-    requests_fifo: VecDeque<(ShardId, ChunkHash, PeerId, u64)>,
-    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<(PeerId)>>,
+    requests_fifo: VecDeque<(ShardId, ChunkHash, CryptoHash, u64)>,
+    requests: HashMap<(ShardId, ChunkHash, u64), HashSet<CryptoHash>>,
 }
 
 impl ShardsManager {
@@ -481,7 +481,7 @@ impl ShardsManager {
     pub fn process_chunk_part_request(
         &mut self,
         request: ChunkPartRequestMsg,
-        peer_id: PeerId,
+        route_back: CryptoHash,
     ) -> Result<(), Error> {
         let mut served = false;
         if let Some(chunk) = self.encoded_chunks.get(&request.chunk_hash) {
@@ -492,7 +492,7 @@ impl ShardsManager {
             if chunk.content.parts[request.part_id as usize].is_some() {
                 served = true;
                 self.network_adapter.send(NetworkRequests::ChunkPart {
-                    peer_id: peer_id.clone(),
+                    route_back: route_back.clone(),
                     part: chunk.create_chunk_part_msg(
                         request.part_id,
                         // Part should never exist in the chunk content if the merkle path for it is
@@ -534,12 +534,12 @@ impl ShardsManager {
                 .requests
                 .entry((request.shard_id, request.chunk_hash.clone(), request.part_id))
                 .or_insert_with(HashSet::default)
-                .insert(peer_id.clone())
+                .insert(route_back.clone())
             {
                 self.requests_fifo.push_back((
                     request.shard_id,
                     request.chunk_hash,
-                    peer_id,
+                    route_back,
                     request.part_id,
                 ));
             }
@@ -548,7 +548,7 @@ impl ShardsManager {
         Ok(())
     }
 
-    fn receipts_recipient_filter(
+    pub fn receipts_recipient_filter(
         &self,
         from_shard_id: ShardId,
         tracking_shards: &HashSet<ShardId>,
@@ -581,7 +581,7 @@ impl ShardsManager {
     pub fn process_chunk_one_part_request(
         &mut self,
         request: ChunkOnePartRequestMsg,
-        peer_id: PeerId,
+        route_back: CryptoHash,
         chain_store: &mut ChainStore,
     ) -> Result<(), Error> {
         debug!(target:"chunks", "Received one part request for {:?}, I'm {:?}", request.chunk_hash.0, self.me);
@@ -608,7 +608,7 @@ impl ShardsManager {
                     request.chunk_hash.0, self.me
                 );
                 self.network_adapter.send(NetworkRequests::ChunkOnePartResponse {
-                    peer_id,
+                    route_back,
                     header_and_part: encoded_chunk.create_chunk_one_part(
                         request.part_id,
                         one_part_receipt_proofs,
@@ -697,7 +697,7 @@ impl ShardsManager {
                     .get(&chunk_hash)
                     .map(std::clone::Clone::clone)
                     .expect("Present if add_part returns Ok");
-                self.process_encoded_chunk(&chunk, merkle_paths, chain_store)
+                self.process_encoded_chunk(chunk, merkle_paths, chain_store)
             }
             ChunkStatus::Incomplete => Ok(None),
             ChunkStatus::Invalid => {
@@ -709,7 +709,7 @@ impl ShardsManager {
                     self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
                 }
                 self.encoded_chunks.remove(&chunk_hash);
-                Ok(None)
+                Err(Error::InvalidChunk)
             }
         }
     }
@@ -829,7 +829,7 @@ impl ShardsManager {
         {
             for whom in send_to {
                 self.network_adapter.send(NetworkRequests::ChunkPart {
-                    peer_id: whom,
+                    route_back: whom,
                     part: ChunkPartMsg {
                         shard_id: one_part.shard_id,
                         chunk_hash: chunk_hash.clone(),
@@ -847,6 +847,8 @@ impl ShardsManager {
         self.encoded_chunks.get_mut(&one_part.chunk_hash).unwrap().content.parts
             [one_part.part_id as usize] = Some(one_part.part.clone());
 
+        // Fills in all the rest of the parts if there is enough parts,
+        // so if it's complete, have_all_one_parts will be true after this.
         self.persist_chunk_if_complete(&one_part.chunk_hash, &prev_block_hash, chain_store)?;
 
         let have_all_one_parts = self.has_all_one_parts(
@@ -905,6 +907,7 @@ impl ShardsManager {
         &mut self,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -924,6 +927,7 @@ impl ShardsManager {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             height,
             shard_id,
             total_parts,
@@ -945,7 +949,7 @@ impl ShardsManager {
 
     pub fn process_encoded_chunk(
         &mut self,
-        chunk: &EncodedShardChunk,
+        chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         chain_store: &mut ChainStore,
     ) -> Result<Option<CryptoHash>, Error> {
@@ -990,14 +994,15 @@ impl ShardsManager {
             return Ok(Some(chunk.header.inner.prev_block_hash));
         } else {
             // Can't decode chunk or has invalid proofs, ignore it
-            error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
-            // TODO: mark chunk invalid.
+            error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, self.me);
             for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
                 self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
             }
+            store_update.save_invalid_chunk(chunk);
+            store_update.commit()?;
             self.encoded_chunks.remove(&chunk_hash);
             self.requested_chunks.remove(&chunk_hash);
-            return Ok(None);
+            return Err(Error::InvalidChunk);
         }
     }
 
@@ -1007,7 +1012,7 @@ impl ShardsManager {
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         chain_store: &mut ChainStore,
-    ) {
+    ) -> Result<(), Error> {
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let chunk_hash = encoded_chunk.chunk_hash();
@@ -1017,6 +1022,7 @@ impl ShardsManager {
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
+
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
@@ -1045,7 +1051,7 @@ impl ShardsManager {
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage
             if Some(&to_whom) == self.me.as_ref() {
-                self.process_chunk_one_part(one_part.clone(), chain_store).unwrap();
+                self.process_chunk_one_part(one_part.clone(), chain_store)?;
             } else {
                 self.network_adapter.send(NetworkRequests::ChunkOnePartMessage {
                     account_id: to_whom.clone(),
@@ -1060,17 +1066,21 @@ impl ShardsManager {
             self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
         }
 
-        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        // Save this chunk into encoded_chunks.
         self.encoded_chunks.insert(chunk_hash.clone(), encoded_chunk.clone());
+
+        // Process encoded chunk to add to the store.
+        let num_parts = encoded_chunk.content.parts.len();
         self.process_encoded_chunk(
-            &encoded_chunk,
-            (0..encoded_chunk.content.parts.len())
+            encoded_chunk,
+            (0..num_parts)
                 .map(|part_id| {
                     self.merkle_paths.get(&(chunk_hash.clone(), part_id as u64)).unwrap().clone()
                 })
                 .collect(),
             chain_store,
-        )
-        .expect("Failed to process just created chunk");
+        )?;
+
+        Ok(())
     }
 }

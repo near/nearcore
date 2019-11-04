@@ -19,7 +19,6 @@ impl RewardCalculator {
         validator_online_ratio: HashMap<AccountId, (u64, u64)>,
         total_storage_rent: Balance,
         total_validator_reward: Balance,
-        total_balance_burnt: Balance,
         total_supply: Balance,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
@@ -32,10 +31,7 @@ impl RewardCalculator {
         let epoch_total_reward = max(max_inflation, epoch_fee);
         let epoch_protocol_treasury =
             epoch_total_reward * u128::from(self.protocol_reward_percentage) / 100;
-        res.insert(
-            self.protocol_treasury_account.clone(),
-            epoch_protocol_treasury + total_balance_burnt,
-        );
+        res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
             return (res, inflation);
         }

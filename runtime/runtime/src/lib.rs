@@ -1,12 +1,14 @@
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
 
-use std::collections::HashMap;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use kvdb::DBValue;
@@ -14,6 +16,9 @@ use kvdb::DBValue;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
@@ -44,11 +49,6 @@ use crate::config::{
     total_prepaid_gas, total_send_fees, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
-use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
-};
-use std::cmp::max;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -84,6 +84,8 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasure account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
+    /// Accounts to slash.
+    pub slashed_accounts: HashSet<AccountId>,
 }
 
 #[derive(Debug)]
@@ -99,6 +101,7 @@ pub struct ApplyStats {
     pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
+    pub total_balance_slashed: Balance,
 }
 
 pub struct ApplyResult {
@@ -106,7 +109,7 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub tx_result: Vec<ExecutionOutcomeWithId>,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
 }
 
@@ -858,6 +861,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
+        stats: &mut ApplyStats,
     ) -> Result<(), StorageError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
@@ -872,7 +876,7 @@ impl Runtime {
                 );
                 assert!(
                     account.locked >= *max_of_stakes,
-                    "FATAL: staking invariant does not hold.\
+                    "FATAL: staking invariant does not hold. \
                      Account stake {} is less than maximum of stakes {} in the past three epochs",
                     account.locked,
                     max_of_stakes
@@ -885,6 +889,14 @@ impl Runtime {
                 account.amount += return_stake;
 
                 set_account(state_update, account_id, &account);
+            }
+        }
+
+        for account_id in validator_accounts_update.slashed_accounts.iter() {
+            if let Some(mut account) = get_account(state_update, &account_id)? {
+                stats.total_balance_slashed += account.locked;
+                account.locked = 0;
+                set_account(state_update, &account_id, &account);
             }
         }
 
@@ -922,18 +934,23 @@ impl Runtime {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
 
+        let mut stats = ApplyStats::default();
+
         if let Some(validator_accounts_update) = validator_accounts_update {
-            self.update_validator_accounts(&mut state_update, validator_accounts_update)?;
+            self.update_validator_accounts(
+                &mut state_update,
+                validator_accounts_update,
+                &mut stats,
+            )?;
         }
 
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut tx_result = vec![];
-        let mut stats = ApplyStats::default();
+        let mut outcomes = vec![];
 
         for signed_transaction in transactions {
-            tx_result.push(self.process_transaction(
+            outcomes.push(self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
@@ -953,7 +970,7 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|res| tx_result.push(res));
+            .for_each(|outcome_with_id| outcomes.push(outcome_with_id));
         }
 
         check_balance(
@@ -973,7 +990,7 @@ impl Runtime {
             trie_changes,
             validator_proposals,
             new_receipts,
-            tx_result,
+            outcomes,
             stats,
         })
     }
@@ -1219,6 +1236,7 @@ mod tests {
             validator_rewards: vec![(account_id.clone(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
+            slashed_accounts: HashSet::default(),
         };
 
         runtime

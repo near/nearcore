@@ -156,7 +156,6 @@ impl EpochManager {
         let mut produced_block_indices = HashSet::new();
         let mut total_storage_rent = 0;
         let mut total_validator_reward = 0;
-        let mut total_balance_burnt = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -199,7 +198,6 @@ impl EpochManager {
 
             total_storage_rent += info.rent_paid;
             total_validator_reward += info.validator_reward;
-            total_balance_burnt += info.balance_burnt;
 
             hash = info.prev_hash;
         }
@@ -236,7 +234,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
         })
     }
 
@@ -255,7 +252,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
@@ -263,7 +259,6 @@ impl EpochManager {
             validator_online_ratio,
             total_storage_rent,
             total_validator_reward,
-            total_balance_burnt,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -282,6 +277,7 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
+        println!("next next epoch info: {:?}", next_next_epoch_info);
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
@@ -311,8 +307,14 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
+                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?;
+                // Keep `slashed` from previous block if they are still in the epoch info stake change
+                // (e.g. we need to keep track that they are still slashed, because when we compute
+                // returned stake we are skipping account ids that are slashed in `stake_change`).
                 for item in prev_block_info.slashed.iter() {
-                    block_info.slashed.insert(item.clone());
+                    if epoch_info.stake_change.contains_key(item) {
+                        block_info.slashed.insert(item.clone());
+                    }
                 }
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
@@ -393,7 +395,8 @@ impl EpochManager {
             .clone())
     }
 
-    /// Returns validator for given account id for given epoch. We don't require caller to know about EpochIds.
+    /// Returns validator for given account id for given epoch.
+    /// We don't require caller to know about EpochIds. Doesn't account for slashing.
     pub fn get_validator_by_account_id(
         &mut self,
         epoch_id: &EpochId,
@@ -517,14 +520,16 @@ impl EpochManager {
             "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
             next_next_epoch_id, next_epoch_id, epoch_id
         );
+        // Fetch last block info to get the slashed accounts.
+        let last_block_info = self.get_block_info(last_block_hash)?.clone();
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
         // is the prev_prev_stake_change.
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
         debug!(target: "epoch_manager",
-            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
-            prev_prev_stake_change, prev_stake_change, stake_change
+            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}, slashed: {:?}",
+            prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed
         );
         let mut all_keys = HashSet::new();
         for (key, _) in
@@ -534,6 +539,9 @@ impl EpochManager {
         }
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
+            if last_block_info.slashed.contains(account_id) {
+                continue;
+            }
             let new_stake = *stake_change.get(account_id).unwrap_or(&0);
             let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
             let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&0);
@@ -1007,7 +1015,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[1],
-                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, 0, DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()
@@ -1109,7 +1117,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1128,7 +1135,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1147,7 +1153,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1157,7 +1162,7 @@ mod tests {
         validator_online_ratio.insert("test1".to_string(), (0, 0));
         validator_online_ratio.insert("test2".to_string(), (1, 1));
         let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
 
@@ -1206,7 +1211,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1225,7 +1229,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1244,7 +1247,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 10,
                     validator_reward: 10,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1253,7 +1255,7 @@ mod tests {
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test2".to_string(), (1, 1));
         let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, 0, total_supply);
+            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
         assert_eq!(
@@ -1331,7 +1333,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1350,7 +1351,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1369,7 +1369,6 @@ mod tests {
                     slashed: Default::default(),
                     rent_paid: 0,
                     validator_reward: 0,
-                    balance_burnt: 0,
                     total_supply,
                 },
                 rng_seed,
