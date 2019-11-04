@@ -2198,7 +2198,7 @@ impl<'a> ChainUpdate<'a> {
             .get_any_block_hash_by_height(header.inner.height)
             .map(Clone::clone)
         {
-            // first check if there is already known block of the same height that has the same epoch id
+            // Check if there is already known block of the same height that has the same epoch id
             if let Some(other_hash) = epoch_id_to_hash.get(&header.inner.epoch_id) {
                 // This should be guaranteed but it doesn't hurt to check again
                 if other_hash != &header.hash {
@@ -2208,28 +2208,6 @@ impl<'a> ChainUpdate<'a> {
                         left_block_header: header.try_to_vec().expect("Failed to serialize"),
                         right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
                     }));
-                }
-            } else {
-                for (epoch_id, block_hash) in epoch_id_to_hash.iter() {
-                    if epoch_id != &header.inner.epoch_id {
-                        let other_header = self.chain_store_update.get_block_header(&block_hash)?;
-                        let cur_header_producer = self
-                            .runtime_adapter
-                            .get_block_producer(&header.inner.epoch_id, header.inner.height)?;
-                        let other_header_producer = self
-                            .runtime_adapter
-                            .get_block_producer(epoch_id, header.inner.height)?;
-                        if cur_header_producer == other_header_producer {
-                            on_challenge(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                                left_block_header: header
-                                    .try_to_vec()
-                                    .expect("Failed to serialize"),
-                                right_block_header: other_header
-                                    .try_to_vec()
-                                    .expect("Failed to serialize"),
-                            }));
-                        }
-                    }
                 }
             }
         }

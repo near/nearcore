@@ -245,7 +245,6 @@ impl EpochManager {
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
     ) -> Result<EpochId, EpochError> {
-        println!("finalize epoch");
         let EpochSummary {
             last_block_hash: last_block_hash_prev_epoch,
             all_proposals,

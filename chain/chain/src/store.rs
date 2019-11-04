@@ -690,7 +690,7 @@ struct ChainStoreCacheUpdate {
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
-    transaction_results: HashMap<CryptoHash, ExecutionOutcome>,
+    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
     invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
 }
 
@@ -708,7 +708,7 @@ impl ChainStoreCacheUpdate {
             block_index: Default::default(),
             outgoing_receipts: HashMap::default(),
             incoming_receipts: HashMap::default(),
-            transaction_results: Default::default(),
+            outcomes: Default::default(),
             invalid_chunks: Default::default(),
         }
     }
@@ -1161,15 +1161,11 @@ impl<'a> ChainStoreUpdate<'a> {
         proofs: Vec<MerklePath>,
     ) {
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            self.outcomes.insert(
+            self.chain_store_cache_update.outcomes.insert(
                 outcome_with_id.id,
                 ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
             );
         }
-    }
-
-    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: ExecutionOutcome) {
-        self.chain_store_cache_update.transaction_results.insert(*hash, result);
     }
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
@@ -1236,37 +1232,24 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(COL_BLOCK, hash.as_ref());
         }
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
-            match self.chain_store.get_any_block_hash_by_height(header.inner.height) {
-                Ok(map) => {
-                    if !map.contains_key(&header.inner.epoch_id) {
-                        let mut new_map = map.clone();
-                        new_map.insert(header.inner.epoch_id.clone(), *hash);
-                        store_update
-                            .set_ser(
-                                COL_BLOCK_PER_HEIGHT,
-                                &index_to_bytes(header.inner.height),
-                                &new_map,
-                            )
-                            .map_err::<Error, _>(|e| e.into())?;
-                        self.chain_store_cache_update
-                            .block_hash_per_height
-                            .insert(header.inner.height, new_map);
+            let map = match self.chain_store.get_any_block_hash_by_height(header.inner.height) {
+                Ok(m) => {
+                    if !m.contains_key(&header.inner.epoch_id) {
+                        Some(m.clone())
+                    } else {
+                        None
                     }
                 }
-                Err(_) => {
-                    let mut epoch_id_to_hash = HashMap::new();
-                    epoch_id_to_hash.insert(header.inner.epoch_id.clone(), *hash);
-                    store_update
-                        .set_ser(
-                            COL_BLOCK_PER_HEIGHT,
-                            &index_to_bytes(header.inner.height),
-                            &epoch_id_to_hash,
-                        )
-                        .map_err::<Error, _>(|e| e.into())?;
-                    self.chain_store_cache_update
-                        .block_hash_per_height
-                        .insert(header.inner.height, epoch_id_to_hash);
-                }
+                Err(_) => Some(HashMap::new()),
+            };
+            if let Some(mut new_map) = map {
+                new_map.insert(header.inner.epoch_id.clone(), *hash);
+                store_update
+                    .set_ser(COL_BLOCK_PER_HEIGHT, &index_to_bytes(header.inner.height), &new_map)
+                    .map_err::<Error, _>(|e| e.into())?;
+                self.chain_store_cache_update
+                    .block_hash_per_height
+                    .insert(header.inner.height, new_map);
             }
             store_update
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), header)
@@ -1321,8 +1304,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        for (hash, tx_result) in self.chain_store_cache_update.transaction_results.iter() {
-            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), tx_result)?;
+        for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
+            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), outcome)?;
         }
         for trie_changes in self.trie_changes.drain(..) {
             trie_changes
@@ -1424,7 +1407,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_index,
             outgoing_receipts,
             incoming_receipts,
-            transaction_results,
+            outcomes,
             invalid_chunks,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
@@ -1470,8 +1453,8 @@ impl<'a> ChainStoreUpdate<'a> {
             let key = get_block_shard_id(&block_hash, shard_id);
             self.chain_store.incoming_receipts.cache_set(key, shard_incoming_receipts);
         }
-        for (hash, tx_result) in transaction_results {
-            self.chain_store.transaction_results.cache_set(hash.into(), tx_result);
+        for (hash, outcome) in outcomes {
+            self.chain_store.outcomes.cache_set(hash.into(), outcome);
         }
         for (hash, invalid_chunk) in invalid_chunks {
             self.chain_store.invalid_chunks.cache_set(hash.into(), invalid_chunk);
