@@ -132,10 +132,7 @@ fn jsonify_client_response(
 }
 
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
-    ExecutionErrorView {
-        error_message: e.to_string(),
-        error_type: "MailBoxError".to_string(),
-    }
+    ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
 }
 
 struct JsonRpcHandler {
@@ -238,16 +235,19 @@ impl JsonRpcHandler {
                     }))
                 })?
             }
-            NetworkClientResponses::TxStatus(tx_result) => serde_json::to_value(tx_result)
-                .map_err(|err| RpcError::server_error(Some(ExecutionErrorView {
-                    error_message: err.to_string(),
-                    error_type: "SerializationError".to_string(),
-                }))),
+            NetworkClientResponses::TxStatus(tx_result) => {
+                serde_json::to_value(tx_result).map_err(|err| {
+                    RpcError::server_error(Some(ExecutionErrorView {
+                        error_message: err.to_string(),
+                        error_type: "SerializationError".to_string(),
+                    }))
+                })
+            }
             NetworkClientResponses::InvalidTx(err) => {
                 Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
             }
             NetworkClientResponses::NoResponse => {
-                Err(RpcError::server_error( Some(ExecutionErrorView {
+                Err(RpcError::server_error(Some(ExecutionErrorView {
                     error_message: "send_tx_commit has timed out".to_string(),
                     error_type: "TimeoutError".to_string(),
                 })))
