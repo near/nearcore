@@ -1,18 +1,18 @@
-/// This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
-/// fix do not resurface
-use std::sync::{Arc, RwLock};
+// This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
+// fix do not resurface
 
 use actix::{Addr, System};
-use rand::{thread_rng, Rng};
-
 use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
+use rand::{thread_rng, Rng};
+use std::sync::{Arc, RwLock};
 
 #[test]
 fn repro_1183() {
@@ -57,9 +57,10 @@ fn repro_1183() {
                         }
                     }
                     for delayed_message in delayed_one_parts.iter() {
-                        if let NetworkRequests::PartialEncodedChunkMessage {
+                        if let PartialEncodedChunkMessage {
                             account_id,
                             partial_encoded_chunk,
+                            ..
                         } = delayed_message
                         {
                             for (i, name) in validators2.iter().flatten().enumerate() {

@@ -10,7 +10,7 @@ mod tests {
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
-    use near_primitives::test_utils::init_integration_logger;
+    use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
     use near_primitives::views::QueryResponse::ViewAccount;
@@ -189,7 +189,7 @@ mod tests {
                                     seen_heights_with_receipts.insert(
                                         partial_encoded_chunk
                                             .header
-                                            .clone()
+                                            .as_ref()
                                             .unwrap()
                                             .inner
                                             .height_created,
@@ -468,13 +468,38 @@ mod tests {
                                 ..
                             } = msg
                             {
-                                let header = partial_encoded_chunk.header.clone().unwrap();
-                                if header.inner.height_created == 22 {
-                                    seen_heights_same_block.insert(header.inner.prev_block_hash);
+                                if partial_encoded_chunk
+                                    .header
+                                    .as_ref()
+                                    .unwrap()
+                                    .inner
+                                    .height_created
+                                    == 22
+                                {
+                                    seen_heights_same_block.insert(
+                                        partial_encoded_chunk
+                                            .header
+                                            .as_ref()
+                                            .unwrap()
+                                            .inner
+                                            .prev_block_hash,
+                                    );
                                 }
                                 if skip_15 {
-                                    if header.inner.height_created == 14
-                                        || header.inner.height_created == 15
+                                    if partial_encoded_chunk
+                                        .header
+                                        .as_ref()
+                                        .unwrap()
+                                        .inner
+                                        .height_created
+                                        == 14
+                                        || partial_encoded_chunk
+                                            .header
+                                            .as_ref()
+                                            .unwrap()
+                                            .inner
+                                            .height_created
+                                            == 15
                                     {
                                         return (NetworkResponses::NoResponse, false);
                                     }
@@ -500,7 +525,7 @@ mod tests {
             return;
         }
         let validator_groups = 2;
-        init_integration_logger();
+        init_test_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
