@@ -223,7 +223,8 @@ class GCloudNode(BaseNode):
         self.kill()
         self.exec("tmux send-keys -t node 'cd /opt/nearcore' C-m")
         self.exec("tmux send-keys -t node 'rm /opt/nearcore/target/debug/near' C-m")
-        self.exec("tmux send-keys -t node 'git fetch' C-m")
+        self.exec("tmux send-keys -t node 'git checkout master' C-m")
+        self.exec("tmux send-keys -t node 'git pull --all' C-m")
         self.exec("tmux send-keys -t node 'git checkout {}' C-m".format(commit))
         self.exec("tmux send-keys -t node 'cargo build -p near' C-m")
     
