@@ -35,79 +35,78 @@ impl TransactionPool {
             .push(signed_transaction);
     }
 
-    /// Take transactions from the pool, in the appropriate order to be put in a new block.
-    /// We first take one transaction per key of (AccountId, PublicKey) with the lowest nonce,
-    /// then we take the next transaction per key with the lowest nonce.
+    /// Take `min(self.len(), max_number_of_transactions)` transactions from the pool, in the
+    /// appropriate order. We first take one transaction per key of (AccountId, PublicKey) with
+    /// the lowest nonce, then we take the next transaction per key with the lowest nonce.
     pub fn prepare_transactions(
         &mut self,
-        expected_weight: u32,
+        max_number_of_transactions: u32,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut sorted = false;
         let mut result = vec![];
-        while result.len() < expected_weight as usize && !self.transactions.is_empty() {
+        while result.len() < max_number_of_transactions as usize && !self.transactions.is_empty() {
             let mut keys_to_remove = vec![];
             for (key, txs) in self.transactions.iter_mut() {
                 if !sorted {
-                    // Reverse sort by nonce (non-increasing)
-                    txs.sort_by(|a, b| b.transaction.nonce.cmp(&a.transaction.nonce));
+                    // Sort by nonce in non-increasing order to pop from the end
+                    txs.sort_by_key(|a| std::cmp::Reverse(a.transaction.nonce));
                 }
                 let tx = txs.pop().expect("transaction groups shouldn't be empty");
                 if txs.is_empty() {
                     keys_to_remove.push(key.clone());
                 }
                 result.push(tx);
-                if result.len() >= expected_weight as usize {
+                if result.len() >= max_number_of_transactions as usize {
                     break;
                 }
             }
             sorted = true;
             // Removing empty keys
-            keys_to_remove.into_iter().for_each(|key| {
+            for key in keys_to_remove {
                 self.transactions.remove(&key);
-            });
+            }
         }
-        result.iter().for_each(|tx| {
+        for tx in &result {
             self.unique_transactions.remove(&tx.get_hash());
-        });
+        }
         Ok(result)
     }
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
-        transactions
-            .iter()
-            .filter(|tx| self.unique_transactions.contains(&tx.get_hash()))
-            .fold(HashMap::<_, HashSet<_>>::new(), |mut acc, tx| {
+        let mut grouped_transactions = HashMap::new();
+        for tx in transactions {
+            if self.unique_transactions.contains(&tx.get_hash()) {
                 let signer_id = &tx.transaction.signer_id;
                 let signer_public_key = &tx.transaction.public_key;
-                acc.entry((signer_id, signer_public_key))
+                grouped_transactions
+                    .entry((signer_id, signer_public_key))
                     .or_insert_with(HashSet::new)
                     .insert(tx.get_hash());
-                acc
-            })
-            .into_iter()
-            .for_each(|(key, hashes)| {
-                let key = (key.0.clone(), key.1.clone());
-                let mut remove_entry = false;
-                if let Some(v) = self.transactions.get_mut(&key) {
-                    v.retain(|tx| !hashes.contains(&tx.get_hash()));
-                    remove_entry = v.is_empty();
-                }
-                if remove_entry {
-                    self.transactions.remove(&key);
-                }
-                hashes.iter().for_each(|hash| {
-                    self.unique_transactions.remove(hash);
-                });
-            });
+            }
+        }
+        for (key, hashes) in grouped_transactions {
+            let key = (key.0.clone(), key.1.clone());
+            let mut remove_entry = false;
+            if let Some(v) = self.transactions.get_mut(&key) {
+                v.retain(|tx| !hashes.contains(&tx.get_hash()));
+                remove_entry = v.is_empty();
+            }
+            if remove_entry {
+                self.transactions.remove(&key);
+            }
+            for hash in hashes {
+                self.unique_transactions.remove(&hash);
+            }
+        }
     }
 
-    /// Reintroduce transactions back during the reorg
+    /// Reintroduce transactions back during the chain reorg
     pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
-        transactions.into_iter().for_each(|tx| {
+        for tx in transactions {
             self.insert_transaction(tx);
-        });
+        }
     }
 
     pub fn len(&self) -> usize {
