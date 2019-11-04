@@ -123,9 +123,10 @@ fn jsonify_client_response(
     match client_response {
         Ok(NetworkClientResponses::TxStatus(tx_result)) => serde_json::to_value(tx_result)
             .map_err(|err| RpcError::server_error(Some(err.to_string()))),
-        Ok(_) => Err(RpcError::server_error(Some(
-            "Wrong response for transaction status query".to_string(),
-        ))),
+        Ok(response) => Err(RpcError::server_error(Some(ExecutionErrorView {
+            error_message: format!("Wrong client response: {:?}", response),
+            error_type: "ResponseError".to_string(),
+        }))),
         Err(e) => Err(RpcError::server_error(Some(e.to_string()))),
     }
 }
