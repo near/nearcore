@@ -837,7 +837,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
