@@ -149,7 +149,7 @@ impl DataStats {
         nanos.sort();
         let mean = (nanos.iter().sum::<u128>() / (nanos.len() as u128)) as i128;
         let stddev2 = nanos.iter().map(|x| (*x as i128 - mean) * (*x as i128 - mean)).sum::<i128>()
-            / (nanos.len() as i128 - 1);
+            / if nanos.len() > 1 { nanos.len() as i128 - 1 } else { 1 };
         let stddev = (stddev2 as f64).sqrt() as u128;
         let ile5 = nanos[nanos.len() * 5 / 100];
         let ile95 = nanos[nanos.len() * 95 / 100];

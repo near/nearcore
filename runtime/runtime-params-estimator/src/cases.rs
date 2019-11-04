@@ -153,7 +153,7 @@ pub fn run(config: Config) {
             CryptoHash::default(),
         )
     };
-    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
+    measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
 
     // Measure the speed of adding a full access key.
     measure_actions(
@@ -331,58 +331,58 @@ pub fn run(config: Config) {
 
     // Measure the speed of all extern function calls.
     for (allow_failures, metric, method_name, arg_size) in vec![
-        (false, Metric::CallInput1KW10B, "input_1k", 10),
-        (false, Metric::CallInput1KW10KB, "input_1k", 10 * 1024),
-        (false, Metric::CallInputRegisterLen1KW10B, "input_register_len_1k", 10),
-        (false, Metric::CallInputRegisterLen1KW10KB, "input_register_len_1k", 10 * 1024),
-        (false, Metric::CallInputReadRegister1KW10B, "input_read_register_1k", 10),
-        (false, Metric::CallInputReadRegister1KW1KB, "input_read_register_1k", 1024),
-        (false, Metric::CallCurrentAccountId10K, "current_account_id_10k", 0),
-        (false, Metric::CallSignerAccountId10K, "signer_account_id_10k", 0),
-        (false, Metric::CallSignerAccountPK10K, "signer_account_pk_10k", 0),
-        (false, Metric::CallPredecessorAccountId10K, "predecessor_account_id_10k", 0),
-        (false, Metric::CallBlockIndex10K, "block_index_10k", 0),
-        (false, Metric::CallStorageUsage10K, "storage_usage_10k", 0),
-        (false, Metric::CallAccountBalance10K, "account_balance_10k", 0),
-        (false, Metric::CallAttachedDeposit10K, "attached_deposit_10k", 0),
-        (false, Metric::CallPrepaidGas10K, "prepaid_gas_10k", 0),
-        (false, Metric::CallUsedGas10K, "used_gas_10k", 0),
-        (false, Metric::CallRandomSeed10K, "random_seed_10k", 0),
-        (false, Metric::CallSHA25610KW10B, "sha256_10k", 10),
-        (false, Metric::CallSHA25610KW1KB, "sha256_10k", 1024),
-        (false, Metric::CallValueReturn10KW10B, "value_return_10k", 10),
-        (false, Metric::CallValueReturn10KW1KB, "value_return_10k", 1024),
-        (false, Metric::CallLogUTF810KW10B, "log_utf8_10k", 10),
-        (false, Metric::CallLogUTF810KW1KB, "log_utf8_10k", 1024),
-        (false, Metric::CallLogUTF1610KW10B, "log_utf16_10k", 10),
-        (false, Metric::CallLogUTF1610KW1KB, "log_utf16_10k", 1024),
+        //        (false, Metric::CallInput1KW10B, "input_1k", 10),
+        //        (false, Metric::CallInput1KW10KB, "input_1k", 10 * 1024),
+        //        (false, Metric::CallInputRegisterLen1KW10B, "input_register_len_1k", 10),
+        //        (false, Metric::CallInputRegisterLen1KW10KB, "input_register_len_1k", 10 * 1024),
+        //        (false, Metric::CallInputReadRegister1KW10B, "input_read_register_1k", 10),
+        //        (false, Metric::CallInputReadRegister1KW1KB, "input_read_register_1k", 1024),
+        //        (false, Metric::CallCurrentAccountId10K, "current_account_id_10k", 0),
+        //        (false, Metric::CallSignerAccountId10K, "signer_account_id_10k", 0),
+        //        (false, Metric::CallSignerAccountPK10K, "signer_account_pk_10k", 0),
+        //        (false, Metric::CallPredecessorAccountId10K, "predecessor_account_id_10k", 0),
+        //        (false, Metric::CallBlockIndex10K, "block_index_10k", 0),
+        //        (false, Metric::CallStorageUsage10K, "storage_usage_10k", 0),
+        //        (false, Metric::CallAccountBalance10K, "account_balance_10k", 0),
+        //        (false, Metric::CallAttachedDeposit10K, "attached_deposit_10k", 0),
+        //        (false, Metric::CallPrepaidGas10K, "prepaid_gas_10k", 0),
+        //        (false, Metric::CallUsedGas10K, "used_gas_10k", 0),
+        //        (false, Metric::CallRandomSeed10K, "random_seed_10k", 0),
+        //        (false, Metric::CallSHA25610KW10B, "sha256_10k", 10),
+        //        (false, Metric::CallSHA25610KW1KB, "sha256_10k", 1024),
+        //        (false, Metric::CallValueReturn10KW10B, "value_return_10k", 10),
+        //        (false, Metric::CallValueReturn10KW1KB, "value_return_10k", 1024),
+        //        (false, Metric::CallLogUTF810KW10B, "log_utf8_10k", 10),
+        //        (false, Metric::CallLogUTF810KW1KB, "log_utf8_10k", 1024),
+        //        (false, Metric::CallLogUTF1610KW10B, "log_utf16_10k", 10),
+        //        (false, Metric::CallLogUTF1610KW1KB, "log_utf16_10k", 1024),
         (false, Metric::CallPromiseBatchCreate10K, "promise_batch_create_10k", 10),
         (false, Metric::CallPromiseBatchCreateThen10K, "promise_batch_create_then_10k", 10),
-        // Action creation is complex. This measurement does not include measuring the actual action
-        // therefore we try creating the same account over and over and fail.
-        (true, Metric::CallPromiseBatchCreateAccount10K, "promise_batch_create_account_10k", 10),
-        (true, Metric::CallPromiseBatchCreateDeploy10K, "promise_batch_create_deploy_10k", 10),
-        (false, Metric::CallPromiseResultsCount10K, "promise_results_count_10k", 10),
-        (false, Metric::CallPromiseBatchCreateReturn10K, "promise_batch_create_return_10k", 0),
-        (false, Metric::CallStorageWrite100W10B, "storage_write_100", 10),
-        (false, Metric::CallStorageHasKey100W10B, "storage_has_key_100", 10),
-        (false, Metric::CallStorageRead100W10B, "storage_read_100", 10),
-        (false, Metric::CallStorageIterNext1KW10B, "storage_iter_next_1k", 10),
-        (false, Metric::CallStorageIterPrefix100W10B, "storage_iter_prefix_100", 10),
-        (false, Metric::CallStorageIterRange100W10B, "storage_iter_range_100", 10),
-        // Key-value deletion is executed the last, to allow other storage benchmarks to use
-        // key-values.
-        (false, Metric::CallStorageRemove100W10B, "storage_remove_100", 10),
-        // Difficulty of iterating over trie depends on the size of keys. Therefore we run iterator
-        // tests after the corresponding write tests.
-        (false, Metric::CallStorageWrite100W1KB, "storage_write_100", 1024),
-        (false, Metric::CallStorageHasKey100W1KB, "storage_has_key_100", 1024),
-        (false, Metric::CallStorageRead100W1KB, "storage_read_100", 1024),
-        (false, Metric::CallStorageIterNext1KW1KB, "storage_iter_next_1k", 1024),
-        (false, Metric::CallStorageIterPrefix100W1KB, "storage_iter_prefix_100", 1024),
-        (false, Metric::CallStorageIterRange100W1KB, "storage_iter_range_100", 1024),
-        (false, Metric::CallStorageRemove100W1KB, "storage_remove_100", 1024),
-        (false, Metric::CalCpuRamSoakTest, "cpu_ram_soak_test", 10 * 1024),
+        //        // Action creation is complex. This measurement does not include measuring the actual action
+        //        // therefore we try creating the same account over and over and fail.
+        //        (true, Metric::CallPromiseBatchCreateAccount10K, "promise_batch_create_account_10k", 10),
+        //        (true, Metric::CallPromiseBatchCreateDeploy10K, "promise_batch_create_deploy_10k", 10),
+        //        (false, Metric::CallPromiseResultsCount10K, "promise_results_count_10k", 10),
+        //        (false, Metric::CallPromiseBatchCreateReturn10K, "promise_batch_create_return_10k", 0),
+        //        (false, Metric::CallStorageWrite100W10B, "storage_write_100", 10),
+        //        (false, Metric::CallStorageHasKey100W10B, "storage_has_key_100", 10),
+        //        (false, Metric::CallStorageRead100W10B, "storage_read_100", 10),
+        //        (false, Metric::CallStorageIterNext1KW10B, "storage_iter_next_1k", 10),
+        //        (false, Metric::CallStorageIterPrefix100W10B, "storage_iter_prefix_100", 10),
+        //        (false, Metric::CallStorageIterRange100W10B, "storage_iter_range_100", 10),
+        //        // Key-value deletion is executed the last, to allow other storage benchmarks to use
+        //        // key-values.
+        //        (false, Metric::CallStorageRemove100W10B, "storage_remove_100", 10),
+        //        // Difficulty of iterating over trie depends on the size of keys. Therefore we run iterator
+        //        // tests after the corresponding write tests.
+        //        (false, Metric::CallStorageWrite100W1KB, "storage_write_100", 1024),
+        //        (false, Metric::CallStorageHasKey100W1KB, "storage_has_key_100", 1024),
+        //        (false, Metric::CallStorageRead100W1KB, "storage_read_100", 1024),
+        //        (false, Metric::CallStorageIterNext1KW1KB, "storage_iter_next_1k", 1024),
+        //        (false, Metric::CallStorageIterPrefix100W1KB, "storage_iter_prefix_100", 1024),
+        //        (false, Metric::CallStorageIterRange100W1KB, "storage_iter_range_100", 1024),
+        //        (false, Metric::CallStorageRemove100W1KB, "storage_remove_100", 1024),
+        //        (false, Metric::CalCpuRamSoakTest, "cpu_ram_soak_test", 10 * 1024),
     ] {
         testbed = measure_function(
             metric,
@@ -397,11 +397,14 @@ pub fn run(config: Config) {
         );
     }
 
-    let mut csv_path = PathBuf::from(&config.state_dump_path);
-    csv_path.push("./metrics.csv");
-    m.save_to_csv(csv_path.as_path());
+    let fees = crate::runtime_fees_generator::RuntimeFeesGenerator::new(m);
+    println!("{}", fees);
 
-    m.plot(PathBuf::from(&config.state_dump_path).as_path());
+    //    let mut csv_path = PathBuf::from(&config.state_dump_path);
+    //    csv_path.push("./metrics.csv");
+    //    m.save_to_csv(csv_path.as_path());
+    //
+    //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
 fn measure_function(
