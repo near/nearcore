@@ -144,7 +144,7 @@ pub struct ShardProof {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-// For each Merkle proof there is a subset of receipts which may be proven.
+/// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -180,7 +180,7 @@ impl EncodedShardChunkBody {
         fetched_parts
     }
 
-    // Returns true if reconstruction was successful
+    /// Returns true if reconstruction was successful
     pub fn reconstruct(
         &mut self,
         data_shards: usize,

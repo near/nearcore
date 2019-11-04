@@ -32,7 +32,6 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
-use crate::test_utils::display_chain;
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
@@ -696,10 +695,6 @@ impl Chain {
         match maybe_new_head {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.commit()?;
-
-                if block.header.inner.height % 5 == 0 {
-                    display_chain(me, self, block.header.inner.height % 35 != 0);
-                }
 
                 if needs_to_start_fetching_state {
                     debug!("Downloading state for block {}", block.hash());

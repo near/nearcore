@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockIndex, ShardId};
-use std::collections::HashMap;
 
 const HEIGHT_HORIZON: u64 = 1024;
 const MAX_HEIGHTS_AHEAD: u64 = 5;

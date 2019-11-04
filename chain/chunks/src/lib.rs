@@ -1,12 +1,12 @@
 extern crate log;
 
-use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::Recipient;
 use log::{debug, error};
+use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
@@ -73,11 +73,11 @@ pub enum ChunkStatus {
 
 pub enum ProcessPartialEncodedChunkResult {
     Known,
-    // The CryptoHash is the previous block hash (which might be unknown to the caller) to start
-    //     unblocking the blocks from
+    /// The CryptoHash is the previous block hash (which might be unknown to the caller) to start
+    ///     unblocking the blocks from
     HaveAllPartsAndReceipts(CryptoHash),
-    // The Header is the header of the current chunk, which is unknown to the caller, to request
-    //     parts / receipts for
+    /// The Header is the header of the current chunk, which is unknown to the caller, to request
+    ///     parts / receipts for
     NeedMoreOnePartsOrReceipts(ShardChunkHeader),
 }
 
@@ -448,7 +448,7 @@ impl ShardsManager {
             .reintroduce_transactions(transactions);
     }
 
-    fn receipts_recipient_filter(
+    pub fn receipts_recipient_filter(
         &self,
         from_shard_id: ShardId,
         tracking_shards: &HashSet<ShardId>,
