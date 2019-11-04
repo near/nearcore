@@ -1296,8 +1296,30 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
         );
+        let mut height = shard_state_header.chunk.header.height_included;
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        chain_update.commit()
+        chain_update.commit()?;
+
+        // We restored the state on height `shard_state_header.chunk.header.height_included`.
+        // Now we should build a chain up to height of `sync_hash` block.
+        loop {
+            height += 1;
+            let mut chain_update = ChainUpdate::new(
+                &mut self.store,
+                self.runtime_adapter.clone(),
+                &self.orphans,
+                &self.blocks_with_missing_chunks,
+                self.transaction_validity_period,
+            );
+            // Result of successful execution of set_state_finalize_on_height is bool,
+            // should we commit and continue or stop.
+            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+                chain_update.commit()?;
+            } else {
+                break;
+            }
+        }
+        Ok(())
     }
 
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
@@ -2528,51 +2550,51 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
-
-        // We restored the state on height `chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
-        let mut current_height = chunk.header.height_included;
-        loop {
-            current_height += 1;
-            let block_header_result =
-                self.chain_store_update.get_header_on_chain_by_height(&sync_hash, current_height);
-            if let Err(_) = block_header_result {
-                // No such height, go ahead.
-                continue;
-            }
-            let block_header = block_header_result?.clone();
-            if block_header.hash == sync_hash {
-                break;
-            }
-            let prev_block_header =
-                self.chain_store_update.get_block_header(&block_header.inner.prev_hash)?.clone();
-
-            let mut chunk_extra = self
-                .chain_store_update
-                .get_chunk_extra(&prev_block_header.hash(), shard_id)?
-                .clone();
-
-            let apply_result = self.runtime_adapter.apply_transactions(
-                shard_id,
-                &chunk_extra.state_root,
-                block_header.inner.height,
-                block_header.inner.timestamp,
-                &prev_block_header.hash(),
-                &block_header.hash(),
-                &vec![],
-                &vec![],
-                &chunk_extra.validator_proposals,
-                block_header.inner.gas_price,
-                &block_header.inner.challenges_result,
-            )?;
-
-            self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-            chunk_extra.state_root = apply_result.new_root;
-
-            self.chain_store_update.save_chunk_extra(&block_header.hash(), shard_id, chunk_extra);
-        }
-
         Ok(())
+    }
+
+    pub fn set_state_finalize_on_height(
+        &mut self,
+        height: u64,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<bool, Error> {
+        let block_header_result =
+            self.chain_store_update.get_header_on_chain_by_height(&sync_hash, height);
+        if let Err(_) = block_header_result {
+            // No such height, go ahead.
+            return Ok(true);
+        }
+        let block_header = block_header_result?.clone();
+        if block_header.hash == sync_hash {
+            // Don't continue
+            return Ok(false);
+        }
+        let prev_block_header =
+            self.chain_store_update.get_block_header(&block_header.inner.prev_hash)?.clone();
+
+        let mut chunk_extra =
+            self.chain_store_update.get_chunk_extra(&prev_block_header.hash(), shard_id)?.clone();
+
+        let apply_result = self.runtime_adapter.apply_transactions(
+            shard_id,
+            &chunk_extra.state_root,
+            block_header.inner.height,
+            block_header.inner.timestamp,
+            &prev_block_header.hash(),
+            &block_header.hash(),
+            &vec![],
+            &vec![],
+            &chunk_extra.validator_proposals,
+            block_header.inner.gas_price,
+            &block_header.inner.challenges_result,
+        )?;
+
+        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chunk_extra.state_root = apply_result.new_root;
+
+        self.chain_store_update.save_chunk_extra(&block_header.hash(), shard_id, chunk_extra);
+        Ok(true)
     }
 
     /// Returns correct / malicious challenges or Error if any challenge is invalid.
