@@ -121,12 +121,12 @@ def get_port(home_dir, net):
     return p + ":" + p
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
-def run_docker(image, home_dir, boot_nodes, verbose):
+def run_docker(image, home_dir, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client and Watchtower dockers...")
     docker_stop_if_exists('watchtower')
     docker_stop_if_exists('nearcore')
     # Start nearcore container, mapping home folder and ports.
-    envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
+    envs = ['-e', 'BOOT_NODES=%s' % boot_nodes, '-e', 'TELEMETRY_URL=%s' % telemetry_url]
     rpc_port = get_port(home_dir, 'rpc')
     network_port = get_port(home_dir, 'network')
     if verbose:
@@ -145,7 +145,7 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     print("Node is running! \nTo check logs call: docker logs --follow nearcore")
 
 """Runs NEAR core outside of docker."""
-def run_nodocker(home_dir, is_release, boot_nodes, verbose):
+def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for runs outside of docker")
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
@@ -153,15 +153,16 @@ def run_nodocker(home_dir, is_release, boot_nodes, verbose):
     if verbose:
         cmd.append('--verbose')
     cmd.append('run')
+    cmd.append('--telemetry-url=%s' % telemetry_url)
     if boot_nodes:
-        cmd.extend(['--boot-nodes=%s' % boot_nodes])
+        cmd.append('--boot-nodes=%s' % boot_nodes)
     try:
         subprocess.call(cmd)
     except KeyboardInterrupt:
         print("\nStopping NEARCore.")
 
 
-def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
+def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, telemetry_url, verbose=False):
     if nodocker:
         install_cargo()
     else:
@@ -177,9 +178,9 @@ def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes,
     print_staking_key(home_dir)
 
     if nodocker:
-        run_nodocker(home_dir, is_release, boot_nodes, verbose)
+        run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose)
     else:
-        run_docker(image, home_dir, boot_nodes, verbose)
+        run_docker(image, home_dir, boot_nodes, telemetry_url, verbose)
 
 
 """Stops docker for Nearcore and watchtower if they are running."""
@@ -270,7 +271,7 @@ def create_genesis(home, is_release, nodocker, image, chain_id):
         subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id])
     print("Genesis created")
 
-def start_stakewars(home, is_release, nodocker, image, verbose):
+def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
     if nodocker:
         install_cargo()
         compile_package('genesis-csv-to-json', is_release)
@@ -282,8 +283,6 @@ def start_stakewars(home, is_release, nodocker, image, verbose):
             exit(1)
     create_genesis(home, is_release, nodocker, image, 'stakewars')
     if nodocker:
-        run_nodocker(home, is_release, '', verbose)
+        run_nodocker(home, is_release, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)
     else:
-        run_docker(image, home, '', verbose)
-
-
+        run_docker(image, home, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)

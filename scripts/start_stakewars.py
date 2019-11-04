@@ -22,6 +22,8 @@ if __name__ == "__main__":
         help='Image to run in docker (default: nearprotocol/nearcore:stakewars)')
     args = parser.parse_args()
 
+    TELEMETRY_URL = 'https://explorer.tatooine.nearprotocol.com/api/nodes'
+
     if args.local:
         print("Flag --local deprecated, please use --nodocker")
 
@@ -32,4 +34,4 @@ if __name__ == "__main__":
         print("****************************************************")
         print("* Running NEAR validator node for Stake Wars *")
         print("****************************************************")
-        start_stakewars(args.home, not args.debug, nodocker, args.image, args.verbose)
+        start_stakewars(args.home, not args.debug, nodocker, args.image, telemetry_url=TELEMETRY_URL, verbose=args.verbose)
