@@ -563,10 +563,12 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
+    epoch_length: u64,
 ) -> Client {
     let block_producer =
         account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
-    let config = ClientConfig::test(true, 10, num_validators);
+    let mut config = ClientConfig::test(true, 10, num_validators);
+    config.epoch_length = epoch_length;
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
 }
@@ -579,6 +581,7 @@ pub fn setup_client(
     account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
+    epoch_length: u64,
 ) -> Client {
     let num_validators = validators.iter().map(|x| x.len()).sum();
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
@@ -586,7 +589,7 @@ pub fn setup_client(
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
-        5,
+        epoch_length,
     ));
     setup_client_with_runtime(
         store,
@@ -595,6 +598,7 @@ pub fn setup_client(
         network_adapter,
         chain_genesis,
         runtime_adapter,
+        epoch_length,
     )
 }
 
@@ -603,10 +607,16 @@ pub struct TestEnv {
     validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
+    epoch_length: u64,
 }
 
 impl TestEnv {
-    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
+    pub fn new(
+        chain_genesis: ChainGenesis,
+        num_clients: usize,
+        num_validators: usize,
+        epoch_length: u64,
+    ) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
         let network_adapters =
@@ -622,10 +632,11 @@ impl TestEnv {
                     Some(&format!("test{}", i)),
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
+                    epoch_length,
                 )
             })
             .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+        TestEnv { chain_genesis, validators, network_adapters, clients, epoch_length }
     }
 
     pub fn new_with_runtime(
@@ -633,11 +644,30 @@ impl TestEnv {
         num_clients: usize,
         num_validators: usize,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
+        epoch_length: u64,
+    ) -> Self {
+        let network_adapters: Vec<Arc<MockNetworkAdapter>> =
+            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
+        Self::new_with_runtime_and_network_adapter(
+            chain_genesis,
+            num_clients,
+            num_validators,
+            runtime_adapters,
+            network_adapters,
+            epoch_length,
+        )
+    }
+
+    pub fn new_with_runtime_and_network_adapter(
+        chain_genesis: ChainGenesis,
+        num_clients: usize,
+        num_validators: usize,
+        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
+        network_adapters: Vec<Arc<MockNetworkAdapter>>,
+        epoch_length: u64,
     ) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
         let clients = (0..num_clients)
             .map(|i| {
                 let store = create_test_store();
@@ -648,10 +678,11 @@ impl TestEnv {
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
                     runtime_adapters[i].clone(),
+                    epoch_length,
                 )
             })
             .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+        TestEnv { chain_genesis, validators, network_adapters, clients, epoch_length }
     }
 
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
@@ -659,7 +690,7 @@ impl TestEnv {
         assert!(result.is_ok(), format!("{:?}", result));
         let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
         accepted_blocks.extend(more_accepted_blocks);
-        for accepted_block in accepted_blocks.into_iter() {
+        for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
                 accepted_block.hash,
                 accepted_block.status,
@@ -687,7 +718,7 @@ impl TestEnv {
     }
 
     pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().store().clone();
+        let store = self.clients[id].chain.store().owned_store().clone();
         self.clients[id] = setup_client(
             store,
             vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
@@ -696,6 +727,7 @@ impl TestEnv {
             Some(&format!("test{}", id)),
             self.network_adapters[id].clone(),
             self.chain_genesis.clone(),
+            self.epoch_length,
         )
     }
 }

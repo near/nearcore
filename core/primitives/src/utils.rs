@@ -212,7 +212,7 @@ macro_rules! unwrap_or_return {
     };
 }
 
-/// Macro to either return value if the result is Some, or exit function logging error.
+/// Macro to either return value if the result is Some, or exit function.
 #[macro_export]
 macro_rules! unwrap_option_or_return {
     ($obj: expr, $ret: expr) => {

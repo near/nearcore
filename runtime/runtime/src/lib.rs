@@ -1,12 +1,14 @@
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
 
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 use borsh::BorshSerialize;
 use kvdb::DBValue;
@@ -14,6 +16,9 @@ use kvdb::DBValue;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::{
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
@@ -44,11 +49,6 @@ use crate::config::{
     total_prepaid_gas, total_send_fees, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
-use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
-};
-use std::cmp::max;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -109,7 +109,7 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub tx_result: Vec<ExecutionOutcomeWithId>,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub stats: ApplyStats,
 }
 
@@ -947,10 +947,10 @@ impl Runtime {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
-        let mut tx_result = vec![];
+        let mut outcomes = vec![];
 
         for signed_transaction in transactions {
-            tx_result.push(self.process_transaction(
+            outcomes.push(self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
@@ -970,7 +970,7 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|res| tx_result.push(res));
+            .for_each(|outcome_with_id| outcomes.push(outcome_with_id));
         }
 
         check_balance(
@@ -990,7 +990,7 @@ impl Runtime {
             trie_changes,
             validator_proposals,
             new_receipts,
-            tx_result,
+            outcomes,
             stats,
         })
     }
