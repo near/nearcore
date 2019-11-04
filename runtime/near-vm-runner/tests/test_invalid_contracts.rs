@@ -22,9 +22,9 @@ fn test_initializer_wrong_signature_contract() {
         make_simple_contract_call(&initializer_wrong_signature_contract(), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(CompilationError::PrepareError(
-                PrepareError::Deserialization
-            ))))
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization)
+            )))
         )
     );
 }
@@ -111,7 +111,7 @@ fn evil_function_index() -> Vec<u8> {
             (func (;0;) (type 0)
               call 4294967295)
             (export "abort_with_zero" (func 0))
-          )"#
+          )"#,
     )
 }
 
