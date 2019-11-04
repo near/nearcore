@@ -127,7 +127,14 @@ fn jsonify_client_response(
             error_message: format!("Wrong client response: {:?}", response),
             error_type: "ResponseError".to_string(),
         }))),
-        Err(e) => Err(RpcError::server_error(Some(e.to_string()))),
+        Err(e) => Err(RpcError::server_error(Some(convert_mailbox_error(e)))),
+    }
+}
+
+fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
+    ExecutionErrorView {
+        error_message: e.to_string(),
+        error_type: "MailBoxError".to_string(),
     }
 }
 
@@ -256,7 +263,7 @@ impl JsonRpcHandler {
         let result = self
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
-            .map_err(|err| RpcError::server_error(Some(err.to_string())))
+            .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
             .compat()
             .await?;
         self.tx_polling(result, tx_hash, signer_account_id).await
@@ -288,7 +295,7 @@ impl JsonRpcHandler {
                 signer_account_id: account_id.clone(),
             })
             .compat()
-            .map_err(|err| RpcError::server_error(Some(err.to_string())))
+            .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
             .await?;
         self.tx_polling(result, tx_hash, account_id).await
     }
