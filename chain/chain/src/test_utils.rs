@@ -649,7 +649,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(state_root.hash),
             ),
             new_root: new_state_root,
-            transaction_results: tx_results,
+            outcomes: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
@@ -837,7 +837,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

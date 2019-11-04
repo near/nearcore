@@ -14,7 +14,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
-use near_network::types::OutboundTcpConnect;
+use near_network::types::{OutboundTcpConnect, StopSignal};
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
@@ -88,6 +88,8 @@ enum Action {
     PingTo(usize, usize, usize),
     // Check for `source` received pings and pongs.
     CheckPingPong(usize, Vec<(usize, usize)>, Vec<(usize, usize)>),
+    // Send stop signal to some node.
+    Stop(usize),
 }
 
 #[derive(Clone)]
@@ -192,6 +194,21 @@ impl StateMachine {
                     let target = info.peers_info[target].id.clone();
                     let _ = info.pm_addr[source].do_send(NetworkRequests::PingTo(nonce, target));
                     flag.store(true, Ordering::Relaxed);
+                }));
+            }
+            Action::Stop(source) => {
+                self.actions.push(Box::new(move |info: RunningInfo, flag: Arc<AtomicBool>| {
+                    actix::spawn(
+                        info.pm_addr
+                            .get(source)
+                            .unwrap()
+                            .send(StopSignal {})
+                            .map_err(|_| ())
+                            .and_then(move |_| {
+                                flag.store(true, Ordering::Relaxed);
+                                future::ok(())
+                            }),
+                    );
                 }));
             }
             Action::CheckPingPong(source, pings, pongs) => {
@@ -461,12 +478,45 @@ fn ping_jump() {
     .unwrap();
 }
 
-// TODO(Marx, #1312): Test handshake nonce after Added -> Removed -> Added
+#[test]
+fn simple_remove() {
+    init_test_logger();
 
-// TODO(MarX, #1312): What happens with Outbound connection if it doesn't receive the Handshake.
-//      In this case new edge will be broadcasted but will be unusable from this node POV.
-//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
-//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
-//      higher nonce, forget this new connection.
+    System::run(|| {
+        let mut runner = Runner::new(3, 3);
 
-// TODO(MarX, #1312): Test routing (between peers / between validator)
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::CheckRoutingTable(0, vec![]));
+        runner.push(Action::CheckRoutingTable(2, vec![]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn square() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::AddEdge(3, 0));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::CheckRoutingTable(0, vec![(3, vec![3]), (2, vec![3])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3]), (0, vec![3])]));
+        runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2]), (0, vec![0])]));
+
+        runner.run();
+    })
+    .unwrap();
+}

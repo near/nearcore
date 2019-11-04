@@ -38,7 +38,9 @@ pub struct StateRoot {
 }
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
-#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+#[derive(
+    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+)]
 pub struct EpochId(pub CryptoHash);
 
 impl AsRef<[u8]> for EpochId {
@@ -78,6 +80,8 @@ pub struct BlockExtra {
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
+    /// Root of merklizing results of receipts (transactions) execution.
+    pub outcome_root: CryptoHash,
     /// Validator proposals produced by given chunk.
     pub validator_proposals: Vec<ValidatorStake>,
     /// Actually how much gas were used.
@@ -95,6 +99,7 @@ pub struct ChunkExtra {
 impl ChunkExtra {
     pub fn new(
         state_root: &StateRoot,
+        outcome_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
@@ -104,6 +109,7 @@ impl ChunkExtra {
     ) -> Self {
         Self {
             state_root: state_root.clone(),
+            outcome_root,
             validator_proposals,
             gas_used,
             gas_limit,

@@ -9,11 +9,14 @@ pub struct WasmerMemory(Memory);
 impl WasmerMemory {
     pub fn new(config: &VMConfig) -> Result<Self, VMError> {
         Ok(WasmerMemory(
-            Memory::new(MemoryDescriptor {
-                minimum: Pages(config.initial_memory_pages),
-                maximum: Some(Pages(config.max_memory_pages)),
-                shared: false,
-            })
+            Memory::new(
+                MemoryDescriptor::new(
+                    Pages(config.initial_memory_pages),
+                    Some(Pages(config.max_memory_pages)),
+                    false,
+                )
+                .unwrap(),
+            )
             .expect("TODO creating memory cannot fail"),
         ))
     }
