@@ -26,6 +26,7 @@ use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, St
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
+use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, EpochId, Range};
 use near_primitives::unwrap_or_return;
@@ -224,7 +225,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::GetChainInfo => match self.client.chain.head() {
                 Ok(head) => NetworkClientResponses::ChainInfo {
-                    genesis: self.client.chain.genesis().hash(),
+                    genesis_id: GenesisId {
+                        chain_id: self.client.config.chain_id.clone(),
+                        hash: self.client.chain.genesis().hash(),
+                    },
                     height: head.height,
                     total_weight: head.total_weight,
                 },

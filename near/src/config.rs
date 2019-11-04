@@ -625,7 +625,7 @@ pub fn init_configs(
             // TODO:
             unimplemented!();
         }
-        "testnet" => {
+        "testnet" | "staging" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -645,7 +645,10 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            testnet_genesis().write_to_file(&dir.join(config.genesis_file));
+            let mut genesis_config = testnet_genesis();
+            genesis_config.chain_id = chain_id;
+
+            genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
