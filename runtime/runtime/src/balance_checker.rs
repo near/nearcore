@@ -1,3 +1,5 @@
+use crate::safe_add_balance_apply;
+
 use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas,
@@ -129,17 +131,21 @@ pub(crate) fn check_balance(
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
     // Sum it up
-    let initial_balance = incoming_validator_rewards
-        + initial_accounts_balance
-        + incoming_receipts_balance
-        + initial_postponed_receipts_balance;
-    let final_balance = final_accounts_balance
-        + outgoing_receipts_balance
-        + final_postponed_receipts_balance
-        + stats.total_rent_paid
-        + stats.total_validator_reward
-        + stats.total_balance_burnt
-        + stats.total_balance_slashed;
+    let initial_balance = safe_add_balance_apply!(
+        incoming_validator_rewards,
+        initial_accounts_balance,
+        incoming_receipts_balance,
+        initial_postponed_receipts_balance
+    );
+    let final_balance = safe_add_balance_apply!(
+        final_accounts_balance,
+        outgoing_receipts_balance,
+        final_postponed_receipts_balance,
+        stats.total_rent_paid,
+        stats.total_validator_reward,
+        stats.total_balance_burnt,
+        stats.total_balance_slashed
+    );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
             incoming_validator_rewards,
