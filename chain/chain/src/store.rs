@@ -10,7 +10,7 @@ use chrono::Utc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
@@ -18,8 +18,8 @@ use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
     COL_BLOCK_EXTRA, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_BLOCK_PER_HEIGHT,
-    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS,
-    COL_INVALID_CHUNKS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
+    COL_OUTGOING_RECEIPTS, COL_PARTIAL_CHUNKS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::byzantine_assert;
@@ -166,6 +166,8 @@ pub trait ChainStoreAccess {
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retrieval.
     fn get_chunk_clone_from_header(
         &mut self,
@@ -191,8 +193,6 @@ pub trait ChainStoreAccess {
             }
         }
     }
-    /// Get chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
@@ -286,8 +286,8 @@ pub struct ChainStore {
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
     chunks: SizedCache<Vec<u8>, ShardChunk>,
-    /// Cache with chunk one parts
-    chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
+    /// Cache with partial chunks
+    partial_chunks: SizedCache<Vec<u8>, PartialEncodedChunk>,
     /// Cache with block extra.
     block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
@@ -323,7 +323,7 @@ impl ChainStore {
             headers: SizedCache::with_size(CACHE_SIZE),
             header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
-            chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             block_index: SizedCache::with_size(CACHE_SIZE),
@@ -494,16 +494,16 @@ impl ChainStoreAccess for ChainStore {
         }
     }
 
-    /// Get Chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
-            COL_CHUNK_ONE_PARTS,
-            &mut self.chunk_one_parts,
-            header.chunk_hash().as_ref(),
+            COL_PARTIAL_CHUNKS,
+            &mut self.partial_chunks,
+            chunk_hash.as_ref(),
         ) {
-            Ok(Some(chunk_one_part)) => Ok(chunk_one_part),
-            _ => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
+            Ok(Some(shard_chunk)) => Ok(shard_chunk),
+            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
@@ -685,7 +685,7 @@ struct ChainStoreCacheUpdate {
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
-    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
+    partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
@@ -703,7 +703,7 @@ impl ChainStoreCacheUpdate {
             block_extras: Default::default(),
             chunk_extras: HashMap::default(),
             chunks: Default::default(),
-            chunk_one_parts: Default::default(),
+            partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             block_index: Default::default(),
             outgoing_receipts: HashMap::default(),
@@ -953,6 +953,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
+        if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
+            Ok(partial_chunk)
+        } else {
+            self.chain_store.get_partial_chunk(chunk_hash)
+        }
+    }
+
     fn get_chunk_clone_from_header(
         &mut self,
         header: &ShardChunkHeader,
@@ -961,14 +969,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(chunk.clone())
         } else {
             self.chain_store.get_chunk_clone_from_header(header)
-        }
-    }
-
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        if let Some(one_part) = self.chain_store_cache_update.chunk_one_parts.get(&header.hash) {
-            Ok(one_part)
-        } else {
-            self.chain_store.get_chunk_one_part(header)
         }
     }
 
@@ -1125,8 +1125,12 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunks.insert(chunk_hash.clone(), chunk);
     }
 
-    pub fn save_chunk_one_part(&mut self, chunk_hash: &ChunkHash, one_part: ChunkOnePart) {
-        self.chain_store_cache_update.chunk_one_parts.insert(chunk_hash.clone(), one_part);
+    pub fn save_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+        partial_chunk: PartialEncodedChunk,
+    ) {
+        self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -1272,9 +1276,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(COL_CHUNKS, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (chunk_hash, chunk_one_part) in self.chain_store_cache_update.chunk_one_parts.iter() {
+        for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update
-                .set_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref(), chunk_one_part)
+                .set_ser(COL_PARTIAL_CHUNKS, chunk_hash.as_ref(), partial_chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.chain_store_cache_update.block_index.iter() {
@@ -1402,7 +1406,7 @@ impl<'a> ChainStoreUpdate<'a> {
             block_extras,
             chunk_extras,
             chunks,
-            chunk_one_parts,
+            partial_chunks,
             block_hash_per_height,
             block_index,
             outgoing_receipts,
@@ -1429,8 +1433,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for (hash, chunk) in chunks {
             self.chain_store.chunks.cache_set(hash.into(), chunk);
         }
-        for (hash, chunk_one_part) in chunk_one_parts {
-            self.chain_store.chunk_one_parts.cache_set(hash.into(), chunk_one_part);
+        for (hash, partial_chunk) in partial_chunks {
+            self.chain_store.partial_chunks.cache_set(hash.into(), partial_chunk);
         }
         for (height, epoch_id_to_hash) in block_hash_per_height {
             self.chain_store

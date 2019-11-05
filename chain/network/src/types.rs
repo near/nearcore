@@ -22,8 +22,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -308,12 +307,8 @@ pub enum RoutedMessageBody {
     },
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
-
-    ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkOnePartRequestMsg),
-    ChunkOnePart(ChunkOnePart),
-    ChunkPart(ChunkPartMsg),
-
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunk(PartialEncodedChunk),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -409,8 +404,7 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
             | RoutedMessageBody::StateRequest(_, _, _, _)
-            | RoutedMessageBody::ChunkPartRequest(_)
-            | RoutedMessageBody::ChunkOnePartRequest(_)
+            | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
         }
@@ -509,10 +503,10 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
                 RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
-                RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
-                RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
-                RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
-                RoutedMessageBody::ChunkPart(_) => f.write_str("ChunkPart"),
+                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
+                    f.write_str("PartialEncodedChunkRequest")
+                }
+                RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
@@ -653,30 +647,19 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::ChunkPartRequest(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::ChunkOnePartRequest(_) => {
+                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     near_metrics::inc_counter(
-                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_TOTAL,
+                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_TOTAL,
                     );
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_BYTES,
+                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
-                RoutedMessageBody::ChunkPart(_) => {
-                    near_metrics::inc_counter(&metrics::CHUNK_PART_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(&metrics::CHUNK_PART_RECEIVED_BYTES, size as i64);
-                }
-                RoutedMessageBody::ChunkOnePart(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_TOTAL);
+                RoutedMessageBody::PartialEncodedChunk(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_BYTES,
+                        &metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -939,30 +922,20 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
-    /// Request chunk part
-    ChunkPartRequest {
+    /// Request chunk parts and/or receipts
+    PartialEncodedChunkRequest {
         account_id: AccountId,
-        part_request: ChunkPartRequestMsg,
+        request: PartialEncodedChunkRequestMsg,
     },
-    /// Request chunk part and receipts
-    ChunkOnePartRequest {
-        account_id: AccountId,
-        one_part_request: ChunkOnePartRequestMsg,
-    },
-    /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse {
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunkResponse {
         route_back: CryptoHash,
-        header_and_part: ChunkOnePart,
+        partial_encoded_chunk: PartialEncodedChunk,
     },
-    /// A chunk header and one part for another validator.
-    ChunkOnePartMessage {
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunkMessage {
         account_id: AccountId,
-        header_and_part: ChunkOnePart,
-    },
-    /// A chunk part
-    ChunkPart {
-        route_back: CryptoHash,
-        part: ChunkPartMsg,
+        partial_encoded_chunk: PartialEncodedChunk,
     },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
@@ -1093,14 +1066,10 @@ pub enum NetworkClientMessages {
     /// Account announcements that needs to be validated before being processed.
     AnnounceAccount(Vec<AnnounceAccount>),
 
-    /// Request chunk part.
-    ChunkPartRequest(ChunkPartRequestMsg, CryptoHash),
-    /// Request chunk part.
-    ChunkOnePartRequest(ChunkOnePartRequestMsg, CryptoHash),
-    /// A chunk part.
-    ChunkPart(ChunkPartMsg),
-    /// A chunk header and one part.
-    ChunkOnePart(ChunkOnePart),
+    /// Request chunk parts and/or receipts.
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunk(PartialEncodedChunk),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1187,19 +1156,9 @@ impl Message for QueryPeerStats {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartRequestMsg {
-    pub shard_id: ShardId,
+pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
-    pub height: BlockIndex,
-    pub part_id: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkOnePartRequestMsg {
-    pub shard_id: ShardId,
-    pub chunk_hash: ChunkHash,
-    pub height: BlockIndex,
-    pub part_id: u64,
+    pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 

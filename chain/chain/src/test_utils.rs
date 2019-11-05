@@ -897,15 +897,21 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk.transactions.len(),
                             chunk.receipts.len()
                         );
-                    } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
+                    } else if let Ok(partial_chunk) =
+                        chain_store.get_partial_chunk(&chunk_header.chunk_hash())
                     {
                         debug!(
-                            "    {: >3} {} | {} | {: >10} | part = {}",
+                            "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
                             chunk_header.inner.height_created,
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.inner.shard_id,
                             chunk_producer,
-                            chunk_one_part.part_id
+                            partial_chunk.parts.iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            partial_chunk
+                                .receipts
+                                .iter()
+                                .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
+                                .collect::<Vec<_>>(),
                         );
                     }
                 }
