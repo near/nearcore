@@ -1051,10 +1051,12 @@ impl ShardsManager {
                 &merkle_paths,
             );
 
-            self.network_adapter.send(NetworkRequests::PartialEncodedChunkMessage {
-                account_id: to_whom.clone(),
-                partial_encoded_chunk,
-            });
+            if Some(&to_whom) != self.me.as_ref() {
+                self.network_adapter.send(NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: to_whom.clone(),
+                    partial_encoded_chunk,
+                });
+            }
         }
 
         // Add it to the set of chunks to be included in the next block
