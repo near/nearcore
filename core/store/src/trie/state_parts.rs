@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
+use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{CrumbStatus, NodeHandle, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
+use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {

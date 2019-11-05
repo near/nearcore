@@ -181,7 +181,12 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     good = 0
                     bad = 0
                     for tx in last_tx_set:
-                        rcpts = nodes[-1].json_rpc('tx', [tx[3]])['result']['receipts']
+                        response = nodes[-1].json_rpc('tx', [tx[3], "test%s" % tx[1]])
+                        try:
+                            rcpts = response['result']['receipts']
+                        except:
+                            print(response)
+                            raise
                         if rcpts == []:
                             bad += 1
                             expected_balances[tx[1]] += tx[4]

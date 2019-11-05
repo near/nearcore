@@ -2220,11 +2220,12 @@ dependencies = [
  "near-runtime-fees 0.4.0",
  "near-vm-errors 0.4.0",
  "near-vm-logic 0.4.0",
- "parity-wasm 0.40.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "pwasm-utils 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-wasm 0.41.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pwasm-utils 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wabt 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasmer-runtime 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasmer-runtime-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmparser 0.39.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2462,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "parity-wasm"
-version = "0.40.3"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -2631,12 +2632,12 @@ dependencies = [
 
 [[package]]
 name = "pwasm-utils"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "parity-wasm 0.40.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-wasm 0.41.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4415,7 +4416,7 @@ dependencies = [
 "checksum parity-rocksdb-sys 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)" = "9581e6b8c63f3808500638372ee56faaaffb57c4d349974bff591606b94d5f57"
 "checksum parity-secp256k1 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4fca4f82fccae37e8bbdaeb949a4a218a1bbc485d11598f193d2a908042e5fc1"
 "checksum parity-snappy-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1a413d51e5e1927320c9de992998e4a279dffb8c8a7363570198bd8383e66f1b"
-"checksum parity-wasm 0.40.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1e39faaa292a687ea15120b1ac31899b13586446521df6c149e46f1584671e0f"
+"checksum parity-wasm 0.41.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc878dac00da22f8f61e7af3157988424567ab01d9920b962ef7dcbd7cd865"
 "checksum parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ab41b4aed082705d1056416ae4468b6ea99d52599ecf3169b00088d43113e337"
 "checksum parking_lot 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fa7767817701cce701d5585b9c4db3cdd02086398322c1d7e8bf5094a96a2ce7"
 "checksum parking_lot 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f842b1982eb6c2fe34036a4fbfb06dd185a3f5c8edfaacdf7d1ea10b07de6252"
@@ -4435,7 +4436,7 @@ dependencies = [
 "checksum protobuf 2.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "40361836defdd5871ff7e84096c6f6444af7fc157f8ef1789f54f147687caa20"
 "checksum publicsuffix 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "9bf259a81de2b2eb9850ec990ec78e6a25319715584fd7652b9b26f96fcb1510"
 "checksum pulldown-cmark 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "8361e81576d2e02643b04950e487ec172b687180da65c731c03cf336784e6c07"
-"checksum pwasm-utils 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1d473123ba135028544926f7aa6f34058d8bc6f120c4fcd3777f84af724280b3"
+"checksum pwasm-utils 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4f7a12f176deee919f4ba55326ee17491c8b707d0987aed822682c821b660192"
 "checksum quick-error 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9274b940887ce9addde99c4eee6b5c44cc494b182b97e73dc8ffdcb3397fd3f0"
 "checksum quote 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)" = "6ce23b6b870e8f94f81fb0a363d65d86675884b34a09043c81e5562f11c1f8e1"
 "checksum quote 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "053a8c8bcc71fcce321828dc897a98ab9760bef03a4fc36693c231e5b3216cfe"

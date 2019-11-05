@@ -3,7 +3,7 @@ extern crate lazy_static;
 
 pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
-pub use store::{ChainStore, ChainStoreAccess};
+pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use types::{
     Block, BlockApproval, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
     ValidTransaction, Weight,
