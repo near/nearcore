@@ -283,6 +283,12 @@ impl Peer {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkClientMessages::TxStatusResponse(tx_result)
                     }
+                    RoutedMessageBody::QueryRequest { path, data, id } => {
+                        NetworkClientMessages::Query { path, data, id }
+                    }
+                    RoutedMessageBody::QueryResponse { response, id } => {
+                        NetworkClientMessages::QueryResponse { response, id }
+                    }
                     RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
                         NetworkClientMessages::StateRequest(
                             shard_id,
@@ -354,6 +360,10 @@ impl Peer {
                     }
                     Ok(NetworkClientResponses::TxStatus(tx_result)) => {
                         let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
+                    }
+                    Ok(NetworkClientResponses::QueryResponse { response, id }) => {
+                        let body = RoutedMessageBody::QueryResponse { response, id };
                         act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
                     }
                     Err(err) => {
