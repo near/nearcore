@@ -348,13 +348,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
 
                 for shards_to_download in shards_to_download_vec {
-                    let shard_sync_download = if shards_to_download.contains_key(&shard_id) {
-                        &shards_to_download[&shard_id]
-                    } else {
-                        // TODO is this correct behavior?
-                        continue;
+                    let shard_sync_download = match shards_to_download.get_mut(&shard_id) {
+                        Some(shard) => shard,
+                        None => {
+                            // TODO is this correct behavior?
+                            continue;
+                        }
                     };
-                    let mut new_shard_download = shard_sync_download.clone();
 
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
@@ -366,10 +366,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                         header.clone(),
                                     ) {
                                         Ok(()) => {
-                                            new_shard_download.downloads[0].done = true;
+                                            shard_sync_download.downloads[0].done = true;
                                         }
-                                        Err(_err) => {
-                                            new_shard_download.downloads[0].error = true;
+                                        Err(err) => {
+                                            error!(target: "sync", "Error with state header for shard {}: {:?}", shard_id, err);
+                                            shard_sync_download.downloads[0].error = true;
                                         }
                                     }
                                 }
@@ -389,10 +390,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                         part.clone(),
                                     ) {
                                         Ok(()) => {
-                                            new_shard_download.downloads[part_id].done = true;
+                                            shard_sync_download.downloads[part_id].done = true;
                                         }
-                                        Err(_err) => {
-                                            new_shard_download.downloads[part_id].error = true;
+                                        Err(err) => {
+                                            error!(target: "sync", "Error with state part {} for shard {}: {:?}", part_id, shard_id, err);
+                                            shard_sync_download.downloads[part_id].error = true;
                                         }
                                     }
                                 }
@@ -402,8 +404,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             continue;
                         }
                     }
-
-                    shards_to_download.insert(shard_id, new_shard_download);
                 }
 
                 NetworkClientResponses::NoResponse
