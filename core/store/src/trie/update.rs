@@ -46,7 +46,7 @@ impl TrieUpdate {
         prefixes: &HashSet<Vec<u8>>,
     ) -> Result<PrefixKeyValueChanges, StorageError> {
         if !self.prospective.is_empty() {
-            self.commit();
+            panic!("Uncommitted changes exist");
         }
         let mut res = HashMap::new();
         for prefix in prefixes {

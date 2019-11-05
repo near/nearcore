@@ -986,6 +986,7 @@ impl Runtime {
             &stats,
         )?;
 
+        state_update.commit();
         let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
 
         let trie_changes = state_update.finalize()?;
