@@ -18,6 +18,7 @@ use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
+use near_primitives::block::GenesisId;
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -167,10 +168,10 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
-    /// Genesis hash.
-    pub genesis: CryptoHash,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
@@ -272,7 +273,7 @@ impl AnnounceAccount {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
-    GenesisMismatch(CryptoHash),
+    GenesisMismatch(GenesisId),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -1085,7 +1086,7 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis: CryptoHash, height: BlockIndex, total_weight: Weight },
+    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
     /// Block response.
     Block(Block),
     /// Headers response.
