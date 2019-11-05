@@ -780,7 +780,7 @@ mod test {
     use near_chain::Provenance;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
-    use near_primitives::block::Block;
+    use near_primitives::block::{Block, GenesisId};
 
     use super::*;
     use crate::test_utils::MockNetworkAdapter;
@@ -830,7 +830,10 @@ mod test {
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
             chain_info: PeerChainInfo {
-                genesis: chain.genesis().hash(),
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: chain.genesis().hash(),
+                },
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
             },

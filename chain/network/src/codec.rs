@@ -95,7 +95,7 @@ mod test {
             peer_id: peer_info.id,
             listen_port: None,
             chain_info: PeerChainInfo {
-                genesis: Default::default(),
+                genesis_id: Default::default(),
                 height: 0,
                 total_weight: 0.into(),
             },

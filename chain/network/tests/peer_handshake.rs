@@ -34,7 +34,7 @@ fn make_peer_manager(
         match msg {
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
-                    genesis: Default::default(),
+                    genesis_id: Default::default(),
                     height: 1,
                     total_weight: 1.into(),
                 }))
