@@ -1,11 +1,18 @@
-use clap::{App, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, SubCommand};
 use near::get_default_home;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
+    let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
+    signer.write_to_file(path.as_path());
+}
 
 fn main() {
     let default_home = get_default_home();
     let matches = App::new("Key-pairs generator")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .about("Generates: access key-pairs, validation key-pairs, network key-pairs")
         .arg(
             Arg::with_name("home")
@@ -36,9 +43,11 @@ fn main() {
         .subcommand(
             SubCommand::with_name("node-key").about("Generate key for the node communication."),
         )
+        .subcommand(SubCommand::with_name("validator-key").about("Generate staking key."))
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    fs::create_dir_all(home_dir).expect("Failed to create directory");
     let account_id = matches.value_of("account-id");
     let generate_config = matches.is_present("generate-config");
 
@@ -56,32 +65,41 @@ fn main() {
                 println!("SK: {}", key);
                 println!("PK: {}", key.public_key());
                 println!();
-
-                pks.push(key.public_key());
-                if i == 0 && generate_config {
+                if generate_config {
                     let account_id = account_id
                         .expect("Account id must be specified if --generate-config is used");
-                    let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
+                    let key_file_name = format!("signer{}_key.json", i);
                     let mut path = home_dir.to_path_buf();
-                    path.push(near::config::VALIDATOR_KEY_FILE);
-                    signer.write_to_file(path.as_path());
+                    path.push(&key_file_name);
+                    generate_key_to_file(account_id, key.clone(), path);
                 }
+
+                pks.push(key.public_key());
             }
             let pks: Vec<_> = pks.into_iter().map(|pk| format!("{}", pk)).collect();
             println!("List of public keys:");
             println!("{}", pks.join(","));
         }
-        ("node-key", Some(_args)) => {
+        ("validator-key", Some(_)) => {
             let key = SecretKey::from_random(KeyType::ED25519);
             println!("SK: {}", key);
             println!("PK: {}", key.public_key());
             if generate_config {
                 let account_id =
                     account_id.expect("Account id must be specified if --generate-config is used");
-                let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
+                let mut path = home_dir.to_path_buf();
+                path.push(near::config::VALIDATOR_KEY_FILE);
+                generate_key_to_file(account_id, key, path);
+            }
+        }
+        ("node-key", Some(_args)) => {
+            let key = SecretKey::from_random(KeyType::ED25519);
+            println!("SK: {}", key);
+            println!("PK: {}", key.public_key());
+            if generate_config {
                 let mut path = home_dir.to_path_buf();
                 path.push(near::config::NODE_KEY_FILE);
-                signer.write_to_file(path.as_path());
+                generate_key_to_file("", key, path);
             }
         }
         (_, _) => unreachable!(),

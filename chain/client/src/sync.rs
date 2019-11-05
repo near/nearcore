@@ -780,7 +780,7 @@ mod test {
     use near_chain::Provenance;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
-    use near_primitives::block::Block;
+    use near_primitives::block::{Block, GenesisId};
 
     use super::*;
     use crate::test_utils::MockNetworkAdapter;
@@ -814,19 +814,26 @@ mod test {
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
-            chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+            chain
+                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
-            chain2.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+            chain2
+                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
             chain_info: PeerChainInfo {
-                genesis: chain.genesis().hash(),
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: chain.genesis().hash(),
+                },
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
             },

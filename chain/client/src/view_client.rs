@@ -5,18 +5,14 @@ use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
 
-use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ChainGenesis, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
 use near_primitives::types::{AccountId, StateRoot};
-use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, QueryResponse,
-};
+use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
-use crate::{GetChunk, TxDetails};
+use crate::GetChunk;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -33,72 +29,6 @@ impl ViewClientActor {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
         Ok(ViewClientActor { chain, runtime_adapter })
-    }
-
-    pub fn get_transaction_result(
-        &mut self,
-        hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeView, String> {
-        match self.chain.get_transaction_result(hash) {
-            Ok(result) => Ok(result.clone().into()),
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => {
-                    Ok(ExecutionOutcome { status: ExecutionStatus::Unknown, ..Default::default() }
-                        .into())
-                }
-                _ => Err(err.to_string()),
-            },
-        }
-    }
-
-    fn get_recursive_transaction_results(
-        &mut self,
-        hash: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
-        let outcome = self.get_transaction_result(hash)?;
-        let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
-        for hash in &receipt_ids {
-            transactions
-                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
-        }
-        Ok(transactions)
-    }
-
-    fn get_final_transaction_result(
-        &mut self,
-        hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, String> {
-        let mut outcomes = self.get_recursive_transaction_results(hash)?;
-        let mut looking_for_id = (*hash).into();
-        let num_outcomes = outcomes.len();
-        let status = outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = id.clone();
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .expect("results should resolve to a final outcome");
-        let receipts = outcomes.split_off(1);
-        Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
     }
 }
 
@@ -174,7 +104,7 @@ impl Handler<GetChunk> for ViewClientActor {
                         .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
                         .map(Clone::clone)
                 })
-            },
+            }
             GetChunk::BlockHeight(block_height, shard_id) => {
                 self.chain.get_block_by_height(block_height).map(Clone::clone).and_then(|block| {
                     self.chain
@@ -192,14 +122,6 @@ impl Handler<TxStatus> for ViewClientActor {
     type Result = Result<FinalExecutionOutcomeView, String>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
-        self.get_final_transaction_result(&msg.tx_hash)
-    }
-}
-
-impl Handler<TxDetails> for ViewClientActor {
-    type Result = Result<ExecutionOutcomeView, String>;
-
-    fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
-        self.get_transaction_result(&msg.tx_hash)
+        self.chain.get_final_transaction_result(&msg.tx_hash)
     }
 }

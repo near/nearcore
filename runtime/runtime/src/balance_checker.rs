@@ -35,6 +35,7 @@ pub(crate) fn check_balance(
             all_accounts_ids.extend(validator_accounts_update.stake_info.keys().cloned());
             all_accounts_ids.extend(validator_accounts_update.validator_rewards.keys().cloned());
             all_accounts_ids.extend(validator_accounts_update.last_proposals.keys().cloned());
+            all_accounts_ids.extend(validator_accounts_update.slashed_accounts.iter().cloned());
             if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
                 all_accounts_ids.insert(account_id.clone());
             }
@@ -137,7 +138,8 @@ pub(crate) fn check_balance(
         + final_postponed_receipts_balance
         + stats.total_rent_paid
         + stats.total_validator_reward
-        + stats.total_balance_burnt;
+        + stats.total_balance_burnt
+        + stats.total_balance_slashed;
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
             incoming_validator_rewards,
@@ -150,6 +152,7 @@ pub(crate) fn check_balance(
             total_rent_paid: stats.total_rent_paid,
             total_validator_reward: stats.total_validator_reward,
             total_balance_burnt: stats.total_balance_burnt,
+            total_balance_slashed: stats.total_balance_slashed,
         }
         .into())
     } else {
@@ -312,7 +315,12 @@ mod tests {
             &[],
             &[tx],
             &[receipt],
-            &ApplyStats { total_rent_paid: 0, total_validator_reward, total_balance_burnt: 0 },
+            &ApplyStats {
+                total_rent_paid: 0,
+                total_validator_reward,
+                total_balance_burnt: 0,
+                total_balance_slashed: 0,
+            },
         )
         .unwrap();
     }

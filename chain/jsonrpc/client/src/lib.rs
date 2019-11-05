@@ -8,7 +8,7 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
+    BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
 };
 
 use crate::message::{from_slice, Message};
@@ -184,8 +184,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn tx_details(&mut self, hash: String) -> RpcRequest<ExecutionOutcomeView>;
+    pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
 });

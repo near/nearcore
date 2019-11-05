@@ -3,12 +3,12 @@ mod context;
 mod dependencies;
 mod gas_counter;
 mod logic;
-#[cfg(feature = "mocks")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 pub mod serde_with;
 
 pub mod types;
-pub use config::Config;
+pub use config::VMConfig;
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike};
 pub use logic::{VMLogic, VMOutcome};

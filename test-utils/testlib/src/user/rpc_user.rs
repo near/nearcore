@@ -21,13 +21,14 @@ use crate::user::User;
 use near_jsonrpc_client::BlockId;
 
 pub struct RpcUser {
+    account_id: AccountId,
     signer: Arc<dyn Signer>,
     client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {
-    pub fn new(addr: &str, signer: Arc<dyn Signer>) -> RpcUser {
-        RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
+    pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {
+        RpcUser { account_id, client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
@@ -83,12 +84,15 @@ impl User for RpcUser {
             .ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
-        System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
+    fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
+        unimplemented!()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
-        System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
+        let account_id = self.account_id.clone();
+        System::new("actix")
+            .block_on(self.client.write().unwrap().tx(hash.into(), account_id))
+            .unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {

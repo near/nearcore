@@ -9,7 +9,7 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::utils::create_nonce_with_nonce;
+use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
 use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
 use node_runtime::StateRecord;
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,12 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 impl Row {
     pub fn verify(&self) -> Result<()> {
+        if !is_valid_account_id(&self.account_id) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid Account Id: {}", self.account_id),
+            )));
+        }
         if self.validator_stake > 0 && self.validator_key.is_none() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -96,6 +102,7 @@ impl Row {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Row {
+    genesis_time: Option<DateTime<Utc>>,
     account_id: AccountId,
     #[serde(with = "crate::serde_with::pks_as_str")]
     regular_pks: Vec<PublicKey>,
@@ -123,10 +130,11 @@ struct Row {
 /// * `AccountInfo`s that represent validators;
 /// * `PeerInfo`s that represent boot nodes;
 /// * `AccountId` of the treasury.
+/// *  Genesis time
 pub fn keys_to_state_records<R>(
     reader: R,
     gas_price: Balance,
-) -> Result<(Vec<StateRecord>, Vec<AccountInfo>, Vec<PeerInfo>, AccountId)>
+) -> Result<(Vec<StateRecord>, Vec<AccountInfo>, Vec<PeerInfo>, AccountId, DateTime<Utc>)>
 where
     R: std::io::Read,
 {
@@ -136,6 +144,7 @@ where
     let mut initial_validators = vec![];
     let mut boot_nodes = vec![];
     let mut treasury = None;
+    let mut genesis_time = None;
     for row in reader.deserialize() {
         let row: Row = row?;
         row.verify()?;
@@ -145,6 +154,9 @@ where
             } else {
                 panic!("Only one account can be marked as treasury.");
             }
+        }
+        if row.genesis_time.is_some() {
+            genesis_time = row.genesis_time;
         }
 
         state_records.extend(account_records(&row, gas_price));
@@ -161,7 +173,8 @@ where
         }
     }
     let treasury = treasury.expect("At least one account should be marked as treasury");
-    Ok((state_records, initial_validators, boot_nodes, treasury))
+    let genesis_time = genesis_time.expect("Genesis time must be set");
+    Ok((state_records, initial_validators, boot_nodes, treasury, genesis_time))
 }
 
 /// Returns the records representing state of an individual token holder.
@@ -291,6 +304,7 @@ mod tests {
         let mut writer = WriterBuilder::new().has_headers(true).from_writer(file.reopen().unwrap());
         writer
             .serialize(Row {
+                genesis_time: Some(Utc::now()),
                 account_id: "alice_near".to_string(),
                 regular_pks: vec![
                     PublicKey::empty(KeyType::ED25519),
@@ -317,6 +331,7 @@ mod tests {
             .unwrap();
         writer
             .serialize(Row {
+                genesis_time: None,
                 account_id: "bob_near".to_string(),
                 regular_pks: vec![],
                 privileged_pks: vec![PublicKey::empty(KeyType::ED25519)],
@@ -335,7 +350,6 @@ mod tests {
             })
             .unwrap();
         writer.flush().unwrap();
-        println!("{}", file.path().to_str().unwrap());
         keys_to_state_records(file.reopen().unwrap(), 1).unwrap();
     }
 
@@ -343,5 +357,37 @@ mod tests {
     fn test_res_file() {
         let res = include_bytes!("../res/test_accounts.csv");
         keys_to_state_records(&res[..], 1).unwrap();
+    }
+
+    #[test]
+    fn test_invalid_account_id() {
+        let account_to_row = |account_id| Row {
+            genesis_time: None,
+            account_id,
+            regular_pks: vec![],
+            privileged_pks: vec![],
+            foundation_pks: vec![],
+            full_pks: vec![],
+            amount: 0,
+            is_treasury: false,
+            validator_stake: 0,
+            validator_key: None,
+            peer_info: None,
+            smart_contract: None,
+            lockup: None,
+            vesting_start: None,
+            vesting_end: None,
+            vesting_cliff: None,
+        };
+        let check_invalid_account_id = |account_id: AccountId| {
+            let row = account_to_row(account_id.clone());
+            match row.verify() {
+                Err(e) => assert_eq!(e.to_string(), format!("Invalid Account Id: {}", account_id)),
+                _ => panic!("Row should not be valid"),
+            }
+        };
+        for account_id in ["Bowen", "^bowen", "bowen@near", "1&3"].iter() {
+            check_invalid_account_id(account_id.to_string());
+        }
     }
 }
