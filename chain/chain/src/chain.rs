@@ -1245,7 +1245,7 @@ impl Chain {
         }
 
         // Saving the header data.
-        let mut store_update = self.store.store().store_update();
+        let mut store_update = self.store.owned_store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
         store_update.commit()?;
@@ -1265,7 +1265,7 @@ impl Chain {
                 .into(),
         ));*/
         // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
+        Ok(self.store.owned_store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
     }
 
     pub fn set_state_part(
@@ -1667,7 +1667,7 @@ impl Chain {
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    chain_store_update: ChainStoreUpdate<'a, ChainStore>,
+    chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,
@@ -2218,19 +2218,22 @@ impl<'a> ChainUpdate<'a> {
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        if let Ok(other_hash) = self
+        if let Ok(epoch_id_to_hash) = self
             .chain_store_update
             .get_any_block_hash_by_height(header.inner.height)
             .map(Clone::clone)
         {
-            // This should be guaranteed but it doesn't hurt to check again
-            if other_hash != header.hash {
-                let other_header = self.chain_store_update.get_block_header(&other_hash)?;
+            // Check if there is already known block of the same height that has the same epoch id
+            if let Some(other_hash) = epoch_id_to_hash.get(&header.inner.epoch_id) {
+                // This should be guaranteed but it doesn't hurt to check again
+                if other_hash != &header.hash {
+                    let other_header = self.chain_store_update.get_block_header(&other_hash)?;
 
-                on_challenge(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
-                }));
+                    on_challenge(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+                        left_block_header: header.try_to_vec().expect("Failed to serialize"),
+                        right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                    }));
+                }
             }
         }
 

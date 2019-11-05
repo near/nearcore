@@ -10,8 +10,6 @@ use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_chain::ChainGenesis;
@@ -26,7 +24,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
-use near_primitives::utils::get_num_block_producers_per_shard;
+use near_primitives::utils::{generate_random_string, get_num_block_producers_per_shard};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
@@ -564,7 +562,7 @@ impl From<&str> for GenesisConfig {
 }
 
 fn random_chain_id() -> String {
-    format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
+    format!("test-chain-{}", generate_random_string(5))
 }
 
 fn state_records_account_with_key(
@@ -625,7 +623,7 @@ pub fn init_configs(
             // TODO:
             unimplemented!();
         }
-        "testnet" => {
+        "testnet" | "staging" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -645,7 +643,10 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            testnet_genesis().write_to_file(&dir.join(config.genesis_file));
+            let mut genesis_config = testnet_genesis();
+            genesis_config.chain_id = chain_id;
+
+            genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {

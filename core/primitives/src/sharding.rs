@@ -18,6 +18,12 @@ impl AsRef<[u8]> for ChunkHash {
     }
 }
 
+impl From<ChunkHash> for Vec<u8> {
+    fn from(chunk_hash: ChunkHash) -> Self {
+        chunk_hash.0.into()
+    }
+}
+
 impl From<CryptoHash> for ChunkHash {
     fn from(crypto_hash: CryptoHash) -> Self {
         Self(crypto_hash)

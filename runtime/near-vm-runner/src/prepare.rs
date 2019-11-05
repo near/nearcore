@@ -15,6 +15,7 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
@@ -189,7 +190,7 @@ mod tests {
 
         // initial exceed maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Deserialization));
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);

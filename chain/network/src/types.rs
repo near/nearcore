@@ -18,6 +18,7 @@ use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
+use near_primitives::block::GenesisId;
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -26,7 +27,7 @@ use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
@@ -167,10 +168,10 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
-    /// Genesis hash.
-    pub genesis: CryptoHash,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
@@ -272,7 +273,7 @@ impl AnnounceAccount {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
-    GenesisMismatch(CryptoHash),
+    GenesisMismatch(GenesisId),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -296,7 +297,15 @@ pub enum RoutedMessageBody {
 
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
-
+    QueryRequest {
+        path: String,
+        data: Vec<u8>,
+        id: String,
+    },
+    QueryResponse {
+        response: QueryResponse,
+        id: String,
+    },
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
 
@@ -401,7 +410,8 @@ impl RoutedMessage {
             | RoutedMessageBody::TxStatusRequest(_, _)
             | RoutedMessageBody::StateRequest(_, _, _, _)
             | RoutedMessageBody::ChunkPartRequest(_)
-            | RoutedMessageBody::ChunkOnePartRequest(_) => true,
+            | RoutedMessageBody::ChunkOnePartRequest(_)
+            | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
         }
     }
@@ -495,7 +505,9 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::TxStatusResponse(_) => {
                     f.write_str("Transaction status response")
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateRequest"),
+                RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
+                RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
@@ -610,6 +622,20 @@ impl PeerMessage {
                     near_metrics::inc_counter(&metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_TX_STATUS_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::QueryRequest { .. } => {
+                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_REQUEST_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_QUERY_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::QueryResponse { .. } => {
+                    near_metrics::inc_counter(&metrics::ROUTED_QUERY_RESPONSE_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_QUERY_RESPONSE_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -943,6 +969,13 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
+    /// General query
+    Query {
+        account_id: AccountId,
+        path: String,
+        data: Vec<u8>,
+        id: String,
+    },
 
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// Fetch current routing table.
@@ -1031,11 +1064,14 @@ pub struct StateResponseInfo {
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
-    TxStatus {
-        tx_hash: CryptoHash,
-        signer_account_id: AccountId,
-    },
+    /// Transaction status query
+    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
+    /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
+    /// General query
+    Query { path: String, data: Vec<u8>, id: String },
+    /// Query response
+    QueryResponse { response: QueryResponse, id: String },
     /// Received block header.
     BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
@@ -1085,7 +1121,7 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis: CryptoHash, height: BlockIndex, total_weight: Weight },
+    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
     /// Block response.
     Block(Block),
     /// Headers response.
@@ -1096,6 +1132,8 @@ pub enum NetworkClientResponses {
     AnnounceAccount(Vec<AnnounceAccount>),
     /// Transaction execution outcome
     TxStatus(FinalExecutionOutcomeView),
+    /// Response to general queries
+    QueryResponse { response: QueryResponse, id: String },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
