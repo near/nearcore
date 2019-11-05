@@ -207,10 +207,10 @@ fn run(matches: &clap::ArgMatches) {
     let duration = value_t_or_exit!(matches, "duration", u64);
     let transaction_type = value_t_or_exit!(matches, "type", TransactionType);
 
-    let mut addr: String;
-    let mut addrs: Vec<_>;
+    let addr: String;
+    let addrs: Vec<_>;
     let peer_addrs: &[String];
-    let mut node;
+    let node;
     if let Some(discover_addr) = matches.value_of("discover_addr") {
         addr = discover_addr.to_string();
         node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);

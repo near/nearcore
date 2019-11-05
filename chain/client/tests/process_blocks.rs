@@ -384,7 +384,7 @@ fn client_sync_headers() {
                     active_peers: vec![FullPeerInfo {
                         peer_info: peer_info1.clone(),
                         chain_info: PeerChainInfo {
-                            genesis: Default::default(),
+                            genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
                         },
@@ -395,7 +395,7 @@ fn client_sync_headers() {
                     most_weight_peers: vec![FullPeerInfo {
                         peer_info: peer_info1.clone(),
                         chain_info: PeerChainInfo {
-                            genesis: Default::default(),
+                            genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
                         },
@@ -451,6 +451,7 @@ fn test_process_invalid_tx() {
         Some("test1"),
         network_adapter,
         chain_genesis,
+        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
@@ -495,6 +496,7 @@ fn test_time_attack() {
         Some("test1"),
         network_adapter,
         chain_genesis,
+        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -525,6 +527,7 @@ fn test_invalid_approvals() {
         Some("test1"),
         network_adapter,
         chain_genesis,
+        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -555,7 +558,7 @@ fn test_invalid_approvals() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
     let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);

@@ -31,6 +31,8 @@ pub struct BlockHeaderInner {
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts.
+    pub outcome_root: MerkleHash,
     /// Number of chunks included into the block.
     pub chunks_included: u64,
     /// Timestamp at which the block was built.
@@ -70,6 +72,7 @@ impl BlockHeaderInner {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
@@ -93,6 +96,7 @@ impl BlockHeaderInner {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            outcome_root,
             timestamp,
             chunks_included,
             approval_mask,
@@ -137,6 +141,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
         approval_mask: Vec<bool>,
@@ -162,6 +167,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            outcome_root,
             timestamp,
             chunks_included,
             approval_mask,
@@ -200,6 +206,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            CryptoHash::default(),
             to_timestamp(timestamp),
             chunks_included,
             vec![],
@@ -255,6 +262,7 @@ pub fn genesis_chunks(
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
                 state_roots[i as usize % state_roots.len()].clone(),
+                CryptoHash::default(),
                 0,
                 i,
                 3,
@@ -372,6 +380,7 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
+                Block::compute_outcome_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 approval_mask,
@@ -432,6 +441,11 @@ impl Block {
 
     pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    }
+
+    pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+        merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
+            .0
     }
 
     pub fn validate_chunk_header_proof(
@@ -514,4 +528,12 @@ impl std::fmt::Display for Weight {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.num)
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct GenesisId {
+    /// Chain Id
+    pub chain_id: String,
+    /// Hash of genesis block
+    pub hash: CryptoHash,
 }
