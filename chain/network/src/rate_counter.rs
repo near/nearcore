@@ -12,53 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::VecDeque;
 use std::time::{Duration, SystemTime};
 
 const MINUTE_IN_MILLIS: u128 = 60_000;
 
 struct Entry {
     bytes: u64,
-    timestamp: u128,
-}
-
-impl Entry {
-    fn new(bytes: u64) -> Self {
-        Entry { bytes, timestamp: millis_since_epoch() }
-    }
+    expiration_timestamp: u128,
 }
 
 /// A rate counter tracks number of transfers, the amount of data exchanged and the rate of transfer
 /// over the last minute.
 pub struct RateCounter {
-    last_min_entries: Vec<Entry>,
+    entries: VecDeque<Entry>,
+    bytes_sum: u64,
 }
 
-// TODO(#1314): Improve performance from O(N) to O(1)
 impl RateCounter {
     pub fn new() -> Self {
-        RateCounter { last_min_entries: vec![] }
+        RateCounter { entries: VecDeque::new(), bytes_sum: 0 }
     }
 
     /// Increment number of bytes transferred, updating counts and rates.
     pub fn increment(&mut self, bytes: u64) {
-        self.last_min_entries.push(Entry::new(bytes));
-        self.truncate();
+        let now = millis_since_epoch();
+        self.entries.push(Entry { bytes, expiration_timestamp: now + MINUTE_IN_MILLIS });
+        self.bytes_sum += bytes;
+        self.truncate(now);
     }
 
     pub fn bytes_per_min(&self) -> u64 {
-        self.last_min_entries.iter().map(|x| x.bytes).sum()
+        self.bytes_sum
     }
 
     pub fn count_per_min(&self) -> u64 {
-        self.last_min_entries.len() as u64
+        self.entries.len() as u64
     }
 
-    fn truncate(&mut self) {
-        let now = millis_since_epoch();
-        while !self.last_min_entries.is_empty()
-            && self.last_min_entries[0].timestamp + MINUTE_IN_MILLIS < now
-        {
-            self.last_min_entries.remove(0);
+    fn truncate(&mut self, now: u128) {
+        while !self.entries.is_empty() && self.entries.front().unwrap().expiration_timestamp < now {
+            self.bytes_sum -= self.entries.pop_front().unwrap().bytes;
         }
     }
 }
