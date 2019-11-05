@@ -44,6 +44,9 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 
+/// Multiplier on `max_block_time` to wait until deciding that chain stalled.
+const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
+
 enum AccountAnnounceVerificationResult {
     Valid,
     UnknownEpoch,
@@ -478,7 +481,12 @@ impl Handler<Status> for ClientActor {
             .map_err(|err| err.to_string())?;
         let latest_block_time = prev_header.inner.timestamp.clone();
         let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
-        if elapsed > self.client.config.max_block_production_delay {
+        if elapsed
+            > Duration::from_millis(
+                self.client.config.max_block_production_delay.as_millis() as u64
+                    * STATUS_WAIT_TIME_MULTIPLIER,
+            )
+        {
             return Err(format!("No blocks for {:?}.", elapsed));
         }
         let validators = self
