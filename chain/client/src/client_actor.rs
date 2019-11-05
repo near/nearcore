@@ -369,7 +369,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                             shard_sync_download.downloads[0].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "Error with state header for shard {}: {:?}", shard_id, err);
+                                            error!(target: "sync", "State sync header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
                                             shard_sync_download.downloads[0].error = true;
                                         }
                                     }
@@ -393,7 +393,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                             shard_sync_download.downloads[part_id].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "Error with state part {} for shard {}: {:?}", part_id, shard_id, err);
+                                            error!(target: "sync", "State sync part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
                                             shard_sync_download.downloads[part_id].error = true;
                                         }
                                     }
