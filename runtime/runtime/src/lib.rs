@@ -110,6 +110,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
+    pub key_value_changes: HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>,
     pub stats: ApplyStats,
 }
 
@@ -922,7 +923,7 @@ impl Runtime {
     /// new outgoing receipts, total rent paid by all the affected accounts, execution outcomes for
     /// all transactions, local action receipts (generated from transactions with signer ==
     /// receivers) and incoming action receipts.
-    pub fn apply(
+    pub fn apply<'a, T: Iterator<Item = &'a Vec<u8>>>(
         &self,
         trie: Arc<Trie>,
         root: CryptoHash,
@@ -930,6 +931,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
+        subscribed_keys: T,
     ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -984,6 +986,8 @@ impl Runtime {
             &stats,
         )?;
 
+        let key_value_changes = state_update.get_prefix_changes(subscribed_keys)?;
+
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
             state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
@@ -991,6 +995,7 @@ impl Runtime {
             validator_proposals,
             new_receipts,
             outcomes,
+            key_value_changes,
             stats,
         })
     }
@@ -1204,7 +1209,7 @@ mod tests {
         let apply_state =
             ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
 
-        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
+        runtime.apply(trie, root, &None, &apply_state, &[], &[], vec![].into_iter()).unwrap();
     }
 
     #[test]
@@ -1247,6 +1252,7 @@ mod tests {
                 &apply_state,
                 &[Receipt::new_refund(&account_id, small_refund)],
                 &[],
+                vec![].into_iter(),
             )
             .unwrap();
     }

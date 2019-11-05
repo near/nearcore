@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -33,6 +33,31 @@ impl TrieUpdate {
             self.trie.get(&self.root, key).map(|x| x.map(DBValue::from_vec))
         }
     }
+
+    /// Get values in trie update for a set of keys.
+    // This function will commit changes. Need to be used with caution
+    pub fn get_prefix_changes<'a, T: Iterator<Item = &'a Vec<u8>>>(
+        &mut self,
+        prefixes: T,
+    ) -> Result<HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>, StorageError> {
+        if !self.prospective.is_empty() {
+            self.commit();
+        }
+        let mut res = HashMap::new();
+        for prefix in prefixes {
+            let mut prefix_key_value_change = HashMap::new();
+            for key in self.iter(prefix)? {
+                if let Some(value) = self.committed.get(&key) {
+                    prefix_key_value_change.insert(key, value.clone());
+                }
+            }
+            if !prefix_key_value_change.is_empty() {
+                res.insert(prefix.clone(), prefix_key_value_change);
+            }
+        }
+        Ok(res)
+    }
+
     pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
         self.prospective.insert(key, Some(value.into_vec()));
     }
@@ -74,9 +99,11 @@ impl TrieUpdate {
             }
         }
     }
+
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
+
     pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();

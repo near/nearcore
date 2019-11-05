@@ -73,6 +73,7 @@ impl RuntimeTestbed {
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
+                vec![].into_iter(),
             )
             .unwrap();
 

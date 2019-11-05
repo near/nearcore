@@ -63,7 +63,15 @@ impl StandaloneRuntime {
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
         let apply_result = self
             .runtime
-            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
+            .apply(
+                self.trie.clone(),
+                self.root,
+                &None,
+                &self.apply_state,
+                receipts,
+                transactions,
+                vec![].into_iter(),
+            )
             .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
