@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
+use cached::{Cached, SizedCache};
 use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
@@ -20,6 +21,9 @@ mod reward_calculator;
 pub mod test_utils;
 mod types;
 
+const EPOCH_CACHE_SIZE: usize = 10;
+const BLOCK_CACHE_SIZE: usize = 1000;
+
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
 pub struct EpochManager {
@@ -30,9 +34,9 @@ pub struct EpochManager {
     reward_calculator: RewardCalculator,
 
     /// Cache of epoch information.
-    epochs_info: HashMap<EpochId, EpochInfo>,
+    epochs_info: SizedCache<EpochId, EpochInfo>,
     /// Cache of block information.
-    blocks_info: HashMap<CryptoHash, BlockInfo>,
+    blocks_info: SizedCache<CryptoHash, BlockInfo>,
 }
 
 impl EpochManager {
@@ -49,8 +53,8 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
-            epochs_info: HashMap::default(),
-            blocks_info: HashMap::default(),
+            epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
+            blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
@@ -144,20 +148,32 @@ impl EpochManager {
         (validator_kickout, validator_online_ratio)
     }
 
-    fn collect_blocks_info(
+    fn collect_trackers(
         &mut self,
         epoch_id: &EpochId,
+        epoch_info: &EpochInfo,
         last_block_hash: &CryptoHash,
-    ) -> Result<EpochSummary, EpochError> {
+    ) -> Result<
+        (
+            BTreeMap<AccountId, ValidatorStake>,
+            HashSet<AccountId>,
+            HashSet<u64>,
+            HashMap<usize, u64>,
+            HashMap<u64, HashMap<usize, u64>>,
+            HashSet<AccountId>,
+            u128,
+            u128,
+            CryptoHash,
+        ),
+        EpochError,
+    > {
         let mut proposals = BTreeMap::new();
         let mut validator_kickout = HashSet::new();
+        let mut produced_block_indices = HashSet::new();
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
-        let mut produced_block_indices = HashSet::new();
         let mut total_storage_rent = 0;
         let mut total_validator_reward = 0;
-
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = self.get_slashed_validators(last_block_hash)?.clone();
@@ -201,6 +217,36 @@ impl EpochManager {
 
             hash = info.prev_hash;
         }
+        Ok((
+            proposals,
+            validator_kickout,
+            produced_block_indices,
+            block_validator_tracker,
+            chunk_validator_tracker,
+            slashed_validators,
+            total_storage_rent,
+            total_validator_reward,
+            hash,
+        ))
+    }
+
+    fn collect_blocks_info(
+        &mut self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<EpochSummary, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
+        let (
+            proposals,
+            mut validator_kickout,
+            produced_block_indices,
+            block_validator_tracker,
+            chunk_validator_tracker,
+            slashed_validators,
+            total_storage_rent,
+            total_validator_reward,
+            hash,
+        ) = self.collect_trackers(epoch_id, &epoch_info, last_block_hash)?;
 
         let all_proposals: Vec<_> = proposals.into_iter().map(|(_, v)| v).collect();
 
@@ -235,6 +281,31 @@ impl EpochManager {
             total_storage_rent,
             total_validator_reward,
         })
+    }
+
+    /// Returns number of missing blocks by given validator.
+    /// Note: THIS IS EXTREMELY NOT OPTIMAL IMPLEMENTATION.
+    pub fn get_num_missing_blocks(
+        &mut self,
+        epoch_id: &EpochId,
+        last_known_block_info: &CryptoHash,
+        _account_id: &AccountId,
+    ) -> Result<u64, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
+        let (
+            _proposals,
+            _validator_kickout,
+            _produced_block_indices,
+            _block_validator_tracker,
+            _chunk_validator_tracker,
+            _slashed,
+            _total_storage_rent,
+            _total_validator_reward,
+            _hash,
+        ) = self.collect_trackers(epoch_id, &epoch_info, last_known_block_info)?;
+        //        produced_block_indices.get(&account_id).ok_or_else(|| 0)
+        // Ok(*block_validator_tracker.get(&account_id).ok_or_else(|| 0))
+        Ok(0)
     }
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
@@ -662,15 +733,15 @@ impl EpochManager {
     }
 
     fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
-        if !self.epochs_info.contains_key(epoch_id) {
+        if !self.epochs_info.cache_get(epoch_id).is_some() {
             let epoch_info = self
                 .store
                 .get_ser(COL_EPOCH_INFO, epoch_id.as_ref())
                 .map_err(|err| err.into())
                 .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
-            self.epochs_info.insert(epoch_id.clone(), epoch_info);
+            self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         }
-        self.epochs_info.get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
+        self.epochs_info.cache_get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
     }
 
     fn has_epoch_info(&mut self, epoch_id: &EpochId) -> Result<bool, EpochError> {
@@ -690,7 +761,7 @@ impl EpochManager {
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
             .map_err(EpochError::from)?;
-        self.epochs_info.insert(epoch_id.clone(), epoch_info);
+        self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         Ok(())
     }
 
@@ -703,15 +774,15 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
-        if !self.blocks_info.contains_key(hash) {
+        if self.blocks_info.cache_get(hash).is_none() {
             let block_info = self
                 .store
                 .get_ser(COL_BLOCK_INFO, hash.as_ref())
                 .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
-            self.blocks_info.insert(*hash, block_info);
+            self.blocks_info.cache_set(*hash, block_info);
         }
-        self.blocks_info.get(hash).ok_or(EpochError::MissingBlock(*hash))
+        self.blocks_info.cache_get(hash).ok_or(EpochError::MissingBlock(*hash))
     }
 
     fn save_block_info(
@@ -723,7 +794,7 @@ impl EpochManager {
         store_update
             .set_ser(COL_BLOCK_INFO, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
-        self.blocks_info.insert(*block_hash, block_info);
+        self.blocks_info.cache_set(*block_hash, block_info);
         Ok(())
     }
 }

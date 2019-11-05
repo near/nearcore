@@ -611,7 +611,7 @@ impl ClientActor {
 
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
         if self.client.block_producer.as_ref().map(|bp| bp.account_id.clone())
-            == Some(next_block_producer_account)
+            == Some(next_block_producer_account.clone())
         {
             // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
             if elapsed >= self.client.config.min_block_production_delay {
@@ -621,7 +621,19 @@ impl ClientActor {
                 }
             }
         } else {
-            if elapsed < self.client.config.max_block_wait_delay {
+            let num_blocks_missing = self.client.runtime_adapter.get_num_missing_blocks(
+                &head.epoch_id,
+                &head.last_block_hash,
+                &next_block_producer_account,
+            )?;
+            // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
+            if elapsed
+                < std::cmp::max(
+                    self.client.config.max_block_wait_delay
+                        - Duration::from_millis(num_blocks_missing * 1000),
+                    self.client.config.min_block_production_delay,
+                )
+            {
                 // Next block producer is not this client, so just go for another loop iteration.
             } else {
                 // Upcoming block has not been seen in max block production delay, suggest to skip.
