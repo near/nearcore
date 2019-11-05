@@ -216,8 +216,8 @@ fn test_health_fail_no_blocks() {
                     future::result(Ok(()))
                 }));
             }),
-            100,
-            1000,
+            300,
+            2000,
         )
         .start();
     })
