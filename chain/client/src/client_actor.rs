@@ -193,6 +193,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::Query { path, data, id } => {
+                self.client.handle_query(path, data, id)
+            }
+            NetworkClientMessages::QueryResponse { response, id } => {
+                if self.client.query_requests.cache_remove(&id).is_some() {
+                    self.client.query_responses.cache_set(id, response);
+                }
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
