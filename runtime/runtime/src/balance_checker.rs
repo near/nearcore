@@ -44,13 +44,13 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Receipt>, StorageError>>()
     };
-    // Previously delayed receipts that were processed during this time.
+    // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
         initial_delayed_receipt_indices.first_index,
         final_delayed_receipt_indices.first_index,
         &initial_state,
     )?;
-    // Receipts that were not processed during this time and now delayed.
+    // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         initial_delayed_receipt_indices.next_available_index,
         final_delayed_receipt_indices.next_available_index,

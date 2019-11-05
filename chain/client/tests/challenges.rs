@@ -173,11 +173,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     );
 }
 
-// TODO(#1604): Fix partial state construction in the test. We shouldn't hardcode the partial state,
-// because it breaks the development of Runtime that affects state.
-// Instead we should reconstruct the partial state as part of the test.
 #[test]
-#[ignore]
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis_config = GenesisConfig::test(vec!["test0", "test1"], 1);
@@ -279,12 +275,22 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         assert_eq!(
-            vec![vec![
-                3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107, 71,
-                32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210, 44, 242,
-                167, 124, 2, 0, 0, 0, 0, 0,
-            ]],
-            challenge_body.partial_state
+            challenge_body.partial_state,
+            vec![
+                vec![
+                    1, 7, 0, 227, 6, 86, 139, 125, 37, 242, 104, 89, 182, 115, 113, 193, 120, 119,
+                    33, 26, 201, 6, 127, 176, 76, 7, 26, 49, 95, 52, 178, 159, 143, 117, 52, 30,
+                    175, 188, 91, 174, 142, 135, 98, 116, 150, 226, 129, 204, 53, 64, 77, 100, 76,
+                    30, 35, 91, 181, 116, 222, 89, 72, 223, 126, 155, 43, 85, 154, 123, 65, 104,
+                    88, 146, 81, 64, 114, 10, 155, 246, 47, 39, 58, 223, 4, 22, 25, 219, 175, 9,
+                    240, 3, 80, 88, 189, 162, 254, 21, 231, 234, 116, 125, 124, 2, 0, 0, 0, 0, 0
+                ],
+                vec![
+                    3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107,
+                    71, 32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210,
+                    44, 242, 167, 124, 2, 0, 0, 0, 0, 0
+                ]
+            ],
         );
     }
     let challenge =
