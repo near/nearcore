@@ -408,27 +408,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPartRequest(part_request_msg, route_back) => {
-                let _ =
-                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, route_back);
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, route_back) => {
-                let _ = self.client.shards_mgr.process_chunk_one_part_request(
+            NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
+                let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
                     part_request_msg,
                     route_back,
                     self.client.chain.mut_store(),
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPart(part_msg) => {
-                if let Ok(accepted_blocks) = self.client.process_chunk_part(part_msg) {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::ChunkOnePart(one_part_msg) => {
-                if let Ok(accepted_blocks) = self.client.process_chunk_one_part(one_part_msg) {
+            NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk(partial_encoded_chunk)
+                {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
@@ -675,12 +666,29 @@ impl ClientActor {
     ) -> Result<(), Error> {
         match self.client.produce_block(next_height, elapsed_since_last_block) {
             Ok(Some(block)) => {
+                let block_hash = block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
-                if res.is_err() {
-                    error!(target: "client", "Failed to process freshly produced block: {:?}", res);
-                    byzantine_assert!(false);
+                match &res {
+                    Ok(_) => Ok(()),
+                    Err(e) => match e.kind() {
+                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
+                            debug!(
+                                "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
+                                block_hash,
+                                self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                                missing_chunks.clone(),
+                                missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
+                            );
+                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            Ok(())
+                        }
+                        _ => {
+                            error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                            byzantine_assert!(false);
+                            res.map_err(|err| err.into())
+                        }
+                    },
                 }
-                res.map_err(|err| err.into())
             }
             Ok(None) => Ok(()),
             Err(err) => Err(err),
@@ -758,7 +766,7 @@ impl ClientActor {
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1075,7 +1083,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
                         }
 
                         self.client.sync_status =
