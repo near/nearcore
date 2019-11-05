@@ -37,7 +37,7 @@ impl RateCounter {
     /// Increment number of bytes transferred, updating counts and rates.
     pub fn increment(&mut self, bytes: u64) {
         let now = millis_since_epoch();
-        self.entries.push(Entry { bytes, expiration_timestamp: now + MINUTE_IN_MILLIS });
+        self.entries.push_back(Entry { bytes, expiration_timestamp: now + MINUTE_IN_MILLIS });
         self.bytes_sum += bytes;
         self.truncate(now);
     }
