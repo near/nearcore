@@ -18,8 +18,7 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Query, Status, TxDetails, TxStatus,
-    ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
@@ -29,6 +28,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::utils::generate_random_string;
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 
 mod metrics;
@@ -36,6 +36,7 @@ pub mod test_utils;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
+const QUERY_DATA_MAX_SIZE: usize = 2 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -110,19 +111,16 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
-fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
-    let (encoded,) = parse_params::<(String,)>(params)?;
-    from_base_or_parse_err(encoded).and_then(|bytes| {
-        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-    })
-}
-
 fn jsonify_client_response(
     client_response: Result<NetworkClientResponses, MailboxError>,
 ) -> Result<Value, RpcError> {
     match client_response {
         Ok(NetworkClientResponses::TxStatus(tx_result)) => serde_json::to_value(tx_result)
             .map_err(|err| RpcError::server_error(Some(err.to_string()))),
+        Ok(NetworkClientResponses::QueryResponse { response, .. }) => {
+            serde_json::to_value(response)
+                .map_err(|err| RpcError::server_error(Some(err.to_string())))
+        }
         Ok(response) => Err(RpcError::server_error(Some(ExecutionErrorView {
             error_message: format!("Wrong client response: {:?}", response),
             error_type: "ResponseError".to_string(),
@@ -133,6 +131,13 @@ fn jsonify_client_response(
 
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
     ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
+}
+
+fn timeout_err() -> RpcError {
+    RpcError::server_error(Some(ExecutionErrorView {
+        error_message: "send_tx_commit has timed out".to_string(),
+        error_type: "TimeoutError".to_string(),
+    }))
 }
 
 struct JsonRpcHandler {
@@ -160,7 +165,6 @@ impl JsonRpcHandler {
             "health" => self.health().await,
             "status" => self.status().await,
             "tx" => self.tx_status(request.params).await,
-            "tx_details" => self.tx_details(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
             "network_info" => self.network_info().await,
@@ -228,12 +232,7 @@ impl JsonRpcHandler {
                     }
                 })
                 .await
-                .map_err(|_| {
-                    RpcError::server_error(Some(ExecutionErrorView {
-                        error_message: "send_tx_commit has timed out".to_string(),
-                        error_type: "TimeoutError".to_string(),
-                    }))
-                })?
+                .map_err(|_| timeout_err())?
             }
             NetworkClientResponses::TxStatus(tx_result) => {
                 serde_json::to_value(tx_result).map_err(|err| {
@@ -280,7 +279,50 @@ impl JsonRpcHandler {
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (path, data) = parse_params::<(String, String)>(params)?;
         let data = from_base_or_parse_err(data)?;
-        jsonify(self.view_client_addr.send(Query { path, data }).compat().await)
+        let query_data_size = path.len() + data.len();
+        if query_data_size > QUERY_DATA_MAX_SIZE {
+            return Err(RpcError::server_error(Some(format!(
+                "Query data size {} is too large",
+                query_data_size
+            ))));
+        }
+        if !path.contains('/') {
+            return Err(RpcError::server_error(Some(
+                "At least one query parameter is required".to_string(),
+            )));
+        }
+        let request_id = generate_random_string(10);
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let result = self
+                    .client_addr
+                    .send(NetworkClientMessages::Query {
+                        path: path.clone(),
+                        data: data.clone(),
+                        id: request_id.clone(),
+                    })
+                    .compat()
+                    .await;
+                match result {
+                    Ok(NetworkClientResponses::QueryResponse { .. }) => {
+                        println!("here");
+                        break jsonify_client_response(result);
+                    }
+                    Ok(NetworkClientResponses::RequestRouted)
+                    | Ok(NetworkClientResponses::NoResponse) => {}
+                    Ok(response) => {
+                        break Err(RpcError::server_error(Some(ExecutionErrorView {
+                            error_message: format!("Wrong client response: {:?}", response),
+                            error_type: "ResponseError".to_string(),
+                        })));
+                    }
+                    Err(e) => break Err(RpcError::server_error(Some(convert_mailbox_error(e)))),
+                }
+                let _ = delay(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| timeout_err())?
     }
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -298,11 +340,6 @@ impl JsonRpcHandler {
             .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
             .await?;
         self.tx_polling(result, tx_hash, account_id).await
-    }
-
-    async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let tx_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(TxDetails { tx_hash }).compat().await)
     }
 
     async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {

@@ -84,8 +84,8 @@ impl User for RpcUser {
             .ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
-        System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
+    fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
+        unimplemented!()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {

@@ -6,7 +6,7 @@ use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::types::NetworkRequests::ChunkOnePartMessage;
+use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::test_utils::init_test_logger;
@@ -57,14 +57,17 @@ fn repro_1183() {
                         }
                     }
                     for delayed_message in delayed_one_parts.iter() {
-                        if let ChunkOnePartMessage { account_id, header_and_part, .. } =
-                            delayed_message
+                        if let PartialEncodedChunkMessage {
+                            account_id,
+                            partial_encoded_chunk,
+                            ..
+                        } = delayed_message
                         {
                             for (i, name) in validators2.iter().flatten().enumerate() {
                                 if &name.to_string() == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkOnePart(
-                                            header_and_part.clone(),
+                                        NetworkClientMessages::PartialEncodedChunk(
+                                            partial_encoded_chunk.clone(),
                                         ),
                                     );
                                 }
@@ -101,7 +104,7 @@ fn repro_1183() {
                         System::current().stop();
                     }
                     (NetworkResponses::NoResponse, false)
-                } else if let NetworkRequests::ChunkOnePartMessage { .. } = msg {
+                } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = msg {
                     if thread_rng().gen_bool(0.5) {
                         (NetworkResponses::NoResponse, true)
                     } else {

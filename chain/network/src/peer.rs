@@ -283,6 +283,12 @@ impl Peer {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkClientMessages::TxStatusResponse(tx_result)
                     }
+                    RoutedMessageBody::QueryRequest { path, data, id } => {
+                        NetworkClientMessages::Query { path, data, id }
+                    }
+                    RoutedMessageBody::QueryResponse { response, id } => {
+                        NetworkClientMessages::QueryResponse { response, id }
+                    }
                     RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
                         NetworkClientMessages::StateRequest(
                             shard_id,
@@ -295,19 +301,15 @@ impl Peer {
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
-                    RoutedMessageBody::ChunkPartRequest(request) => {
-                        NetworkClientMessages::ChunkPartRequest(request, msg_hash.clone().unwrap())
-                    }
-                    RoutedMessageBody::ChunkOnePartRequest(request) => {
-                        NetworkClientMessages::ChunkOnePartRequest(
+                    RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                        NetworkClientMessages::PartialEncodedChunkRequest(
                             request,
                             msg_hash.clone().unwrap(),
                         )
                     }
-                    RoutedMessageBody::ChunkOnePart(one_part) => {
-                        NetworkClientMessages::ChunkOnePart(one_part)
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
+                        NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
                     }
-                    RoutedMessageBody::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
                     RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type");
                         return;
@@ -354,6 +356,10 @@ impl Peer {
                     }
                     Ok(NetworkClientResponses::TxStatus(tx_result)) => {
                         let body = RoutedMessageBody::TxStatusResponse(tx_result);
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
+                    }
+                    Ok(NetworkClientResponses::QueryResponse { response, id }) => {
+                        let body = RoutedMessageBody::QueryResponse { response, id };
                         act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash.clone().unwrap()));
                     }
                     Err(err) => {

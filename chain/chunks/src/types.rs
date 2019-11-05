@@ -5,6 +5,7 @@ pub enum Error {
     InvalidChunkShardId,
     InvalidMerkleProof,
     InvalidChunkSignature,
+    InvalidChunkHeader,
     InvalidChunk,
     UnknownChunk,
     KnownPart,

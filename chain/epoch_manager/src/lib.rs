@@ -277,7 +277,6 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
-        println!("next next epoch info: {:?}", next_next_epoch_info);
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
