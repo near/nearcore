@@ -286,10 +286,6 @@ impl ShardsManager {
             bp_to_parts.entry(shard_representative_account_id.clone()).or_insert_with(|| vec![]);
         }
 
-        if bp_to_parts.is_empty() {
-            assert!(false);
-        }
-
         for (account_id, part_ords) in bp_to_parts {
             let request = PartialEncodedChunkRequestMsg {
                 chunk_hash: chunk_hash.clone(),
