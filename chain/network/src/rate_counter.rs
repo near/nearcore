@@ -64,3 +64,27 @@ fn millis_since_epoch() -> u128 {
         .unwrap_or_else(|_| Duration::new(0, 0));
     since_epoch.as_millis()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_counter() {
+        let mut rc = RateCounter::new();
+
+        rc.increment(1000);
+        assert_eq!(rc.bytes_per_min(), 1000);
+        assert_eq!(rc.count_per_min(), 1);
+
+        rc.increment(123);
+
+        assert_eq!(rc.bytes_per_min(), 1123);
+        assert_eq!(rc.count_per_min(), 2);
+
+        rc.truncate(millis_since_epoch() + MINUTE_IN_MILLIS + 1);
+
+        assert_eq!(rc.bytes_per_min(), 0);
+        assert_eq!(rc.count_per_min(), 0);
+    }
+}
