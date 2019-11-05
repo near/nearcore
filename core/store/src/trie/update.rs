@@ -20,6 +20,10 @@ pub struct TrieUpdate {
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
+/// For each prefix, the value is a <key, value> map that records the changes in the
+/// trie update.
+pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
+
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
@@ -35,11 +39,12 @@ impl TrieUpdate {
     }
 
     /// Get values in trie update for a set of keys.
+    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
     // This function will commit changes. Need to be used with caution
     pub fn get_prefix_changes(
         &mut self,
         prefixes: &HashSet<Vec<u8>>,
-    ) -> Result<HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>, StorageError> {
+    ) -> Result<PrefixKeyValueChanges, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();
         }
