@@ -12,6 +12,10 @@ pub type StateItem = Vec<u8>;
 
 pub type PartialState = Vec<StateItem>;
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+// TODO MOO this is weird
+pub struct PartialStateStruct(pub PartialState);
+
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {

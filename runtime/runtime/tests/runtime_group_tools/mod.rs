@@ -54,7 +54,7 @@ impl StandaloneRuntime {
             gas_limit: None,
         };
 
-        Self { apply_state, runtime, trie, signer, root: root.hash }
+        Self { apply_state, runtime, trie, signer, root: root }
     }
 
     pub fn process_block(

@@ -95,7 +95,7 @@ impl RuntimeUser {
                 );
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
-            client.state_root = apply_result.state_root.hash;
+            client.state_root = apply_result.state_root;
             if apply_result.new_receipts.is_empty() {
                 return Ok(());
             }

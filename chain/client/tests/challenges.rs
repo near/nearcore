@@ -213,7 +213,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         .shards_mgr
         .create_encoded_shard_chunk(
             last_block.hash(),
-            StateRoot { hash: CryptoHash::default(), num_parts: 1 },
+            StateRoot::default(),
             CryptoHash::default(),
             last_block.header.inner.height + 1,
             0,

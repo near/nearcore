@@ -28,7 +28,7 @@ use near_network::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, EpochId, Range};
+use near_primitives::types::{BlockIndex, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -270,19 +270,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 shard_id,
                 hash,
                 need_header,
-                parts_ranges,
+                part_ids,
+                num_parts,
                 route_back,
             ) => {
-                let mut parts = vec![];
-                for Range(from, to) in parts_ranges {
-                    for part_id in from..to {
-                        if let Ok(part) =
-                            self.client.chain.get_state_response_part(shard_id, part_id, hash)
-                        {
-                            parts.push(part);
-                        } else {
-                            return NetworkClientResponses::NoResponse;
-                        }
+                let mut data = vec![];
+                for part_id in part_ids.iter() {
+                    if let Ok(part) = self
+                        .client
+                        .chain
+                        .get_state_response_part(shard_id, *part_id, num_parts, hash)
+                    {
+                        data.push(part);
+                    } else {
+                        return NetworkClientResponses::NoResponse;
                     }
                 }
                 if need_header {
@@ -294,7 +295,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     hash,
                                     shard_state: ShardStateSyncResponse {
                                         header: Some(header),
-                                        parts,
+                                        part_ids,
+                                        data,
                                     },
                                 },
                                 route_back,
@@ -309,7 +311,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         StateResponseInfo {
                             shard_id,
                             hash,
-                            shard_state: ShardStateSyncResponse { header: None, parts },
+                            shard_state: ShardStateSyncResponse { header: None, part_ids, data },
                         },
                         route_back,
                     );
@@ -379,17 +381,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            for part in shard_state.parts.iter() {
-                                let part_id = part.state_part.part_id as usize;
-                                if part_id >= shard_sync_download.downloads.len() {
-                                    // TODO ???
+                            for (i, part_id) in shard_state.part_ids.iter().enumerate() {
+                                let part_id = *part_id as usize;
+                                let num_parts = shard_sync_download.downloads.len();
+                                if part_id >= num_parts {
+                                    // TODO MOO ask Alex if continue is enough here
                                     continue;
                                 }
                                 if !shard_sync_download.downloads[part_id].done {
                                     match self.client.chain.set_state_part(
                                         shard_id,
                                         hash,
-                                        part.clone(),
+                                        part_id as u64,
+                                        num_parts as u64,
+                                        &shard_state.data[i],
                                     ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id].done = true;

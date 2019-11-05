@@ -36,10 +36,9 @@ pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 pub struct StatePartKey(pub u64, pub StateRoot);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePart {
-    pub shard_id: ShardId,
-    pub part_id: u64,
+pub struct StateRootNode {
     pub data: Vec<u8>,
+    pub memory_usage: u64,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -383,29 +382,29 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
-    /// Get the part of the state from given state root + proof.
+    /// Get the part of the state from given state root.
     fn obtain_state_part(
         &self,
-        shard_id: ShardId,
-        part_id: u64,
         state_root: &StateRoot,
-    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>>;
+        part_id: u64,
+        num_parts: u64,
+    ) -> Result<Vec<u8>, Error>;
 
-    /// Set state part that expected to be given state root with provided data.
-    /// Returns error if:
-    /// 1. Failed to parse, or
-    /// 2. The proof is invalid, or
-    /// 3. The resulting part doesn't match the expected one.
-    fn accept_state_part(
+    /// Validate state part that expected to be given state root with provided data.
+    /// Returns error if the resulting part doesn't match the expected one.
+    fn validate_state_part(
         &self,
         state_root: &StateRoot,
-        part: &StatePart,
-        proof: &Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+        part_id: u64,
+        num_parts: u64,
+        data: &Vec<u8>,
+    ) -> Result<bool, Error>;
 
-    /// Should be executed after accepting all the parts.
-    /// Returns `true` if state is set successfully.
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error>;
+    /// Should be executed after accepting all the parts to set up a new state.
+    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error>;
+
+    /// Returns StateRootNode of a state.
+    fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
@@ -472,18 +471,14 @@ pub struct ShardStateSyncResponseHeader {
     pub prev_chunk_proof: Option<MerklePath>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ShardStateSyncResponsePart {
-    pub state_part: StatePart,
-    pub proof: Vec<u8>,
+    pub state_root_node: StateRootNode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
-    pub parts: Vec<ShardStateSyncResponsePart>,
+    pub part_ids: Vec<u64>,
+    pub data: Vec<Vec<u8>>,
 }
 
 #[cfg(test)]
@@ -498,11 +493,7 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks = genesis_chunks(
-            vec![StateRoot { hash: CryptoHash::default(), num_parts: 9 /* TODO MOO */ }],
-            num_shards,
-            1_000_000,
-        );
+        let genesis_chunks = genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000);
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),

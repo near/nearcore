@@ -12,6 +12,7 @@ use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::StateRoot;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -67,9 +68,9 @@ enum TrieNode {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct TrieNodeWithSize {
+pub struct TrieNodeWithSize {
     node: TrieNode,
-    memory_usage: u64,
+    pub memory_usage: u64,
 }
 
 impl TrieNodeWithSize {
@@ -400,14 +401,14 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
     #[allow(dead_code)]
-    old_root: CryptoHash,
-    pub new_root: CryptoHash,
+    old_root: StateRoot,
+    pub new_root: StateRoot,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 impl TrieChanges {
-    pub fn empty(old_root: CryptoHash) -> Self {
+    pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
     pub fn insertions_into(
@@ -456,7 +457,7 @@ impl TrieChanges {
     pub fn into(
         self,
         trie: Arc<Trie>,
-    ) -> Result<(StoreUpdate, CryptoHash), Box<dyn std::error::Error>> {
+    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
         let mut store_update = StoreUpdate::new_with_trie(
             trie.storage
                 .as_caching_storage()
@@ -518,8 +519,8 @@ impl Trie {
         Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
     }
 
-    pub fn empty_root() -> CryptoHash {
-        CryptoHash::default()
+    pub fn empty_root() -> StateRoot {
+        StateRoot::default()
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -540,6 +541,10 @@ impl Trie {
             }),
             counter: TouchedNodesCounter::default(),
         }
+    }
+
+    pub fn get_memory_usage_from_serialized_node(node: &TrieNodeWithSize) -> u64 {
+        node.memory_usage
     }
 
     #[cfg(test)]
@@ -626,6 +631,13 @@ impl Trie {
                 hash
             ))),
         }
+    }
+
+    pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<(Vec<u8>, u64), StorageError> {
+        if *root == Trie::empty_root() {
+            return Ok((vec![], 0));
+        }
+        Ok((self.storage.retrieve_raw_bytes(root)?, self.retrieve_node(root)?.memory_usage))
     }
 
     fn lookup(
@@ -1049,8 +1061,8 @@ mod tests {
             if root1 != root2 {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
-                eprintln!("root1: {}", root1);
-                eprintln!("root2: {}", root2);
+                eprintln!("root1: {:?}", root1);
+                eprintln!("root2: {:?}", root2);
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?

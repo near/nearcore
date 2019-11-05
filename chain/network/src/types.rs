@@ -24,7 +24,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
@@ -307,7 +307,7 @@ pub enum RoutedMessageBody {
         response: QueryResponse,
         id: String,
     },
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, Vec<u64>, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -406,7 +406,7 @@ impl RoutedMessage {
         match self.body {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::StateRequest(_, _, _, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
@@ -504,7 +504,7 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
@@ -636,7 +636,7 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => {
+                RoutedMessageBody::StateRequest(_, _, _, _, _) => {
                     near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
@@ -917,7 +917,8 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         hash: CryptoHash,
         need_header: bool,
-        parts_ranges: Vec<Range>,
+        part_ids: Vec<u64>,
+        num_parts: u64,
         target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
@@ -1066,7 +1067,7 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, Vec<u64>, u64, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
