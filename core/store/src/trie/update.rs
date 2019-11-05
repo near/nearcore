@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -36,9 +36,9 @@ impl TrieUpdate {
 
     /// Get values in trie update for a set of keys.
     // This function will commit changes. Need to be used with caution
-    pub fn get_prefix_changes<'a, T: Iterator<Item = &'a Vec<u8>>>(
+    pub fn get_prefix_changes(
         &mut self,
-        prefixes: T,
+        prefixes: &HashSet<Vec<u8>>,
     ) -> Result<HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();
@@ -46,13 +46,14 @@ impl TrieUpdate {
         let mut res = HashMap::new();
         for prefix in prefixes {
             let mut prefix_key_value_change = HashMap::new();
-            for key in self.iter(prefix)? {
-                if let Some(value) = self.committed.get(&key) {
-                    prefix_key_value_change.insert(key, value.clone());
+            for (key, value) in self.committed.range(prefix.to_vec()..) {
+                if !key.starts_with(prefix) {
+                    break;
                 }
+                prefix_key_value_change.insert(key.to_vec(), value.clone());
             }
             if !prefix_key_value_change.is_empty() {
-                res.insert(prefix.clone(), prefix_key_value_change);
+                res.insert(prefix.to_vec(), prefix_key_value_change);
             }
         }
         Ok(res)

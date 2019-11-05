@@ -923,7 +923,7 @@ impl Runtime {
     /// new outgoing receipts, total rent paid by all the affected accounts, execution outcomes for
     /// all transactions, local action receipts (generated from transactions with signer ==
     /// receivers) and incoming action receipts.
-    pub fn apply<'a, T: Iterator<Item = &'a Vec<u8>>>(
+    pub fn apply(
         &self,
         trie: Arc<Trie>,
         root: CryptoHash,
@@ -931,7 +931,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        subscribed_keys: T,
+        subscribed_prefixes: &HashSet<Vec<u8>>,
     ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -986,7 +986,7 @@ impl Runtime {
             &stats,
         )?;
 
-        let key_value_changes = state_update.get_prefix_changes(subscribed_keys)?;
+        let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
 
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
@@ -1209,7 +1209,7 @@ mod tests {
         let apply_state =
             ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
 
-        runtime.apply(trie, root, &None, &apply_state, &[], &[], vec![].into_iter()).unwrap();
+        runtime.apply(trie, root, &None, &apply_state, &[], &[], &HashSet::new()).unwrap();
     }
 
     #[test]
@@ -1252,7 +1252,7 @@ mod tests {
                 &apply_state,
                 &[Receipt::new_refund(&account_id, small_refund)],
                 &[],
-                vec![].into_iter(),
+                &HashSet::new(),
             )
             .unwrap();
     }

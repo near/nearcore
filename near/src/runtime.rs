@@ -7,7 +7,6 @@ use std::sync::{Arc, RwLock};
 
 use borsh::BorshDeserialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cached::SizedCache;
 use kvdb::DBValue;
 use log::debug;
 
@@ -44,7 +43,6 @@ use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
-const MAX_NUM_SUBSCRIPTIONS: usize = 1000;
 
 /// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -59,7 +57,7 @@ pub struct NightshadeRuntime {
     epoch_manager: Arc<RwLock<EpochManager>>,
     shard_tracker: ShardTracker,
     /// Subscriptions to prefixes in the state.
-    subscriptions: SizedCache<Vec<u8>, ()>,
+    subscriptions: HashSet<Vec<u8>>,
 }
 
 impl NightshadeRuntime {
@@ -127,7 +125,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             shard_tracker,
-            subscriptions: SizedCache::with_size(MAX_NUM_SUBSCRIPTIONS),
+            subscriptions: HashSet::new(),
         }
     }
 
@@ -279,8 +277,6 @@ impl NightshadeRuntime {
             gas_price,
             block_timestamp,
         };
-        //let keys: Vec<_> = self.subscriptions.key_order().collect();
-        let keys = self.subscriptions.key_order();
 
         let apply_result = self
             .runtime
@@ -291,7 +287,7 @@ impl NightshadeRuntime {
                 &apply_state,
                 &receipts,
                 &transactions,
-                keys,
+                &self.subscriptions,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
@@ -998,7 +994,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use tempdir::TempDir;
 
@@ -1025,7 +1021,6 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use cached::Cached;
     use near_primitives::utils::key_for_account;
     use node_runtime::ApplyState;
 
@@ -1909,7 +1904,7 @@ mod test {
         let mut env =
             TestEnv::new("test_key_value_changes", vec![validators.clone()], 2, vec![], vec![]);
         let prefix = key_for_account(&"test1".to_string());
-        env.runtime.subscriptions.cache_set(prefix.clone(), ());
+        env.runtime.subscriptions.insert(prefix.clone());
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let transaction = SignedTransaction::send_money(
             1,
@@ -1921,6 +1916,8 @@ mod test {
         );
         let apply_state =
             ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let mut prefixes = HashSet::new();
+        prefixes.insert(prefix);
         let apply_result = env
             .runtime
             .runtime
@@ -1931,7 +1928,7 @@ mod test {
                 &apply_state,
                 &[],
                 &[transaction],
-                vec![&prefix].into_iter(),
+                &prefixes,
             )
             .unwrap();
         assert!(!apply_result.key_value_changes.is_empty());

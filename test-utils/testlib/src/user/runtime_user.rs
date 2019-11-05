@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
@@ -79,7 +79,7 @@ impl RuntimeUser {
                     &apply_state,
                     &receipts,
                     &txs,
-                    vec![].into_iter(),
+                    &HashSet::new(),
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => format!("{}", e),
