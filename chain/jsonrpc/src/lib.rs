@@ -305,7 +305,6 @@ impl JsonRpcHandler {
                     .await;
                 match result {
                     Ok(NetworkClientResponses::QueryResponse { .. }) => {
-                        println!("here");
                         break jsonify_client_response(result);
                     }
                     Ok(NetworkClientResponses::RequestRouted)
