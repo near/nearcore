@@ -130,7 +130,7 @@ impl<'a> DrainingIterator<'a> {
     /// transaction should be from the same group (with the same key) as the previous transaction.
     /// If the previous transaction was invalid, the next transaction has to be with the same key to
     /// maintain the proper order. Otherwise the invalid transaction skips the given key.
-    fn next(&mut self, same_key: bool) -> Option<SignedTransaction> {
+    pub fn next(&mut self, same_key: bool) -> Option<SignedTransaction> {
         // If we need the new/next key, or the current transaction group is fully used.
         if !same_key || self.last_entry.is_none() {
             if let Some((key, txs)) = self.last_entry.take() {

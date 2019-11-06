@@ -7,6 +7,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::{
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePart, StatePartKey,
+    ValidatorSignatureVerificationResult, Weight,
+};
+use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::challenge::ChallengesResult;
@@ -21,21 +28,15 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
 use near_store::{
-    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate, WrappedTrieChanges,
+    COL_BLOCK_HEADER,
 };
-
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePart, StatePartKey,
-    ValidatorSignatureVerificationResult, Weight,
-};
-use crate::{Chain, ChainGenesis, ValidTransaction};
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -433,15 +434,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
-    fn filter_transactions(
-        &self,
-        _block_index: u64,
-        _block_timestamp: u64,
-        _gas_price: u128,
-        _state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
-        transactions
+    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(self.trie.clone(), state_root.hash)
     }
 
     fn validate_tx(
@@ -449,10 +443,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
-        _state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
-        Ok(ValidTransaction { transaction })
+        _state_update: &mut TrieUpdate,
+        _transaction: &SignedTransaction,
+    ) -> Result<Gas, RuntimeError> {
+        Ok(0)
     }
 
     fn add_validator_proposals(

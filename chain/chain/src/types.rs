@@ -15,7 +15,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
-use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, TrieUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -146,26 +146,19 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    /// Validates transaction and returns total gas burnt for converting the TX to a receipt.
     fn validate_tx(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError>;
+        state_update: &mut TrieUpdate,
+        transaction: &SignedTransaction,
+    ) -> Result<Gas, RuntimeError>;
 
-    /// Filter transactions by verifying each one by one in the given order. Every successful
-    /// verification stores the updated account balances to be used by next transactions.
-    fn filter_transactions(
-        &self,
-        block_index: BlockIndex,
-        block_timestamp: u64,
-        gas_price: Balance,
-        state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction>;
+    /// Returns a state update for a given `state_root`.
+    /// NOTE: It's used for continuous filtering.
+    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.

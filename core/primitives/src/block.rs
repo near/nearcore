@@ -274,7 +274,7 @@ pub fn genesis_chunks(
                 0,
                 CryptoHash::default(),
                 vec![],
-                &vec![],
+                vec![],
                 &vec![],
                 CryptoHash::default(),
                 &EmptySigner {},

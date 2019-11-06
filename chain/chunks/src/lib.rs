@@ -16,7 +16,7 @@ use near_chain::{
 use near_crypto::Signer;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::NetworkRequests;
-use near_pool::TransactionPool;
+use near_pool::{DrainingIterator, TransactionPool};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -186,15 +186,14 @@ impl ShardsManager {
         self.encoded_chunks.update_largest_seen_height(new_height);
     }
 
-    pub fn prepare_transactions(
+    pub fn get_pool_draining_iterator(
         &mut self,
         shard_id: ShardId,
-        expected_weight: u32,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<Option<DrainingIterator>, Error> {
         if let Some(tx_pool) = self.tx_pools.get_mut(&shard_id) {
-            tx_pool.prepare_transactions(expected_weight).map_err(|err| err.into())
+            Ok(Some(tx_pool.draining_iterator()))
         } else {
-            Ok(vec![])
+            Ok(None)
         }
     }
 
@@ -420,11 +419,11 @@ impl ShardsManager {
         self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransction) {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
-            .insert_transaction(tx.transaction);
+            .insert_transaction(tx);
     }
 
     pub fn remove_transactions(
@@ -827,7 +826,7 @@ impl ShardsManager {
         validator_reward: Balance,
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
-        transactions: &Vec<SignedTransaction>,
+        transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,

@@ -11,7 +11,7 @@ use kvdb::DBValue;
 use log::debug;
 
 use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
@@ -23,7 +23,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -599,10 +599,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
+        state_update: &mut TrieUpdate,
+        transaction: &SignedTransaction,
+    ) -> Result<Gas, RuntimeError> {
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -610,40 +609,21 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_timestamp,
         };
 
-        if let Err(err) = self.runtime.verify_and_charge_transaction(
-            &mut state_update,
-            &apply_state,
-            &transaction,
-        ) {
-            debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-            return Err(err);
-        }
-        Ok(ValidTransaction { transaction })
+        self.runtime
+            .verify_and_charge_transaction(state_update, &apply_state, &transaction)
+            .map_err(|err| {
+                state_update.rollback();
+                debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                err
+            })
+            .map(|verification_result| {
+                state_update.commit();
+                verification_result.gas_burnt
+            })
     }
 
-    fn filter_transactions(
-        &self,
-        block_index: BlockIndex,
-        block_timestamp: u64,
-        gas_price: Balance,
-        state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
-        let apply_state = ApplyState {
-            block_index,
-            epoch_length: self.genesis_config.epoch_length,
-            gas_price,
-            block_timestamp,
-        };
-        transactions
-            .into_iter()
-            .filter(|transaction| {
-                self.runtime
-                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
-                    .is_ok()
-            })
-            .collect()
+    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(self.trie.clone(), state_root.hash)
     }
 
     fn add_validator_proposals(
