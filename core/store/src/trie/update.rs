@@ -40,14 +40,12 @@ impl TrieUpdate {
 
     /// Get values in trie update for a set of keys.
     /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
-    // This function will commit changes. Need to be used with caution
+    /// This function will commit changes. Need to be used with caution
     pub fn get_prefix_changes(
         &mut self,
         prefixes: &HashSet<Vec<u8>>,
     ) -> Result<PrefixKeyValueChanges, StorageError> {
-        if !self.prospective.is_empty() {
-            panic!("Uncommitted changes exist");
-        }
+        assert!(!self.prospective.is_empty(), "Uncommitted changes exist");
         let mut res = HashMap::new();
         for prefix in prefixes {
             let mut prefix_key_value_change = HashMap::new();
