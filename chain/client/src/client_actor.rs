@@ -39,8 +39,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
-    Status, StatusSyncInfo, SyncStatus,
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload,
+    ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -319,43 +319,44 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 hash,
                 shard_state,
             }) => {
-                // Populate the hashmaps with shard statuses that might be interested in this state
-                let mut shards_to_download_vec = vec![];
+                // Get the download that matches the shard_id and hash
+                let download = {
+                    let mut download: Option<&mut ShardSyncDownload> = None;
 
-                // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shards_to_download) =
-                    &mut self.client.sync_status
-                {
-                    if hash == *sync_hash {
-                        shards_to_download_vec.push(shards_to_download);
-                    }
-                }
-
-                // ... Or one of the catchups
-                for (sync_hash, state_sync_info) in
-                    self.client.chain.store().iterate_state_sync_infos()
-                {
-                    if hash == sync_hash {
-                        assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-                        if let Some((_, shards_to_download)) =
-                            self.client.catchup_state_syncs.get_mut(&sync_hash)
-                        {
-                            shards_to_download_vec.push(shards_to_download);
+                    // ... It could be that the state was requested by the state sync
+                    if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                        &mut self.client.sync_status
+                    {
+                        if hash == *sync_hash {
+                            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                                assert!(
+                                    download.is_none(),
+                                    "Internal downloads set has duplicates"
+                                );
+                                download = Some(shard_download);
+                            } else {
+                                // TODO: figure out when this happens, potentially ban peer
+                                error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                            }
                         }
-                        // We should not be requesting the same state twice.
-                        break;
                     }
-                }
 
-                for shards_to_download in shards_to_download_vec {
-                    let shard_sync_download = match shards_to_download.get_mut(&shard_id) {
-                        Some(shard) => shard,
-                        None => {
-                            // TODO is this correct behavior?
-                            continue;
+                    // ... Or one of the catchups
+                    if let Some((_, shards_to_download)) =
+                        self.client.catchup_state_syncs.get_mut(&hash)
+                    {
+                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                            assert!(download.is_none(), "Internal downloads set has duplicates");
+                            download = Some(shard_download);
+                        } else {
+                            // TODO: figure out when this happens, potentially ban peer
+                            error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
                         }
-                    };
-
+                    }
+                    // We should not be requesting the same state twice.
+                    download
+                };
+                if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = &shard_state.header {
@@ -400,10 +401,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 }
                             }
                         }
-                        _ => {
-                            continue;
-                        }
+                        _ => {}
                     }
+                } else {
+                    error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
 
                 NetworkClientResponses::NoResponse
