@@ -43,7 +43,6 @@ fn create_block() -> Block {
         Utc::now(),
         1_000,
         1_000,
-        1_000,
     );
     let signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
