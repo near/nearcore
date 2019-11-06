@@ -79,8 +79,6 @@ pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,
     pub provenance: Provenance,
-    pub gas_used: Gas,
-    pub gas_limit: Gas,
 }
 
 /// Information about valid transaction that was processed by chain + runtime.
@@ -502,7 +500,6 @@ mod tests {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),
-            1_000_000,
             100,
             1_000_000_000,
         );

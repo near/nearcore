@@ -109,6 +109,24 @@ pub enum ErrorKind {
     /// Invalid Approvals
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Limit")]
+    InvalidGasLimit,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Price")]
+    InvalidGasPrice,
+    /// Invalid Gas Used
+    #[fail(display = "Invalid Gas Used")]
+    InvalidGasUsed,
+    /// Invalid Rent Paid
+    #[fail(display = "Invalid Rent Paid")]
+    InvalidRent,
+    /// Invalid Validator Reward
+    #[fail(display = "Invalid Validator Reward")]
+    InvalidReward,
+    /// Invalid Balance Burnt
+    #[fail(display = "Invalid Balance Burnt")]
+    InvalidBalanceBurnt,
     /// Validator error.
     #[fail(display = "Validator Error")]
     ValidatorError(String),
@@ -201,7 +219,13 @@ impl Error {
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
-            | ErrorKind::InvalidApprovals => true,
+            | ErrorKind::InvalidApprovals
+            | ErrorKind::InvalidGasLimit
+            | ErrorKind::InvalidGasPrice
+            | ErrorKind::InvalidGasUsed
+            | ErrorKind::InvalidReward
+            | ErrorKind::InvalidBalanceBurnt
+            | ErrorKind::InvalidRent => true,
         }
     }
 

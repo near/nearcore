@@ -47,10 +47,6 @@ pub struct BlockHeaderInner {
     pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Sum of gas used across all chunks.
-    pub gas_used: Gas,
-    /// Gas limit. Same for all chunks.
-    pub gas_limit: Gas,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
     /// Sum of all storage rent paid across all chunks.
@@ -80,8 +76,6 @@ impl BlockHeaderInner {
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
-        gas_used: Gas,
-        gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -104,8 +98,6 @@ impl BlockHeaderInner {
             total_weight,
             validator_proposals,
             chunk_mask,
-            gas_used,
-            gas_limit,
             gas_price,
             rent_paid,
             validator_reward,
@@ -150,8 +142,6 @@ impl BlockHeader {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         epoch_id: EpochId,
-        gas_used: Gas,
-        gas_limit: Gas,
         gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -175,8 +165,6 @@ impl BlockHeader {
             total_weight,
             validator_proposals,
             chunk_mask,
-            gas_used,
-            gas_limit,
             gas_price,
             rent_paid,
             validator_reward,
@@ -194,7 +182,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
         timestamp: DateTime<Utc>,
-        initial_gas_limit: Gas,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
@@ -214,8 +201,6 @@ impl BlockHeader {
             0.into(),
             vec![],
             vec![],
-            0,
-            initial_gas_limit,
             initial_gas_price,
             0,
             0,
@@ -290,7 +275,6 @@ impl Block {
     pub fn genesis(
         chunks: Vec<ShardChunkHeader>,
         timestamp: DateTime<Utc>,
-        initial_gas_limit: Gas,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
@@ -302,7 +286,6 @@ impl Block {
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
                 timestamp,
-                initial_gas_limit,
                 initial_gas_price,
                 initial_total_supply,
             ),
@@ -336,12 +319,12 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
-        let mut gas_limit = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut storage_rent = 0;
         let mut validator_reward = 0;
         let mut balance_burnt = 0;
+        let mut gas_limit = 0;
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
@@ -355,16 +338,13 @@ impl Block {
                 chunk_mask.push(false);
             }
         }
+        let new_gas_price = Self::compute_new_gas_price(
+            prev.inner.gas_price,
+            gas_used,
+            gas_limit,
+            gas_price_adjustment_rate,
+        );
 
-        let new_gas_price = if gas_limit > 0 {
-            (2 * u128::from(gas_limit) + 2 * u128::from(gas_price_adjustment_rate)
-                - u128::from(gas_limit) * u128::from(gas_price_adjustment_rate))
-                * prev.inner.gas_price
-                / (2 * u128::from(gas_limit) * 100)
-        } else {
-            // If there are no new chunks included in this block, use previous price.
-            prev.inner.gas_price
-        };
         let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
         let num_approvals: u128 =
@@ -389,9 +369,6 @@ impl Block {
                 validator_proposals,
                 chunk_mask,
                 epoch_id,
-                gas_used,
-                gas_limit,
-                // TODO: calculate this correctly
                 new_gas_price,
                 storage_rent,
                 validator_reward,
@@ -401,6 +378,35 @@ impl Block {
             ),
             chunks,
             challenges,
+        }
+    }
+
+    pub fn verify_gas_price(&self, prev_gas_price: Balance, gas_price_adjustment_rate: u8) -> bool {
+        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner.height);
+        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner.height);
+        let expected_price = Self::compute_new_gas_price(
+            prev_gas_price,
+            gas_used,
+            gas_limit,
+            gas_price_adjustment_rate,
+        );
+        expected_price == self.header.inner.gas_price
+    }
+
+    pub fn compute_new_gas_price(
+        prev_gas_price: Balance,
+        gas_used: Gas,
+        gas_limit: Gas,
+        gas_price_adjustment_rate: u8,
+    ) -> Balance {
+        if gas_limit == 0 {
+            prev_gas_price
+        } else {
+            let numerator = 2 * 100 * u128::from(gas_limit)
+                - 2 * u128::from(gas_price_adjustment_rate) * u128::from(gas_limit)
+                + 2 * u128::from(gas_price_adjustment_rate) * u128::from(gas_used);
+            let denominator = 2 * 100 * u128::from(gas_limit);
+            prev_gas_price * numerator / denominator
         }
     }
 
@@ -446,6 +452,26 @@ impl Block {
     pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.outcome_root).collect::<Vec<CryptoHash>>())
             .0
+    }
+
+    pub fn compute_gas_used(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+        chunks.iter().fold(0, |acc, chunk| {
+            if chunk.height_included == block_height {
+                acc + chunk.inner.gas_used
+            } else {
+                acc
+            }
+        })
+    }
+
+    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+        chunks.iter().fold(0, |acc, chunk| {
+            if chunk.height_included == block_height {
+                acc + chunk.inner.gas_limit
+            } else {
+                acc
+            }
+        })
     }
 
     pub fn validate_chunk_header_proof(

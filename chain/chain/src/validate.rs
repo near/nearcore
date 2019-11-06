@@ -68,6 +68,26 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
+    if prev_chunk_extra.gas_limit != chunk_header.inner.gas_limit {
+        return Err(ErrorKind::InvalidGasLimit.into());
+    }
+
+    if prev_chunk_extra.gas_used != chunk_header.inner.gas_used {
+        return Err(ErrorKind::InvalidGasUsed.into());
+    }
+
+    if prev_chunk_extra.rent_paid != chunk_header.inner.rent_paid {
+        return Err(ErrorKind::InvalidRent.into());
+    }
+
+    if prev_chunk_extra.validator_reward != chunk_header.inner.validator_reward {
+        return Err(ErrorKind::InvalidReward.into());
+    }
+
+    if prev_chunk_extra.balance_burnt != chunk_header.inner.balance_burnt {
+        return Err(ErrorKind::InvalidBalanceBurnt.into());
+    }
+
     let receipt_response = chain_store.get_outgoing_receipts_for_shard(
         *prev_block_hash,
         chunk_header.inner.shard_id,
@@ -78,6 +98,13 @@ pub fn validate_chunk_with_chunk_extra(
 
     if outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root {
         return Err(ErrorKind::InvalidReceiptsProof.into());
+    }
+
+    let prev_gas_limit = prev_chunk_extra.gas_limit;
+    if chunk_header.inner.gas_limit < prev_gas_limit - prev_gas_limit / 1000
+        || chunk_header.inner.gas_limit > prev_gas_limit + prev_gas_limit / 1000
+    {
+        return Err(ErrorKind::InvalidGasLimit.into());
     }
 
     Ok(())

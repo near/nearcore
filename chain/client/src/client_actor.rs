@@ -704,7 +704,7 @@ impl ClientActor {
                 accepted_block.provenance,
             );
 
-            self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
+            self.info_helper.block_processed();
             self.check_send_announce_account(accepted_block.hash);
         }
     }

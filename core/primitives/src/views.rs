@@ -251,8 +251,6 @@ pub struct BlockHeaderView {
     pub total_weight: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    pub gas_used: Gas,
-    pub gas_limit: Gas,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     #[serde(with = "u128_dec_format")]
@@ -289,8 +287,6 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|v| v.into())
                 .collect(),
             chunk_mask: header.inner.chunk_mask,
-            gas_used: header.inner.gas_used,
-            gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
             validator_reward: header.inner.validator_reward,
@@ -324,9 +320,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     .map(|v| v.into())
                     .collect(),
                 chunk_mask: view.chunk_mask,
-                gas_limit: view.gas_limit,
                 gas_price: view.gas_price,
-                gas_used: view.gas_used,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
