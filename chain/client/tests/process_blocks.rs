@@ -66,22 +66,26 @@ fn produce_blocks_with_tx() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part } = msg
+                if let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: _,
+                    partial_encoded_chunk,
+                } = msg
                 {
-                    let height = header_and_part.header.inner.height_created as usize;
+                    let header = partial_encoded_chunk.header.clone().unwrap();
+                    let height = header.inner.height_created as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
                     // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
                     let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
-                        encoded_chunks.push(EncodedShardChunk::from_header(
-                            header_and_part.header.clone(),
-                            total_parts,
-                        ));
+                        encoded_chunks
+                            .push(EncodedShardChunk::from_header(header.clone(), total_parts));
                     }
-                    encoded_chunks[height - 2].content.parts[header_and_part.part_id as usize] =
-                        Some(header_and_part.part.clone());
+                    for part in partial_encoded_chunk.parts.iter() {
+                        encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
+                            Some(part.part.clone());
+                    }
 
                     if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
                         data_parts,

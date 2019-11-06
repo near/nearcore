@@ -10,7 +10,7 @@ mod tests {
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
-    use near_primitives::test_utils::init_integration_logger;
+    use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
     use near_primitives::views::QueryResponse::ViewAccount;
@@ -170,25 +170,32 @@ mod tests {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
-                            if let NetworkRequests::ChunkOnePartMessage {
-                                header_and_part, ..
+                            if let NetworkRequests::PartialEncodedChunkMessage {
+                                partial_encoded_chunk,
+                                ..
                             } = msg
                             {
                                 // The chunk producers in all epochs before `distant` need to be trying to
                                 //     include the receipt. The `distant` epoch is the first one that
                                 //     will get the receipt through the state sync.
-                                let receipts: Vec<Receipt> = header_and_part
-                                    .receipt_proofs
+                                let receipts: Vec<Receipt> = partial_encoded_chunk
+                                    .receipts
                                     .iter()
                                     .map(|x| x.0.clone())
                                     .flatten()
                                     .collect();
                                 if receipts.len() > 0 {
-                                    assert_eq!(header_and_part.shard_id, source_shard_id);
-                                    seen_heights_with_receipts
-                                        .insert(header_and_part.header.inner.height_created);
+                                    assert_eq!(partial_encoded_chunk.shard_id, source_shard_id);
+                                    seen_heights_with_receipts.insert(
+                                        partial_encoded_chunk
+                                            .header
+                                            .as_ref()
+                                            .unwrap()
+                                            .inner
+                                            .height_created,
+                                    );
                                 } else {
-                                    assert_ne!(header_and_part.shard_id, source_shard_id);
+                                    assert_ne!(partial_encoded_chunk.shard_id, source_shard_id);
                                 }
                                 // Do not propagate any one parts, this will prevent any chunk from
                                 //    being included in the block
@@ -456,17 +463,43 @@ mod tests {
                                     System::current().stop();
                                 }
                             }
-                            if let NetworkRequests::ChunkOnePartMessage {
-                                header_and_part, ..
+                            if let NetworkRequests::PartialEncodedChunkMessage {
+                                partial_encoded_chunk,
+                                ..
                             } = msg
                             {
-                                if header_and_part.header.inner.height_created == 22 {
-                                    seen_heights_same_block
-                                        .insert(header_and_part.header.inner.prev_block_hash);
+                                if partial_encoded_chunk
+                                    .header
+                                    .as_ref()
+                                    .unwrap()
+                                    .inner
+                                    .height_created
+                                    == 22
+                                {
+                                    seen_heights_same_block.insert(
+                                        partial_encoded_chunk
+                                            .header
+                                            .as_ref()
+                                            .unwrap()
+                                            .inner
+                                            .prev_block_hash,
+                                    );
                                 }
                                 if skip_15 {
-                                    if header_and_part.header.inner.height_created == 14
-                                        || header_and_part.header.inner.height_created == 15
+                                    if partial_encoded_chunk
+                                        .header
+                                        .as_ref()
+                                        .unwrap()
+                                        .inner
+                                        .height_created
+                                        == 14
+                                        || partial_encoded_chunk
+                                            .header
+                                            .as_ref()
+                                            .unwrap()
+                                            .inner
+                                            .height_created
+                                            == 15
                                     {
                                         return (NetworkResponses::NoResponse, false);
                                     }
@@ -492,7 +525,7 @@ mod tests {
             return;
         }
         let validator_groups = 2;
-        init_integration_logger();
+        init_test_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
