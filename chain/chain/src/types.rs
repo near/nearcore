@@ -83,12 +83,6 @@ pub struct AcceptedBlock {
     pub gas_limit: Gas,
 }
 
-/// Information about valid transaction that was processed by chain + runtime.
-#[derive(Debug)]
-pub struct ValidTransaction {
-    pub transaction: SignedTransaction,
-}
-
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 

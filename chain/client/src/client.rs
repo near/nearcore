@@ -15,7 +15,7 @@ use near_chain::types::{
 };
 use near_chain::{
     BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
-    RuntimeAdapter, Tip, ValidTransaction,
+    RuntimeAdapter, Tip,
 };
 use near_chunks::{NetworkAdapter, ProcessPartialEncodedChunkResult, ShardsManager};
 use near_crypto::Signature;
@@ -454,7 +454,7 @@ impl Client {
         // Total number of transactions pulled from the pool.
         let mut num_checked_transactions = 0;
         let mut transactions = vec![];
-        if let Some(mut iter) = self.shards_mgr.get_pool_draining_iterator(shard_id)? {
+        if let Some(mut iter) = self.shards_mgr.get_pool_draining_iterator(shard_id) {
             // Total amount of gas burnt for converting transactions towards receipts.
             let mut total_gas_burnt = 0;
             // TODO: Update gas limit for transactions

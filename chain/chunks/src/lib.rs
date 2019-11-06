@@ -11,7 +11,7 @@ use rand::seq::SliceRandom;
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
-    RuntimeAdapter, ValidTransaction,
+    RuntimeAdapter,
 };
 use near_crypto::Signer;
 use near_network::types::PartialEncodedChunkRequestMsg;
@@ -186,14 +186,11 @@ impl ShardsManager {
         self.encoded_chunks.update_largest_seen_height(new_height);
     }
 
-    pub fn get_pool_draining_iterator(
-        &mut self,
-        shard_id: ShardId,
-    ) -> Result<Option<DrainingIterator>, Error> {
+    pub fn get_pool_draining_iterator(&mut self, shard_id: ShardId) -> Option<DrainingIterator> {
         if let Some(tx_pool) = self.tx_pools.get_mut(&shard_id) {
-            Ok(Some(tx_pool.draining_iterator()))
+            Some(tx_pool.draining_iterator())
         } else {
-            Ok(None)
+            None
         }
     }
 
@@ -419,7 +416,7 @@ impl ShardsManager {
         self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransction) {
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)

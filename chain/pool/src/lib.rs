@@ -4,11 +4,8 @@ use near_crypto::PublicKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 
-pub use crate::types::Error;
 use near_primitives::hash::CryptoHash;
 use std::cell::Cell;
-
-pub mod types;
 
 type TxMap = HashMap<(AccountId, PublicKey), Vec<SignedTransaction>>;
 
@@ -44,25 +41,6 @@ impl TransactionPool {
     /// When the iterator is dropped, the rest of the transactions remains in the pool.
     pub fn draining_iterator(&mut self) -> DrainingIterator {
         DrainingIterator::new(self)
-    }
-
-    /// Take `min(self.len(), max_number_of_transactions)` transactions from the pool, in the
-    /// appropriate order. We first take one transaction per key of (AccountId, PublicKey) with
-    /// the lowest nonce, then we take the next transaction per key with the lowest nonce.
-    pub fn prepare_transactions(
-        &mut self,
-        max_number_of_transactions: u32,
-    ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut res = vec![];
-        let mut iter = self.draining_iterator();
-        for _ in 0..max_number_of_transactions {
-            if let Some(tx) = iter.next(false) {
-                res.push(tx);
-            } else {
-                break;
-            }
-        }
-        Ok(res)
     }
 
     /// Quick reconciliation step - evict all transactions that already in the block
@@ -232,8 +210,7 @@ mod tests {
             pool.insert_transaction(tx);
         }
         (
-            pool.prepare_transactions(expected_weight)
-                .unwrap()
+            prepare_transactions(&mut pool, expected_weight)
                 .iter()
                 .map(|tx| tx.transaction.nonce)
                 .collect(),
@@ -247,6 +224,22 @@ mod tests {
                 c.swap(0, 1);
             }
         }
+    }
+
+    fn prepare_transactions(
+        pool: &mut TransactionPool,
+        max_number_of_transactions: u32,
+    ) -> Vec<SignedTransaction> {
+        let mut res = vec![];
+        let mut iter = pool.draining_iterator();
+        for _ in 0..max_number_of_transactions {
+            if let Some(tx) = iter.next(false) {
+                res.push(tx);
+            } else {
+                break;
+            }
+        }
+        res
     }
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
@@ -292,7 +285,7 @@ mod tests {
         sort_pairs(&mut nonces[..6]);
         assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
         let nonces: Vec<u64> =
-            pool.prepare_transactions(10).unwrap().iter().map(|tx| tx.transaction.nonce).collect();
+            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce).collect();
         assert_eq!(nonces, vec![28, 29, 30, 31]);
     }
 
@@ -334,7 +327,7 @@ mod tests {
 
         assert_eq!(pool.len(), txs_to_check.len());
 
-        let mut pool_txs = pool.prepare_transactions(txs_to_check.len() as u32).unwrap();
+        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len() as u32);
         pool_txs.sort_by_key(|tx| tx.transaction.nonce);
         let mut expected_txs = txs_to_check.to_vec();
         expected_txs.sort_by_key(|tx| tx.transaction.nonce);
