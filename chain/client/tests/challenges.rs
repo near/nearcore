@@ -353,10 +353,11 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     );
 
     assert!(env.clients[1]
-        .process_chunk_one_part(chunk.create_chunk_one_part(
-            0,
+        .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
+            vec![0],
+            true,
             one_part_receipt_proofs,
-            merkle_paths[0].clone()
+            &vec![merkle_paths[0].clone()]
         ))
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
