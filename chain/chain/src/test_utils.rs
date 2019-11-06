@@ -451,7 +451,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
-        _gas_limit: Gas,
         _state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError> {

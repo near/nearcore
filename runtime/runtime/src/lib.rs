@@ -1315,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_delayed_receipts() {
+    fn test_apply_delayed_receipts_feed_all_at_once() {
         let initial_balance = 1_000_000;
         let initial_locked = 500_000;
         let small_transfer = 10_000;
@@ -1324,7 +1324,126 @@ mod tests {
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
-        let receipts: Vec<_> = (0..n)
+        let receipts = generate_receipts(small_transfer, n);
+
+        let reward_per_receipt = gas_burnt_to_reward(
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
+        );
+
+        // Checking n receipts delayed by 1 + 3 extra
+        for i in 1..=n + 3 {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result =
+                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            let capped_i = std::cmp::min(i, n);
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts_add_more_using_chunks() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let (runtime, trie, mut root, mut apply_state) =
+            setup_runtime(initial_balance, initial_locked, 1);
+
+        let receipt_gas_cost =
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        apply_state.gas_limit = receipt_gas_cost * 3;
+
+        let n = 40;
+        let receipts = generate_receipts(small_transfer, n);
+        let mut receipt_chunks = receipts.chunks_exact(4);
+
+        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+
+        // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
+        for i in 1..=n / 3 + 3 {
+            let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
+            let apply_result =
+                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            let capped_i = std::cmp::min(i * 3, n);
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts_adjustable_gas_limit() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let (runtime, trie, mut root, mut apply_state) =
+            setup_runtime(initial_balance, initial_locked, 1);
+
+        let receipt_gas_cost =
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+
+        let n = 120;
+        let receipts = generate_receipts(small_transfer, n);
+        let mut receipt_chunks = receipts.chunks_exact(4);
+
+        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+
+        let mut num_receipts_given = 0;
+        let mut num_receipts_processed = 0;
+        let mut num_receipts_per_block = 1;
+        // Test adjusts gas limit based on the number of receipt given and number of receipts processed.
+        while num_receipts_processed < n {
+            if num_receipts_given > num_receipts_processed {
+                num_receipts_per_block += 1;
+            } else if num_receipts_per_block > 1 {
+                num_receipts_per_block -= 1;
+            }
+            apply_state.gas_limit = num_receipts_per_block * receipt_gas_cost;
+            let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
+            num_receipts_given += prev_receipts.len() as u64;
+            let apply_result =
+                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            num_receipts_processed += apply_result.outcomes.len() as u64;
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(num_receipts_processed)
+                    + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
+            );
+            println!(
+                "{} processed out of {} given. With limit {} receipts per block",
+                num_receipts_processed, num_receipts_given, num_receipts_per_block
+            );
+        }
+    }
+
+    fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+        (0..n)
             .map(|i| Receipt {
                 predecessor_id: bob_account(),
                 receiver_id: alice_account(),
@@ -1340,28 +1459,6 @@ mod tests {
                     })],
                 }),
             })
-            .collect();
-
-        let reward_per_receipt = gas_burnt_to_reward(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
-        );
-
-        for i in 1..=n {
-            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
-            root = new_root;
-            store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
-            let account = get_account(&state, &alice_account()).unwrap().unwrap();
-            assert_eq!(
-                account.amount,
-                initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(i)
-                    + Balance::from(i * (i - 1) / 2)
-            )
-        }
+            .collect()
     }
 }

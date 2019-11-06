@@ -51,7 +51,7 @@ impl StandaloneRuntime {
             epoch_length: 4,
             gas_price: 100,
             block_timestamp: 0,
-            gas_limit: 1_000_000_000,
+            gas_limit: u64::max_value(),
         };
 
         Self { apply_state, runtime, trie, signer, root: root.hash }

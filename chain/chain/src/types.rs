@@ -152,7 +152,6 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        gas_limit: Gas,
         state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError>;

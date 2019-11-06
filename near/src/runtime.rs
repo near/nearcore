@@ -601,7 +601,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        gas_limit: Gas,
         state_root: StateRoot,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, RuntimeError> {
@@ -611,7 +610,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
-            gas_limit,
+            // NOTE: verify transaction doesn't use gas limit
+            gas_limit: u64::max_value(),
         };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
