@@ -104,7 +104,7 @@ impl Display for InvalidTxError {
                 write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
-                write!(f, "Transaction gas or balance cost is too high") 
+                write!(f, "Transaction gas or balance cost is too high")
             }
             InvalidTxError::InvalidChain => {
                 write!(f, "Transaction parent block hash doesn't belong to the current chain")

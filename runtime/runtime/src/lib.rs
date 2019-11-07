@@ -310,15 +310,17 @@ impl Runtime {
         set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
 
         // Account reward for gas burnt.
-        let burnt_gas_reward = Balance::from(
+        let burnt_gas_reward = safe_gas_to_balance(
+            apply_state.gas_price,
             gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
                 / self.config.transaction_costs.burnt_gas_reward.denominator,
-        ) * apply_state.gas_price;
-        signer.amount += burnt_gas_reward;
+        )?;
+        signer.amount = safe_add_balance(signer.amount, burnt_gas_reward)?;
 
         set_account(state_update, &signer_id, &signer);
 
-        let validator_reward = Balance::from(gas_burnt) * apply_state.gas_price - burnt_gas_reward;
+        let validator_reward =
+            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - burnt_gas_reward;
 
         Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
     }
@@ -489,7 +491,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-    ) -> Result<ExecutionOutcomeWithId, StorageError> {
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
@@ -512,7 +514,7 @@ impl Runtime {
                     None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -601,7 +603,7 @@ impl Runtime {
         let gas_reward = result.gas_burnt
             * self.config.transaction_costs.burnt_gas_reward.numerator
             / self.config.transaction_costs.burnt_gas_reward.denominator;
-        let mut validator_reward = Balance::from(result.gas_burnt) * action_receipt.gas_price;
+        let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
         if gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -737,7 +739,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-    ) -> Result<Option<ExecutionOutcomeWithId>, StorageError> {
+    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -772,7 +774,7 @@ impl Runtime {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
 
-                        // Removing pending data count form the state.
+                        // Removing pending data count from the state.
                         state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
                         // Fetching the receipt itself.
                         let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
