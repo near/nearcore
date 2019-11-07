@@ -25,8 +25,8 @@ use near_primitives::utils::{
 };
 
 pub use crate::trie::{
-    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie,
-    TrieChanges, WrappedTrieChanges,
+    iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
+    update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 pub mod test_utils;
