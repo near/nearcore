@@ -761,6 +761,7 @@ impl ClientActor {
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
+                        target: "client",
                         "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
                         self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
@@ -771,7 +772,7 @@ impl ClientActor {
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
-                    debug!("Process block: block {} refused by chain: {}", hash, e.kind());
+                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
                     NetworkClientResponses::NoResponse
                 }
             },

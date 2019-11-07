@@ -1659,6 +1659,12 @@ impl Chain {
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
     }
+
+    /// Check if hash is for a known chunk orphan.
+    #[inline]
+    pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
+        self.blocks_with_missing_chunks.contains(hash)
+    }
 }
 
 /// Chain update helper, contains information that is needed to process block
@@ -1723,12 +1729,40 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
+    fn care_about_any_shard_or_part(
+        &mut self,
+        me: &Option<AccountId>,
+        parent_hash: CryptoHash,
+    ) -> Result<bool, Error> {
+        for shard_id in 0..self.runtime_adapter.num_shards() {
+            if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+                || self.runtime_adapter.will_care_about_shard(
+                    me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                )
+            {
+                return Ok(true);
+            }
+        }
+        for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
+            if &Some(self.runtime_adapter.get_part_owner(&parent_hash, part_id as u64)?) == me {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn ping_missing_chunks(
         &mut self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
+        if !self.care_about_any_shard_or_part(me, parent_hash)? {
+            return Ok(());
+        }
         let mut missing = vec![];
         let height = block.header.inner.height;
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
@@ -1775,7 +1809,14 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    pub fn save_incoming_receipts_from_block(&mut self, block: &Block) -> Result<(), Error> {
+    pub fn save_incoming_receipts_from_block(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &Block,
+    ) -> Result<(), Error> {
+        if !self.care_about_any_shard_or_part(me, block.header.inner.prev_hash)? {
+            return Ok(());
+        }
         let height = block.header.inner.height;
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
@@ -2105,7 +2146,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
         self.ping_missing_chunks(me, prev_hash, &block)?;
-        self.save_incoming_receipts_from_block(&block)?;
+        self.save_incoming_receipts_from_block(me, &block)?;
 
         // Do basic validation of chunks before applying the transactions
         for (chunk_header, prev_chunk_header) in block.chunks.iter().zip(prev_block.chunks.iter()) {
