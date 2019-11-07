@@ -72,8 +72,9 @@ pub struct ApplyState {
     pub gas_price: Balance,
     /// A block timestamp
     pub block_timestamp: u64,
-    /// Gas limit for a given chunk
-    pub gas_limit: Gas,
+    /// Gas limit for a given chunk.
+    /// If None is given, assumes there is no gas limit.
+    pub gas_limit: Option<Gas>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1002,8 +1003,10 @@ impl Runtime {
             Ok(())
         };
 
+        let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_gas_burnt >= apply_state.gas_limit {
+            if total_gas_burnt >= gas_limit {
                 break;
             }
             let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
@@ -1020,7 +1023,7 @@ impl Runtime {
         }
 
         for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
-            if total_gas_burnt < apply_state.gas_limit {
+            if total_gas_burnt < gas_limit {
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 // Saving to the state as a delayed receipt.
@@ -1280,7 +1283,7 @@ mod tests {
             epoch_length: 3,
             gas_price: GAS_PRICE,
             block_timestamp: 100,
-            gas_limit,
+            gas_limit: Some(gas_limit),
         };
 
         (runtime, trie, root, apply_state)
@@ -1370,7 +1373,7 @@ mod tests {
         let receipt_gas_cost =
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
                 + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
-        apply_state.gas_limit = receipt_gas_cost * 3;
+        apply_state.gas_limit = Some(receipt_gas_cost * 3);
 
         let n = 40;
         let receipts = generate_receipts(small_transfer, n);
@@ -1427,7 +1430,7 @@ mod tests {
             } else if num_receipts_per_block > 1 {
                 num_receipts_per_block -= 1;
             }
-            apply_state.gas_limit = num_receipts_per_block * receipt_gas_cost;
+            apply_state.gas_limit = Some(num_receipts_per_block * receipt_gas_cost);
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime

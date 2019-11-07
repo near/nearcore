@@ -277,7 +277,7 @@ impl NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
-            gas_limit,
+            gas_limit: Some(gas_limit),
         };
 
         let apply_result = self
@@ -615,7 +615,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_price,
             block_timestamp,
             // NOTE: verify transaction doesn't use gas limit
-            gas_limit: u64::max_value(),
+            gas_limit: None,
         };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
@@ -644,7 +644,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
-            gas_limit,
+            gas_limit: Some(gas_limit),
         };
         transactions
             .into_iter()
@@ -1927,8 +1927,13 @@ mod test {
             10,
             CryptoHash::default(),
         );
-        let apply_state =
-            ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 1,
+            epoch_length: 2,
+            gas_price: 10,
+            block_timestamp: 100,
+            gas_limit: None,
+        };
         let mut prefixes = HashSet::new();
         prefixes.insert(prefix);
         let apply_result = env
