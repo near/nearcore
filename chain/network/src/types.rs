@@ -1164,3 +1164,71 @@ pub struct PartialEncodedChunkRequestMsg {
 
 #[derive(Message)]
 pub struct StopSignal {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    const ALLOWED_SIZE: usize = 1 << 20;
+
+    macro_rules! assert_size {
+        ($type:ident) => {
+            let struct_size = size_of::<$type>();
+            println!("The size of {} is {}", stringify!($type), struct_size);
+            assert!(struct_size <= ALLOWED_SIZE);
+        };
+    }
+
+    #[test]
+    fn test_enum_size() {
+        assert_size!(PeerType);
+        assert_size!(PeerStatus);
+        assert_size!(HandshakeFailureReason);
+        assert_size!(RoutedMessageBody);
+        assert_size!(PeerIdOrHash);
+        assert_size!(KnownPeerStatus);
+        assert_size!(ConsolidateResponse);
+        assert_size!(PeerRequest);
+        assert_size!(PeerResponse);
+        assert_size!(ReasonForBan);
+        assert_size!(NetworkRequests);
+        assert_size!(PeerManagerRequest);
+        assert_size!(NetworkResponses);
+        assert_size!(NetworkClientMessages);
+        assert_size!(NetworkClientResponses);
+    }
+
+    #[test]
+    fn test_struct_size() {
+        assert_size!(PeerInfo);
+        assert_size!(PeerChainInfo);
+        assert_size!(Handshake);
+        assert_size!(AnnounceAccountRoute);
+        assert_size!(AnnounceAccount);
+        assert_size!(Ping);
+        assert_size!(Pong);
+        assert_size!(RawRoutedMessage);
+        assert_size!(RoutedMessageNoSignature);
+        assert_size!(RoutedMessage);
+        assert_size!(RoutedMessageFrom);
+        assert_size!(SyncData);
+        assert_size!(NetworkConfig);
+        assert_size!(KnownPeerState);
+        assert_size!(InboundTcpConnect);
+        assert_size!(OutboundTcpConnect);
+        assert_size!(SendMessage);
+        assert_size!(Consolidate);
+        assert_size!(Unregister);
+        assert_size!(PeerList);
+        assert_size!(PeersRequest);
+        assert_size!(PeersResponse);
+        assert_size!(Ban);
+        assert_size!(FullPeerInfo);
+        assert_size!(NetworkInfo);
+        assert_size!(StateResponseInfo);
+        assert_size!(QueryPeerStats);
+        assert_size!(PartialEncodedChunkRequestMsg);
+        assert_size!(StopSignal);
+    }
+}
