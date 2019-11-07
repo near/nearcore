@@ -44,8 +44,8 @@ use near_primitives::utils::{
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
-    set_account, set_code, set_receipt, set_received_data, StorageError, StoreUpdate, Trie,
-    TrieChanges, TrieUpdate,
+    set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
+    StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -112,6 +112,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
+    pub key_value_changes: PrefixKeyValueChanges,
     pub stats: ApplyStats,
 }
 
@@ -942,6 +943,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
+        subscribed_prefixes: &HashSet<Vec<u8>>,
     ) -> Result<ApplyResult, RuntimeError> {
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -1047,6 +1049,9 @@ impl Runtime {
             &stats,
         )?;
 
+        state_update.commit();
+        let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
+
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
             state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
@@ -1054,6 +1059,7 @@ impl Runtime {
             validator_proposals,
             new_receipts,
             outcomes,
+            key_value_changes,
             stats,
         })
     }
@@ -1283,7 +1289,7 @@ mod tests {
     #[test]
     fn test_apply_no_op() {
         let (runtime, trie, root, apply_state) = setup_runtime(1_000_000, 0, 10_000_000);
-        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
+        runtime.apply(trie, root, &None, &apply_state, &[], &[], &HashSet::new()).unwrap();
     }
 
     #[test]
@@ -1310,6 +1316,7 @@ mod tests {
                 &apply_state,
                 &[Receipt::new_refund(&alice_account(), small_refund)],
                 &[],
+                &HashSet::new(),
             )
             .unwrap();
     }
@@ -1334,8 +1341,9 @@ mod tests {
         // Checking n receipts delayed by 1 + 3 extra
         for i in 1..=n + 3 {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
             let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
@@ -1373,8 +1381,9 @@ mod tests {
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
             let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
@@ -1421,8 +1430,9 @@ mod tests {
             apply_state.gas_limit = num_receipts_per_block * receipt_gas_cost;
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             num_receipts_given += prev_receipts.len() as u64;
-            let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
             let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();

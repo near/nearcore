@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
@@ -72,7 +72,15 @@ impl RuntimeUser {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let apply_result = client
                 .runtime
-                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
+                .apply(
+                    client.trie.clone(),
+                    client.state_root,
+                    &None,
+                    &apply_state,
+                    &receipts,
+                    &txs,
+                    &HashSet::new(),
+                )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => format!("{}", e),
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
