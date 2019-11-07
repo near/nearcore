@@ -1171,11 +1171,14 @@ mod tests {
     use std::mem::size_of;
 
     const ALLOWED_SIZE: usize = 1 << 20;
+    const NOTIFY_SIZE: usize = 1024;
 
     macro_rules! assert_size {
         ($type:ident) => {
             let struct_size = size_of::<$type>();
-            println!("The size of {} is {}", stringify!($type), struct_size);
+            if struct_size >= NOTIFY_SIZE {
+                println!("The size of {} is {}", stringify!($type), struct_size);
+            }
             assert!(struct_size <= ALLOWED_SIZE);
         };
     }
