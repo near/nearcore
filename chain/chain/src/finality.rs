@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::{ChainStoreAccess, ChainStoreUpdate};
-use near_primitives::block::{Approval, BlockHeader, BlockHeaderInner};
+use near_primitives::block::{Approval, BlockHeader, BlockHeaderInner, Weight};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockIndex};
 use std::collections::{HashMap, HashSet};
@@ -84,6 +84,28 @@ impl FinalityGadget {
             }
         };
 
+        let largest_weight_approved = match chain_store.largest_approved_weight() {
+            Ok(largest_weight) => largest_weight.clone(),
+            Err(_) => {
+                return prev_hash;
+            }
+        };
+
+        self.get_my_approval_reference_hash_inner(
+            prev_hash,
+            last_approval_on_chain,
+            largest_weight_approved,
+            chain_store,
+        )
+    }
+
+    pub fn get_my_approval_reference_hash_inner(
+        &self,
+        prev_hash: CryptoHash,
+        last_approval_on_chain: Approval,
+        largest_weight_approved: Weight,
+        chain_store: &mut dyn ChainStoreAccess,
+    ) -> CryptoHash {
         let last_weight_approved_on_chain =
             match chain_store.get_block_header(&last_approval_on_chain.parent_hash) {
                 Ok(last_header_approved_on_chain) => {
@@ -93,13 +115,6 @@ impl FinalityGadget {
                     return prev_hash;
                 }
             };
-
-        let largest_weight_approved = match chain_store.largest_approved_weight() {
-            Ok(largest_weight) => largest_weight.clone(),
-            Err(_) => {
-                return prev_hash;
-            }
-        };
 
         // It is impossible for an honest actor to have two approvals with the same weight for
         //    their parent hashes on two different chains, so this check is sufficient

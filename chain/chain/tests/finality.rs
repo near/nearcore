@@ -2,7 +2,7 @@ use near_chain::test_utils::setup;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain::{FinalityGadget, FinalityGadgetQuorums};
 use near_crypto::{Signature, Signer};
-use near_primitives::block::{Approval, Block};
+use near_primitives::block::{Approval, Block, Weight};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockIndex};
 use near_store::test_utils::create_test_store;
@@ -512,5 +512,139 @@ fn test_fuzzy_finality() {
                 all_blocks.push(new_block);
             }
         }
+    }
+}
+
+#[test]
+fn test_fuzzy_safety() {
+    let complexity = 100;
+    let num_iters = 10;
+
+    let block_producers = vec![
+        "test1".to_string(),
+        "test2".to_string(),
+        "test3".to_string(),
+        "test4".to_string(),
+        "test5".to_string(),
+        "test6".to_string(),
+        "test7".to_string(),
+    ];
+    let total_block_producers = block_producers.len();
+
+    for iter in 0..num_iters {
+        println!("Starting iteration {} at complexity {}", iter, complexity);
+        let (mut chain, _, signer) = setup();
+
+        let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+
+        let mut last_final_block_hash = CryptoHash::default();
+        let mut last_final_block_height = 0;
+        let mut largest_weight: HashMap<AccountId, Weight> = HashMap::new();
+        let mut last_approvals: HashMap<CryptoHash, HashMap<AccountId, Approval>> = HashMap::new();
+
+        let mut all_blocks = vec![genesis_block.clone()];
+        for _i in 0..complexity {
+            let prev_block = [
+                all_blocks.choose(&mut rand::thread_rng()).unwrap().clone(),
+                all_blocks.last().unwrap().clone(),
+                all_blocks.last().unwrap().clone(),
+            ]
+            .choose(&mut rand::thread_rng())
+            .unwrap()
+            .clone();
+            let mut last_approvals_entry =
+                last_approvals.get(&prev_block.hash()).unwrap_or(&HashMap::new()).clone();
+            let mut approvals = vec![];
+            for (i, block_producer) in block_producers.iter().enumerate() {
+                if rand::thread_rng().gen::<bool>() {
+                    continue;
+                }
+
+                let reference_hash = if i < 2 {
+                    // malicious
+                    all_blocks
+                        .iter()
+                        .filter(|x| x.header.inner.height <= prev_block.header.inner.height)
+                        .collect::<Vec<_>>()
+                        .choose(&mut rand::thread_rng())
+                        .unwrap()
+                        .hash()
+                } else {
+                    // honest
+                    let fg = FinalityGadget {};
+                    let old_largest_weight =
+                        *largest_weight.get(block_producer).unwrap_or(&0u128.into());
+
+                    if old_largest_weight >= prev_block.header.inner.total_weight {
+                        continue;
+                    }
+
+                    match last_approvals_entry.get(block_producer) {
+                        Some(approval) => fg.get_my_approval_reference_hash_inner(
+                            prev_block.hash(),
+                            approval.clone(),
+                            old_largest_weight,
+                            chain.mut_store(),
+                        ),
+                        None => prev_block.hash(),
+                    }
+                };
+
+                let approval =
+                    apr(block_producer.clone(), reference_hash.clone(), prev_block.hash());
+                approvals.push(approval.clone());
+                last_approvals_entry.insert(block_producer.clone(), approval);
+                largest_weight.insert(block_producer.clone(), prev_block.header.inner.total_weight);
+            }
+
+            let new_block = create_block(
+                &prev_block,
+                prev_block.header.inner.height + 1,
+                chain.mut_store(),
+                &*signer,
+                approvals,
+                total_block_producers,
+            );
+
+            let final_block = new_block.header.inner.last_quorum_pre_commit;
+            if final_block != CryptoHash::default() {
+                let new_final_block_height =
+                    chain.get_block_header(&final_block).unwrap().inner.height;
+                if last_final_block_height != 0 {
+                    if new_final_block_height > last_final_block_height {
+                        assert_eq!(
+                            chain
+                                .get_header_on_chain_by_height(
+                                    &final_block,
+                                    last_final_block_height
+                                )
+                                .unwrap()
+                                .hash(),
+                            last_final_block_hash
+                        );
+                    } else if new_final_block_height < last_final_block_height {
+                        assert_eq!(
+                            chain
+                                .get_header_on_chain_by_height(
+                                    &last_final_block_hash,
+                                    new_final_block_height
+                                )
+                                .unwrap()
+                                .hash(),
+                            last_final_block_hash
+                        );
+                    } else {
+                        assert_eq!(final_block, last_final_block_hash);
+                    }
+                }
+                last_final_block_hash = final_block;
+                last_final_block_height = new_final_block_height;
+            }
+
+            last_approvals.insert(new_block.hash().clone(), last_approvals_entry);
+
+            all_blocks.push(new_block);
+        }
+        assert_ne!(last_final_block_height, 0);
     }
 }
