@@ -152,7 +152,7 @@ impl Approval {
     }
 
     pub fn get_data_for_sig(parent_hash: &CryptoHash, reference_hash: &CryptoHash) -> Vec<u8> {
-        let mut res = Vec::with_capacity(130);
+        let mut res = Vec::with_capacity(64);
         res.extend_from_slice(parent_hash.as_ref());
         res.extend_from_slice(reference_hash.as_ref());
         res

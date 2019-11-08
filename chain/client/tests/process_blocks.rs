@@ -232,6 +232,19 @@ fn produce_block_with_approvals() {
                 if let NetworkRequests::Block { block } = msg {
                     if block.header.num_approvals() == validators.len() as u64 - 1 {
                         System::current().stop();
+                    } else {
+                        println!(
+                            "{:?}",
+                            block
+                                .header
+                                .inner
+                                .approvals
+                                .iter()
+                                .map(|x| x.account_id.clone())
+                                .collect::<Vec<_>>()
+                        );
+                        println!("{} != {} -1 ", block.header.num_approvals(), validators.len());
+                        assert!(false);
                     }
                 }
                 NetworkResponses::NoResponse

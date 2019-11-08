@@ -261,7 +261,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", approval.account_id, approval.parent_hash, approval.signature);
                     NetworkClientResponses::NoResponse
 
-                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban him.
+                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban them.
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }

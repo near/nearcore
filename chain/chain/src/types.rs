@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::Signature;
+use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
@@ -18,7 +19,6 @@ use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
-use near_primitives::block::Approval;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);

@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::{Approval, BlockHeader, BlockHeaderInner, Weight};
 use near_primitives::hash::CryptoHash;
@@ -22,38 +22,43 @@ impl FinalityGadget {
         me: &Option<AccountId>,
         approval: &Approval,
         chain_store_update: &mut ChainStoreUpdate,
-    ) {
-        // First update the statistics for the current block producer if the approval is created by us
-        let (total_weight, score) = match chain_store_update.get_block_header(&approval.parent_hash)
-        {
-            Ok(header) => {
-                let BlockHeader { inner: BlockHeaderInner { total_weight, score, .. }, .. } =
-                    header;
-                let total_weight = total_weight.clone();
-                let score = score.clone();
-                (Some(total_weight), Some(score))
-            }
-            Err(_) => (None, None),
-        };
-
+    ) -> Result<(), Error> {
         if me.as_ref().map(|me| me == &approval.account_id).unwrap_or(false) {
-            let prev_weight = chain_store_update.largest_approved_weight().map(|x| x.clone());
-            let prev_score = chain_store_update.largest_approved_score().map(|x| x.clone());
-            if total_weight.is_some()
-                && (prev_weight.is_err()
-                    || prev_weight.is_ok() && total_weight.unwrap() > prev_weight.unwrap())
+            // First update the statistics for the current block producer if the approval is created by us
+            let header = chain_store_update.get_block_header(&approval.parent_hash)?;
+            let BlockHeader { inner: BlockHeaderInner { total_weight, score, .. }, .. } = header;
+            let total_weight = total_weight.clone();
+            let score = score.clone();
+
+            let update_weight =
+                match chain_store_update.largest_approved_weight().map(|x| x.clone()) {
+                    Ok(prev_weight) => total_weight > prev_weight,
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => true,
+                        _ => return Err(e),
+                    },
+                };
+
+            let update_score = match chain_store_update.largest_approved_score().map(|x| x.clone())
             {
-                chain_store_update.save_largest_approved_weight(&total_weight.unwrap());
+                Ok(prev_score) => score > prev_score,
+                Err(e) => match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => true,
+                    _ => return Err(e),
+                },
+            };
+
+            if update_weight {
+                chain_store_update.save_largest_approved_weight(&total_weight);
             }
-            if score.is_some()
-                && (prev_score.is_err()
-                    || prev_score.is_ok() && score.unwrap() > prev_score.unwrap())
-            {
-                chain_store_update.save_largest_approved_score(&score.unwrap());
+            if update_score {
+                chain_store_update.save_largest_approved_score(&score);
             }
 
             chain_store_update.save_my_last_approval(&approval.parent_hash, approval.clone());
         }
+
+        Ok(())
     }
 
     pub fn verify_approval_conditions(
@@ -69,32 +74,38 @@ impl FinalityGadget {
         &self,
         prev_hash: CryptoHash,
         chain_store: &mut dyn ChainStoreAccess,
-    ) -> CryptoHash {
+    ) -> Option<CryptoHash> {
         let prev_prev_hash = match chain_store.get_block_header(&prev_hash) {
             Ok(header) => header.inner.prev_hash,
             Err(_) => {
-                return prev_hash;
-            }
-        };
-
-        let last_approval_on_chain = match chain_store.get_my_last_approval(&prev_prev_hash) {
-            Ok(last_approval_on_chain) => last_approval_on_chain.clone(),
-            Err(_) => {
-                return prev_hash;
+                return None;
             }
         };
 
         let largest_weight_approved = match chain_store.largest_approved_weight() {
             Ok(largest_weight) => largest_weight.clone(),
-            Err(_) => {
-                return prev_hash;
-            }
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => return Some(prev_hash),
+                _ => return None,
+            },
         };
+
+        let largest_score_approved = match chain_store.largest_approved_score() {
+            Ok(largest_score) => largest_score.clone(),
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => return Some(prev_hash),
+                _ => return None,
+            },
+        };
+
+        let last_approval_on_chain =
+            chain_store.get_my_last_approval(&prev_prev_hash).ok().cloned();
 
         self.get_my_approval_reference_hash_inner(
             prev_hash,
             last_approval_on_chain,
             largest_weight_approved,
+            largest_score_approved,
             chain_store,
         )
     }
@@ -102,26 +113,51 @@ impl FinalityGadget {
     pub fn get_my_approval_reference_hash_inner(
         &self,
         prev_hash: CryptoHash,
-        last_approval_on_chain: Approval,
+        last_approval_on_chain: Option<Approval>,
         largest_weight_approved: Weight,
+        largest_score_approved: Weight,
         chain_store: &mut dyn ChainStoreAccess,
-    ) -> CryptoHash {
-        let last_weight_approved_on_chain =
-            match chain_store.get_block_header(&last_approval_on_chain.parent_hash) {
-                Ok(last_header_approved_on_chain) => {
-                    last_header_approved_on_chain.inner.total_weight.clone()
+    ) -> Option<CryptoHash> {
+        let default_f = |chain_store: &mut dyn ChainStoreAccess| match chain_store
+            .get_block_header(&prev_hash)
+        {
+            Ok(header) => {
+                if header.inner.total_weight > largest_weight_approved
+                    && (header.inner.score > largest_score_approved
+                        || largest_score_approved == 0.into())
+                {
+                    Some(prev_hash)
+                } else {
+                    None
                 }
+            }
+            Err(_) => None,
+        };
+
+        let last_approval_on_chain = match last_approval_on_chain {
+            Some(approval) => approval,
+            None => return default_f(chain_store),
+        };
+
+        let (last_weight_approved_on_chain, last_score_approved_on_chain) =
+            match chain_store.get_block_header(&last_approval_on_chain.parent_hash) {
+                Ok(last_header_approved_on_chain) => (
+                    last_header_approved_on_chain.inner.total_weight.clone(),
+                    last_header_approved_on_chain.inner.score.clone(),
+                ),
                 Err(_) => {
-                    return prev_hash;
+                    return default_f(chain_store);
                 }
             };
 
         // It is impossible for an honest actor to have two approvals with the same weight for
         //    their parent hashes on two different chains, so this check is sufficient
-        if last_weight_approved_on_chain == largest_weight_approved {
-            last_approval_on_chain.reference_hash
+        if last_weight_approved_on_chain == largest_weight_approved
+            && last_score_approved_on_chain == largest_score_approved
+        {
+            Some(last_approval_on_chain.reference_hash)
         } else {
-            prev_hash
+            default_f(chain_store)
         }
     }
 

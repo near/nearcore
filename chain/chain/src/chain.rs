@@ -317,7 +317,7 @@ impl Chain {
         approval: &Approval,
     ) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-        self.finality_gadget.process_approval(me, approval, &mut chain_store_update);
+        self.finality_gadget.process_approval(me, approval, &mut chain_store_update)?;
         chain_store_update.commit()?;
         Ok(())
     }
@@ -329,7 +329,7 @@ impl Chain {
         self.finality_gadget.verify_approval_conditions(approval, &mut self.store)
     }
 
-    pub fn get_my_approval_reference_hash(&mut self, last_hash: CryptoHash) -> CryptoHash {
+    pub fn get_my_approval_reference_hash(&mut self, last_hash: CryptoHash) -> Option<CryptoHash> {
         self.finality_gadget.get_my_approval_reference_hash(last_hash, &mut self.store)
     }
 
@@ -2178,7 +2178,7 @@ impl<'a> ChainUpdate<'a> {
 
         for approval in block.header.inner.approvals.iter() {
             let fg = FinalityGadget {};
-            fg.process_approval(me, approval, &mut self.chain_store_update);
+            fg.process_approval(me, approval, &mut self.chain_store_update)?;
         }
 
         // We need to know the last approval on the previous block to later compute the reference

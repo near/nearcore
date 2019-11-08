@@ -262,8 +262,21 @@ impl Client {
         let approvals_map =
             self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
         let mut approvals: Vec<Approval> = approvals_map.values().cloned().collect();
-        if let Some(my_approval) = self.create_block_approval(&prev, true) {
-            approvals.push(my_approval.approval);
+
+        if !approvals.iter().any(|x| x.account_id == block_producer.account_id) {
+            let my_approval = match self.chain.mut_store().get_my_last_approval(&prev_hash) {
+                Ok(approval) => Some(approval.clone()),
+                Err(_) => {
+                    // It's OK here to not filter by DBNotFoundError, if the approval wasn't fetched
+                    //    for any other reason, but actually existed, `create_block_approval` will
+                    //    fail because the score/weight of the largest approval will not match that
+                    //    of the approval as of *two* blocks ago
+                    self.create_block_approval(&prev).map(|x| x.approval)
+                }
+            };
+            if let Some(my_approval) = my_approval {
+                approvals.push(my_approval);
+            }
         }
 
         let quorums = self
@@ -616,7 +629,7 @@ impl Client {
                     }
                 }
             }
-            let approval_message = self.create_block_approval(&block.header, false);
+            let approval_message = self.create_block_approval(&block.header);
             self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
                 header: block.header.clone(),
                 approval_message,
@@ -754,11 +767,7 @@ impl Client {
     }
 
     /// Create approval for given block or return none if not a block producer.
-    fn create_block_approval(
-        &mut self,
-        block_header: &BlockHeader,
-        allow_next_block_producer: bool,
-    ) -> Option<ApprovalMessage> {
+    fn create_block_approval(&mut self, block_header: &BlockHeader) -> Option<ApprovalMessage> {
         let epoch_id =
             self.runtime_adapter.get_epoch_id_from_prev_block(&block_header.hash()).ok()?;
         let next_block_producer_account =
@@ -766,35 +775,38 @@ impl Client {
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
-            if &block_producer.account_id != next_block_producer_account
-                || allow_next_block_producer
+            if let Ok(validators) = self
+                .runtime_adapter
+                .get_epoch_block_producers(&block_header.inner.epoch_id, &block_header.hash())
             {
-                if let Ok(validators) = self
-                    .runtime_adapter
-                    .get_epoch_block_producers(&block_header.inner.epoch_id, &block_header.hash())
+                if let Some((_, is_slashed)) =
+                    validators.into_iter().find(|v| v.0 == block_producer.account_id)
                 {
-                    if let Some((_, is_slashed)) =
-                        validators.into_iter().find(|v| v.0 == block_producer.account_id)
-                    {
-                        if !is_slashed {
-                            let reference_hash =
-                                self.chain.get_my_approval_reference_hash(block_header.hash());
-                            let msg = ApprovalMessage::new(
-                                block_header.hash(),
-                                reference_hash,
-                                &*block_producer.signer,
-                                block_producer.account_id.clone(),
-                                next_block_producer_account.clone(),
-                            );
-                            if let Err(_) = self.chain.process_approval(
+                    if !is_slashed {
+                        let reference_hash =
+                            match self.chain.get_my_approval_reference_hash(block_header.hash()) {
+                                Some(hash) => hash,
+                                None => return None,
+                            };
+                        let msg = ApprovalMessage::new(
+                            block_header.hash(),
+                            reference_hash,
+                            &*block_producer.signer,
+                            block_producer.account_id.clone(),
+                            next_block_producer_account.clone(),
+                        );
+                        if self
+                            .chain
+                            .process_approval(
                                 &Some(block_producer.account_id.clone()),
                                 &msg.approval,
-                            ) {
-                                return None;
-                            }
-
-                            return Some(msg);
+                            )
+                            .is_err()
+                        {
+                            return None;
                         }
+
+                        return Some(msg);
                     }
                 }
             }
