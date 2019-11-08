@@ -1939,6 +1939,7 @@ dependencies = [
  "near-metrics 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
+ "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.102 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.101 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

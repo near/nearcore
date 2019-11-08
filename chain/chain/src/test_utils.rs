@@ -36,6 +36,7 @@ use crate::types::{
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::block::Approval;
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -308,10 +309,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _approval_mask: &[bool],
-        _approval_sigs: &[Signature],
-        _data: &[u8],
+        _prev_block_hash: &CryptoHash,
+        _approvals: &[Approval],
     ) -> Result<bool, Error> {
         Ok(true)
     }

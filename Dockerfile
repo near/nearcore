@@ -26,6 +26,7 @@ WORKDIR /near
 COPY . .
 
 ENV CARGO_TARGET_DIR=/tmp/target
+ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
