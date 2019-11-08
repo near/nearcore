@@ -80,8 +80,9 @@ impl EpochManager {
     fn compute_kickout_info(
         &self,
         epoch_info: &EpochInfo,
-        block_validator_tracker: &HashMap<ValidatorId, u64>,
-        num_expected_blocks: &HashMap<ValidatorId, u64>,
+        prev_epoch_last_block_index: BlockIndex,
+        last_block_index: BlockIndex,
+        block_validator_tracker: &HashMap<ValidatorId, (u64, u64)>,
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         num_expected_chunks: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         slashed: &HashSet<AccountId>,
@@ -98,9 +99,19 @@ impl EpochManager {
             if slashed.contains(&account_id) {
                 continue;
             }
-            let num_blocks = *block_validator_tracker.get(&i).unwrap_or(&0);
+            let (num_blocks, expected_blocks) =
+                if let Some((produced, total)) = block_validator_tracker.get(&i) {
+                    (*produced, *total)
+                } else {
+                    let expected = Self::get_expected_num_blocks(
+                        prev_epoch_last_block_index + 1,
+                        last_block_index,
+                        i,
+                        &epoch_info.block_producers,
+                    );
+                    (0, expected)
+                };
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
-            let expected_blocks = *num_expected_blocks.get(&i).unwrap_or(&0);
             if num_blocks * 100 < u64::from(validator_kickout_threshold) * expected_blocks {
                 validator_kickout.insert(account_id.clone());
             }
@@ -148,25 +159,12 @@ impl EpochManager {
         (validator_kickout, validator_online_ratio)
     }
 
-    fn collect_trackers(
+    fn collect_blocks_info(
         &mut self,
         epoch_id: &EpochId,
-        epoch_info: &EpochInfo,
         last_block_hash: &CryptoHash,
-    ) -> Result<
-        (
-            BTreeMap<AccountId, ValidatorStake>,
-            HashSet<AccountId>,
-            HashSet<u64>,
-            HashMap<usize, u64>,
-            HashMap<u64, HashMap<usize, u64>>,
-            HashSet<AccountId>,
-            u128,
-            u128,
-            CryptoHash,
-        ),
-        EpochError,
-    > {
+    ) -> Result<EpochSummary, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let mut proposals = BTreeMap::new();
         let mut validator_kickout = HashSet::new();
         let mut produced_block_indices = HashSet::new();
@@ -184,6 +182,9 @@ impl EpochManager {
         let mut hash = *last_block_hash;
         loop {
             let info = self.get_block_info(&hash)?.clone();
+            if hash == *last_block_hash {
+                block_validator_tracker = info.block_tracker;
+            }
             if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
                 break;
             }
@@ -200,8 +201,6 @@ impl EpochManager {
                 }
             }
             produced_block_indices.insert(info.index);
-            let block_validator_id = self.block_producer_from_info(&epoch_info, info.index);
-            block_validator_tracker.entry(block_validator_id).and_modify(|e| *e += 1).or_insert(1);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
                 let chunk_validator_id =
                     self.chunk_producer_from_info(&epoch_info, info.index, i as ShardId);
@@ -217,60 +216,35 @@ impl EpochManager {
 
             hash = info.prev_hash;
         }
-        Ok((
-            proposals,
-            validator_kickout,
-            produced_block_indices,
-            block_validator_tracker,
-            chunk_validator_tracker,
-            slashed_validators,
-            total_storage_rent,
-            total_validator_reward,
-            hash,
-        ))
-    }
-
-    fn collect_blocks_info(
-        &mut self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<EpochSummary, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let (
-            proposals,
-            mut validator_kickout,
-            produced_block_indices,
-            block_validator_tracker,
-            chunk_validator_tracker,
-            slashed_validators,
-            total_storage_rent,
-            total_validator_reward,
-            hash,
-        ) = self.collect_trackers(epoch_id, &epoch_info, last_block_hash)?;
 
         let all_proposals: Vec<_> = proposals.into_iter().map(|(_, v)| v).collect();
 
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
-        let first_block_info = self.get_block_info(&last_block_info.epoch_first_block)?.clone();
-        let (num_expected_blocks, num_expected_chunks) = self.get_num_expected_blocks_and_chunks(
+        let num_shards = last_block_info.chunk_mask.len() as ShardId;
+        let prev_epoch_last_block_hash =
+            self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
+        let prev_epoch_last_block_index = self.get_block_info(&prev_epoch_last_block_hash)?.index;
+        let num_expected_chunks = self.get_num_expected_chunks(
             &epoch_info,
-            &first_block_info,
+            prev_epoch_last_block_index,
+            num_shards,
             &produced_block_indices,
         )?;
 
         // Compute kick outs for validators who are offline.
         let (kickout, validator_online_ratio) = self.compute_kickout_info(
             &epoch_info,
+            prev_epoch_last_block_index,
+            last_block_info.index,
             &block_validator_tracker,
-            &num_expected_blocks,
             &chunk_validator_tracker,
             &num_expected_chunks,
             &slashed_validators,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
         debug!(
-            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected blocks: {:?} Num expected chunks {:?}",
-            all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_blocks, num_expected_chunks
+            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected chunks {:?}",
+            all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_chunks
         );
 
         Ok(EpochSummary {
@@ -283,29 +257,50 @@ impl EpochManager {
         })
     }
 
+    /// Compute expected number of blocks produced by a given validator up to a given height
+    fn get_expected_num_blocks(
+        epoch_start: BlockIndex,
+        cur_block_index: BlockIndex,
+        validator_id: ValidatorId,
+        validators: &[ValidatorId],
+    ) -> BlockIndex {
+        assert!(cur_block_index >= epoch_start);
+        let mut num_expected = 0;
+        for index in epoch_start..=cur_block_index {
+            let block_validator_id =
+                validators[(index % (validators.len() as BlockIndex)) as usize];
+            if block_validator_id == validator_id {
+                num_expected += 1;
+            }
+        }
+        num_expected
+    }
+
     /// Returns number of missing blocks by given validator.
-    /// Note: THIS IS EXTREMELY NOT OPTIMAL IMPLEMENTATION.
     pub fn get_num_missing_blocks(
         &mut self,
         epoch_id: &EpochId,
-        last_known_block_info: &CryptoHash,
-        _account_id: &AccountId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
     ) -> Result<u64, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let (
-            _proposals,
-            _validator_kickout,
-            _produced_block_indices,
-            _block_validator_tracker,
-            _chunk_validator_tracker,
-            _slashed,
-            _total_storage_rent,
-            _total_validator_reward,
-            _hash,
-        ) = self.collect_trackers(epoch_id, &epoch_info, last_known_block_info)?;
-        //        produced_block_indices.get(&account_id).ok_or_else(|| 0)
-        // Ok(*block_validator_tracker.get(&account_id).ok_or_else(|| 0))
-        Ok(0)
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let validator_id = *epoch_info.validator_to_index.get(account_id).ok_or_else(|| {
+            EpochError::Other(format!("{} is not a validator in epoch {:?}", account_id, epoch_id))
+        })?;
+        let validators = epoch_info.block_producers.clone();
+        let block_info = self.get_block_info(last_known_block_hash)?.clone();
+        let epoch_start = self.get_block_info(&block_info.epoch_first_block)?.index;
+        if let Some((produced, total)) = block_info.block_tracker.get(&validator_id) {
+            assert!(total >= produced);
+            Ok(total - produced)
+        } else {
+            Ok(Self::get_expected_num_blocks(
+                epoch_start,
+                block_info.index,
+                validator_id,
+                &validators,
+            ))
+        }
     }
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
@@ -377,7 +372,25 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
+                let is_epoch_start = self.is_next_block_in_next_epoch(&prev_block_info)?
+                    || prev_block_info.prev_hash == CryptoHash::default();
+                let epoch_start_index = if is_epoch_start {
+                    prev_block_info.index + 1
+                } else {
+                    self.get_expected_epoch_start_height(&prev_block_info)?
+                };
                 let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?;
+                let block_validator_id = epoch_info.block_producers[(block_info.index
+                    % (epoch_info.block_producers.len() as BlockIndex))
+                    as usize];
+                // TODO: this is not efficient
+                let num_expected_blocks = Self::get_expected_num_blocks(
+                    epoch_start_index,
+                    block_info.index,
+                    block_validator_id,
+                    &epoch_info.block_producers,
+                );
+
                 // Keep `slashed` from previous block if they are still in the epoch info stake change
                 // (e.g. we need to keep track that they are still slashed, because when we compute
                 // returned stake we are skipping account ids that are slashed in `stake_change`).
@@ -386,6 +399,22 @@ impl EpochManager {
                         block_info.slashed.insert(item.clone());
                     }
                 }
+
+                // update block tracker
+                let mut block_tracker = if is_epoch_start {
+                    HashMap::default()
+                } else {
+                    prev_block_info.block_tracker.clone()
+                };
+                block_tracker
+                    .entry(block_validator_id)
+                    .and_modify(|(produced, expected)| {
+                        *produced += 1;
+                        *expected = num_expected_blocks;
+                    })
+                    .or_insert((1, num_expected_blocks));
+                block_info.block_tracker = block_tracker;
+
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     block_info.epoch_id = EpochId::default();
@@ -417,7 +446,7 @@ impl EpochManager {
         index: BlockIndex,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        Ok(epoch_info.validators[self.block_producer_from_info(&epoch_info, index)].clone())
+        Ok(epoch_info.validators[Self::block_producer_from_info(&epoch_info, index)].clone())
     }
 
     pub fn get_all_block_producer_info(
@@ -570,6 +599,14 @@ impl EpochManager {
         Ok(self.get_block_info(&epoch_first_block)?.index)
     }
 
+    fn get_expected_epoch_start_height(
+        &mut self,
+        block_info: &BlockInfo,
+    ) -> Result<BlockIndex, EpochError> {
+        let prev_epoch_last_hash = self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
+        Ok(self.get_block_info(&prev_epoch_last_hash)?.index + 1)
+    }
+
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
     /// return the hashmap of account id to max_of_stakes, which is used in the calculation of account
     /// updates.
@@ -662,26 +699,18 @@ impl EpochManager {
         Ok(false)
     }
 
-    fn get_num_expected_blocks_and_chunks(
+    fn get_num_expected_chunks(
         &mut self,
         epoch_info: &EpochInfo,
-        epoch_first_block_info: &BlockInfo,
+        prev_epoch_last_block_index: BlockIndex,
+        num_shards: ShardId,
         produced_block_indices: &HashSet<BlockIndex>,
-    ) -> Result<(HashMap<ValidatorId, u64>, HashMap<ShardId, HashMap<ValidatorId, u64>>), EpochError>
-    {
-        let mut num_expected_blocks = HashMap::default();
+    ) -> Result<HashMap<ShardId, HashMap<ValidatorId, u64>>, EpochError> {
         let mut num_expected_chunks = HashMap::default();
-        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?;
-        let prev_epoch_last_block_index = prev_epoch_last_block.index;
-        let num_shards = epoch_first_block_info.chunk_mask.len() as ShardId;
         // We iterate from next index after previous epoch's last block, for epoch_length blocks.
         for index in (prev_epoch_last_block_index + 1)
             ..=(prev_epoch_last_block_index + self.config.epoch_length)
         {
-            num_expected_blocks
-                .entry(self.block_producer_from_info(epoch_info, index))
-                .and_modify(|e| *e += 1)
-                .or_insert(1);
             for i in 0..num_shards {
                 // we only count a chunk as expected if the previous block exists. Otherwise
                 // the chunk cannot be produced.
@@ -698,10 +727,10 @@ impl EpochManager {
                 }
             }
         }
-        Ok((num_expected_blocks, num_expected_chunks))
+        Ok(num_expected_chunks)
     }
 
-    fn block_producer_from_info(&self, epoch_info: &EpochInfo, index: BlockIndex) -> ValidatorId {
+    fn block_producer_from_info(epoch_info: &EpochInfo, index: BlockIndex) -> ValidatorId {
         epoch_info.block_producers
             [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize]
     }
@@ -991,7 +1020,7 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
-                reward(vec![("test1", 0), ("near", 0)]),
+                reward(vec![("near", 0)]),
                 0
             )
         );
@@ -1188,6 +1217,7 @@ mod tests {
                     rent_paid: 0,
                     validator_reward: 0,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1206,6 +1236,7 @@ mod tests {
                     rent_paid: 10,
                     validator_reward: 10,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1224,6 +1255,7 @@ mod tests {
                     rent_paid: 10,
                     validator_reward: 10,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1282,6 +1314,7 @@ mod tests {
                     rent_paid: 0,
                     validator_reward: 0,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1300,6 +1333,7 @@ mod tests {
                     rent_paid: 10,
                     validator_reward: 10,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1318,6 +1352,7 @@ mod tests {
                     rent_paid: 10,
                     validator_reward: 10,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1404,6 +1439,7 @@ mod tests {
                     rent_paid: 0,
                     validator_reward: 0,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1422,6 +1458,7 @@ mod tests {
                     rent_paid: 0,
                     validator_reward: 0,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1440,6 +1477,7 @@ mod tests {
                     rent_paid: 0,
                     validator_reward: 0,
                     total_supply,
+                    block_tracker: Default::default(),
                 },
                 rng_seed,
             )
@@ -1456,5 +1494,27 @@ mod tests {
                 0
             )
         );
+    }
+
+    #[test]
+    fn test_block_tracker() {
+        let stake_amount = 1_000_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let epoch_length = 2;
+        let mut epoch_manager =
+            setup_epoch_manager(validators, epoch_length, 1, 2, 0, 10, default_reward_calculator());
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+
+        let block_info1 = epoch_manager.get_block_info(&h[1]).unwrap().clone();
+        assert_eq!(block_info1.block_tracker, vec![(0, (1, 1))].into_iter().collect());
+        let block_info2 = epoch_manager.get_block_info(&h[3]).unwrap().clone();
+        assert_eq!(block_info2.block_tracker, vec![(0, (2, 2))].into_iter().collect());
+
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        let block_info3 = epoch_manager.get_block_info(&h[4]).unwrap().clone();
+        assert_eq!(block_info3.block_tracker, vec![(1, (1, 1))].into_iter().collect());
     }
 }

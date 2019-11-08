@@ -69,6 +69,8 @@ pub struct BlockInfo {
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
+    /// Map from validator index to (num_blocks_produced, num_blocks_expected)
+    pub block_tracker: HashMap<ValidatorId, (u64, u64)>,
 }
 
 impl BlockInfo {
@@ -94,6 +96,7 @@ impl BlockInfo {
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
+            block_tracker: HashMap::default(),
         }
     }
 }
