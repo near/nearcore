@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Stores measurements per block.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Measurements {
     data: BTreeMap<Metric, Vec<(usize, Duration)>>,
 }

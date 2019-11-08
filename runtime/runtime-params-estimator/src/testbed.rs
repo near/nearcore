@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_primitives::types::{Gas, MerkleHash, ShardId, StateRoot};
 use near_store::{create_store, Trie, TrieUpdate, COL_STATE};
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
@@ -42,11 +42,11 @@ impl RuntimeTestbed {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let mut state_roots: Vec<MerkleHash> =
+        let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         assert!(state_roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!state_roots.is_empty(), "No state roots found.");
-        let root = state_roots.pop().unwrap();
+        let root = state_roots[0].hash;
 
         let mut runtime_config = RuntimeConfig::default();
         runtime_config.wasm_config.max_log_len = std::u64::MAX;

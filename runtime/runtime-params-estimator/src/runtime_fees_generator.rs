@@ -7,11 +7,10 @@ use near_runtime_fees::{
 use std::collections::{BTreeMap, HashMap};
 
 pub struct RuntimeFeesGenerator {
-    measurement: Measurements,
     aggregated: BTreeMap<Metric, DataStats>,
 }
 
-/// Fees for receipts and actions measured in floats.
+/// Fees for receipts and actions expressed in micros as floats.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 enum ReceiptFeesFloat {
     ActionReceiptCreation,
@@ -32,9 +31,9 @@ enum ReceiptFeesFloat {
 }
 
 impl RuntimeFeesGenerator {
-    pub fn new(measurement: Measurements) -> Self {
+    pub fn new(measurement: &Measurements) -> Self {
         let aggregated = measurement.aggregate();
-        Self { measurement, aggregated }
+        Self { aggregated }
     }
 
     /// Compute fees for receipts and actions in microseconds as floats.

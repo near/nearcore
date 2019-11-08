@@ -2203,6 +2203,7 @@ name = "near-vm-logic"
 version = "0.4.0"
 dependencies = [
  "bs58 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-runtime-fees 0.4.0",
  "near-vm-errors 0.4.0",
  "serde 1.0.102 (registry+https://github.com/rust-lang/crates.io-index)",

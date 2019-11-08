@@ -228,7 +228,7 @@ fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
     let data = b"tesdsst";
-    logic.write_register(1, data).unwrap();
+    logic.wrapped_internal_write_register(1, data).unwrap();
 
     logic.sha256(std::u64::MAX, 1, 0).unwrap();
     let res = &vec![0u8; 32];
