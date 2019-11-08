@@ -1517,4 +1517,24 @@ mod tests {
         let block_info3 = epoch_manager.get_block_info(&h[4]).unwrap().clone();
         assert_eq!(block_info3.block_tracker, vec![(1, (1, 1))].into_iter().collect());
     }
+
+    #[test]
+    fn test_num_missing_blocks() {
+        let stake_amount = 1_000_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let epoch_length = 2;
+        let mut epoch_manager =
+            setup_epoch_manager(validators, epoch_length, 1, 2, 0, 10, default_reward_calculator());
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+        let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
+        let test1_num_missing_blocks =
+            epoch_manager.get_num_missing_blocks(&epoch_id, &h[3], &"test1".to_string()).unwrap();
+        let test2_num_missing_blocks =
+            epoch_manager.get_num_missing_blocks(&epoch_id, &h[3], &"test2".to_string()).unwrap();
+        assert_eq!(test1_num_missing_blocks, 0);
+        assert_eq!(test2_num_missing_blocks, 1);
+    }
 }
