@@ -75,24 +75,22 @@ impl EncodedChunksCache {
         })
     }
 
+    pub fn height_within_horizon(&self, height: BlockIndex) -> bool {
+        if height + HEIGHT_HORIZON < self.largest_seen_height {
+            false
+        } else if height > self.largest_seen_height + MAX_HEIGHTS_AHEAD {
+            false
+        } else {
+            true
+        }
+    }
+
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunk,
     ) -> bool {
         let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
         if self.encoded_chunks.contains_key(&chunk_hash) || partial_encoded_chunk.header.is_some() {
-            if let Some(header) = &partial_encoded_chunk.header {
-                let height = header.inner.height_created;
-
-                if height + HEIGHT_HORIZON < self.largest_seen_height {
-                    return false;
-                }
-
-                if height > self.largest_seen_height + MAX_HEIGHTS_AHEAD {
-                    return false;
-                }
-            }
-
             self.get_or_insert_from_header(chunk_hash, partial_encoded_chunk.header.as_ref())
                 .merge_in_partial_encoded_chunk(&partial_encoded_chunk);
             return true;
@@ -101,7 +99,20 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn update_largest_seen_height(&mut self, new_height: BlockIndex) {
+    pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
+            let height = entry.header.inner.height_created;
+            if !self.height_within_horizon(height) {
+                self.encoded_chunks.remove(chunk_hash);
+            }
+        }
+    }
+
+    pub fn update_largest_seen_height<T>(
+        &mut self,
+        new_height: BlockIndex,
+        requested_chunks: &HashMap<ChunkHash, T>,
+    ) {
         let old_largest_seen_height = self.largest_seen_height;
         self.largest_seen_height = new_height;
         for height in old_largest_seen_height.saturating_sub(HEIGHT_HORIZON)
@@ -109,7 +120,9 @@ impl EncodedChunksCache {
         {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
-                    self.encoded_chunks.remove(&chunk_hash);
+                    if !requested_chunks.contains_key(&chunk_hash) {
+                        self.encoded_chunks.remove(&chunk_hash);
+                    }
                 }
             }
         }

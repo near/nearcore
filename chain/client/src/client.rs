@@ -549,21 +549,6 @@ impl Client {
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
 
-        for chunk_header in block.chunks.iter() {
-            // Process empty partial encoded chunks, to persist those for which no parts/receipts
-            //     are needed
-            let partial_encoded_chunk = PartialEncodedChunk {
-                shard_id: chunk_header.inner.shard_id,
-                chunk_hash: chunk_header.chunk_hash().clone(),
-                header: Some(chunk_header.clone()),
-                receipts: vec![],
-                parts: vec![],
-            };
-            let _ = self
-                .shards_mgr
-                .process_partial_encoded_chunk(partial_encoded_chunk, self.chain.mut_store());
-        }
-
         let result = {
             let me = self
                 .block_producer

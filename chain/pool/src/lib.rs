@@ -5,7 +5,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 
 use near_primitives::hash::CryptoHash;
-use std::cell::Cell;
 
 type TxMap = HashMap<(AccountId, PublicKey), Vec<SignedTransaction>>;
 
@@ -15,7 +14,7 @@ pub struct TransactionPool {
     /// Transactions grouped by a pair of (account ID, signer public key).
     /// It's more efficient to keep transactions unsorted and with potentially conflicting nonce
     /// than create a BTreeMap for every transaction on average.
-    pub transactions: Cell<TxMap>,
+    pub transactions: TxMap,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     pub unique_transactions: HashSet<CryptoHash>,
 }
@@ -30,7 +29,6 @@ impl TransactionPool {
         let signer_id = signed_transaction.transaction.signer_id.clone();
         let signer_public_key = signed_transaction.transaction.public_key.clone();
         self.transactions
-            .get_mut()
             .entry((signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
@@ -38,7 +36,7 @@ impl TransactionPool {
 
     /// Returns a draining structure that pulls transactions from the pool in the proper order.
     /// It has an option to take transactions with the same key as the last one or with the new key.
-    /// When the iterator is dropped, the rest of the transactions remains in the pool.
+    /// When the iterator is dropped, the rest of the transactions remain in the pool.
     pub fn draining_iterator(&mut self) -> DrainingIterator {
         DrainingIterator::new(self)
     }
@@ -60,12 +58,12 @@ impl TransactionPool {
         for (key, hashes) in grouped_transactions {
             let key = (key.0.clone(), key.1.clone());
             let mut remove_entry = false;
-            if let Some(v) = self.transactions.get_mut().get_mut(&key) {
+            if let Some(v) = self.transactions.get_mut(&key) {
                 v.retain(|tx| !hashes.contains(&tx.get_hash()));
                 remove_entry = v.is_empty();
             }
             if remove_entry {
-                self.transactions.get_mut().remove(&key);
+                self.transactions.remove(&key);
             }
             for hash in hashes {
                 self.unique_transactions.remove(&hash);
@@ -89,41 +87,84 @@ impl TransactionPool {
     }
 }
 
+/// Draining Iterator is a structure to pull transactions from the pool.
+/// It allows to request a next transaction either with the new key (next key) or with the same key.
+/// When a draining iterator is dropped the remaining transactions are returned back to the pool.
 pub struct DrainingIterator<'a> {
+    /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
     pool: &'a mut TransactionPool,
+    /// Whether every group of transactions is already sorted.
     sorted: bool,
-    current_map: Cell<TxMap>,
-    next_map: Cell<TxMap>,
+    /// Helper flag to know which map is the current one and which map is the next one.
+    /// Instead of swapping memory between maps, the implementation uses helper functions.
+    current_map_is_pool: bool,
+    /// The temporary map to hold transactions for which keys were already used in the current batch.
+    temp_map: TxMap,
+    /// The last entry from the current map. If it's None, it means the entry for the key was fully
+    /// drained or was not yet initialized.
+    /// If it's Some, then it guarantees that there are a least one transaction in the vector.
     last_entry: Option<((AccountId, PublicKey), Vec<SignedTransaction>)>,
 }
 
+/// The iterator works with the following algorithm:
+/// 1. Initializes the current map to be the one from the pool.
+/// 2. An entry is pulled from the current map.
+///    2.1. If the current map is empty, swaps it with the next map.
+///    2.2. Remembers that all entries are sorted now.
+/// 3. If a not sorted yet, sorts the transactions in the entry in non-decreasing order by nonce, so
+///    a transaction with the lowest nonce is the last element.
+/// 4. If a new entry is needed for a new key, inserts the current entry to the next map.
+/// 5. Pulls the latest the transaction from the current entry.
+/// 6. If the current entry becomes empty, sets it to None.  
 impl<'a> DrainingIterator<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
-        let current_map = Default::default();
-        pool.transactions.swap(&current_map);
-        Self { pool, sorted: false, current_map, next_map: Default::default(), last_entry: None }
+        Self {
+            pool,
+            sorted: false,
+            current_map_is_pool: true,
+            temp_map: Default::default(),
+            last_entry: None,
+        }
     }
 
-    /// Returns the next transaction in the proper order. `same_key` defines whether the
+    /// Helper function to get a map from which the iterators drains new keys and transactions.
+    fn current_map(&mut self) -> &mut TxMap {
+        if self.current_map_is_pool {
+            &mut self.pool.transactions
+        } else {
+            &mut self.temp_map
+        }
+    }
+
+    /// Helper function to get a map towards which the used keys and transactions go.
+    fn next_map(&mut self) -> &mut TxMap {
+        if self.current_map_is_pool {
+            &mut self.temp_map
+        } else {
+            &mut self.pool.transactions
+        }
+    }
+
+    /// Returns the next transaction in the proper order. `from_same_tx_group` defines whether the
     /// transaction should be from the same group (with the same key) as the previous transaction.
     /// If the previous transaction was invalid, the next transaction has to be with the same key to
     /// maintain the proper order. Otherwise the invalid transaction skips the given key.
-    pub fn next(&mut self, same_key: bool) -> Option<SignedTransaction> {
+    pub fn next(&mut self, from_same_tx_group: bool) -> Option<SignedTransaction> {
         // If we need the new/next key, or the current transaction group is fully used.
-        if !same_key || self.last_entry.is_none() {
+        if !from_same_tx_group || self.last_entry.is_none() {
             if let Some((key, txs)) = self.last_entry.take() {
-                self.next_map.get_mut().insert(key, txs);
+                self.next_map().insert(key, txs);
             }
-            if self.current_map.get_mut().is_empty() {
+            if self.current_map().is_empty() {
                 self.sorted = true;
-                self.current_map.swap(&self.next_map);
+                self.current_map_is_pool = !self.current_map_is_pool;
             }
-            let key = if let Some(key) = self.current_map.get_mut().keys().next() {
+            let key = if let Some(key) = self.current_map().keys().next() {
                 key.clone()
             } else {
                 return None;
             };
-            self.last_entry = self.current_map.get_mut().remove_entry(&key);
+            self.last_entry = self.current_map().remove_entry(&key);
             if !self.sorted {
                 // Sort by nonce in non-increasing order to pop from the end
                 self.last_entry
@@ -156,10 +197,9 @@ impl<'a> DrainingIterator<'a> {
 impl<'a> Drop for DrainingIterator<'a> {
     fn drop(&mut self) {
         if let Some((key, txs)) = self.last_entry.take() {
-            self.current_map.get_mut().insert(key, txs);
+            self.pool.transactions.insert(key, txs);
         }
-        self.pool.transactions.swap(&self.current_map);
-        self.pool.transactions.get_mut().extend(self.next_map.get_mut().drain());
+        self.pool.transactions.extend(self.temp_map.drain());
     }
 }
 

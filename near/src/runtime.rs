@@ -56,6 +56,8 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
     shard_tracker: ShardTracker,
+    /// Subscriptions to prefixes in the state.
+    subscriptions: HashSet<Vec<u8>>,
 }
 
 impl NightshadeRuntime {
@@ -123,6 +125,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             shard_tracker,
+            subscriptions: HashSet::new(),
         }
     }
 
@@ -284,6 +287,7 @@ impl NightshadeRuntime {
                 &apply_state,
                 &receipts,
                 &transactions,
+                &self.subscriptions,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
@@ -293,7 +297,7 @@ impl NightshadeRuntime {
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
-        for receipt in apply_result.new_receipts.into_iter() {
+        for receipt in apply_result.new_receipts {
             receipt_result
                 .entry(self.account_id_to_shard_id(&receipt.receiver_id))
                 .or_insert_with(|| vec![])
@@ -970,7 +974,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use tempdir::TempDir;
 
@@ -997,6 +1001,8 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use near_primitives::utils::key_for_account;
+    use node_runtime::ApplyState;
 
     fn stake(
         nonce: Nonce,
@@ -1869,5 +1875,42 @@ mod test {
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
+    }
+
+    #[test]
+    fn test_key_value_changes() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_key_value_changes", vec![validators.clone()], 2, vec![], vec![]);
+        let prefix = key_for_account(&"test1".to_string());
+        env.runtime.subscriptions.insert(prefix.clone());
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
+        let transaction = SignedTransaction::send_money(
+            1,
+            validators[0].clone(),
+            validators[1].clone(),
+            &signer,
+            10,
+            CryptoHash::default(),
+        );
+        let apply_state =
+            ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let mut prefixes = HashSet::new();
+        prefixes.insert(prefix);
+        let apply_result = env
+            .runtime
+            .runtime
+            .apply(
+                env.runtime.trie.clone(),
+                env.state_roots[0].hash,
+                &None,
+                &apply_state,
+                &[],
+                &[transaction],
+                &prefixes,
+            )
+            .unwrap();
+        assert!(!apply_result.key_value_changes.is_empty());
     }
 }
