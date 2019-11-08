@@ -56,7 +56,9 @@ pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
 pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
 /// Store hash of a block per each height, to detect double signs.
 pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
-const NUM_COLS: u32 = 21;
+pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
+pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
+const NUM_COLS: u32 = 23;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

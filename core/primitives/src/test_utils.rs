@@ -1,13 +1,12 @@
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use log::LevelFilter;
 
 use lazy_static::lazy_static;
-use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission};
-use crate::block::Block;
+use crate::block::{Approval, Block};
 use crate::hash::CryptoHash;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
@@ -136,7 +135,7 @@ impl Block {
         epoch_id: EpochId,
         signer: &dyn Signer,
     ) -> Self {
-        Self::empty_with_approvals(prev, height, epoch_id, HashMap::default(), signer)
+        Self::empty_with_approvals(prev, height, epoch_id, vec![], signer)
     }
 
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
@@ -153,7 +152,7 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
-        approvals: HashMap<usize, Signature>,
+        approvals: Vec<Approval>,
         signer: &dyn Signer,
     ) -> Self {
         Block::produce(
@@ -167,6 +166,9 @@ impl Block {
             vec![],
             vec![],
             signer,
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
         )
     }
 }

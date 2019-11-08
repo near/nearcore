@@ -691,19 +691,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                if let Some(approval) = approval {
-                    if let Some(account_id) = self.config.account_id.clone() {
-                        self.send_message_to_account(
-                            ctx,
-                            &approval.target,
-                            RoutedMessageBody::BlockApproval(
-                                account_id,
-                                approval.hash,
-                                approval.signature,
-                            ),
-                        )
-                    }
+            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
+                if let Some(approval_message) = approval_message {
+                    self.send_message_to_account(
+                        ctx,
+                        &approval_message.target,
+                        RoutedMessageBody::BlockApproval(approval_message.approval),
+                    )
                 }
                 self.broadcast_message(
                     ctx,
