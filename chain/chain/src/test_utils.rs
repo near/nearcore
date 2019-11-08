@@ -16,6 +16,7 @@ use crate::types::{
 use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::account::Account;
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -309,10 +310,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _approval_mask: &[bool],
-        _approval_sigs: &[Signature],
-        _data: &[u8],
+        _prev_block_hash: &CryptoHash,
+        _approvals: &[Approval],
     ) -> Result<bool, Error> {
         Ok(true)
     }
