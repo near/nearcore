@@ -17,6 +17,18 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
 
+macro_rules! calls_helper(
+    { $($el:ident => $method_name:ident),* } => {
+    {
+        let mut v: Vec<(Metric, &str)> = vec![];
+        $(
+            v.push((Metric::$el, stringify!($method_name)));
+        )*
+        v
+    }
+    };
+);
+
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
 pub enum Metric {
     Receipt,
@@ -74,9 +86,19 @@ pub enum Metric {
     storage_iter_range_10b_from_10b_to_1000,
     storage_iter_range_10kib_from_10b_to_100,
     storage_iter_range_10b_from_10kib_to_100,
-    storage_next_10b_from_10b_to,
-    storage_next_10kib_from_10b_to,
-    storage_next_10b_from_10kib_to,
+
+    storage_next_10b_from_10b_to_10b_key_10b_value,
+    storage_next_10kib_from_10b_to_10b_key_10b_value,
+    storage_next_10b_from_10kib_to_10b_key_10b_value,
+
+    storage_next_10b_from_10b_to_10kib_key_10b_value,
+    storage_next_10kib_from_10b_to_10kib_key_10b_value,
+    storage_next_10b_from_10kib_to_10kib_key_10b_value,
+
+    storage_next_10b_from_10b_to_10b_key_10kib_value,
+    storage_next_10kib_from_10b_to_10b_key_10kib_value,
+    storage_next_10b_from_10kib_to_10b_key_10kib_value,
+
     promise_and_1k,
     promise_and_1k_on_1k_and,
     promise_return_10k,
@@ -307,110 +329,65 @@ pub fn run(config: Config) {
 
     let ad: Vec<_> = accounts_deployed.into_iter().collect();
 
-    // Measure the speed of processing function calls that do nothing.
-    let mut f = || {
-        let account_idx = *ad.as_slice().choose(&mut rand::thread_rng()).unwrap();
-        let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        let function_call = Action::FunctionCall(FunctionCallAction {
-            method_name: "noop".to_string(),
-            args: vec![],
-            gas: 10_000_000,
-            deposit: 0,
-        });
-        SignedTransaction::from_actions(
-            nonce as u64,
-            account_id.clone(),
-            account_id.clone(),
-            &signer,
-            vec![function_call],
-            CryptoHash::default(),
-        )
-    };
-    testbed = measure_transactions(Metric::CallNoop, &mut m, &config, Some(testbed), &mut f, false);
-
-    macro_rules! calls_helper {
-        ( $($el:ident),*) => {
-        $(
-           calls_helper!(@int $el) ,
-        )*
+    let v = calls_helper! {
+    noop => noop,
+    base_10k => base_10k,
+    read_memory_10b_10k => read_memory_10b_10k,
+    read_memory_10kib_1k => read_memory_10kib_1k,
+    write_memory_10b_10k => write_memory_10b_10k,
+    write_memory_10kib_1k => write_memory_10kib_1k,
+    read_register_10b_10k => read_register_10b_10k,
+    read_register_10kib_1k => read_register_10kib_1k,
+    write_register_10b_10k => write_register_10b_10k,
+    write_register_10kib_1k => write_register_10kib_1k,
+    utf8_log_10b_10k => utf8_log_10b_10k,
+    utf8_log_10kib_1k => utf8_log_10kib_1k,
+    nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
+    nul_utf8_log_10kib_1k => nul_utf8_log_10kib_1k,
+    utf16_log_10b_10k => utf16_log_10b_10k,
+    utf16_log_10kib_1k => utf16_log_10kib_1k,
+    nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
+    nul_utf16_log_10kib_1k => nul_utf16_log_10kib_1k,
+    sha256_10b_10k => sha256_10b_10k,
+    sha256_1kib_1k => sha256_1kib_1k,
+    storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
+    storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+    storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
+    storage_iter_prefix_10b_1000 => storage_iter_prefix_10b_1000,
+    storage_iter_range_10b_from_10b_to_1000 => storage_iter_range_10b_from_10b_to_1000,
+    storage_next_10b_from_10b_to_10b_key_10b_value =>   storage_next_10b_from_10b_to,
+    storage_next_10kib_from_10b_to_10b_key_10b_value =>   storage_next_10kib_from_10b_to,
+    storage_next_10b_from_10kib_to_10b_key_10b_value =>   storage_next_10b_from_10kib_to,
+    storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
+    storage_write_10kib_key_10b_value_100 => storage_write_10kib_key_10b_value_100,
+    storage_read_10kib_key_10b_value_100 => storage_read_10kib_key_10b_value_100,
+    storage_has_key_10kib_key_10b_value_100 => storage_has_key_10kib_key_10b_value_100,
+    storage_iter_prefix_10kib_100 => storage_iter_prefix_10kib_100,
+    storage_iter_range_10kib_from_10b_to_100 => storage_iter_range_10kib_from_10b_to_100,
+    storage_iter_range_10b_from_10kib_to_100 => storage_iter_range_10b_from_10kib_to_100,
+    storage_next_10b_from_10b_to_10kib_key_10b_value =>   storage_next_10b_from_10b_to ,
+    storage_next_10kib_from_10b_to_10kib_key_10b_value =>   storage_next_10kib_from_10b_to,
+    storage_next_10b_from_10kib_to_10kib_key_10b_value =>   storage_next_10b_from_10kib_to ,
+    storage_remove_10kib_key_10b_value_100 => storage_remove_10kib_key_10b_value_100,
+    storage_write_10b_key_10kib_value_100 => storage_write_10b_key_10kib_value_100,
+    storage_read_10b_key_10kib_value_100 => storage_read_10b_key_10kib_value_100,
+    storage_has_key_10b_key_10kib_value_100 => storage_has_key_10b_key_10kib_value_100,
+    storage_next_10b_from_10b_to_10b_key_10kib_value =>      storage_next_10b_from_10b_to,
+    storage_next_10kib_from_10b_to_10b_key_10kib_value =>   storage_next_10kib_from_10b_to ,
+    storage_next_10b_from_10kib_to_10b_key_10kib_value =>   storage_next_10b_from_10kib_to ,
+    storage_remove_10b_key_10kib_value_100 =>   storage_remove_10b_key_10kib_value_100 ,
+    promise_and_1k => promise_and_1k,
+    promise_and_1k_on_1k_and => promise_and_1k_on_1k_and,
+    promise_return_10k => promise_return_10k,
+    data_producer_10b => data_producer_10b,
+    data_producer_10kib => data_producer_10kib,
+    data_receipt_10b_100 => data_receipt_10b_100,
+    data_receipt_10kib_10 => data_receipt_10kib_10,
+    cpu_ram_soak_test => cpu_ram_soak_test
         };
-
-        (@int $el:ident) => {
-        $(
-           (Metric::$el, stringify!($el)) ,
-        )*
-        };
-
-        (@int $el:ident; $method_name:ident) => {
-        $(
-           (Metric::$el, stringify!($method_name)) ,
-        )*
-        };
-    }
 
     // Measure the speed of all extern function calls.
-    for (metric, method_name) in vec![calls_helper! {
-    noop,
-    base_10k,
-    read_memory_10b_10k,
-    read_memory_10kib_1k,
-    write_memory_10b_10k,
-    write_memory_10kib_1k,
-    read_register_10b_10k,
-    read_register_10kib_1k,
-    write_register_10b_10k,
-    write_register_10kib_1k,
-    utf8_log_10b_10k,
-    utf8_log_10kib_1k,
-    nul_utf8_log_10b_10k,
-    nul_utf8_log_10kib_1k,
-    utf16_log_10b_10k,
-    utf16_log_10kib_1k,
-    nul_utf16_log_10b_10k,
-    nul_utf16_log_10kib_1k,
-    sha256_10b_10k,
-    sha256_1kib_1k,
-
-    storage_write_10b_key_10b_value_1k,
-    storage_read_10b_key_10b_value_1k,
-    storage_has_key_10b_key_10b_value_1k,
-    storage_iter_prefix_10b_1000,
-    storage_iter_range_10b_from_10b_to_1000,
-    storage_next_10b_from_10b_to; storage_next_10b_from_10b_to_A,
-    storage_next_10kib_from_10b_to; storage_next_10kib_from_10b_to_A,
-    storage_next_10b_from_10kib_to; storage_next_10b_from_10kib_to_A,
-    storage_remove_10b_key_10b_value_1k,
-
-    storage_write_10kib_key_10b_value_100,
-    storage_read_10kib_key_10b_value_100,
-    storage_has_key_10kib_key_10b_value_100,
-    storage_iter_prefix_10kib_100,
-    storage_iter_range_10kib_from_10b_to_100,
-    storage_iter_range_10b_from_10kib_to_100,
-    storage_next_10b_from_10b_to; storage_next_10b_from_10b_to_B,
-    storage_next_10kib_from_10b_to; storage_next_10kib_from_10b_to_B,
-    storage_next_10b_from_10kib_to; storage_next_10b_from_10kib_to_B,
-    storage_remove_10kib_key_10b_value_100,
-
-    storage_write_10b_key_10kib_value_100,
-    storage_read_10b_key_10kib_value_100,
-    storage_has_key_10b_key_10kib_value_100,
-    storage_next_10b_from_10b_to; storage_next_10b_from_10b_to_C,
-    storage_next_10kib_from_10b_to; storage_next_10kib_from_10b_to_C,
-    storage_next_10b_from_10kib_to; storage_next_10b_from_10kib_to_C,
-    storage_remove_10b_key_10kib_value_100,
-
-    promise_and_1k,
-    promise_and_1k_on_1k_and,
-    promise_return_10k,
-    data_producer_10b,
-    data_producer_10kib,
-    data_receipt_10b_100,
-    data_receipt_10kib_10,
-    cpu_ram_soak_test,
-    }] {
+    for (metric, method_name) in v {
         testbed = measure_function(
             metric,
             method_name,
@@ -423,8 +400,8 @@ pub fn run(config: Config) {
         );
     }
 
-    let fees = crate::runtime_fees_generator::RuntimeFeesGenerator::new(&m);
-    println!("{}", fees);
+    //    let fees = crate::runtime_fees_generator::RuntimeFeesGenerator::new(&m);
+    //    println!("{}", fees);
     //    let ext_costs = crate::ext_costs_generator::ExtCostsGenerator::new(&m);
     //    println!("{}", ext_costs);
 
@@ -449,7 +426,6 @@ fn measure_function(
     let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
     let mut f = || {
         let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
-        let args: Vec<_> = (0..args_size).map(|_| rng.gen_range(b'a', b'z')).collect();
         let account_id = get_account_id(account_idx);
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
