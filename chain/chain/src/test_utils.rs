@@ -118,6 +118,8 @@ impl KeyValueRuntime {
         let mut state_size = HashMap::new();
         let data = kv_state.try_to_vec().unwrap();
         let data_len = data.len() as u64;
+        // StateRoot is actually faked here.
+        // We cannot do any reasonable validations of it in test_utils.
         state.insert(StateRoot::default(), kv_state);
         state_size.insert(StateRoot::default(), data_len);
         KeyValueRuntime {
@@ -743,6 +745,15 @@ impl RuntimeAdapter for KeyValueRuntime {
             data: self.state.read().unwrap().get(&state_root).unwrap().clone().try_to_vec()?,
             memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
         })
+    }
+
+    fn validate_state_root_node(
+        &self,
+        _state_root_node: &StateRootNode,
+        _state_root: &StateRoot,
+    ) -> Result<bool, Error> {
+        // We do not care about deeper validation in test_utils
+        Ok(true)
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

@@ -7,7 +7,7 @@ use near_primitives::types::StateRoot;
 
 use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
+use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -279,6 +279,15 @@ impl Trie {
             insertions,
             deletions: vec![],
         })
+    }
+
+    pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
+        match RawTrieNodeWithSize::decode(&bytes) {
+            Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
+            Err(_) => {
+                Err(StorageError::StorageInconsistentState(format!("Failed to decode node",)))
+            }
+        }
     }
 }
 

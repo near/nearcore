@@ -18,7 +18,7 @@ use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator}
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
@@ -941,18 +941,42 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .expect("Part was already validated earlier, so could never fail here"),
             );
         }
-        let trie_changes =
-            Trie::combine_state_parts(&state_root, &parts).expect("Failed to get trie update");
+        let trie_changes = Trie::combine_state_parts(&state_root, &parts)
+            .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         // TODO clean old states
         let trie = self.trie.clone();
-        let (store_update, _) = trie_changes.into(trie).expect("Failed to apply trie update");
+        let (store_update, _) = trie_changes.into(trie).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
     }
 
+    /// Panics if requested hash is not in storage.
+    /// Never returns Error
     fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error> {
         let (data, memory_usage) =
             self.trie.retrieve_root_node(state_root).expect("Failed to get root node");
         Ok(StateRootNode { data, memory_usage })
+    }
+
+    fn validate_state_root_node(
+        &self,
+        state_root_node: &StateRootNode,
+        state_root: &StateRoot,
+    ) -> Result<bool, Error> {
+        if hash(&state_root_node.data) != *state_root {
+            Ok(false)
+        } else {
+            match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
+                Ok(memory_usage) => {
+                    if memory_usage != state_root_node.memory_usage {
+                        // Invalid value of memory_usage
+                        Ok(false)
+                    } else {
+                        Ok(true)
+                    }
+                }
+                Err(_) => Ok(false), // Invalid state_root_node
+            }
+        }
     }
 }
 

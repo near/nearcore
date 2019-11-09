@@ -37,7 +37,9 @@ pub struct StatePartKey(pub u64, pub StateRoot);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateRootNode {
+    /// data is the serialized TrieNodeWithSize
     pub data: Vec<u8>,
+    /// memory_usage is a field of TrieNodeWithSize
     pub memory_usage: u64,
 }
 
@@ -405,6 +407,13 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Returns StateRootNode of a state.
     fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error>;
+
+    /// Validate StateRootNode of a state.
+    fn validate_state_root_node(
+        &self,
+        state_root_node: &StateRootNode,
+        state_root: &StateRoot,
+    ) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {

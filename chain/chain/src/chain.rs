@@ -1346,23 +1346,17 @@ impl Chain {
             .into());
         }
 
-        // 5. TODO MOO check state_root_node
-        /*if hash(&state_root_node.data.try_to_vec().expect("TODO MOO"))
-            != chunk.header.inner.prev_state_root
+        // 5. Checking that state_root_node is valid
+        if !self
+            .runtime_adapter
+            .validate_state_root_node(state_root_node, &chunk.header.inner.prev_state_root)?
         {
-            println!(
-                "HERE! {:?}, {:?} {:?} {:?}",
-                state_root_node,
-                hash(&state_root_node.try_to_vec().expect("TODO MOO")),
-                hash(&state_root_node.data.try_to_vec().expect("TODO MOO")),
-                chunk.header.inner.prev_state_root
-            );
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: state_root_node is invalid".into(),
             )
             .into());
-        }*/
+        }
 
         // Saving the header data.
         let mut store_update = self.store.owned_store().store_update();
