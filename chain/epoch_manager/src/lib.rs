@@ -14,6 +14,7 @@ use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochSummary;
 pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
+use std::cmp::max;
 
 mod proposals;
 mod reward_calculator;
@@ -81,6 +82,7 @@ impl EpochManager {
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         num_expected_chunks: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         slashed: &HashSet<AccountId>,
+        prev_validator_kickout: &HashSet<AccountId>,
     ) -> (HashSet<AccountId>, HashMap<AccountId, (u64, u64)>) {
         let mut all_kicked_out = true;
         let mut maximum_block_prod = 0;
@@ -120,6 +122,7 @@ impl EpochManager {
             }
 
             // Given the number of blocks we plan to have in one epoch, the following code should not overflow
+            let is_already_kicked_out = prev_validator_kickout.contains(&account_id);
             if !validator_kickout.contains(&account_id) {
                 validator_online_ratio.insert(
                     account_id.clone(),
@@ -129,9 +132,11 @@ impl EpochManager {
                         total_chunks_expected * expected_blocks * 2,
                     ),
                 );
-                all_kicked_out = false;
+                if !is_already_kicked_out {
+                    all_kicked_out = false;
+                }
             }
-            if num_blocks > maximum_block_prod {
+            if num_blocks > maximum_block_prod && !is_already_kicked_out {
                 maximum_block_prod = num_blocks;
                 max_validator_id = Some(i);
             }
@@ -209,8 +214,11 @@ impl EpochManager {
         let (num_expected_blocks, num_expected_chunks) = self.get_num_expected_blocks_and_chunks(
             &epoch_info,
             &first_block_info,
+            last_block_info.index,
             &produced_block_indices,
         )?;
+        let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
+        let prev_validator_kickout = self.get_epoch_info(&next_epoch_id)?.validator_kickout.clone();
 
         // Compute kick outs for validators who are offline.
         let (kickout, validator_online_ratio) = self.compute_kickout_info(
@@ -220,6 +228,7 @@ impl EpochManager {
             &chunk_validator_tracker,
             &num_expected_chunks,
             &slashed_validators,
+            &prev_validator_kickout,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
         debug!(
@@ -595,6 +604,7 @@ impl EpochManager {
         &mut self,
         epoch_info: &EpochInfo,
         epoch_first_block_info: &BlockInfo,
+        epoch_last_block_index: BlockIndex,
         produced_block_indices: &HashSet<BlockIndex>,
     ) -> Result<(HashMap<ValidatorId, u64>, HashMap<ShardId, HashMap<ValidatorId, u64>>), EpochError>
     {
@@ -603,10 +613,11 @@ impl EpochManager {
         let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?;
         let prev_epoch_last_block_index = prev_epoch_last_block.index;
         let num_shards = epoch_first_block_info.chunk_mask.len() as ShardId;
-        // We iterate from next index after previous epoch's last block, for epoch_length blocks.
-        for index in (prev_epoch_last_block_index + 1)
-            ..=(prev_epoch_last_block_index + self.config.epoch_length)
-        {
+        // We iterate from next index after previous epoch's last block
+        // to the expected end of this epoch or the actual end, whichever is larger.
+        let end_index =
+            max(epoch_last_block_index, prev_epoch_last_block_index + self.config.epoch_length);
+        for index in (prev_epoch_last_block_index + 1)..=end_index {
             num_expected_blocks
                 .entry(self.block_producer_from_info(epoch_info, index))
                 .and_modify(|e| *e += 1)
@@ -920,7 +931,52 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
-                reward(vec![("test1", 0), ("near", 0)]),
+                reward(vec![("near", 0)]),
+                0
+            )
+        );
+    }
+
+    /// When computing validator kickout, we should not kickout validators such that the union
+    /// of kickout for this epoch and last epoch equals the entire validator set.
+    #[test]
+    fn test_validator_kickout() {
+        let store = create_test_store();
+        let config = epoch_config(4, 1, 2, 0, 90);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(12);
+
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[6], 6, vec![]);
+        record_block(&mut epoch_manager, h[6], h[8], 8, vec![]);
+        record_block(&mut epoch_manager, h[8], h[9], 9, vec![]);
+        record_block(&mut epoch_manager, h[9], h[10], 10, vec![]);
+        let epoch_id = epoch_manager.get_next_epoch_id(&h[6]).unwrap();
+        assert_eq!(
+            epoch_manager.get_epoch_info(&epoch_id).unwrap().validator_kickout,
+            vec!["test2".to_string()].into_iter().collect()
+        );
+        let epoch_id = epoch_manager.get_next_epoch_id(&h[10]).unwrap();
+        assert_eq!(
+            epoch_manager.get_epoch_info(&epoch_id).unwrap(),
+            &epoch_info(
+                vec![("test1", amount_staked)],
+                vec![0, 0],
+                vec![vec![0, 0]],
+                vec![],
+                change_stake(vec![("test1", amount_staked)]),
+                reward(vec![("test2", 0), ("near", 0)]),
                 0
             )
         );
