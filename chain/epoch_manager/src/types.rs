@@ -24,8 +24,10 @@ pub struct EpochConfig {
     pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per each shard.
     pub avg_fisherman_per_shard: Vec<ValidatorId>,
-    /// Criterion for kicking out validators
-    pub validator_kickout_threshold: u8,
+    /// Criterion for kicking out block producers
+    pub block_producer_kickout_threshold: u8,
+    /// Criterion for kicking out chunk producers
+    pub chunk_producer_kickout_threshold: u8,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -50,6 +52,7 @@ pub struct EpochInfo {
     pub validator_reward: HashMap<AccountId, Balance>,
     /// Total inflation in the epoch
     pub inflation: Balance,
+    /// Validators who are kicked out in this epoch
     pub validator_kickout: HashSet<AccountId>,
 }
 
