@@ -24,6 +24,7 @@ use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum,
 use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+    Transaction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
@@ -125,9 +126,9 @@ pub struct ActionResult {
 }
 
 impl ActionResult {
-    pub fn merge(&mut self, mut next_result: ActionResult) {
-        self.gas_burnt += next_result.gas_burnt;
-        self.gas_used += next_result.gas_used;
+    pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), InvalidTxError> {
+        self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
+        self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
         if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
@@ -141,6 +142,7 @@ impl ActionResult {
             self.new_receipts.clear();
             self.validator_proposals.clear();
         }
+        Ok(())
     }
 }
 
@@ -178,6 +180,39 @@ impl Runtime {
             }
         });
         debug!(target: "runtime", "{}", log_str);
+    }
+
+    fn tx_cost(
+        &self,
+        transaction: &Transaction,
+        apply_state: &ApplyState,
+        sender_is_receiver: bool,
+    ) -> Result<(Gas, Gas, Balance), InvalidTxError> {
+        let mut gas_burnt: Gas = self
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .send_fee(sender_is_receiver);
+        gas_burnt = safe_add_gas(
+            gas_burnt,
+            total_send_fees(
+                &self.config.transaction_costs,
+                sender_is_receiver,
+                &transaction.actions,
+            )?,
+        )?;
+        let mut gas_used = safe_add_gas(
+            gas_burnt,
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
+        gas_used = safe_add_gas(
+            gas_used,
+            total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
+        )?;
+        gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
+        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
+        total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
+        Ok((gas_burnt, gas_used, total_cost))
     }
 
     /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
@@ -229,30 +264,10 @@ impl Runtime {
 
         let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = transaction.nonce;
-        let mut gas_burnt: Gas = self
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(sender_is_receiver);
-        gas_burnt = safe_add_gas(
-            gas_burnt,
-            total_send_fees(
-                &self.config.transaction_costs,
-                sender_is_receiver,
-                &transaction.actions,
-            )?,
-        )?;
-        let mut gas_used = safe_add_gas(
-            gas_burnt,
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-        )?;
-        gas_used = safe_add_gas(
-            gas_used,
-            total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
-        )?;
-        gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
-        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
-        total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
+
+        let (gas_burnt, gas_used, total_cost) =
+            self.tx_cost(&transaction, &apply_state, sender_is_receiver)?;
+
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
         })?;
@@ -314,13 +329,16 @@ impl Runtime {
             apply_state.gas_price,
             gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
                 / self.config.transaction_costs.burnt_gas_reward.denominator,
-        )?;
-        signer.amount = safe_add_balance(signer.amount, burnt_gas_reward)?;
+        )
+        .map_err(|_| InvalidTxError::CostOverflow)?;
+        signer.amount = safe_add_balance(signer.amount, burnt_gas_reward)
+            .map_err(|_| InvalidTxError::CostOverflow)?;
 
         set_account(state_update, &signer_id, &signer);
 
-        let validator_reward =
-            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - burnt_gas_reward;
+        let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
+            .map_err(|_| InvalidTxError::CostOverflow)?
+            - burnt_gas_reward;
 
         Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
     }
@@ -371,8 +389,12 @@ impl Runtime {
                     } else {
                         new_receipts.push(receipt);
                     }
-                    stats.total_rent_paid += verification_result.rent_paid;
-                    stats.total_validator_reward += verification_result.validator_reward;
+                    stats.total_rent_paid =
+                        safe_add_balance(stats.total_rent_paid, verification_result.rent_paid)?;
+                    safe_add_balance(
+                        stats.total_validator_reward,
+                        verification_result.validator_reward,
+                    )?;
                     ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(receipt_id),
                         logs: vec![],
@@ -427,7 +449,7 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
-                near_metrics::inc_counter(&metrics::ACTION_CREAT_ACCOUNT_TOTAL);
+                near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(apply_state, account, actor_id, receipt, &mut result);
             }
             Action::DeployContract(deploy_contract) => {
@@ -547,7 +569,7 @@ impl Runtime {
                     u64::max_value() - action_index as u64,
                 ),
                 is_last_action,
-            )?);
+            )?)?;
             // TODO storage error
             if result.result.is_err() {
                 break;
@@ -563,7 +585,7 @@ impl Runtime {
                     result.merge(ActionResult {
                         result: Err(ActionError::RentUnpaid(account_id.clone(), amount)),
                         ..Default::default()
-                    });
+                    })?;
                 } else {
                     set_account(state_update, account_id, account);
                 }
@@ -591,7 +613,7 @@ impl Runtime {
         // Committing or rolling back state.
         match &result.result {
             Ok(_) => {
-                stats.total_rent_paid += rent_paid;
+                stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
                 state_update.commit();
             }
             Err(_) => {

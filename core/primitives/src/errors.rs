@@ -233,12 +233,22 @@ impl Display for BalanceMismatchError {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct IntegerOverflowError;
+
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
+    UnexpectedIntegerOverflow,
     InvalidTxError(InvalidTxError),
     StorageError(StorageError),
     BalanceMismatch(BalanceMismatchError),
+}
+
+impl From<IntegerOverflowError> for InvalidTxError {
+    fn from (_: IntegerOverflowError) -> Self {
+        InvalidTxError::CostOverflow
+    }
 }
 
 impl From<StorageError> for RuntimeError {
