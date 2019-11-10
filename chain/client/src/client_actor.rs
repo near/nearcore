@@ -39,8 +39,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
-    Status, StatusSyncInfo, SyncStatus,
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload,
+    ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -75,7 +75,7 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     let chrono_seconds = genesis_time.signed_duration_since(now).num_seconds();
     //check if number of seconds in chrono::Duration larger than zero
     if chrono_seconds > 0 {
-        info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
+        info!(target: "near", "Waiting until genesis: {}", chrono_seconds);
         let seconds = Duration::from_secs(chrono_seconds as u64);
         thread::sleep(seconds);
     }
@@ -257,14 +257,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id) => {
-                if self.client.collect_block_approval(&account_id, &hash, &signature, &peer_id) {
+            NetworkClientMessages::BlockApproval(approval, peer_id) => {
+                if self.client.collect_block_approval(&approval, &peer_id) {
                     NetworkClientResponses::NoResponse
                 } else {
-                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
+                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", approval.account_id, approval.parent_hash, approval.signature);
                     NetworkClientResponses::NoResponse
 
-                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban him.
+                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban them.
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
@@ -322,43 +322,44 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 hash,
                 shard_state,
             }) => {
-                // Populate the hashmaps with shard statuses that might be interested in this state
-                let mut shards_to_download_vec = vec![];
+                // Get the download that matches the shard_id and hash
+                let download = {
+                    let mut download: Option<&mut ShardSyncDownload> = None;
 
-                // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shards_to_download) =
-                    &mut self.client.sync_status
-                {
-                    if hash == *sync_hash {
-                        shards_to_download_vec.push(shards_to_download);
-                    }
-                }
-
-                // ... Or one of the catchups
-                for (sync_hash, state_sync_info) in
-                    self.client.chain.store().iterate_state_sync_infos()
-                {
-                    if hash == sync_hash {
-                        assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-                        if let Some((_, shards_to_download)) =
-                            self.client.catchup_state_syncs.get_mut(&sync_hash)
-                        {
-                            shards_to_download_vec.push(shards_to_download);
+                    // ... It could be that the state was requested by the state sync
+                    if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                        &mut self.client.sync_status
+                    {
+                        if hash == *sync_hash {
+                            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                                assert!(
+                                    download.is_none(),
+                                    "Internal downloads set has duplicates"
+                                );
+                                download = Some(shard_download);
+                            } else {
+                                // TODO: figure out when this happens, potentially ban peer
+                                error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                            }
                         }
-                        // We should not be requesting the same state twice.
-                        break;
                     }
-                }
 
-                for shards_to_download in shards_to_download_vec {
-                    let shard_sync_download = if shards_to_download.contains_key(&shard_id) {
-                        &shards_to_download[&shard_id]
-                    } else {
-                        // TODO is this correct behavior?
-                        continue;
-                    };
-                    let mut new_shard_download = shard_sync_download.clone();
-
+                    // ... Or one of the catchups
+                    if let Some((_, shards_to_download)) =
+                        self.client.catchup_state_syncs.get_mut(&hash)
+                    {
+                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                            assert!(download.is_none(), "Internal downloads set has duplicates");
+                            download = Some(shard_download);
+                        } else {
+                            // TODO: figure out when this happens, potentially ban peer
+                            error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                        }
+                    }
+                    // We should not be requesting the same state twice.
+                    download
+                };
+                if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = &shard_state.header {
@@ -369,10 +370,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                         header.clone(),
                                     ) {
                                         Ok(()) => {
-                                            new_shard_download.downloads[0].done = true;
+                                            shard_sync_download.downloads[0].done = true;
                                         }
-                                        Err(_err) => {
-                                            new_shard_download.downloads[0].error = true;
+                                        Err(err) => {
+                                            error!(target: "sync", "State sync header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                            shard_sync_download.downloads[0].error = true;
                                         }
                                     }
                                 }
@@ -392,46 +394,36 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                         part.clone(),
                                     ) {
                                         Ok(()) => {
-                                            new_shard_download.downloads[part_id].done = true;
+                                            shard_sync_download.downloads[part_id].done = true;
                                         }
-                                        Err(_err) => {
-                                            new_shard_download.downloads[part_id].error = true;
+                                        Err(err) => {
+                                            error!(target: "sync", "State sync part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                            shard_sync_download.downloads[part_id].error = true;
                                         }
                                     }
                                 }
                             }
                         }
-                        _ => {
-                            continue;
-                        }
+                        _ => {}
                     }
-
-                    shards_to_download.insert(shard_id, new_shard_download);
+                } else {
+                    error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPartRequest(part_request_msg, route_back) => {
-                let _ =
-                    self.client.shards_mgr.process_chunk_part_request(part_request_msg, route_back);
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, route_back) => {
-                let _ = self.client.shards_mgr.process_chunk_one_part_request(
+            NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
+                let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
                     part_request_msg,
                     route_back,
                     self.client.chain.mut_store(),
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::ChunkPart(part_msg) => {
-                if let Ok(accepted_blocks) = self.client.process_chunk_part(part_msg) {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::ChunkOnePart(one_part_msg) => {
-                if let Ok(accepted_blocks) = self.client.process_chunk_one_part(one_part_msg) {
+            NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                if let Ok(accepted_blocks) =
+                    self.client.process_partial_encoded_chunk(partial_encoded_chunk)
+                {
                     self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
@@ -636,7 +628,7 @@ impl ClientActor {
 
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
         if self.client.block_producer.as_ref().map(|bp| bp.account_id.clone())
-            == Some(next_block_producer_account)
+            == Some(next_block_producer_account.clone())
         {
             // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
             if elapsed >= self.client.config.min_block_production_delay {
@@ -646,7 +638,25 @@ impl ClientActor {
                 }
             }
         } else {
-            if elapsed < self.client.config.max_block_wait_delay {
+            let num_blocks_missing = self.client.runtime_adapter.get_num_missing_blocks(
+                &head.epoch_id,
+                &head.last_block_hash,
+                &next_block_producer_account,
+            )?;
+            // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
+            if elapsed
+                < std::cmp::max(
+                    self.client
+                        .config
+                        .max_block_wait_delay
+                        .checked_sub(
+                            self.client.config.reduce_wait_for_missing_block
+                                * num_blocks_missing as u32,
+                        )
+                        .unwrap_or(self.client.config.min_block_production_delay),
+                    self.client.config.min_block_production_delay,
+                )
+            {
                 // Next block producer is not this client, so just go for another loop iteration.
             } else {
                 // Upcoming block has not been seen in max block production delay, suggest to skip.
@@ -687,12 +697,29 @@ impl ClientActor {
     ) -> Result<(), Error> {
         match self.client.produce_block(next_height, elapsed_since_last_block) {
             Ok(Some(block)) => {
+                let block_hash = block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
-                if res.is_err() {
-                    error!(target: "client", "Failed to process freshly produced block: {:?}", res);
-                    byzantine_assert!(false);
+                match &res {
+                    Ok(_) => Ok(()),
+                    Err(e) => match e.kind() {
+                        near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
+                            debug!(
+                                "Chunks were missing for newly produced block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
+                                block_hash,
+                                self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                                missing_chunks.clone(),
+                                missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
+                            );
+                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
+                            Ok(())
+                        }
+                        _ => {
+                            error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                            byzantine_assert!(false);
+                            res.map_err(|err| err.into())
+                        }
+                    },
                 }
-                res.map_err(|err| err.into())
             }
             Ok(None) => Ok(()),
             Err(err) => Err(err),
@@ -764,17 +791,18 @@ impl ClientActor {
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
+                        target: "client",
                         "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
                         self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+                    self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
-                    debug!("Process block: block {} refused by chain: {}", hash, e.kind());
+                    debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
                     NetworkClientResponses::NoResponse
                 }
             },
@@ -783,7 +811,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "Received block header {} at {} from {}", hash, header.inner.height, peer_info);
+        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.client.process_block_header(&header);
@@ -791,10 +819,12 @@ impl ClientActor {
         match result {
             Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
                 // Block header is either invalid or arrived too early. We ignore it.
+                debug!(target: "client", "Epoch out of bound for header {}", e);
                 return NetworkClientResponses::NoResponse;
             }
             Err(ref e) if e.is_bad_data() => {
-                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
+                debug!(target: "client", "Error on receival of header: {}", e);
+                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
@@ -1006,9 +1036,9 @@ impl ClientActor {
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
-                _ if highest_height <= self.client.config.block_header_fetch_horizon
-                    || header_head.height
-                        >= highest_height - self.client.config.block_header_fetch_horizon =>
+                _ if header_head.height
+                    >= highest_height
+                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
@@ -1087,7 +1117,7 @@ impl ClientActor {
                             accepted_blocks.write().unwrap().drain(..).collect(),
                         );
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.client.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+                            self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
                         }
 
                         self.client.sync_status =

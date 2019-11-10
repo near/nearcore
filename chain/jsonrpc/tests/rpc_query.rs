@@ -34,8 +34,6 @@ fn test_block() {
                 CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
             );
             assert!(res.header.timestamp > 0);
-            assert_eq!(res.header.approval_mask.len(), 0);
-            assert_eq!(res.header.approval_sigs, vec![]);
             assert_eq!(res.header.total_weight, 0);
             assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();

@@ -1,5 +1,4 @@
-use crate::remote_node::{get_result, RemoteNode, MAX_BLOCKS_FETCH};
-use std::cmp::min;
+use crate::remote_node::{get_result, RemoteNode};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -17,7 +16,7 @@ pub struct Stats {
     pub out_tx_counter: AtomicU64,
     pub out_tx_counter_frozen: Option<u64>,
     /// Number of committed transactions.
-    pub committed_transacionts: Option<u64>,
+    pub committed_transactions: Option<u64>,
 }
 
 impl std::fmt::Display for Stats {
@@ -28,7 +27,7 @@ impl std::fmt::Display for Stats {
         let time_passed =
             self.to_timestamp.unwrap().duration_since(self.from_timestamp.unwrap()).as_secs();
         let bps = (blocks_passed as f64) / (time_passed as f64);
-        let total_txs = self.committed_transacionts.unwrap();
+        let total_txs = self.committed_transactions.unwrap();
 
         write!(f, "Start block:\t{}\n", from_height)?;
         write!(f, "End block:\t{}\n", to_height)?;
@@ -54,7 +53,7 @@ impl Stats {
             to_timestamp: None,
             out_tx_counter: AtomicU64::new(0),
             out_tx_counter_frozen: None,
-            committed_transacionts: None,
+            committed_transactions: None,
         }
     }
 
@@ -81,17 +80,12 @@ impl Stats {
         let mut curr_height = self.from_height.unwrap() + 1;
         let mut total_tx = 0u64;
         loop {
-            total_tx += get_result(|| {
-                node.get_transactions(
-                    curr_height,
-                    min(curr_height + MAX_BLOCKS_FETCH, self.to_height.unwrap()),
-                )
-            });
-            curr_height += MAX_BLOCKS_FETCH + 1;
+            total_tx += get_result(|| node.get_transactions(curr_height));
+            curr_height += 1;
             if curr_height > self.to_height.unwrap() {
                 break;
             }
         }
-        self.committed_transacionts = Some(total_tx);
+        self.committed_transactions = Some(total_tx);
     }
 }

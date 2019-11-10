@@ -222,7 +222,6 @@ pub fn setup_mock_all_validators(
                     let my_key_pair = my_key_pair.unwrap();
                     let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
-                    let my_account_id = account_id;
 
                     match msg {
                         NetworkRequests::FetchInfo { .. } => {
@@ -272,30 +271,16 @@ pub fn setup_mock_all_validators(
                             my_height_weight.1 =
                                 max(my_height_weight.1, block.header.inner.total_weight);
                         }
-                        NetworkRequests::ChunkPartRequest { account_id, part_request } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == account_id {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::ChunkPartRequest(
-                                                part_request.clone(),
-                                                my_address,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        NetworkRequests::ChunkOnePartRequest {
+                        NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
-                            one_part_request,
+                            request,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::ChunkOnePartRequest(
-                                                one_part_request.clone(),
+                                            NetworkClientMessages::PartialEncodedChunkRequest(
+                                                request.clone(),
                                                 my_address,
                                             ),
                                         );
@@ -303,38 +288,33 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
+                        NetworkRequests::PartialEncodedChunkResponse {
+                            route_back,
+                            partial_encoded_chunk,
+                        } => {
+                            for (i, address) in addresses.iter().enumerate() {
+                                if route_back == address {
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.read().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::PartialEncodedChunk(
+                                                partial_encoded_chunk.clone(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        NetworkRequests::PartialEncodedChunkMessage {
+                            account_id,
+                            partial_encoded_chunk,
+                        } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
                                     if !drop_chunks || !sample_binary(1, 10) {
                                         connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::ChunkOnePart(
-                                                header_and_part.clone(),
+                                            NetworkClientMessages::PartialEncodedChunk(
+                                                partial_encoded_chunk.clone(),
                                             ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::ChunkOnePart(
-                                                header_and_part.clone(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        NetworkRequests::ChunkPart { route_back, part } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    if !drop_chunks || !sample_binary(1, 10) {
-                                        connectors1.read().unwrap()[i].0.do_send(
-                                            NetworkClientMessages::ChunkPart(part.clone()),
                                         );
                                     }
                                 }
@@ -463,15 +443,13 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::BlockHeaderAnnounce {
                             header: _,
-                            approval: Some(approval),
+                            approval_message: Some(approval_message),
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == &approval.target {
+                                if name == &approval_message.target {
                                     connectors1.read().unwrap()[i].0.do_send(
                                         NetworkClientMessages::BlockApproval(
-                                            my_account_id.to_string(),
-                                            approval.hash,
-                                            approval.signature.clone(),
+                                            approval_message.approval.clone(),
                                             my_key_pair.id.clone(),
                                         ),
                                     );

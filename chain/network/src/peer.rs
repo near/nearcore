@@ -36,7 +36,40 @@ const MAX_TRACK_SIZE: usize = 30;
 
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = 50000;
+const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
+
+/// Internal structure to keep a circular queue within a tracker with unique hashes.
+struct CircularUniqueQueue {
+    v: Vec<CryptoHash>,
+    index: usize,
+    limit: usize,
+}
+
+impl CircularUniqueQueue {
+    pub fn new(limit: usize) -> Self {
+        assert!(limit > 0);
+        Self { v: Vec::with_capacity(limit), index: 0, limit }
+    }
+
+    pub fn contains(&self, hash: &CryptoHash) -> bool {
+        self.v.contains(hash)
+    }
+
+    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
+    pub fn push(&mut self, hash: CryptoHash) {
+        if !self.contains(&hash) {
+            if self.v.len() < self.limit {
+                self.v.push(hash);
+            } else {
+                self.v[self.index] = hash;
+                self.index += 1;
+                if self.index == self.limit {
+                    self.index = 0;
+                }
+            }
+        }
+    }
+}
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
@@ -46,9 +79,9 @@ pub struct Tracker {
     /// Bytes we've received.
     received_bytes: RateCounter,
     /// Sent requests.
-    requested: Vec<CryptoHash>,
+    requested: CircularUniqueQueue,
     /// Received elements.
-    received: Vec<CryptoHash>,
+    received: CircularUniqueQueue,
 }
 
 impl Default for Tracker {
@@ -56,8 +89,8 @@ impl Default for Tracker {
         Tracker {
             sent_bytes: RateCounter::new(),
             received_bytes: RateCounter::new(),
-            requested: Default::default(),
-            received: Default::default(),
+            requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
+            received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
         }
     }
 }
@@ -76,12 +109,7 @@ impl Tracker {
     }
 
     fn push_received(&mut self, hash: CryptoHash) {
-        if self.received.len() > MAX_TRACK_SIZE {
-            self.received.truncate(MAX_TRACK_SIZE)
-        }
-        if !self.received.contains(&hash) {
-            self.received.insert(0, hash);
-        }
+        self.received.push(hash);
     }
 
     fn has_request(&self, hash: CryptoHash) -> bool {
@@ -89,12 +117,7 @@ impl Tracker {
     }
 
     fn push_request(&mut self, hash: CryptoHash) {
-        if self.requested.len() > MAX_TRACK_SIZE {
-            self.requested.truncate(MAX_TRACK_SIZE);
-        }
-        if !self.requested.contains(&hash) {
-            self.requested.insert(0, hash);
-        }
+        self.requested.push(hash);
     }
 }
 
@@ -221,6 +244,7 @@ impl Peer {
     }
 
     fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
+        info!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         ctx.stop();
     }
@@ -271,8 +295,8 @@ impl Peer {
                 msg_hash = Some(routed_message.hash());
 
                 match routed_message.body {
-                    RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                        NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+                    RoutedMessageBody::BlockApproval(approval) => {
+                        NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
                         NetworkClientMessages::Transaction(transaction)
@@ -301,19 +325,15 @@ impl Peer {
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
-                    RoutedMessageBody::ChunkPartRequest(request) => {
-                        NetworkClientMessages::ChunkPartRequest(request, msg_hash.clone().unwrap())
-                    }
-                    RoutedMessageBody::ChunkOnePartRequest(request) => {
-                        NetworkClientMessages::ChunkOnePartRequest(
+                    RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                        NetworkClientMessages::PartialEncodedChunkRequest(
                             request,
                             msg_hash.clone().unwrap(),
                         )
                     }
-                    RoutedMessageBody::ChunkOnePart(one_part) => {
-                        NetworkClientMessages::ChunkOnePart(one_part)
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
+                        NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)
                     }
-                    RoutedMessageBody::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
                     RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type");
                         return;
@@ -707,5 +727,80 @@ impl Handler<PeerManagerRequest> for Peer {
                 ctx.stop();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_primitives::hash::hash;
+
+    #[test]
+    #[should_panic]
+    fn test_circular_queue_zero_capacity() {
+        let _ = CircularUniqueQueue::new(0);
+    }
+
+    #[test]
+    fn test_circular_queue_empty_queue() {
+        let q = CircularUniqueQueue::new(5);
+
+        assert!(!q.contains(&hash(&[0])));
+    }
+
+    #[test]
+    fn test_circular_queue_partially_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=3 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=3 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=5 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=5 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_over_full_queue() {
+        let mut q = CircularUniqueQueue::new(5);
+        for i in 1..=7 {
+            q.push(hash(&[i]));
+        }
+
+        for i in 1..=2 {
+            assert!(!q.contains(&hash(&[i])));
+        }
+        for i in 3..=7 {
+            assert!(q.contains(&hash(&[i])));
+        }
+    }
+
+    #[test]
+    fn test_circular_queue_similar_inputs() {
+        let mut q = CircularUniqueQueue::new(5);
+        q.push(hash(&[5]));
+        for _ in 0..3 {
+            for i in 1..=3 {
+                for _ in 0..5 {
+                    q.push(hash(&[i]));
+                }
+            }
+        }
+        for i in 1..=3 {
+            assert!(q.contains(&hash(&[i])));
+        }
+        assert!(q.contains(&hash(&[5])));
     }
 }

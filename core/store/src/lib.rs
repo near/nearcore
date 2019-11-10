@@ -25,8 +25,8 @@ use near_primitives::utils::{
 };
 
 pub use crate::trie::{
-    update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
-    TrieIterator, WrappedTrieChanges,
+    iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
+    update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 pub mod test_utils;
@@ -45,7 +45,7 @@ pub const COL_PEERS: Option<u32> = Some(9);
 pub const COL_EPOCH_INFO: Option<u32> = Some(10);
 pub const COL_BLOCK_INFO: Option<u32> = Some(11);
 pub const COL_CHUNKS: Option<u32> = Some(12);
-pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
+pub const COL_PARTIAL_CHUNKS: Option<u32> = Some(13);
 /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
 pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded
@@ -56,7 +56,9 @@ pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
 pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
 /// Store hash of a block per each height, to detect double signs.
 pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
-const NUM_COLS: u32 = 21;
+pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
+pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
+const NUM_COLS: u32 = 23;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

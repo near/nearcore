@@ -36,7 +36,7 @@ pub fn proposals_to_epoch_info(
     rng_seed: RngSeed,
     epoch_info: &EpochInfo,
     proposals: Vec<ValidatorStake>,
-    validator_kickout: HashSet<AccountId>,
+    mut validator_kickout: HashSet<AccountId>,
     validator_reward: HashMap<AccountId, Balance>,
     inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
@@ -86,7 +86,7 @@ pub fn proposals_to_epoch_info(
             final_proposals.push(p);
         } else {
             stake_change
-                .entry(account_id)
+                .entry(account_id.clone())
                 .and_modify(|(new_stake, return_stake)| {
                     if *new_stake != 0 {
                         *return_stake += *new_stake;
@@ -94,6 +94,9 @@ pub fn proposals_to_epoch_info(
                     }
                 })
                 .or_insert((0, p.amount));
+            if epoch_info.validator_to_index.contains_key(&account_id) {
+                validator_kickout.insert(account_id);
+            }
         }
     }
 
@@ -152,6 +155,7 @@ pub fn proposals_to_epoch_info(
         stake_change: final_stake_change,
         validator_reward,
         inflation,
+        validator_kickout,
     })
 }
 
@@ -177,7 +181,7 @@ mod tests {
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
-                HashSet::new(),
+                HashSet::default(),
                 HashMap::default(),
                 0
             )
@@ -209,7 +213,7 @@ mod tests {
                     stake("test2", 1_000_000),
                     stake("test3", 1_000_000)
                 ],
-                HashSet::new(),
+                HashSet::default(),
                 HashMap::default(),
                 0
             )

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,12 +38,15 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.chunks.clone(),
         b1.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
     let epoch_id = b1.header.inner.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -135,12 +138,15 @@ fn create_invalid_proofs_chunk(
         2,
         vec![chunk.header.clone()],
         last_block.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -242,12 +248,15 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner.height + 1,
         vec![invalid_chunk.header.clone()],
         last_block.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
 
     let challenge_body = {
@@ -343,10 +352,11 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     );
 
     assert!(env.clients[1]
-        .process_chunk_one_part(chunk.create_chunk_one_part(
-            0,
+        .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
+            vec![0],
+            true,
             one_part_receipt_proofs,
-            merkle_paths[0].clone()
+            &vec![merkle_paths[0].clone()]
         ))
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);

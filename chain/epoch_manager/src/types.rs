@@ -50,6 +50,7 @@ pub struct EpochInfo {
     pub validator_reward: HashMap<AccountId, Balance>,
     /// Total inflation in the epoch
     pub inflation: Balance,
+    pub validator_kickout: HashSet<AccountId>,
 }
 
 /// Information per each block.
@@ -69,6 +70,8 @@ pub struct BlockInfo {
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
+    /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
+    pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
 }
 
 impl BlockInfo {
@@ -94,7 +97,38 @@ impl BlockInfo {
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
+            block_tracker: HashMap::default(),
         }
+    }
+
+    /// Updates block tracker given previous block tracker and current epoch info.
+    pub fn update_block_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        prev_block_index: BlockIndex,
+        mut prev_block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+    ) {
+        let block_producer_id = epoch_info.block_producers
+            [(self.index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+        prev_block_tracker
+            .entry(block_producer_id)
+            .and_modify(|(produced, expected)| {
+                *produced += 1;
+                *expected += 1;
+            })
+            .or_insert((1, 1));
+        // Iterate over all skipped blocks and increase the number of expected blocks.
+        for index in prev_block_index + 1..self.index {
+            let bp = epoch_info.block_producers
+                [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+            prev_block_tracker
+                .entry(bp)
+                .and_modify(|(_produced, expected)| {
+                    *expected += 1;
+                })
+                .or_insert((0, 1));
+        }
+        self.block_tracker = prev_block_tracker;
     }
 }
 

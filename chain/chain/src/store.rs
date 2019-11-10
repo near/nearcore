@@ -10,21 +10,23 @@ use chrono::Utc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkOnePart, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
-use near_primitives::types::{BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
     COL_BLOCK_EXTRA, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_BLOCK_PER_HEIGHT,
-    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS,
-    COL_INVALID_CHUNKS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
+    COL_LAST_APPROVALS_PER_ACCOUNT, COL_MY_LAST_APPROVALS_PER_CHAIN, COL_OUTGOING_RECEIPTS,
+    COL_PARTIAL_CHUNKS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use near_primitives::block::{Approval, Weight};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::merkle::MerklePath;
 
@@ -33,6 +35,8 @@ const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
+const LARGEST_APPROVED_WEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_WEIGHT";
+const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -162,10 +166,15 @@ pub trait ChainStoreAccess {
     fn sync_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+    /// Largest weight and score for which the approval was ever created
+    fn largest_approved_weight(&self) -> Result<Weight, Error>;
+    fn largest_approved_score(&self) -> Result<Weight, Error>;
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retrieval.
     fn get_chunk_clone_from_header(
         &mut self,
@@ -191,8 +200,6 @@ pub trait ChainStoreAccess {
             }
         }
     }
-    /// Get chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
@@ -240,6 +247,11 @@ pub trait ChainStoreAccess {
         self.get_block_header(&hash)
     }
     /// Returns resulting receipt for given block.
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error>;
+    /// Returns resulting receipt for given block.
+    fn get_last_approval_for_account(&mut self, account_id: &AccountId)
+        -> Result<&Approval, Error>;
+    /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
@@ -286,8 +298,8 @@ pub struct ChainStore {
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
     chunks: SizedCache<Vec<u8>, ShardChunk>,
-    /// Cache with chunk one parts
-    chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
+    /// Cache with partial chunks
+    partial_chunks: SizedCache<Vec<u8>, PartialEncodedChunk>,
     /// Cache with block extra.
     block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
@@ -296,6 +308,10 @@ pub struct ChainStore {
     block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with index to hash on any chain.
     block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    /// Cache of my last approvals
+    my_last_approvals: SizedCache<Vec<u8>, Approval>,
+    /// Cache of last approvals for each account
+    last_approvals_per_account: SizedCache<Vec<u8>, Approval>,
     /// Cache with outgoing receipts.
     outgoing_receipts: SizedCache<Vec<u8>, Vec<Receipt>>,
     /// Cache with incoming receipts.
@@ -323,11 +339,13 @@ impl ChainStore {
             headers: SizedCache::with_size(CACHE_SIZE),
             header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
-            chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             block_index: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            my_last_approvals: SizedCache::with_size(CACHE_SIZE),
+            last_approvals_per_account: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             outcomes: SizedCache::with_size(CACHE_SIZE),
@@ -473,6 +491,22 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
+    /// Largest weight for which the approval was ever created
+    fn largest_approved_weight(&self) -> Result<Weight, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY),
+            "LARGEST_APPROVED_WEIGHT_KEY",
+        )
+    }
+
+    /// Largest score for which the approval was ever created
+    fn largest_approved_score(&self) -> Result<Weight, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY),
+            "LARGEST_APPROVED_SCORE_KEY",
+        )
+    }
+
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY), "HEADER_HEAD")
@@ -494,16 +528,16 @@ impl ChainStoreAccess for ChainStore {
         }
     }
 
-    /// Get Chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
-            COL_CHUNK_ONE_PARTS,
-            &mut self.chunk_one_parts,
-            header.chunk_hash().as_ref(),
+            COL_PARTIAL_CHUNKS,
+            &mut self.partial_chunks,
+            chunk_hash.as_ref(),
         ) {
-            Ok(Some(chunk_one_part)) => Ok(chunk_one_part),
-            _ => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
+            Ok(Some(shard_chunk)) => Ok(shard_chunk),
+            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
@@ -585,6 +619,33 @@ impl ChainStoreAccess for ChainStore {
                 &index_to_bytes(height),
             ),
             &format!("BLOCK PER HEIGHT: {}", height),
+        )
+    }
+
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_MY_LAST_APPROVALS_PER_CHAIN,
+                &mut self.my_last_approvals,
+                block_hash.as_ref(),
+            ),
+            &format!("MY LAST APPROVAL: {}", block_hash),
+        )
+    }
+
+    fn get_last_approval_for_account(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<&Approval, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_LAST_APPROVALS_PER_ACCOUNT,
+                &mut self.last_approvals_per_account,
+                account_id.as_ref(),
+            ),
+            &format!("LAST APPROVAL FOR ACCOUNT: {}", account_id),
         )
     }
 
@@ -685,9 +746,11 @@ struct ChainStoreCacheUpdate {
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
-    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
+    partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    my_last_approvals: HashMap<CryptoHash, Approval>,
+    last_approvals_per_account: HashMap<AccountId, Approval>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
     outcomes: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
@@ -703,9 +766,11 @@ impl ChainStoreCacheUpdate {
             block_extras: Default::default(),
             chunk_extras: HashMap::default(),
             chunks: Default::default(),
-            chunk_one_parts: Default::default(),
+            partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             block_index: Default::default(),
+            my_last_approvals: HashMap::default(),
+            last_approvals_per_account: HashMap::default(),
             outgoing_receipts: HashMap::default(),
             incoming_receipts: HashMap::default(),
             outcomes: Default::default(),
@@ -725,6 +790,8 @@ pub struct ChainStoreUpdate<'a> {
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    largest_approved_weight: Option<Weight>,
+    largest_approved_score: Option<Weight>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -746,6 +813,8 @@ impl<'a> ChainStoreUpdate<'a> {
             tail: None,
             header_head: None,
             sync_head: None,
+            largest_approved_weight: None,
+            largest_approved_score: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
@@ -839,6 +908,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn largest_approved_weight(&self) -> Result<Weight, Error> {
+        if let Some(largest_approved_weight) = &self.largest_approved_weight {
+            Ok(largest_approved_weight.clone())
+        } else {
+            self.chain_store.largest_approved_weight()
+        }
+    }
+
+    fn largest_approved_score(&self) -> Result<Weight, Error> {
+        if let Some(largest_approved_score) = &self.largest_approved_score {
+            Ok(largest_approved_score.clone())
+        } else {
+            self.chain_store.largest_approved_score()
+        }
+    }
+
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
@@ -908,6 +993,27 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
 
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
+        if let Some(approval) = self.chain_store_cache_update.my_last_approvals.get(block_hash) {
+            Ok(approval)
+        } else {
+            self.chain_store.get_my_last_approval(block_hash)
+        }
+    }
+
+    fn get_last_approval_for_account(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<&Approval, Error> {
+        if let Some(approval) =
+            self.chain_store_cache_update.last_approvals_per_account.get(account_id)
+        {
+            Ok(approval)
+        } else {
+            self.chain_store.get_last_approval_for_account(account_id)
+        }
+    }
+
     /// Get receipts produced for block with given hash.
     fn get_outgoing_receipts(
         &mut self,
@@ -953,6 +1059,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
+        if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
+            Ok(partial_chunk)
+        } else {
+            self.chain_store.get_partial_chunk(chunk_hash)
+        }
+    }
+
     fn get_chunk_clone_from_header(
         &mut self,
         header: &ShardChunkHeader,
@@ -961,14 +1075,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(chunk.clone())
         } else {
             self.chain_store.get_chunk_clone_from_header(header)
-        }
-    }
-
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        if let Some(one_part) = self.chain_store_cache_update.chunk_one_parts.get(&header.hash) {
-            Ok(one_part)
-        } else {
-            self.chain_store.get_chunk_one_part(header)
         }
     }
 
@@ -1092,6 +1198,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.sync_head = Some(t.clone());
     }
 
+    pub fn save_largest_approved_weight(&mut self, weight: &Weight) {
+        self.largest_approved_weight = Some(weight.clone());
+    }
+
+    pub fn save_largest_approved_score(&mut self, score: &Weight) {
+        self.largest_approved_score = Some(score.clone());
+    }
+
     /// Save new height if it's above currently latest known.
     pub fn try_save_latest_known(&mut self, height: BlockIndex) -> Result<(), Error> {
         let latest_known = self.get_latest_known().ok();
@@ -1125,8 +1239,12 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunks.insert(chunk_hash.clone(), chunk);
     }
 
-    pub fn save_chunk_one_part(&mut self, chunk_hash: &ChunkHash, one_part: ChunkOnePart) {
-        self.chain_store_cache_update.chunk_one_parts.insert(chunk_hash.clone(), one_part);
+    pub fn save_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+        partial_chunk: PartialEncodedChunk,
+    ) {
+        self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -1135,6 +1253,16 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_block_header(&mut self, header: BlockHeader) {
         self.chain_store_cache_update.headers.insert(header.hash(), header);
+    }
+
+    pub fn save_my_last_approval(&mut self, block_hash: &CryptoHash, approval: Approval) {
+        self.chain_store_cache_update.my_last_approvals.insert(block_hash.clone(), approval);
+    }
+
+    pub fn save_last_approval_for_account(&mut self, account_id: &AccountId, approval: Approval) {
+        self.chain_store_cache_update
+            .last_approvals_per_account
+            .insert(account_id.clone(), approval);
     }
 
     pub fn save_outgoing_receipt(
@@ -1223,6 +1351,16 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
+        if let Some(t) = self.largest_approved_weight {
+            store_update
+                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        if let Some(t) = self.largest_approved_score {
+            store_update
+                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             store_update
                 .set_ser(COL_BLOCK, hash.as_ref(), block)
@@ -1272,9 +1410,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(COL_CHUNKS, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (chunk_hash, chunk_one_part) in self.chain_store_cache_update.chunk_one_parts.iter() {
+        for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update
-                .set_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref(), chunk_one_part)
+                .set_ser(COL_PARTIAL_CHUNKS, chunk_hash.as_ref(), partial_chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.chain_store_cache_update.block_index.iter() {
@@ -1285,6 +1423,14 @@ impl<'a> ChainStoreUpdate<'a> {
             } else {
                 store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(*height));
             }
+        }
+        for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
+            store_update.set_ser(COL_MY_LAST_APPROVALS_PER_CHAIN, block_hash.as_ref(), approval)?;
+        }
+        for (account_id, approval) in
+            self.chain_store_cache_update.last_approvals_per_account.iter()
+        {
+            store_update.set_ser(COL_LAST_APPROVALS_PER_ACCOUNT, account_id.as_ref(), approval)?;
         }
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.outgoing_receipts.iter()
@@ -1402,9 +1548,11 @@ impl<'a> ChainStoreUpdate<'a> {
             block_extras,
             chunk_extras,
             chunks,
-            chunk_one_parts,
+            partial_chunks,
             block_hash_per_height,
             block_index,
+            last_approvals_per_account,
+            my_last_approvals,
             outgoing_receipts,
             incoming_receipts,
             outcomes,
@@ -1429,8 +1577,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for (hash, chunk) in chunks {
             self.chain_store.chunks.cache_set(hash.into(), chunk);
         }
-        for (hash, chunk_one_part) in chunk_one_parts {
-            self.chain_store.chunk_one_parts.cache_set(hash.into(), chunk_one_part);
+        for (hash, partial_chunk) in partial_chunks {
+            self.chain_store.partial_chunks.cache_set(hash.into(), partial_chunk);
         }
         for (height, epoch_id_to_hash) in block_hash_per_height {
             self.chain_store
@@ -1444,6 +1592,12 @@ impl<'a> ChainStoreUpdate<'a> {
             } else {
                 self.chain_store.block_index.cache_remove(&bytes);
             }
+        }
+        for (account_id, approval) in last_approvals_per_account {
+            self.chain_store.last_approvals_per_account.cache_set(account_id.into(), approval);
+        }
+        for (block_hash, approval) in my_last_approvals {
+            self.chain_store.my_last_approvals.cache_set(block_hash.into(), approval);
         }
         for ((block_hash, shard_id), shard_outgoing_receipts) in outgoing_receipts {
             let key = get_block_shard_id(&block_hash, shard_id);

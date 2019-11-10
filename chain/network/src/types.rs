@@ -15,15 +15,14 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockApproval, BlockHeader, Weight};
+use near_chain::{Block, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::GenesisId;
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -292,7 +291,7 @@ pub struct Pong {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(Approval),
     ForwardTx(SignedTransaction),
 
     TxStatusRequest(AccountId, CryptoHash),
@@ -308,12 +307,8 @@ pub enum RoutedMessageBody {
     },
     StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
     StateResponse(StateResponseInfo),
-
-    ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkOnePartRequestMsg),
-    ChunkOnePart(ChunkOnePart),
-    ChunkPart(ChunkPartMsg),
-
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunk(PartialEncodedChunk),
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -409,8 +404,7 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
             | RoutedMessageBody::StateRequest(_, _, _, _)
-            | RoutedMessageBody::ChunkPartRequest(_)
-            | RoutedMessageBody::ChunkOnePartRequest(_)
+            | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
         }
@@ -499,7 +493,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
                 RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
                 RoutedMessageBody::TxStatusResponse(_) => {
@@ -509,10 +503,10 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
                 RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
-                RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
-                RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
-                RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
-                RoutedMessageBody::ChunkPart(_) => f.write_str("ChunkPart"),
+                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
+                    f.write_str("PartialEncodedChunkRequest")
+                }
+                RoutedMessageBody::PartialEncodedChunk(_) => f.write_str("PartialEncodedChunk"),
                 RoutedMessageBody::Ping(_) => f.write_str("Ping"),
                 RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
@@ -597,7 +591,7 @@ impl PeerMessage {
                 near_metrics::inc_counter_by(&metrics::TRANSACTION_RECEIVED_BYTES, size as i64);
             }
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => {
+                RoutedMessageBody::BlockApproval(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_BYTES,
@@ -653,30 +647,19 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::ChunkPartRequest(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_PART_REQUEST_RECEIVED_BYTES,
-                        size as i64,
-                    );
-                }
-                RoutedMessageBody::ChunkOnePartRequest(_) => {
+                RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     near_metrics::inc_counter(
-                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_TOTAL,
+                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_TOTAL,
                     );
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_ONE_PART_REQUEST_RECEIVED_BYTES,
+                        &metrics::ROUTED_PARTIAL_CHUNK_REQUEST_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
-                RoutedMessageBody::ChunkPart(_) => {
-                    near_metrics::inc_counter(&metrics::CHUNK_PART_RECEIVED_TOTAL);
-                    near_metrics::inc_counter_by(&metrics::CHUNK_PART_RECEIVED_BYTES, size as i64);
-                }
-                RoutedMessageBody::ChunkOnePart(_) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_TOTAL);
+                RoutedMessageBody::PartialEncodedChunk(_) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_CHUNK_ONE_PART_RECEIVED_BYTES,
+                        &metrics::ROUTED_PARTIAL_CHUNK_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -911,7 +894,7 @@ pub enum NetworkRequests {
     /// participating in this epoch.
     BlockHeaderAnnounce {
         header: BlockHeader,
-        approval: Option<BlockApproval>,
+        approval_message: Option<ApprovalMessage>,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -939,30 +922,20 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
-    /// Request chunk part
-    ChunkPartRequest {
+    /// Request chunk parts and/or receipts
+    PartialEncodedChunkRequest {
         account_id: AccountId,
-        part_request: ChunkPartRequestMsg,
+        request: PartialEncodedChunkRequestMsg,
     },
-    /// Request chunk part and receipts
-    ChunkOnePartRequest {
-        account_id: AccountId,
-        one_part_request: ChunkOnePartRequestMsg,
-    },
-    /// Response to a peer with chunk part and receipts.
-    ChunkOnePartResponse {
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunkResponse {
         route_back: CryptoHash,
-        header_and_part: ChunkOnePart,
+        partial_encoded_chunk: PartialEncodedChunk,
     },
-    /// A chunk header and one part for another validator.
-    ChunkOnePartMessage {
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunkMessage {
         account_id: AccountId,
-        header_and_part: ChunkOnePart,
-    },
-    /// A chunk part
-    ChunkPart {
-        route_back: CryptoHash,
-        part: ChunkPartMsg,
+        partial_encoded_chunk: PartialEncodedChunk,
     },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
@@ -1081,7 +1054,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(Approval, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -1093,14 +1066,10 @@ pub enum NetworkClientMessages {
     /// Account announcements that needs to be validated before being processed.
     AnnounceAccount(Vec<AnnounceAccount>),
 
-    /// Request chunk part.
-    ChunkPartRequest(ChunkPartRequestMsg, CryptoHash),
-    /// Request chunk part.
-    ChunkOnePartRequest(ChunkOnePartRequestMsg, CryptoHash),
-    /// A chunk part.
-    ChunkPart(ChunkPartMsg),
-    /// A chunk header and one part.
-    ChunkOnePart(ChunkOnePart),
+    /// Request chunk parts and/or receipts.
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunk(PartialEncodedChunk),
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
@@ -1187,21 +1156,82 @@ impl Message for QueryPeerStats {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartRequestMsg {
-    pub shard_id: ShardId,
+pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
-    pub height: BlockIndex,
-    pub part_id: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkOnePartRequestMsg {
-    pub shard_id: ShardId,
-    pub chunk_hash: ChunkHash,
-    pub height: BlockIndex,
-    pub part_id: u64,
+    pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 
 #[derive(Message)]
 pub struct StopSignal {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    const ALLOWED_SIZE: usize = 1 << 20;
+    const NOTIFY_SIZE: usize = 1024;
+
+    macro_rules! assert_size {
+        ($type:ident) => {
+            let struct_size = size_of::<$type>();
+            if struct_size >= NOTIFY_SIZE {
+                println!("The size of {} is {}", stringify!($type), struct_size);
+            }
+            assert!(struct_size <= ALLOWED_SIZE);
+        };
+    }
+
+    #[test]
+    fn test_enum_size() {
+        assert_size!(PeerType);
+        assert_size!(PeerStatus);
+        assert_size!(HandshakeFailureReason);
+        assert_size!(RoutedMessageBody);
+        assert_size!(PeerIdOrHash);
+        assert_size!(KnownPeerStatus);
+        assert_size!(ConsolidateResponse);
+        assert_size!(PeerRequest);
+        assert_size!(PeerResponse);
+        assert_size!(ReasonForBan);
+        assert_size!(NetworkRequests);
+        assert_size!(PeerManagerRequest);
+        assert_size!(NetworkResponses);
+        assert_size!(NetworkClientMessages);
+        assert_size!(NetworkClientResponses);
+    }
+
+    #[test]
+    fn test_struct_size() {
+        assert_size!(PeerInfo);
+        assert_size!(PeerChainInfo);
+        assert_size!(Handshake);
+        assert_size!(AnnounceAccountRoute);
+        assert_size!(AnnounceAccount);
+        assert_size!(Ping);
+        assert_size!(Pong);
+        assert_size!(RawRoutedMessage);
+        assert_size!(RoutedMessageNoSignature);
+        assert_size!(RoutedMessage);
+        assert_size!(RoutedMessageFrom);
+        assert_size!(SyncData);
+        assert_size!(NetworkConfig);
+        assert_size!(KnownPeerState);
+        assert_size!(InboundTcpConnect);
+        assert_size!(OutboundTcpConnect);
+        assert_size!(SendMessage);
+        assert_size!(Consolidate);
+        assert_size!(Unregister);
+        assert_size!(PeerList);
+        assert_size!(PeersRequest);
+        assert_size!(PeersResponse);
+        assert_size!(Ban);
+        assert_size!(FullPeerInfo);
+        assert_size!(NetworkInfo);
+        assert_size!(StateResponseInfo);
+        assert_size!(QueryPeerStats);
+        assert_size!(PartialEncodedChunkRequestMsg);
+        assert_size!(StopSignal);
+    }
+}

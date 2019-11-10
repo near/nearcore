@@ -39,6 +39,10 @@ pub fn epoch_info(
         acc.insert(x.0.to_string(), i);
         acc
     });
+    let validator_kickout = stake_change
+        .iter()
+        .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
+        .collect();
     EpochInfo {
         validators: accounts
             .into_iter()
@@ -55,6 +59,7 @@ pub fn epoch_info(
         stake_change,
         validator_reward,
         inflation,
+        validator_kickout,
     }
 }
 
