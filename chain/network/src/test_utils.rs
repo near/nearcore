@@ -40,6 +40,7 @@ impl NetworkConfig {
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
             max_routes_to_store: 1,
+            most_weighted_peer_horizon: 100,
         }
     }
 }

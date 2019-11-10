@@ -738,7 +738,7 @@ impl Chain {
                 chain_update.commit()?;
 
                 if needs_to_start_fetching_state {
-                    debug!("Downloading state for block {}", block.hash());
+                    debug!(target: "chain", "Downloading state for block {}", block.hash());
                     self.start_downloading_state(me, &block)?;
                 }
 

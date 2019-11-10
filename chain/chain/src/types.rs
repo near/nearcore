@@ -444,8 +444,6 @@ impl Tip {
     }
 }
 
-/// Block approval by other block producers.
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,

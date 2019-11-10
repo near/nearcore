@@ -282,7 +282,12 @@ impl PeerManagerActor {
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.total_weight == max_weight {
+                if active_peer.full_peer_info.chain_info.total_weight.to_num()
+                    >= max_weight
+                        .to_num()
+                        .checked_sub(self.config.most_weighted_peer_horizon)
+                        .unwrap_or(0)
+                {
                     Some(active_peer.full_peer_info.clone())
                 } else {
                     None
