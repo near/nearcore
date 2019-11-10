@@ -636,10 +636,13 @@ impl ClientActor {
             // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
             if elapsed
                 < std::cmp::max(
-                    self.client.config.max_block_wait_delay
-                        - Duration::from_millis(
+                    self.client
+                        .config
+                        .max_block_wait_delay
+                        .checked_sub(Duration::from_millis(
                             num_blocks_missing * REDUCE_DELAY_FOR_MISSING_BLOCKS_MS,
-                        ),
+                        ))
+                        .unwrap_or(self.client.config.min_block_production_delay),
                     self.client.config.min_block_production_delay,
                 )
             {
@@ -1022,9 +1025,10 @@ impl ClientActor {
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
-                _ if highest_height <= self.client.config.block_header_fetch_horizon
-                    || header_head.height
-                        >= highest_height - self.client.config.block_header_fetch_horizon =>
+                _ if header_head.height
+                    >= highest_height
+                        .checked_sub(self.client.config.block_header_fetch_horizon)
+                        .unwrap_or(0) =>
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
