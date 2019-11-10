@@ -894,17 +894,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         if part_id >= num_parts {
             return Err("Invalid part_id in obtain_state_part".to_string().into());
         }
-        self
+        Ok(self
             .trie
             .get_trie_nodes_for_part(part_id, num_parts, state_root)
-            .map_err(|e| {
-                format!(
-                    "Cannot run obtain_state_part for part {:?}, num_parts {:?}, state_root {:?}: {:?}",
-                    part_id, num_parts, state_root, e
-                )
-                    .into()
-            })
-            .map(|a| a.try_to_vec().expect("Cannot serialize"))
+            .expect("storage should not fail")
+            .try_to_vec()
+            .expect("serializer should not fail"))
     }
 
     fn validate_state_part(
@@ -1671,7 +1666,9 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
+        assert!(env.runtime.obtain_state_part(&env.state_roots[0], 1, 1).is_err());
         let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1).unwrap();
+        let root_node = env.runtime.get_state_root_node(&env.state_roots[0]).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1706,6 +1703,26 @@ mod test {
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
         }
+        assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]).unwrap());
+        let mut root_node_wrong = root_node.clone();
+        root_node_wrong.memory_usage += 1;
+        assert!(!new_env
+            .runtime
+            .validate_state_root_node(&root_node_wrong, &env.state_roots[0])
+            .unwrap());
+        root_node_wrong.data = vec![123];
+        assert!(!new_env
+            .runtime
+            .validate_state_root_node(&root_node_wrong, &env.state_roots[0])
+            .unwrap());
+        assert!(!new_env
+            .runtime
+            .validate_state_part(&StateRoot::default(), 0, 1, &state_part)
+            .unwrap());
+        assert!(new_env
+            .runtime
+            .validate_state_part(&env.state_roots[0], 1, 1, &state_part)
+            .is_err());
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part).unwrap();
         new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
