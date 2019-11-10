@@ -290,6 +290,7 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
     if nodocker:
         install_cargo()
         compile_package('genesis-csv-to-json', is_release)
+        compile_package('near', is_release)
     else:
         try:
             subprocess.check_output(['docker', 'pull', image])
