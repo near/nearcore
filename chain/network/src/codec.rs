@@ -78,6 +78,7 @@ mod test {
     };
 
     use super::*;
+    use near_primitives::block::Approval;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -95,7 +96,7 @@ mod test {
             peer_id: peer_info.id,
             listen_port: None,
             chain_info: PeerChainInfo {
-                genesis: Default::default(),
+                genesis_id: Default::default(),
                 height: 0,
                 total_weight: 0.into(),
             },
@@ -143,11 +144,12 @@ mod test {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
-            body: RoutedMessageBody::BlockApproval(
-                "test2".to_string(),
-                CryptoHash::default(),
-                bls_signature,
-            ),
+            body: RoutedMessageBody::BlockApproval(Approval {
+                account_id: "test2".to_string(),
+                parent_hash: CryptoHash::default(),
+                reference_hash: CryptoHash::default(),
+                signature: bls_signature,
+            }),
         });
         test_codec(msg);
     }

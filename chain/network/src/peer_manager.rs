@@ -691,19 +691,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                if let Some(approval) = approval {
-                    if let Some(account_id) = self.config.account_id.clone() {
-                        self.send_message_to_account(
-                            ctx,
-                            &approval.target,
-                            RoutedMessageBody::BlockApproval(
-                                account_id,
-                                approval.hash,
-                                approval.signature,
-                            ),
-                        )
-                    }
+            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
+                if let Some(approval_message) = approval_message {
+                    self.send_message_to_account(
+                        ctx,
+                        &approval_message.target,
+                        RoutedMessageBody::BlockApproval(approval_message.approval),
+                    )
                 }
                 self.broadcast_message(
                     ctx,
@@ -757,47 +751,29 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPartRequest { account_id, part_request } => {
+            NetworkRequests::PartialEncodedChunkRequest { account_id, request } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::ChunkPartRequest(part_request),
+                    RoutedMessageBody::PartialEncodedChunkRequest(request),
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartRequest { account_id, one_part_request } => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::ChunkOnePartRequest(one_part_request),
-                );
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
+            NetworkRequests::PartialEncodedChunkResponse { route_back, partial_encoded_chunk } => {
                 self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
+                        body: RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
                     },
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPart { route_back, part } => {
-                self.send_message_to_peer(
-                    ctx,
-                    RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::ChunkPart(part),
-                    },
-                );
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
+            NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::ChunkOnePart(header_and_part),
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
                 );
                 NetworkResponses::NoResponse
             }
@@ -810,6 +786,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     ctx,
                     &account_id,
                     RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::Query { account_id, path, data, id } => {
+                self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::QueryRequest { path, data, id },
                 );
                 NetworkResponses::NoResponse
             }

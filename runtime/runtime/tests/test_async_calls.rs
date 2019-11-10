@@ -21,7 +21,7 @@ fn test_simple_func_call() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -56,7 +56,7 @@ fn test_single_promise_no_callback() {
         "method_name": "call_promise",
         "arguments": [],
         "amount": 0,
-        "gas": 300_000,
+        "gas": 300_000_000,
         }, "id": 0 }
     ]);
 
@@ -68,7 +68,7 @@ fn test_single_promise_no_callback() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -85,7 +85,7 @@ fn test_single_promise_no_callback() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -93,7 +93,7 @@ fn test_single_promise_no_callback() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref1]);
@@ -115,7 +115,7 @@ fn test_single_promise_with_callback() {
         "method_name": "call_promise",
         "arguments": [],
         "amount": 0,
-        "gas": 300_000,
+        "gas": 300_000_000,
         }, "id": 0 },
         {"then": {
         "promise_index": 0,
@@ -123,7 +123,7 @@ fn test_single_promise_with_callback() {
         "method_name": "call_promise",
         "arguments": [],
         "amount": 0,
-        "gas": 300_000,
+        "gas": 300_000_000,
         }, "id": 1}
     ]);
 
@@ -135,7 +135,7 @@ fn test_single_promise_with_callback() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -152,7 +152,7 @@ fn test_single_promise_with_callback() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, r2, ref0] );
@@ -164,7 +164,7 @@ fn test_single_promise_with_callback() {
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref1]);
@@ -175,7 +175,7 @@ fn test_single_promise_with_callback() {
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref2]);
@@ -203,11 +203,11 @@ fn test_two_promises_no_callbacks() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 300_000,
+            "gas": 300_000_000,
             }, "id": 0}
         ],
         "amount": 0,
-        "gas": 600_000,
+        "gas": 600_000_000,
         }, "id": 0 },
 
     ]);
@@ -220,7 +220,7 @@ fn test_two_promises_no_callbacks() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -237,7 +237,7 @@ fn test_two_promises_no_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -245,7 +245,7 @@ fn test_two_promises_no_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 600_000);
+                        assert_eq!(*gas, 600_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r2, ref1]);
@@ -253,7 +253,7 @@ fn test_two_promises_no_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref2]);
@@ -281,7 +281,7 @@ fn test_two_promises_with_two_callbacks() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 1_000_000,
+            "gas": 1_000_000_000,
             }, "id": 0},
 
             {"then": {
@@ -290,11 +290,11 @@ fn test_two_promises_with_two_callbacks() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 1_000_000,
+            "gas": 1_000_000_000,
             }, "id": 1}
         ],
         "amount": 0,
-        "gas": 3_000_000,
+        "gas": 3_000_000_000u64,
         }, "id": 0 },
 
         {"then": {
@@ -303,7 +303,7 @@ fn test_two_promises_with_two_callbacks() {
         "method_name": "call_promise",
         "arguments": [],
         "amount": 0,
-        "gas": 3_000_000,
+        "gas": 3_000_000_000u64,
         }, "id": 1}
     ]);
 
@@ -315,7 +315,7 @@ fn test_two_promises_with_two_callbacks() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 10_000_000,
+            gas: 10_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -332,7 +332,7 @@ fn test_two_promises_with_two_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 10_000_000);
+                        assert_eq!(*gas, 10_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, cb1, ref0] );
@@ -340,7 +340,7 @@ fn test_two_promises_with_two_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 3_000_000);
+                        assert_eq!(*gas, 3_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r2, cb2, ref1]);
@@ -348,7 +348,7 @@ fn test_two_promises_with_two_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref2]);
@@ -356,7 +356,7 @@ fn test_two_promises_with_two_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref3]);
@@ -364,7 +364,7 @@ fn test_two_promises_with_two_callbacks() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 3_000_000);
+                        assert_eq!(*gas, 3_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref4]);
@@ -395,7 +395,7 @@ fn test_single_promise_no_callback_batch() {
         "method_name": "call_promise",
         "arguments": [],
         "amount": 0,
-        "gas": 300_000,
+        "gas": 300_000_000,
         }, "id": 0 }
     ]);
 
@@ -407,7 +407,7 @@ fn test_single_promise_no_callback_batch() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -424,7 +424,7 @@ fn test_single_promise_no_callback_batch() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -432,7 +432,7 @@ fn test_single_promise_no_callback_batch() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref1]);
@@ -457,7 +457,7 @@ fn test_single_promise_with_callback_batch() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 300_000,
+            "gas": 300_000_000,
         }, "id": 0 },
         {"batch_then": {
             "promise_index": 0,
@@ -468,7 +468,7 @@ fn test_single_promise_with_callback_batch() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 300_000,
+            "gas": 300_000_000,
         }, "id": 1}
     ]);
 
@@ -480,7 +480,7 @@ fn test_single_promise_with_callback_batch() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -497,7 +497,7 @@ fn test_single_promise_with_callback_batch() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, r2, ref0] );
@@ -509,7 +509,7 @@ fn test_single_promise_with_callback_batch() {
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref1]);
@@ -520,7 +520,7 @@ fn test_single_promise_with_callback_batch() {
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*gas, 300_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref2]);
@@ -543,7 +543,7 @@ fn test_simple_transfer() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": 1_000_000,
+            "amount": 1_000_000_000,
         }, "id": 0 }
     ]);
 
@@ -555,7 +555,7 @@ fn test_simple_transfer() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -572,7 +572,7 @@ fn test_simple_transfer() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -580,7 +580,7 @@ fn test_simple_transfer() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 1_000_000);
+                        assert_eq!(*deposit, 1_000_000_000);
                      }
                      => [] );
 
@@ -621,7 +621,7 @@ fn test_create_account_with_transfer_and_full_key() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 1_000_000,
+            gas: 1_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -638,7 +638,7 @@ fn test_create_account_with_transfer_and_full_key() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -682,7 +682,7 @@ fn test_account_factory() {
             "promise_index": 0,
             "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 0,
-            "allowance": 4_000_000,
+            "allowance": 2_000_000_000,
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
@@ -699,11 +699,11 @@ fn test_account_factory() {
                 "method_name": "call_promise",
                 "arguments": [],
                 "amount": 0,
-                "gas": 1_000_000,
+                "gas": 1_000_000_000,
                 }, "id": 0}
             ],
             "amount": 0,
-            "gas": 3_000_000,
+            "gas": 3_000_000_000u64,
         }, "id": 0 },
 
         {"then": {
@@ -716,11 +716,11 @@ fn test_account_factory() {
             "method_name": "call_promise",
             "arguments": [],
             "amount": 0,
-            "gas": 1_000_000,
+            "gas": 1_000_000_000,
             }, "id": 0}
         ],
         "amount": 0,
-        "gas": 2_000_000,
+        "gas": 2_000_000_000,
         }, "id": 1}
     ]);
 
@@ -732,7 +732,7 @@ fn test_account_factory() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 50_000_000,
+            gas: 50_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -749,7 +749,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 50_000_000);
+                        assert_eq!(*gas, 50_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, r2, ref0] );
@@ -769,7 +769,7 @@ fn test_account_factory() {
                         assert_eq!(public_key, &signer_new_account.public_key);
                         assert_eq!(access_key.nonce, 0);
                         assert_eq!(access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                            allowance: Some(4_000_000),
+                            allowance: Some(2_000_000_000),
                             receiver_id: "near_1".to_string(),
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
@@ -778,7 +778,7 @@ fn test_account_factory() {
                         assert_eq!(code, &wasm_binary);
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 3_000_000);
+                        assert_eq!(*gas, 3_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r3, ref1] );
@@ -788,7 +788,7 @@ fn test_account_factory() {
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 2_000_000);
+                        assert_eq!(*gas, 2_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r4, ref2] );
@@ -796,7 +796,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref3] );
@@ -804,7 +804,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref4] );
@@ -853,11 +853,11 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                 "method_name": "call_promise",
                 "arguments": [],
                 "amount": 0,
-                "gas": 1_000_000,
+                "gas": 1_000_000_000,
                 }, "id": 0}
             ],
             "amount": 0,
-            "gas": 2_000_000,
+            "gas": 2_000_000_000,
         }, "id": 0 },
         {"action_delete_key": {
             "promise_index": 0,
@@ -878,7 +878,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
-            gas: 50_000_000,
+            gas: 50_000_000_000,
             deposit: 0,
         })],
         CryptoHash::default(),
@@ -895,7 +895,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 50_000_000);
+                        assert_eq!(*gas, 50_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
@@ -915,7 +915,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(code, &wasm_binary);
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 2_000_000);
+                        assert_eq!(*gas, 2_000_000_000);
                         assert_eq!(*deposit, 0);
                      },
                      a5, Action::DeleteKey(DeleteKeyAction{public_key}), {
@@ -929,7 +929,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
-                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*gas, 1_000_000_000);
                         assert_eq!(*deposit, 0);
                      }
                      => [ref3] );

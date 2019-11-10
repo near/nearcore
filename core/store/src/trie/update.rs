@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -20,6 +20,10 @@ pub struct TrieUpdate {
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
+/// For each prefix, the value is a <key, value> map that records the changes in the
+/// trie update.
+pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
+
 impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
@@ -33,6 +37,31 @@ impl TrieUpdate {
             self.trie.get(&self.root, key).map(|x| x.map(DBValue::from_vec))
         }
     }
+
+    /// Get values in trie update for a set of keys.
+    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
+    /// This function will commit changes. Need to be used with caution
+    pub fn get_prefix_changes(
+        &mut self,
+        prefixes: &HashSet<Vec<u8>>,
+    ) -> Result<PrefixKeyValueChanges, StorageError> {
+        assert!(self.prospective.is_empty(), "Uncommitted changes exist");
+        let mut res = HashMap::new();
+        for prefix in prefixes {
+            let mut prefix_key_value_change = HashMap::new();
+            for (key, value) in self.committed.range(prefix.to_vec()..) {
+                if !key.starts_with(prefix) {
+                    break;
+                }
+                prefix_key_value_change.insert(key.to_vec(), value.clone());
+            }
+            if !prefix_key_value_change.is_empty() {
+                res.insert(prefix.to_vec(), prefix_key_value_change);
+            }
+        }
+        Ok(res)
+    }
+
     pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
         self.prospective.insert(key, Some(value.into_vec()));
     }
@@ -74,9 +103,11 @@ impl TrieUpdate {
             }
         }
     }
+
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
+
     pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();

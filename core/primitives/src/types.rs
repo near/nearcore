@@ -38,7 +38,9 @@ pub struct StateRoot {
 }
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
-#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+#[derive(
+    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+)]
 pub struct EpochId(pub CryptoHash);
 
 impl AsRef<[u8]> for EpochId {

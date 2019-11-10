@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::Signature;
+use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
@@ -189,10 +190,8 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_approval_signature(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sig: &[Signature],
-        data: &[u8],
+        prev_block_hash: &CryptoHash,
+        approvals: &[Approval],
     ) -> Result<bool, Error>;
 
     /// Epoch block producers (ordered by their order in the proposals) for given shard.
@@ -454,19 +453,6 @@ impl Tip {
 }
 
 /// Block approval by other block producers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BlockApproval {
-    pub hash: CryptoHash,
-    pub signature: Signature,
-    pub target: AccountId,
-}
-
-impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
-        let signature = signer.sign(hash.as_ref());
-        BlockApproval { hash, signature, target }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeader {
@@ -494,7 +480,7 @@ pub struct ShardStateSyncResponse {
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::genesis_chunks;
 
     use super::*;
@@ -519,8 +505,15 @@ mod tests {
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
         let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals: HashMap<usize, Signature> =
-            vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
+        let approvals = vec![
+            (Approval {
+                parent_hash: b1.hash(),
+                reference_hash: b1.hash(),
+                account_id: "other2".to_string(),
+                signature: other_signer
+                    .sign(Approval::get_data_for_sig(&b1.hash(), &b1.hash()).as_ref()),
+            }),
+        ];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,

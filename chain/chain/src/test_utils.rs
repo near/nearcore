@@ -36,6 +36,7 @@ use crate::types::{
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::block::Approval;
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -308,10 +309,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _approval_mask: &[bool],
-        _approval_sigs: &[Signature],
-        _data: &[u8],
+        _prev_block_hash: &CryptoHash,
+        _approvals: &[Approval],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -846,7 +845,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -906,15 +905,21 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk.transactions.len(),
                             chunk.receipts.len()
                         );
-                    } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
+                    } else if let Ok(partial_chunk) =
+                        chain_store.get_partial_chunk(&chunk_header.chunk_hash())
                     {
                         debug!(
-                            "    {: >3} {} | {} | {: >10} | part = {}",
+                            "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
                             chunk_header.inner.height_created,
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.inner.shard_id,
                             chunk_producer,
-                            chunk_one_part.part_id
+                            partial_chunk.parts.iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            partial_chunk
+                                .receipts
+                                .iter()
+                                .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
+                                .collect::<Vec<_>>(),
                         );
                     }
                 }

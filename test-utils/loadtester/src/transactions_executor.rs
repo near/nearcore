@@ -6,6 +6,7 @@ use crate::transactions_generator::{Generator, TransactionType};
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
+use log::{debug, info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
@@ -28,7 +29,9 @@ impl Executor {
             let mut hashes = vec![];
             // Submit deploy contract transactions.
             for tx in transactions {
-                hashes.push(wait(|| n.write().unwrap().add_transaction(tx.clone())));
+                let hash = wait(|| n.write().unwrap().add_transaction(tx.clone()));
+                debug!("txn to deploy contract submitted: {}", &hash);
+                hashes.push(hash);
             }
             // Wait for them to propagate.
             wait(|| {
@@ -48,11 +51,13 @@ impl Executor {
     ) -> JoinHandle<()> {
         // Deploy the testing contract, if needed.
         if let TransactionType::Set | TransactionType::HeavyStorageBlock = transaction_type {
-            //            Executor::deploy_contract(&nodes);
+            info!("start deploying contracts");
+            Executor::deploy_contract(&nodes);
+            info!("finish deploying contracts");
         }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
-            tokio::run(futures::lazy(move || {
+            tokio::runtime::run(futures::lazy(move || {
                 // Channels into which we can signal to send a transaction.
                 let mut signal_tx = vec![];
                 let all_account_ids: Vec<_> = nodes
@@ -94,8 +99,13 @@ impl Executor {
                                             Generator::call_heavy_storage_blocks(&node, signer_ind)
                                         }
                                     };
+                                    node.write()
+                                        .unwrap()
+                                        .add_transaction_committed(t.clone())
+                                        .unwrap();
                                     let f = { node.write().unwrap().add_transaction_async(t) };
-                                    f.map_err(|_| ())
+                                    f.map(|r| debug!("txn submitted: {}", r))
+                                        .map_err(|e| warn!("error submitting txn: {}", e))
                                         .timeout(Duration::from_secs(1))
                                         .map(move |_| {
                                             stats.read().unwrap().inc_out_tx();

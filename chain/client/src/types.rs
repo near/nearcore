@@ -11,9 +11,7 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
-use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
-};
+use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -167,7 +165,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
-            chunk_request_retry_period: Duration::from_millis(100),
+            chunk_request_retry_period: Duration::from_millis(block_prod_time / 5),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -304,13 +302,4 @@ pub struct TxStatus {
 
 impl Message for TxStatus {
     type Result = Result<FinalExecutionOutcomeView, String>;
-}
-
-/// Details about given transaction.
-pub struct TxDetails {
-    pub tx_hash: CryptoHash,
-}
-
-impl Message for TxDetails {
-    type Result = Result<ExecutionOutcomeView, String>;
 }

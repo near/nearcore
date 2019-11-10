@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,8 +7,8 @@ use borsh::BorshSerialize;
 
 use near::GenesisConfig;
 use near_chain::validate::validate_challenge;
-use near_chain::{Block, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
-use near_client::test_utils::TestEnv;
+use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
+use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::NetworkRequests;
@@ -25,7 +25,7 @@ use near_store::test_utils::create_test_store;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1, 5);
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
@@ -38,12 +38,15 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.chunks.clone(),
         b1.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
     let epoch_id = b1.header.inner.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -135,19 +138,22 @@ fn create_invalid_proofs_chunk(
         2,
         vec![chunk.header.clone()],
         last_block.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
     (chunk, merkle_paths, receipts, block)
 }
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
@@ -184,7 +190,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
     ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes, 5);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
@@ -242,12 +248,15 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner.height + 1,
         vec![invalid_chunk.header.clone()],
         last_block.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         None,
         vec![],
         vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
 
     let challenge_body = {
@@ -313,7 +322,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 #[test]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1, 5);
     env.produce_block(0, 1);
     let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
     env.process_block(1, block1, Provenance::NONE);
@@ -343,10 +352,11 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     );
 
     assert!(env.clients[1]
-        .process_chunk_one_part(chunk.create_chunk_one_part(
-            0,
+        .process_partial_encoded_chunk(chunk.create_partial_encoded_chunk(
+            vec![0],
+            true,
             one_part_receipt_proofs,
-            merkle_paths[0].clone()
+            &vec![merkle_paths[0].clone()]
         ))
         .is_ok());
     env.process_block(1, block.clone(), Provenance::NONE);
@@ -387,7 +397,7 @@ fn test_receive_two_blocks_from_one_producer() {}
 #[test]
 fn test_block_challenge() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
@@ -405,4 +415,91 @@ fn test_block_challenge() {
     env.produce_block(0, 2);
     assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+}
+
+/// If there are two blocks produced at the same height but by different block producers, no
+/// challenge should be generated
+#[test]
+fn test_challenge_in_different_epoch() {
+    init_test_logger();
+    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1"], 2);
+    genesis_config.epoch_length = 2;
+    //    genesis_config.validator_kickout_threshold = 10;
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let runtime1 = Arc::new(near::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        genesis_config.clone(),
+        vec![],
+        vec![],
+    ));
+    let runtime2 = Arc::new(near::NightshadeRuntime::new(
+        Path::new("."),
+        create_test_store(),
+        genesis_config,
+        vec![],
+        vec![],
+    ));
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
+    let networks = vec![network_adapter.clone(), network_adapter.clone()];
+    let mut env = TestEnv::new_with_runtime_and_network_adapter(
+        ChainGenesis::test(),
+        2,
+        2,
+        runtimes,
+        networks,
+        2,
+    );
+    let mut fork_blocks = vec![];
+    for i in 1..5 {
+        let block1 =
+            env.clients[0].produce_block(2 * i - 1, Duration::from_millis(100)).unwrap().unwrap();
+        env.process_block(0, block1, Provenance::PRODUCED);
+
+        let block2 =
+            env.clients[1].produce_block(2 * i, Duration::from_millis(100)).unwrap().unwrap();
+        env.process_block(1, block2.clone(), Provenance::PRODUCED);
+        fork_blocks.push(block2);
+    }
+
+    let fork1_block = env.clients[0].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    env.process_block(0, fork1_block, Provenance::PRODUCED);
+    let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    fork_blocks.push(fork2_block);
+    for block in fork_blocks {
+        let height = block.header.inner.height;
+        let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
+        match env.clients[0].run_catchup() {
+            Ok(accepted_blocks) => {
+                for accepted_block in accepted_blocks {
+                    env.clients[0].on_block_accepted(
+                        accepted_block.hash,
+                        accepted_block.status,
+                        accepted_block.provenance,
+                    );
+                }
+            }
+            Err(e) => panic!("error in catching up: {}", e),
+        }
+        let len = network_adapter.requests.write().unwrap().len();
+        for _ in 0..len {
+            match network_adapter.requests.write().unwrap().pop_front() {
+                Some(NetworkRequests::Challenge(_)) => {
+                    panic!("Unexpected challenge");
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+        if height < 9 {
+            assert!(result.is_ok());
+        } else {
+            if let Err(e) = result {
+                match e.kind() {
+                    ErrorKind::ChunksMissing(_) => {}
+                    _ => panic!(format!("unexpected error: {}", e)),
+                }
+            }
+        }
+    }
 }

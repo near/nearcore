@@ -50,6 +50,7 @@ pub struct EpochInfo {
     pub validator_reward: HashMap<AccountId, Balance>,
     /// Total inflation in the epoch
     pub inflation: Balance,
+    pub validator_kickout: HashSet<AccountId>,
 }
 
 /// Information per each block.
