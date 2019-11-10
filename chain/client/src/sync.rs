@@ -483,6 +483,7 @@ impl StateSync {
                 }
             }
         } else {
+            self.last_time_block_requested = None;
             (false, true)
         };
         if request_block {

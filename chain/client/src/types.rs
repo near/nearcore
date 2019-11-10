@@ -165,7 +165,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
-            chunk_request_retry_period: Duration::from_millis(100),
+            chunk_request_retry_period: Duration::from_millis(block_prod_time / 5),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
