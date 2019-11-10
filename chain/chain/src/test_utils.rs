@@ -812,7 +812,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity, 10),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
@@ -929,6 +929,7 @@ impl ChainGenesis {
             max_inflation_rate: 0,
             gas_price_adjustment_rate: 0,
             transaction_validity_period: 100,
+            epoch_length: 5,
         }
     }
 }

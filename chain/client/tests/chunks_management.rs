@@ -212,7 +212,7 @@ fn chunks_produced_and_distributed_common(
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     for i in 1..4 {
         env.produce_block(0, i);
         env.network_adapters[0].pop();
