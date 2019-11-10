@@ -217,6 +217,14 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<AccountId, Error>;
 
+    /// Number of missed blocks for given block producer.
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error>;
+
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 

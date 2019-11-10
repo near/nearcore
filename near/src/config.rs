@@ -48,14 +48,17 @@ pub const ATTO_NEAR: Balance = 1;
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
 
-/// Expected block production time in secs.
-pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
+/// Expected block production time in ms.
+pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
 
-/// Maximum time to delay block production without approvals.
-pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2;
+/// Maximum time to delay block production without approvals is ms.
+pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 
-/// Maximum time until skipping the previous block.
-pub const MAX_BLOCK_WAIT_DELAY: u64 = 6;
+/// Maximum time until skipping the previous block is ms.
+pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
+
+/// Reduce wait time for every missing block in ms.
+const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -146,6 +149,11 @@ impl Default for Network {
     }
 }
 
+/// Serde default only supports functions without parameters.
+fn default_reduce_wait_for_missing_block() -> Duration {
+    Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -158,6 +166,9 @@ pub struct Consensus {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
+    /// Duration to reduce the wait for each missed block by validator.
+    #[serde(default = "default_reduce_wait_for_missing_block")]
+    pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
 }
@@ -167,9 +178,10 @@ impl Default for Consensus {
         Consensus {
             min_num_peers: 3,
             block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
-            min_block_production_delay: Duration::from_secs(MIN_BLOCK_PRODUCTION_DELAY),
-            max_block_production_delay: Duration::from_secs(MAX_BLOCK_PRODUCTION_DELAY),
-            max_block_wait_delay: Duration::from_secs(MAX_BLOCK_WAIT_DELAY),
+            min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
+            max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
+            max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
+            reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
             produce_empty_blocks: true,
         }
     }
@@ -256,6 +268,7 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
+                reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
