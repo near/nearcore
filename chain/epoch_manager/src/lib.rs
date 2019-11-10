@@ -1487,20 +1487,20 @@ mod tests {
         let stake_amount = 1_000_000;
         let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
         let epoch_length = 2;
-        let mut epoch_manager =
+        let mut em =
             setup_epoch_manager(validators, epoch_length, 1, 2, 0, 10, default_reward_calculator());
         let h = hash_range(5);
-        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
-        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
+        record_block(&mut em, Default::default(), h[0], 0, vec![]);
+        record_block(&mut em, h[0], h[1], 1, vec![]);
+        record_block(&mut em, h[1], h[3], 3, vec![]);
 
-        let block_info1 = epoch_manager.get_block_info(&h[1]).unwrap().clone();
+        let block_info1 = em.get_block_info(&h[1]).unwrap().clone();
         assert_eq!(block_info1.block_tracker, vec![(0, (1, 1))].into_iter().collect());
-        let block_info2 = epoch_manager.get_block_info(&h[3]).unwrap().clone();
-        assert_eq!(block_info2.block_tracker, vec![(0, (2, 2))].into_iter().collect());
+        let block_info2 = em.get_block_info(&h[3]).unwrap().clone();
+        assert_eq!(block_info2.block_tracker, vec![(0, (2, 2)), (1, (0, 1))].into_iter().collect());
 
-        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
-        let block_info3 = epoch_manager.get_block_info(&h[4]).unwrap().clone();
+        record_block(&mut em, h[3], h[4], 4, vec![]);
+        let block_info3 = em.get_block_info(&h[4]).unwrap().clone();
         assert_eq!(block_info3.block_tracker, vec![(1, (1, 1))].into_iter().collect());
     }
 
