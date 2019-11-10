@@ -73,6 +73,7 @@ impl HeaderSync {
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
         highest_height: BlockIndex,
+        most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
         if !self.header_sync_due(sync_status, &header_head) {
