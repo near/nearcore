@@ -616,7 +616,7 @@ impl ClientActor {
 
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
         if self.client.block_producer.as_ref().map(|bp| bp.account_id.clone())
-            == Some(next_block_producer_account)
+            == Some(next_block_producer_account.clone())
         {
             // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
             if elapsed >= self.client.config.min_block_production_delay {
@@ -626,7 +626,25 @@ impl ClientActor {
                 }
             }
         } else {
-            if elapsed < self.client.config.max_block_wait_delay {
+            let num_blocks_missing = self.client.runtime_adapter.get_num_missing_blocks(
+                &head.epoch_id,
+                &head.last_block_hash,
+                &next_block_producer_account,
+            )?;
+            // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
+            if elapsed
+                < std::cmp::max(
+                    self.client
+                        .config
+                        .max_block_wait_delay
+                        .checked_sub(
+                            self.client.config.reduce_wait_for_missing_block
+                                * num_blocks_missing as u32,
+                        )
+                        .unwrap_or(self.client.config.min_block_production_delay),
+                    self.client.config.min_block_production_delay,
+                )
+            {
                 // Next block producer is not this client, so just go for another loop iteration.
             } else {
                 // Upcoming block has not been seen in max block production delay, suggest to skip.
@@ -1007,9 +1025,9 @@ impl ClientActor {
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
-                _ if highest_height <= self.client.config.block_header_fetch_horizon
-                    || header_head.height
-                        >= highest_height - self.client.config.block_header_fetch_horizon =>
+                _ if header_head.height
+                    >= highest_height
+                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,

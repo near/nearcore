@@ -519,6 +519,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
     }
 
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
+            .map_err(Error::from)
+    }
+
     fn num_shards(&self) -> ShardId {
         // TODO: should be dynamic.
         self.genesis_config.block_producers_per_shard.len() as ShardId
