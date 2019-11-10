@@ -81,8 +81,6 @@ impl EpochManager {
     fn compute_kickout_info(
         &self,
         epoch_info: &EpochInfo,
-        prev_epoch_last_block_index: BlockIndex,
-        last_block_index: BlockIndex,
         block_validator_tracker: &HashMap<ValidatorId, (u64, u64)>,
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         num_expected_chunks: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
@@ -102,17 +100,7 @@ impl EpochManager {
                 continue;
             }
             let (num_blocks, expected_blocks) =
-                if let Some((produced, total)) = block_validator_tracker.get(&i) {
-                    (*produced, *total)
-                } else {
-                    let expected = Self::get_expected_num_blocks(
-                        prev_epoch_last_block_index + 1,
-                        last_block_index,
-                        i,
-                        &epoch_info.block_producers,
-                    );
-                    (0, expected)
-                };
+                *block_validator_tracker.get(&i).unwrap_or_else(|| &(0, 0));
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
             if num_blocks * 100 < u64::from(validator_kickout_threshold) * expected_blocks {
                 validator_kickout.insert(account_id.clone());
@@ -242,8 +230,6 @@ impl EpochManager {
         // Compute kick outs for validators who are offline.
         let (kickout, validator_online_ratio) = self.compute_kickout_info(
             &epoch_info,
-            prev_epoch_last_block_index,
-            last_block_info.index,
             &block_validator_tracker,
             &chunk_validator_tracker,
             &num_expected_chunks,
@@ -266,25 +252,6 @@ impl EpochManager {
         })
     }
 
-    /// Compute expected number of blocks produced by a given validator up to a given height
-    fn get_expected_num_blocks(
-        epoch_start: BlockIndex,
-        cur_block_index: BlockIndex,
-        validator_id: ValidatorId,
-        validators: &[ValidatorId],
-    ) -> BlockIndex {
-        assert!(cur_block_index >= epoch_start);
-        let mut num_expected = 0;
-        for index in epoch_start..=cur_block_index {
-            let block_validator_id =
-                validators[(index % (validators.len() as BlockIndex)) as usize];
-            if block_validator_id == validator_id {
-                num_expected += 1;
-            }
-        }
-        num_expected
-    }
-
     /// Returns number of missing blocks by given validator.
     pub fn get_num_missing_blocks(
         &mut self,
@@ -296,20 +263,11 @@ impl EpochManager {
         let validator_id = *epoch_info.validator_to_index.get(account_id).ok_or_else(|| {
             EpochError::Other(format!("{} is not a validator in epoch {:?}", account_id, epoch_id))
         })?;
-        let validators = epoch_info.block_producers.clone();
         let block_info = self.get_block_info(last_known_block_hash)?.clone();
-        let epoch_start = self.get_block_info(&block_info.epoch_first_block)?.index;
-        if let Some((produced, total)) = block_info.block_tracker.get(&validator_id) {
-            assert!(total >= produced);
-            Ok(total - produced)
-        } else {
-            Ok(Self::get_expected_num_blocks(
-                epoch_start,
-                block_info.index,
-                validator_id,
-                &validators,
-            ))
-        }
+        let (produced, expected) =
+            block_info.block_tracker.get(&validator_id).unwrap_or_else(|| &(0, 0));
+        assert!(expected >= produced);
+        Ok(expected - produced)
     }
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
@@ -381,24 +339,7 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
-                let is_epoch_start = self.is_next_block_in_next_epoch(&prev_block_info)?
-                    || prev_block_info.prev_hash == CryptoHash::default();
-                let epoch_start_index = if is_epoch_start {
-                    prev_block_info.index + 1
-                } else {
-                    self.get_expected_epoch_start_height(&prev_block_info)?
-                };
-                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?;
-                let block_validator_id = epoch_info.block_producers[(block_info.index
-                    % (epoch_info.block_producers.len() as BlockIndex))
-                    as usize];
-                // TODO: this is not efficient
-                let num_expected_blocks = Self::get_expected_num_blocks(
-                    epoch_start_index,
-                    block_info.index,
-                    block_validator_id,
-                    &epoch_info.block_producers,
-                );
+                let epoch_info = self.get_epoch_info(&prev_block_info.epoch_id)?.clone();
 
                 // Keep `slashed` from previous block if they are still in the epoch info stake change
                 // (e.g. we need to keep track that they are still slashed, because when we compute
@@ -409,34 +350,31 @@ impl EpochManager {
                     }
                 }
 
-                // update block tracker
-                let mut block_tracker = if is_epoch_start {
-                    HashMap::default()
-                } else {
-                    prev_block_info.block_tracker.clone()
-                };
-                block_tracker
-                    .entry(block_validator_id)
-                    .and_modify(|(produced, expected)| {
-                        *produced += 1;
-                        *expected = num_expected_blocks;
-                    })
-                    .or_insert((1, num_expected_blocks));
-                block_info.block_tracker = block_tracker;
-
+                let mut is_epoch_start = false;
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     block_info.epoch_id = EpochId::default();
                     block_info.epoch_first_block = *current_hash;
+                    is_epoch_start = true;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
                     block_info.epoch_first_block = *current_hash;
+                    is_epoch_start = true;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_index.
                     block_info.epoch_id = prev_block_info.epoch_id;
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
+
+                // Update block produced/expected tracker.
+                block_info.update_block_tracker(
+                    &epoch_info,
+                    prev_block_info.index,
+                    if is_epoch_start { HashMap::default() } else { prev_block_info.block_tracker },
+                );
+
+                // Save current block info.
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
@@ -606,14 +544,6 @@ impl EpochManager {
     ) -> Result<BlockIndex, EpochError> {
         let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
         Ok(self.get_block_info(&epoch_first_block)?.index)
-    }
-
-    fn get_expected_epoch_start_height(
-        &mut self,
-        block_info: &BlockInfo,
-    ) -> Result<BlockIndex, EpochError> {
-        let prev_epoch_last_hash = self.get_block_info(&block_info.epoch_first_block)?.prev_hash;
-        Ok(self.get_block_info(&prev_epoch_last_hash)?.index + 1)
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -1579,18 +1509,25 @@ mod tests {
         let stake_amount = 1_000_000;
         let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
         let epoch_length = 2;
-        let mut epoch_manager =
+        let mut em =
             setup_epoch_manager(validators, epoch_length, 1, 2, 0, 10, default_reward_calculator());
-        let h = hash_range(5);
-        record_block(&mut epoch_manager, Default::default(), h[0], 0, vec![]);
-        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
-        record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
-        let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
-        let test1_num_missing_blocks =
-            epoch_manager.get_num_missing_blocks(&epoch_id, &h[3], &"test1".to_string()).unwrap();
-        let test2_num_missing_blocks =
-            epoch_manager.get_num_missing_blocks(&epoch_id, &h[3], &"test2".to_string()).unwrap();
-        assert_eq!(test1_num_missing_blocks, 0);
-        assert_eq!(test2_num_missing_blocks, 1);
+        let h = hash_range(8);
+        record_block(&mut em, Default::default(), h[0], 0, vec![]);
+        record_block(&mut em, h[0], h[1], 1, vec![]);
+        record_block(&mut em, h[1], h[3], 3, vec![]);
+        let epoch_id = em.get_epoch_id(&h[1]).unwrap();
+        assert_eq!(em.get_num_missing_blocks(&epoch_id, &h[3], &"test1".to_string()).unwrap(), 0);
+        assert_eq!(em.get_num_missing_blocks(&epoch_id, &h[3], &"test2".to_string()).unwrap(), 1);
+
+        // Build chain 0 <- x <- x <- x <- ( 4 <- 5 ) <- x <- 7
+        record_block(&mut em, h[0], h[4], 4, vec![]);
+        let epoch_id = em.get_epoch_id(&h[4]).unwrap();
+        // Block 4 is first block after genesis and starts new epoch, but we actually count how many missed blocks have happened since block 0.
+        assert_eq!(em.get_num_missing_blocks(&epoch_id, &h[4], &"test1".to_string()).unwrap(), 2);
+        assert_eq!(em.get_num_missing_blocks(&epoch_id, &h[4], &"test2".to_string()).unwrap(), 1);
+        record_block(&mut em, h[4], h[5], 5, vec![]);
+        record_block(&mut em, h[5], h[7], 7, vec![]);
+        // The next epoch started after 5 with 6, and test2 missed their slot from perspective of block 7.
+        assert_eq!(em.get_num_missing_blocks(&epoch_id, &h[7], &"test2".to_string()).unwrap(), 1);
     }
 }

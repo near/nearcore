@@ -44,6 +44,8 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 
+const REDUCE_DELAY_FOR_MISSING_BLOCKS_MS: u64 = 1_000;
+
 enum AccountAnnounceVerificationResult {
     Valid,
     UnknownEpoch,
@@ -635,7 +637,9 @@ impl ClientActor {
             if elapsed
                 < std::cmp::max(
                     self.client.config.max_block_wait_delay
-                        - Duration::from_millis(num_blocks_missing * 1000),
+                        - Duration::from_millis(
+                            num_blocks_missing * REDUCE_DELAY_FOR_MISSING_BLOCKS_MS,
+                        ),
                     self.client.config.min_block_production_delay,
                 )
             {
