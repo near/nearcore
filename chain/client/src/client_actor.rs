@@ -44,8 +44,6 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 
-const REDUCE_DELAY_FOR_MISSING_BLOCKS_MS: u64 = 1_000;
-
 enum AccountAnnounceVerificationResult {
     Valid,
     UnknownEpoch,
@@ -639,9 +637,10 @@ impl ClientActor {
                     self.client
                         .config
                         .max_block_wait_delay
-                        .checked_sub(Duration::from_millis(
-                            num_blocks_missing * REDUCE_DELAY_FOR_MISSING_BLOCKS_MS,
-                        ))
+                        .checked_sub(
+                            self.client.config.reduce_wait_for_missing_block
+                                * num_blocks_missing as u32,
+                        )
                         .unwrap_or(self.client.config.min_block_production_delay),
                     self.client.config.min_block_production_delay,
                 )
@@ -1027,8 +1026,7 @@ impl ClientActor {
                 SyncStatus::StateSync(_, _) => true,
                 _ if header_head.height
                     >= highest_height
-                        .checked_sub(self.client.config.block_header_fetch_horizon)
-                        .unwrap_or(0) =>
+                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
