@@ -626,11 +626,15 @@ impl ClientActor {
                 }
             }
         } else {
-            let num_blocks_missing = self.client.runtime_adapter.get_num_missing_blocks(
-                &head.epoch_id,
-                &head.last_block_hash,
-                &next_block_producer_account,
-            )?;
+            let num_blocks_missing = if head.epoch_id == epoch_id {
+                self.client.runtime_adapter.get_num_missing_blocks(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    &next_block_producer_account,
+                )?
+            } else {
+                0
+            };
             // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
             if elapsed
                 < std::cmp::max(
