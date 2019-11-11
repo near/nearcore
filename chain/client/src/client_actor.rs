@@ -999,7 +999,8 @@ impl ClientActor {
         if !needs_syncing {
             if currently_syncing {
                 debug!(
-                    "{:?} moo transitions to no sync",
+                    target: "client",
+                    "{:?} transitions to no sync",
                     self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
                 );
                 self.client.sync_status = SyncStatus::NoSync;
