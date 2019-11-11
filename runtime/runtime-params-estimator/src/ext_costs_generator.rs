@@ -167,7 +167,7 @@ impl ExtCostsGenerator {
         self.extract(promise_and_100k, promise_and_base, &[promise_and_per_promise]);
         self.extract(promise_and_100k_on_1k_and, promise_and_per_promise, &[]);
         self.extract(promise_return_100k, promise_return, &[]);
-        self.result
+        self.result.drain().collect()
     }
 }
 impl std::fmt::Display for ExtCostsGenerator {
