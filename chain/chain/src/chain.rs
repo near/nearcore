@@ -1062,7 +1062,13 @@ impl Chain {
                 (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
             }
             Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => (None, None, 0),
+                ErrorKind::DBNotFoundErr(_) => {
+                    if block_header.inner.prev_hash == CryptoHash::default() {
+                        (None, None, 0)
+                    } else {
+                        return Err(e);
+                    }
+                }
                 _ => return Err(e),
             },
         };
