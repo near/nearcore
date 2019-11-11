@@ -2,21 +2,22 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::Signature;
+use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
-use crate::byzantine_assert;
 use crate::error::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
@@ -108,7 +109,7 @@ impl ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
-    pub transaction_results: Vec<ExecutionOutcomeWithId>,
+    pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
@@ -116,6 +117,19 @@ pub struct ApplyTransactionResult {
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
+}
+
+impl ApplyTransactionResult {
+    /// Returns root and paths for all the outcomes in the result.
+    pub fn compute_outcomes_proof(
+        outcomes: &[ExecutionOutcomeWithId],
+    ) -> (MerkleHash, Vec<MerklePath>) {
+        let mut result = vec![];
+        for outcome_with_id in outcomes.iter() {
+            result.extend(outcome_with_id.outcome.to_hashes());
+        }
+        merklize(&result)
+    }
 }
 
 /// Bridge between the chain and the runtime.
@@ -155,13 +169,19 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Vec<SignedTransaction>;
 
     /// Verify validator signature for the given epoch.
+    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
     ) -> ValidatorSignatureVerificationResult;
+
+    /// Verify header signature.
+    fn verify_header_signature(&self, header: &BlockHeader)
+        -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
@@ -170,10 +190,8 @@ pub trait RuntimeAdapter: Send + Sync {
     fn verify_approval_signature(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sig: &[Signature],
-        data: &[u8],
+        prev_block_hash: &CryptoHash,
+        approvals: &[Approval],
     ) -> Result<bool, Error>;
 
     /// Epoch block producers (ordered by their order in the proposals) for given shard.
@@ -198,6 +216,14 @@ pub trait RuntimeAdapter: Send + Sync {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Error>;
+
+    /// Number of missed blocks for given block producer.
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error>;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -267,7 +293,6 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
@@ -285,6 +310,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -297,6 +323,7 @@ pub trait RuntimeAdapter: Send + Sync {
             transactions,
             last_validator_proposals,
             gas_price,
+            challenges_result,
             false,
         )
     }
@@ -313,7 +340,24 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        challenges_result: &ChallengesResult,
         generate_storage_proof: bool,
+    ) -> Result<ApplyTransactionResult, Error>;
+
+    fn check_state_transition(
+        &self,
+        partial_storage: PartialStorage,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
+        last_validator_proposals: &[ValidatorStake],
+        gas_price: Balance,
+        challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -408,27 +452,12 @@ impl Tip {
     }
 }
 
-/// Block approval by other block producers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BlockApproval {
-    pub hash: CryptoHash,
-    pub signature: Signature,
-    pub target: AccountId,
-}
-
-impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
-        let signature = signer.sign(hash.as_ref());
-        BlockApproval { hash, signature, target }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
-    pub prev_chunk_header: ShardChunkHeader,
-    pub prev_chunk_proof: MerklePath,
+    pub prev_chunk_header: Option<ShardChunkHeader>,
+    pub prev_chunk_proof: Option<MerklePath>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
 }
@@ -445,44 +474,11 @@ pub struct ShardStateSyncResponse {
     pub parts: Vec<ShardStateSyncResponsePart>,
 }
 
-/// Verifies that chunk's proofs in the header match the body.
-pub fn validate_chunk_proofs(
-    chunk: &ShardChunk,
-    runtime_adapter: &dyn RuntimeAdapter,
-) -> Result<bool, Error> {
-    // 1. Checking chunk.header.hash
-    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
-        byzantine_assert!(false);
-        return Ok(false);
-    }
-
-    // 2. Checking that chunk body is valid
-    // 2a. Checking chunk hash
-    if chunk.chunk_hash != chunk.header.hash {
-        byzantine_assert!(false);
-        return Ok(false);
-    }
-    // 2b. Checking that chunk transactions are valid
-    let (tx_root, _) = merklize(&chunk.transactions);
-    if tx_root != chunk.header.inner.tx_root {
-        byzantine_assert!(false);
-        return Ok(false);
-    }
-    // 2c. Checking that chunk receipts are valid
-    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-    if receipts_root != chunk.header.inner.outgoing_receipts_root {
-        byzantine_assert!(false);
-        return Ok(false);
-    }
-    Ok(true)
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType, Signature};
+    use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::genesis_chunks;
 
     use super::*;
@@ -507,8 +503,15 @@ mod tests {
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
         let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals: HashMap<usize, Signature> =
-            vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
+        let approvals = vec![
+            (Approval {
+                parent_hash: b1.hash(),
+                reference_hash: b1.hash(),
+                account_id: "other2".to_string(),
+                signature: other_signer
+                    .sign(Approval::get_data_for_sig(&b1.hash(), &b1.hash()).as_ref()),
+            }),
+        ];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,

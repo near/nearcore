@@ -18,6 +18,12 @@ impl AsRef<[u8]> for ChunkHash {
     }
 }
 
+impl From<ChunkHash> for Vec<u8> {
+    fn from(chunk_hash: ChunkHash) -> Self {
+        chunk_hash.0.into()
+    }
+}
+
 impl From<CryptoHash> for ChunkHash {
     fn from(crypto_hash: CryptoHash) -> Self {
         Self(crypto_hash)
@@ -29,6 +35,8 @@ pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
+    /// Root of the outcomes from execution transactions and results.
+    pub outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -81,6 +89,7 @@ impl ShardChunkHeader {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockIndex,
@@ -98,6 +107,7 @@ impl ShardChunkHeader {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
@@ -118,14 +128,12 @@ impl ShardChunkHeader {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ChunkOnePart {
+pub struct PartialEncodedChunk {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
-    pub header: ShardChunkHeader,
-    pub part_id: u64,
-    pub part: Box<[u8]>,
-    pub receipt_proofs: Vec<ReceiptProof>,
-    pub merkle_path: MerklePath,
+    pub header: Option<ShardChunkHeader>,
+    pub parts: Vec<PartialEncodedChunkPart>,
+    pub receipts: Vec<ReceiptProof>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -136,8 +144,15 @@ pub struct ShardProof {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-// For each Merkle proof there is a subset of receipts which may be proven.
+/// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct PartialEncodedChunkPart {
+    pub part_ord: u64,
+    pub part: Box<[u8]>,
+    pub merkle_proof: MerklePath,
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunk {
@@ -147,16 +162,7 @@ pub struct ShardChunk {
     pub receipts: Vec<Receipt>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartMsg {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub part_id: u64,
-    pub part: Shard,
-    pub merkle_path: MerklePath,
-}
-
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
@@ -174,9 +180,14 @@ impl EncodedShardChunkBody {
         fetched_parts
     }
 
-    pub fn reconstruct(&mut self, data_shards: usize, parity_shards: usize) {
+    /// Returns true if reconstruction was successful
+    pub fn reconstruct(
+        &mut self,
+        data_shards: usize,
+        parity_shards: usize,
+    ) -> Result<(), reed_solomon_erasure::Error> {
         let rs = ReedSolomon::new(data_shards, parity_shards).unwrap();
-        rs.reconstruct_shards(self.parts.as_mut_slice()).unwrap();
+        rs.reconstruct_shards(self.parts.as_mut_slice())
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
@@ -187,7 +198,7 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
@@ -201,6 +212,7 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         total_parts: usize,
@@ -244,6 +256,7 @@ impl EncodedShardChunk {
         let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             height,
             shard_id,
             gas_used,
@@ -266,6 +279,7 @@ impl EncodedShardChunk {
     pub fn from_parts_and_metadata(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
+        outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
         gas_used: Gas,
@@ -286,11 +300,12 @@ impl EncodedShardChunk {
         signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
-        content.reconstruct(data_shards, parity_shards);
+        content.reconstruct(data_shards, parity_shards).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         let header = ShardChunkHeader::new(
             prev_block_hash,
             prev_state_root,
+            outcome_root,
             encoded_merkle_root,
             encoded_length,
             height,
@@ -313,30 +328,28 @@ impl EncodedShardChunk {
         self.header.chunk_hash()
     }
 
-    pub fn create_chunk_one_part(
+    pub fn create_partial_encoded_chunk(
         &self,
-        part_id: u64,
-        receipt_proofs: Vec<ReceiptProof>,
-        merkle_path: MerklePath,
-    ) -> ChunkOnePart {
-        ChunkOnePart {
-            shard_id: self.header.inner.shard_id,
-            chunk_hash: self.header.chunk_hash(),
-            header: self.header.clone(),
-            part_id,
-            part: self.content.parts[part_id as usize].clone().unwrap(),
-            receipt_proofs,
-            merkle_path,
-        }
-    }
+        part_ords: Vec<u64>,
+        include_header: bool,
+        receipts: Vec<ReceiptProof>,
+        merkle_paths: &[MerklePath],
+    ) -> PartialEncodedChunk {
+        let parts = part_ords
+            .iter()
+            .map(|part_ord| PartialEncodedChunkPart {
+                part_ord: *part_ord,
+                part: self.content.parts[*part_ord as usize].clone().unwrap(),
+                merkle_proof: merkle_paths[*part_ord as usize].clone(),
+            })
+            .collect();
 
-    pub fn create_chunk_part_msg(&self, part_id: u64, merkle_path: MerklePath) -> ChunkPartMsg {
-        ChunkPartMsg {
+        PartialEncodedChunk {
             shard_id: self.header.inner.shard_id,
             chunk_hash: self.header.chunk_hash(),
-            part_id,
-            part: self.content.parts[part_id as usize].clone().unwrap(),
-            merkle_path,
+            header: if include_header { Some(self.header.clone()) } else { None },
+            parts,
+            receipts,
         }
     }
 

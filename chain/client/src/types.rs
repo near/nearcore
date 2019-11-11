@@ -11,9 +11,7 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
-use near_primitives::views::{
-    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
-};
+use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -89,6 +87,8 @@ pub struct ClientConfig {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
+    /// Duration to reduce the wait for each missed block by validator.
+    pub reduce_wait_for_missing_block: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -150,6 +150,7 @@ impl ClientConfig {
             min_block_production_delay: Duration::from_millis(block_prod_time),
             max_block_production_delay: Duration::from_millis(2 * block_prod_time),
             max_block_wait_delay: Duration::from_millis(3 * block_prod_time),
+            reduce_wait_for_missing_block: Duration::from_millis(0),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
@@ -304,13 +305,4 @@ pub struct TxStatus {
 
 impl Message for TxStatus {
     type Result = Result<FinalExecutionOutcomeView, String>;
-}
-
-/// Details about given transaction.
-pub struct TxDetails {
-    pub tx_hash: CryptoHash,
-}
-
-impl Message for TxDetails {
-    type Result = Result<ExecutionOutcomeView, String>;
 }

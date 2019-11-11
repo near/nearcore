@@ -9,7 +9,10 @@ use log::debug;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::account::Account;
+use near_primitives::challenge::ChallengesResult;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -22,7 +25,9 @@ use near_primitives::types::{
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
+use near_store::{
+    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
@@ -31,8 +36,7 @@ use crate::types::{
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::errors::RuntimeError;
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
+use near_primitives::block::Approval;
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -283,6 +287,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_validator_signature(
         &self,
         _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
         _data: &[u8],
         _signature: &Signature,
@@ -290,18 +295,23 @@ impl RuntimeAdapter for KeyValueRuntime {
         ValidatorSignatureVerificationResult::Valid
     }
 
-    fn verify_approval_signature(
+    fn verify_header_signature(
         &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _approval_mask: &[bool],
-        _approval_sigs: &[Signature],
-        _data: &[u8],
-    ) -> Result<bool, Error> {
-        Ok(true)
+        _header: &BlockHeader,
+    ) -> ValidatorSignatureVerificationResult {
+        ValidatorSignatureVerificationResult::Valid
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_approval_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _prev_block_hash: &CryptoHash,
+        _approvals: &[Approval],
+    ) -> Result<bool, Error> {
         Ok(true)
     }
 
@@ -337,6 +347,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
+    }
+
+    fn get_num_missing_blocks(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        Ok(0)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -454,7 +473,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _validator_mask: Vec<bool>,
         _rent_paid: Balance,
         _validator_reward: Balance,
-        _balance_burnt: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -472,6 +490,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        _challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -638,7 +657,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(state_root.hash),
             ),
             new_root: new_state_root,
-            transaction_results: tx_results,
+            outcomes: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
@@ -647,6 +666,24 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_balance_burnt: 0,
             proof: None,
         })
+    }
+
+    fn check_state_transition(
+        &self,
+        _partial_storage: PartialStorage,
+        _shard_id: ShardId,
+        _state_root: &StateRoot,
+        _block_index: BlockIndex,
+        _block_timestamp: u64,
+        _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+        _receipts: &[Receipt],
+        _transactions: &[SignedTransaction],
+        _last_validator_proposals: &[ValidatorStake],
+        _gas_price: Balance,
+        _challenges: &ChallengesResult,
+    ) -> Result<ApplyTransactionResult, Error> {
+        unimplemented!();
     }
 
     fn query(
@@ -784,7 +821,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity, 10),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
@@ -808,7 +845,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -868,15 +905,21 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk.transactions.len(),
                             chunk.receipts.len()
                         );
-                    } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
+                    } else if let Ok(partial_chunk) =
+                        chain_store.get_partial_chunk(&chunk_header.chunk_hash())
                     {
                         debug!(
-                            "    {: >3} {} | {} | {: >10} | part = {}",
+                            "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
                             chunk_header.inner.height_created,
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.inner.shard_id,
                             chunk_producer,
-                            chunk_one_part.part_id
+                            partial_chunk.parts.iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            partial_chunk
+                                .receipts
+                                .iter()
+                                .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
+                                .collect::<Vec<_>>(),
                         );
                     }
                 }
@@ -895,6 +938,7 @@ impl ChainGenesis {
             max_inflation_rate: 0,
             gas_price_adjustment_rate: 0,
             transaction_validity_period: 100,
+            epoch_length: 5,
         }
     }
 }

@@ -4,35 +4,39 @@ use std::io;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use cached::SizedCache;
+use cached::{Cached, SizedCache};
 use chrono::Utc;
-use log::debug;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkOnePart, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::ExecutionOutcome;
-use near_primitives::types::{BlockIndex, ChunkExtra, ShardId};
+use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
-    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHALLENGED_BLOCKS, COL_CHUNKS,
-    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS,
-    COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_BLOCK_EXTRA, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_BLOCK_PER_HEIGHT,
+    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
+    COL_LAST_APPROVALS_PER_ACCOUNT, COL_MY_LAST_APPROVALS_PER_CHAIN, COL_OUTGOING_RECEIPTS,
+    COL_PARTIAL_CHUNKS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
+use near_primitives::block::{Approval, Weight};
 use near_primitives::errors::InvalidTxError;
+use near_primitives::merkle::MerklePath;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
+const LARGEST_APPROVED_WEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_WEIGHT";
+const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
 
 /// lru cache size
 const CACHE_SIZE: usize = 100;
@@ -162,11 +166,16 @@ pub trait ChainStoreAccess {
     fn sync_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+    /// Largest weight and score for which the approval was ever created
+    fn largest_approved_weight(&self) -> Result<Weight, Error>;
+    fn largest_approved_score(&self) -> Result<Weight, Error>;
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
-    /// Get full chunk from header, with possible error that contains the header for further retreival.
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error>;
+    /// Get full chunk from header, with possible error that contains the header for further retrieval.
     fn get_chunk_clone_from_header(
         &mut self,
         header: &ShardChunkHeader,
@@ -177,8 +186,8 @@ pub trait ChainStoreAccess {
                 return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
             }
             Ok(shard_chunk) => {
-                byzantine_assert!(header.height_included > 0);
-                if header.height_included == 0 {
+                byzantine_assert!(header.height_included > 0 || header.inner.height_created == 0);
+                if header.height_included == 0 && header.inner.height_created > 0 {
                     return Err(ErrorKind::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
                         header, shard_chunk
@@ -191,13 +200,13 @@ pub trait ChainStoreAccess {
             }
         }
     }
-    /// Get chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
-    /// Get chunk extra info for given chunk hash.
+    /// GEt block extra for given block.
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error>;
+    /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
@@ -212,6 +221,14 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    /// Check if we have block header at given height across any chain.
+    /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
+    /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
+    /// height must be the same.
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &mut self,
@@ -230,6 +247,11 @@ pub trait ChainStoreAccess {
         self.get_block_header(&hash)
     }
     /// Returns resulting receipt for given block.
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error>;
+    /// Returns resulting receipt for given block.
+    fn get_last_approval_for_account(&mut self, account_id: &AccountId)
+        -> Result<&Approval, Error>;
+    /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
@@ -240,8 +262,11 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptProof>, Error>;
-    /// Returns transaction result for given tx hash.
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error>;
+    /// Returns transaction and receipt outcome for given hash.
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -252,6 +277,12 @@ pub trait ChainStoreAccess {
 
     /// Save the latest known.
     fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error>;
+
+    /// Returns encoded chunk if it's invalid otherwise None.
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error>;
 }
 
 /// All chain-related database operations.
@@ -267,18 +298,28 @@ pub struct ChainStore {
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
     chunks: SizedCache<Vec<u8>, ShardChunk>,
-    /// Cache with chunk one parts
-    chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
+    /// Cache with partial chunks
+    partial_chunks: SizedCache<Vec<u8>, PartialEncodedChunk>,
+    /// Cache with block extra.
+    block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
-    // Cache with index to hash on the main chain.
-    // block_index: SizedCache<Vec<u8>, CryptoHash>,
+    /// Cache with index to hash on the main chain.
+    block_index: SizedCache<Vec<u8>, CryptoHash>,
+    /// Cache with index to hash on any chain.
+    block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    /// Cache of my last approvals
+    my_last_approvals: SizedCache<Vec<u8>, Approval>,
+    /// Cache of last approvals for each account
+    last_approvals_per_account: SizedCache<Vec<u8>, Approval>,
     /// Cache with outgoing receipts.
     outgoing_receipts: SizedCache<Vec<u8>, Vec<Receipt>>,
     /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
-    transaction_results: SizedCache<Vec<u8>, ExecutionOutcome>,
+    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithProof>,
+    /// Invalid chunks.
+    invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -298,20 +339,25 @@ impl ChainStore {
             headers: SizedCache::with_size(CACHE_SIZE),
             header_history: HeaderList::new(),
             chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
-            chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
-            // block_index: SizedCache::with_size(CACHE_SIZE),
+            block_index: SizedCache::with_size(CACHE_SIZE),
+            block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            my_last_approvals: SizedCache::with_size(CACHE_SIZE),
+            last_approvals_per_account: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
-            transaction_results: SizedCache::with_size(CACHE_SIZE),
+            outcomes: SizedCache::with_size(CACHE_SIZE),
+            invalid_chunks: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
-    pub fn store(&self) -> Arc<Store> {
+    pub fn owned_store(&self) -> Arc<Store> {
         self.store.clone()
     }
 
-    pub fn store_update(&mut self) -> ChainStoreUpdate<Self> {
+    pub fn store_update(&mut self) -> ChainStoreUpdate {
         ChainStoreUpdate::new(self)
     }
 
@@ -445,6 +491,22 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
+    /// Largest weight for which the approval was ever created
+    fn largest_approved_weight(&self) -> Result<Weight, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY),
+            "LARGEST_APPROVED_WEIGHT_KEY",
+        )
+    }
+
+    /// Largest score for which the approval was ever created
+    fn largest_approved_score(&self) -> Result<Weight, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY),
+            "LARGEST_APPROVED_SCORE_KEY",
+        )
+    }
+
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY), "HEADER_HEAD")
@@ -466,16 +528,16 @@ impl ChainStoreAccess for ChainStore {
         }
     }
 
-    /// Get Chunk one part.
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
+    /// Get partial chunk.
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
-            COL_CHUNK_ONE_PARTS,
-            &mut self.chunk_one_parts,
-            header.chunk_hash().as_ref(),
+            COL_PARTIAL_CHUNKS,
+            &mut self.partial_chunks,
+            chunk_hash.as_ref(),
         ) {
-            Ok(Some(chunk_one_part)) => Ok(chunk_one_part),
-            _ => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
+            Ok(Some(shard_chunk)) => Ok(shard_chunk),
+            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
@@ -489,7 +551,20 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&header.inner.prev_hash)
     }
 
-    /// Get state root hash after applying header with given hash.
+    /// Information from applying block.
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_BLOCK_EXTRA,
+                &mut self.block_extras,
+                block_hash.as_ref(),
+            ),
+            &format!("BLOCK EXTRA: {}", block_hash),
+        )
+    }
+
+    /// Information from applying chunk.
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
@@ -532,6 +607,48 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_BLOCK_PER_HEIGHT,
+                &mut self.block_hash_per_height,
+                &index_to_bytes(height),
+            ),
+            &format!("BLOCK PER HEIGHT: {}", height),
+        )
+    }
+
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_MY_LAST_APPROVALS_PER_CHAIN,
+                &mut self.my_last_approvals,
+                block_hash.as_ref(),
+            ),
+            &format!("MY LAST APPROVAL: {}", block_hash),
+        )
+    }
+
+    fn get_last_approval_for_account(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<&Approval, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_LAST_APPROVALS_PER_ACCOUNT,
+                &mut self.last_approvals_per_account,
+                account_id.as_ref(),
+            ),
+            &format!("LAST APPROVAL FOR ACCOUNT: {}", account_id),
+        )
+    }
+
     fn get_outgoing_receipts(
         &mut self,
         block_hash: &CryptoHash,
@@ -564,12 +681,15 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
                 COL_TRANSACTION_RESULT,
-                &mut self.transaction_results,
+                &mut self.outcomes,
                 hash.as_ref(),
             ),
             &format!("TRANSACTION: {}", hash),
@@ -603,28 +723,75 @@ impl ChainStoreAccess for ChainStore {
             .get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?
             .unwrap_or_else(|| false));
     }
+
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
+        read_with_cache(
+            &*self.store,
+            COL_INVALID_CHUNKS,
+            &mut self.invalid_chunks,
+            chunk_hash.as_ref(),
+        )
+        .map_err(|err| err.into())
+    }
+}
+
+/// Cache update for ChainStore
+struct ChainStoreCacheUpdate {
+    blocks: HashMap<CryptoHash, Block>,
+    deleted_blocks: HashSet<CryptoHash>,
+    headers: HashMap<CryptoHash, BlockHeader>,
+    block_extras: HashMap<CryptoHash, BlockExtra>,
+    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
+    chunks: HashMap<ChunkHash, ShardChunk>,
+    partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
+    block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
+    block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    my_last_approvals: HashMap<CryptoHash, Approval>,
+    last_approvals_per_account: HashMap<AccountId, Approval>,
+    outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
+    incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
+    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
+    invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
+}
+
+impl ChainStoreCacheUpdate {
+    pub fn new() -> Self {
+        Self {
+            blocks: Default::default(),
+            deleted_blocks: Default::default(),
+            headers: Default::default(),
+            block_extras: Default::default(),
+            chunk_extras: HashMap::default(),
+            chunks: Default::default(),
+            partial_chunks: Default::default(),
+            block_hash_per_height: HashMap::default(),
+            block_index: Default::default(),
+            my_last_approvals: HashMap::default(),
+            last_approvals_per_account: HashMap::default(),
+            outgoing_receipts: HashMap::default(),
+            incoming_receipts: HashMap::default(),
+            outcomes: Default::default(),
+            invalid_chunks: Default::default(),
+        }
+    }
 }
 
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a, T> {
-    chain_store: &'a mut T,
+pub struct ChainStoreUpdate<'a> {
+    chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
-    blocks: HashMap<CryptoHash, Block>,
-    deleted_blocks: HashSet<CryptoHash>,
-    headers: HashMap<CryptoHash, BlockHeader>,
-    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
-    chunks: HashMap<ChunkHash, ShardChunk>,
-    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
-    block_index: HashMap<BlockIndex, Option<CryptoHash>>,
-    outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
-    incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
-    transaction_results: HashMap<CryptoHash, ExecutionOutcome>,
+    chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    largest_approved_weight: Option<Weight>,
+    largest_approved_score: Option<Weight>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -636,25 +803,18 @@ pub struct ChainStoreUpdate<'a, T> {
     challenged_blocks: HashSet<CryptoHash>,
 }
 
-impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
-    pub fn new(chain_store: &'a mut T) -> Self {
+impl<'a> ChainStoreUpdate<'a> {
+    pub fn new(chain_store: &'a mut ChainStore) -> Self {
         ChainStoreUpdate {
             chain_store,
             store_updates: vec![],
-            blocks: HashMap::default(),
-            deleted_blocks: HashSet::default(),
-            headers: HashMap::default(),
-            block_index: HashMap::default(),
-            chunk_extras: HashMap::default(),
-            chunks: HashMap::default(),
-            chunk_one_parts: HashMap::default(),
-            outgoing_receipts: HashMap::default(),
-            incoming_receipts: HashMap::default(),
-            transaction_results: HashMap::default(),
+            chain_store_cache_update: ChainStoreCacheUpdate::new(),
             head: None,
             tail: None,
             header_head: None,
             sync_head: None,
+            largest_approved_weight: None,
+            largest_approved_score: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
@@ -703,14 +863,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Usually ChainStoreUpdate has some uncommitted changes
     /// and chain_store don't have access to them until they become committed.
     /// Make sure you're doing it right.
-    pub fn get_chain_store(&mut self) -> &mut T {
+    pub fn get_chain_store(&mut self) -> &mut ChainStore {
         self.chain_store
     }
 }
 
-impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
+impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn store(&self) -> &Store {
-        self.chain_store.store()
+        &*self.chain_store.store
     }
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
@@ -748,6 +908,22 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         }
     }
 
+    fn largest_approved_weight(&self) -> Result<Weight, Error> {
+        if let Some(largest_approved_weight) = &self.largest_approved_weight {
+            Ok(largest_approved_weight.clone())
+        } else {
+            self.chain_store.largest_approved_weight()
+        }
+    }
+
+    fn largest_approved_score(&self) -> Result<Weight, Error> {
+        if let Some(largest_approved_score) = &self.largest_approved_score {
+            Ok(largest_approved_score.clone())
+        } else {
+            self.chain_store.largest_approved_score()
+        }
+    }
+
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
@@ -755,7 +931,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
-        if let Some(block) = self.blocks.get(h) {
+        if let Some(block) = self.chain_store_cache_update.blocks.get(h) {
             Ok(block)
         } else {
             self.chain_store.get_block(h)
@@ -764,12 +940,21 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.blocks.contains_key(h) || self.chain_store.block_exists(h)?)
+        Ok(self.chain_store_cache_update.blocks.contains_key(h)
+            || self.chain_store.block_exists(h)?)
     }
 
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.get_block_header(&header.inner.prev_hash)
+    }
+
+    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+        if let Some(block_extra) = self.chain_store_cache_update.block_extras.get(block_hash) {
+            Ok(block_extra)
+        } else {
+            self.chain_store.get_block_extra(block_hash)
+        }
     }
 
     /// Get state root hash after applying header with given hash.
@@ -778,7 +963,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&ChunkExtra, Error> {
-        if let Some(chunk_extra) = self.chunk_extras.get(&(*block_hash, shard_id)) {
+        if let Some(chunk_extra) =
+            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, shard_id))
+        {
             Ok(chunk_extra)
         } else {
             self.chain_store.get_chunk_extra(block_hash, shard_id)
@@ -787,7 +974,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
     /// Get block header.
     fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
-        if let Some(header) = self.headers.get(hash) {
+        if let Some(header) = self.chain_store_cache_update.headers.get(hash) {
             Ok(header)
         } else {
             self.chain_store.get_block_header(hash)
@@ -799,13 +986,43 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.chain_store.get_block_hash_by_height(height)
     }
 
+    fn get_any_block_hash_by_height(
+        &mut self,
+        height: BlockIndex,
+    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
+        self.chain_store.get_any_block_hash_by_height(height)
+    }
+
+    fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
+        if let Some(approval) = self.chain_store_cache_update.my_last_approvals.get(block_hash) {
+            Ok(approval)
+        } else {
+            self.chain_store.get_my_last_approval(block_hash)
+        }
+    }
+
+    fn get_last_approval_for_account(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<&Approval, Error> {
+        if let Some(approval) =
+            self.chain_store_cache_update.last_approvals_per_account.get(account_id)
+        {
+            Ok(approval)
+        } else {
+            self.chain_store.get_last_approval_for_account(account_id)
+        }
+    }
+
     /// Get receipts produced for block with given hash.
     fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error> {
-        if let Some(receipts) = self.outgoing_receipts.get(&(*hash, shard_id)) {
+        if let Some(receipts) =
+            self.chain_store_cache_update.outgoing_receipts.get(&(*hash, shard_id))
+        {
             Ok(receipts)
         } else {
             self.chain_store.get_outgoing_receipts(hash, shard_id)
@@ -818,22 +1035,35 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptProof>, Error> {
-        if let Some(receipt_proofs) = self.incoming_receipts.get(&(*hash, shard_id)) {
+        if let Some(receipt_proofs) =
+            self.chain_store_cache_update.incoming_receipts.get(&(*hash, shard_id))
+        {
             Ok(receipt_proofs)
         } else {
             self.chain_store.get_incoming_receipts(hash, shard_id)
         }
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
-        self.chain_store.get_transaction_result(hash)
+    fn get_execution_outcome(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+        self.chain_store.get_execution_outcome(hash)
     }
 
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        if let Some(chunk) = self.chunks.get(chunk_hash) {
+        if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
             Ok(chunk)
         } else {
             self.chain_store.get_chunk(chunk_hash)
+        }
+    }
+
+    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
+        if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
+            Ok(partial_chunk)
+        } else {
+            self.chain_store.get_partial_chunk(chunk_hash)
         }
     }
 
@@ -841,18 +1071,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         &mut self,
         header: &ShardChunkHeader,
     ) -> Result<ShardChunk, Error> {
-        if let Some(chunk) = self.chunks.get(&header.hash) {
+        if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.hash) {
             Ok(chunk.clone())
         } else {
             self.chain_store.get_chunk_clone_from_header(header)
-        }
-    }
-
-    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        if let Some(one_part) = self.chunk_one_parts.get(&header.hash) {
-            Ok(one_part)
-        } else {
-            self.chain_store.get_chunk_one_part(header)
         }
     }
 
@@ -879,9 +1101,20 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         }
         self.chain_store.is_block_challenged(hash)
     }
+
+    fn is_invalid_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<Option<&EncodedShardChunk>, Error> {
+        if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(&chunk_hash) {
+            Ok(Some(chunk))
+        } else {
+            self.chain_store.is_invalid_chunk(chunk_hash)
+        }
+    }
 }
 
-impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
+impl<'a> ChainStoreUpdate<'a> {
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
@@ -913,7 +1146,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 (header.inner.height, header.hash(), header.inner.prev_hash);
             // Clean up block indicies between blocks.
             for height in (header_height + 1)..prev_height {
-                self.block_index.insert(height, None);
+                self.chain_store_cache_update.block_index.insert(height, None);
             }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
@@ -924,7 +1157,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                     if self.is_block_challenged(&header_hash)? {
                         return Err(ErrorKind::ChallengedBlockOnChain.into());
                     }
-                    self.block_index.insert(header_height, Some(header_hash));
+                    self.chain_store_cache_update
+                        .block_index
+                        .insert(header_height, Some(header_hash));
                     prev_hash = header_prev_hash;
                     prev_height = header_height;
                 }
@@ -943,7 +1178,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             Ok(prev_tip) => {
                 if prev_tip.height > t.height {
                     for height in (t.height + 1)..=prev_tip.height {
-                        self.block_index.insert(height, None);
+                        self.chain_store_cache_update.block_index.insert(height, None);
                     }
                 }
             }
@@ -953,7 +1188,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             },
         }
 
-        self.block_index.insert(t.height, Some(t.last_block_hash));
+        self.chain_store_cache_update.block_index.insert(t.height, Some(t.last_block_hash));
         self.header_head = Some(t.clone());
         Ok(())
     }
@@ -961,6 +1196,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Save "sync" head.
     pub fn save_sync_head(&mut self, t: &Tip) {
         self.sync_head = Some(t.clone());
+    }
+
+    pub fn save_largest_approved_weight(&mut self, weight: &Weight) {
+        self.largest_approved_weight = Some(weight.clone());
+    }
+
+    pub fn save_largest_approved_score(&mut self, score: &Weight) {
+        self.largest_approved_score = Some(score.clone());
     }
 
     /// Save new height if it's above currently latest known.
@@ -974,33 +1217,52 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
     /// Save block.
     pub fn save_block(&mut self, block: Block) {
-        self.blocks.insert(block.hash(), block);
+        self.chain_store_cache_update.blocks.insert(block.hash(), block);
     }
 
-    /// Save post applying block state root.
+    /// Save post applying block extra info.
+    pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: BlockExtra) {
+        self.chain_store_cache_update.block_extras.insert(*block_hash, block_extra);
+    }
+
+    /// Save post applying chunk extra info.
     pub fn save_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_extra: ChunkExtra,
     ) {
-        self.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk_hash: &ChunkHash, chunk: ShardChunk) {
-        self.chunks.insert(chunk_hash.clone(), chunk);
+        self.chain_store_cache_update.chunks.insert(chunk_hash.clone(), chunk);
     }
 
-    pub fn save_chunk_one_part(&mut self, chunk_hash: &ChunkHash, one_part: ChunkOnePart) {
-        self.chunk_one_parts.insert(chunk_hash.clone(), one_part);
+    pub fn save_partial_chunk(
+        &mut self,
+        chunk_hash: &ChunkHash,
+        partial_chunk: PartialEncodedChunk,
+    ) {
+        self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
-        self.deleted_blocks.insert(*hash);
+        self.chain_store_cache_update.deleted_blocks.insert(*hash);
     }
 
     pub fn save_block_header(&mut self, header: BlockHeader) {
-        self.headers.insert(header.hash(), header);
+        self.chain_store_cache_update.headers.insert(header.hash(), header);
+    }
+
+    pub fn save_my_last_approval(&mut self, block_hash: &CryptoHash, approval: Approval) {
+        self.chain_store_cache_update.my_last_approvals.insert(block_hash.clone(), approval);
+    }
+
+    pub fn save_last_approval_for_account(&mut self, account_id: &AccountId, approval: Approval) {
+        self.chain_store_cache_update
+            .last_approvals_per_account
+            .insert(account_id.clone(), approval);
     }
 
     pub fn save_outgoing_receipt(
@@ -1009,7 +1271,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         shard_id: ShardId,
         receipt: Vec<Receipt>,
     ) {
-        self.outgoing_receipts.insert((*hash, shard_id), receipt);
+        self.chain_store_cache_update.outgoing_receipts.insert((*hash, shard_id), receipt);
     }
 
     pub fn save_incoming_receipt(
@@ -1018,36 +1280,19 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         shard_id: ShardId,
         receipt_proof: Vec<ReceiptProof>,
     ) {
-        self.incoming_receipts.insert((*hash, shard_id), receipt_proof);
+        self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
     }
 
-    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: ExecutionOutcome) {
-        self.transaction_results.insert(*hash, result);
-    }
-
-    /// Starts a sub-ChainUpdate with atomic commit/rollback of all operations done
-    /// within this scope.
-    /// If the closure returns and error, all changes are canceled.
-    #[allow(dead_code)]
-    pub fn extending<F>(&mut self, f: F) -> Result<bool, Error>
-    where
-        F: FnOnce(&mut ChainStoreUpdate<'_, ChainStoreUpdate<'a, T>>) -> Result<bool, Error>,
-    {
-        let mut child_store_update = ChainStoreUpdate::new(self);
-        let res = f(&mut child_store_update);
-        match res {
-            // Committing changes.
-            Ok(true) => {
-                let store_update = child_store_update.finalize()?;
-                self.store_updates.push(store_update);
-                Ok(true)
-            }
-            // Rolling back changes.
-            Ok(false) => Ok(false),
-            Err(err) => {
-                debug!(target: "chain", "Error returned, discarding extension");
-                Err(err)
-            }
+    pub fn save_outcomes_with_proofs(
+        &mut self,
+        outcomes: Vec<ExecutionOutcomeWithId>,
+        proofs: Vec<MerklePath>,
+    ) {
+        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
+            self.chain_store_cache_update.outcomes.insert(
+                outcome_with_id.id,
+                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
         }
     }
 
@@ -1079,91 +1324,143 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.challenged_blocks.insert(hash);
     }
 
+    pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
+        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), chunk);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
     }
 
-    pub fn finalize(mut self) -> Result<StoreUpdate, Error> {
+    fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
-        if let Some(t) = self.head {
+        if let Some(t) = self.head.take() {
             store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.tail {
+        if let Some(t) = self.tail.take() {
             store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.header_head {
+        if let Some(t) = self.header_head.take() {
             store_update
                 .set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.sync_head {
+        if let Some(t) = self.sync_head.take() {
             store_update
                 .set_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (hash, block) in self.blocks.drain() {
+        if let Some(t) = self.largest_approved_weight {
             store_update
-                .set_ser(COL_BLOCK, hash.as_ref(), &block)
+                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for hash in self.deleted_blocks.drain() {
+        if let Some(t) = self.largest_approved_score {
+            store_update
+                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (hash, block) in self.chain_store_cache_update.blocks.iter() {
+            store_update
+                .set_ser(COL_BLOCK, hash.as_ref(), block)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for hash in self.chain_store_cache_update.deleted_blocks.iter() {
             store_update.delete(COL_BLOCK, hash.as_ref());
         }
-        for (hash, header) in self.headers.drain() {
+        for (hash, header) in self.chain_store_cache_update.headers.iter() {
+            let map = match self.chain_store.get_any_block_hash_by_height(header.inner.height) {
+                Ok(m) => {
+                    if !m.contains_key(&header.inner.epoch_id) {
+                        Some(m.clone())
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => Some(HashMap::new()),
+            };
+            if let Some(mut new_map) = map {
+                new_map.insert(header.inner.epoch_id.clone(), *hash);
+                store_update
+                    .set_ser(COL_BLOCK_PER_HEIGHT, &index_to_bytes(header.inner.height), &new_map)
+                    .map_err::<Error, _>(|e| e.into())?;
+                self.chain_store_cache_update
+                    .block_hash_per_height
+                    .insert(header.inner.height, new_map);
+            }
             store_update
-                .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)
+                .set_ser(COL_BLOCK_HEADER, hash.as_ref(), header)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for ((block_hash, shard_id), chunk_extra) in self.chunk_extras.drain() {
+        for ((block_hash, shard_id), chunk_extra) in
+            self.chain_store_cache_update.chunk_extras.iter()
+        {
             store_update
-                .set_ser(COL_CHUNK_EXTRA, &get_block_shard_id(&block_hash, shard_id), &chunk_extra)
+                .set_ser(COL_CHUNK_EXTRA, &get_block_shard_id(block_hash, *shard_id), chunk_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (chunk_hash, chunk) in self.chunks.drain() {
+        for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
             store_update
-                .set_ser(COL_CHUNKS, chunk_hash.as_ref(), &chunk)
+                .set_ser(COL_BLOCK_EXTRA, block_hash.as_ref(), block_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (chunk_hash, chunk_one_part) in self.chunk_one_parts.drain() {
+        for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
             store_update
-                .set_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref(), &chunk_one_part)
+                .set_ser(COL_CHUNKS, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (height, hash) in self.block_index.drain() {
+        for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
+            store_update
+                .set_ser(COL_PARTIAL_CHUNKS, chunk_hash.as_ref(), partial_chunk)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (height, hash) in self.chain_store_cache_update.block_index.iter() {
             if let Some(hash) = hash {
                 store_update
-                    .set_ser(COL_BLOCK_INDEX, &index_to_bytes(height), &hash)
+                    .set_ser(COL_BLOCK_INDEX, &index_to_bytes(*height), hash)
                     .map_err::<Error, _>(|e| e.into())?;
             } else {
-                store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(height));
+                store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(*height));
             }
         }
-        for ((block_hash, shard_id), receipt) in self.outgoing_receipts.drain() {
+        for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
+            store_update.set_ser(COL_MY_LAST_APPROVALS_PER_CHAIN, block_hash.as_ref(), approval)?;
+        }
+        for (account_id, approval) in
+            self.chain_store_cache_update.last_approvals_per_account.iter()
+        {
+            store_update.set_ser(COL_LAST_APPROVALS_PER_ACCOUNT, account_id.as_ref(), approval)?;
+        }
+        for ((block_hash, shard_id), receipt) in
+            self.chain_store_cache_update.outgoing_receipts.iter()
+        {
             store_update.set_ser(
                 COL_OUTGOING_RECEIPTS,
-                &get_block_shard_id(&block_hash, shard_id),
-                &receipt,
+                &get_block_shard_id(block_hash, *shard_id),
+                receipt,
             )?;
         }
-        for ((block_hash, shard_id), receipt) in self.incoming_receipts.drain() {
+        for ((block_hash, shard_id), receipt) in
+            self.chain_store_cache_update.incoming_receipts.iter()
+        {
             store_update.set_ser(
                 COL_INCOMING_RECEIPTS,
-                &get_block_shard_id(&block_hash, shard_id),
-                &receipt,
+                &get_block_shard_id(block_hash, *shard_id),
+                receipt,
             )?;
         }
-        for (hash, tx_result) in self.transaction_results.drain() {
-            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
+        for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
+            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), outcome)?;
         }
-        for trie_changes in self.trie_changes {
+        for trie_changes in self.trie_changes.drain(..) {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
         let mut affected_catchup_blocks = HashSet::new();
-        for (prev_hash, hash) in self.remove_blocks_to_catchup {
+        for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(ErrorKind::Other(
@@ -1192,7 +1489,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
             }
         }
-        for prev_hash in self.remove_prev_blocks_to_catchup {
+        for prev_hash in self.remove_prev_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(ErrorKind::Other(
@@ -1204,7 +1501,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
             store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
         }
-        for (prev_hash, new_hash) in self.add_blocks_to_catchup {
+        for (prev_hash, new_hash) in self.add_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(ErrorKind::Other(
@@ -1219,28 +1516,105 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             prev_table.push(new_hash);
             store_update.set_ser(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref(), &prev_table)?;
         }
-        for state_dl_info in self.add_state_dl_infos {
+        for state_dl_info in self.add_state_dl_infos.drain(..) {
             store_update.set_ser(
                 COL_STATE_DL_INFOS,
                 state_dl_info.epoch_tail_hash.as_ref(),
                 &state_dl_info,
             )?;
         }
-        for hash in self.remove_state_dl_infos {
+        for hash in self.remove_state_dl_infos.drain(..) {
             store_update.delete(COL_STATE_DL_INFOS, hash.as_ref());
         }
-        for hash in self.challenged_blocks {
+        for hash in self.challenged_blocks.drain() {
             store_update.set_ser(COL_CHALLENGED_BLOCKS, hash.as_ref(), &true)?;
         }
-        for other in self.store_updates {
+        for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
+            store_update.set_ser(COL_INVALID_CHUNKS, chunk_hash.as_ref(), chunk)?;
+        }
+        for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
         Ok(store_update)
     }
 
-    pub fn commit(self) -> Result<(), Error> {
+    pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
-        store_update.commit().map_err(|e| e.into())
+        store_update.commit()?;
+        let ChainStoreCacheUpdate {
+            blocks,
+            deleted_blocks,
+            headers,
+            block_extras,
+            chunk_extras,
+            chunks,
+            partial_chunks,
+            block_hash_per_height,
+            block_index,
+            last_approvals_per_account,
+            my_last_approvals,
+            outgoing_receipts,
+            incoming_receipts,
+            outcomes,
+            invalid_chunks,
+        } = self.chain_store_cache_update;
+        for (hash, block) in blocks {
+            self.chain_store.blocks.cache_set(hash.into(), block);
+        }
+        for hash in deleted_blocks {
+            self.chain_store.blocks.cache_remove(&hash.into());
+        }
+        for (hash, header) in headers {
+            self.chain_store.headers.cache_set(hash.into(), header);
+        }
+        for (hash, block_extra) in block_extras {
+            self.chain_store.block_extras.cache_set(hash.into(), block_extra);
+        }
+        for ((block_hash, shard_id), chunk_extra) in chunk_extras {
+            let key = get_block_shard_id(&block_hash, shard_id);
+            self.chain_store.chunk_extras.cache_set(key, chunk_extra);
+        }
+        for (hash, chunk) in chunks {
+            self.chain_store.chunks.cache_set(hash.into(), chunk);
+        }
+        for (hash, partial_chunk) in partial_chunks {
+            self.chain_store.partial_chunks.cache_set(hash.into(), partial_chunk);
+        }
+        for (height, epoch_id_to_hash) in block_hash_per_height {
+            self.chain_store
+                .block_hash_per_height
+                .cache_set(index_to_bytes(height), epoch_id_to_hash);
+        }
+        for (height, block_hash) in block_index {
+            let bytes = index_to_bytes(height);
+            if let Some(hash) = block_hash {
+                self.chain_store.block_index.cache_set(bytes, hash);
+            } else {
+                self.chain_store.block_index.cache_remove(&bytes);
+            }
+        }
+        for (account_id, approval) in last_approvals_per_account {
+            self.chain_store.last_approvals_per_account.cache_set(account_id.into(), approval);
+        }
+        for (block_hash, approval) in my_last_approvals {
+            self.chain_store.my_last_approvals.cache_set(block_hash.into(), approval);
+        }
+        for ((block_hash, shard_id), shard_outgoing_receipts) in outgoing_receipts {
+            let key = get_block_shard_id(&block_hash, shard_id);
+            self.chain_store.outgoing_receipts.cache_set(key, shard_outgoing_receipts);
+        }
+        for ((block_hash, shard_id), shard_incoming_receipts) in incoming_receipts {
+            let key = get_block_shard_id(&block_hash, shard_id);
+            self.chain_store.incoming_receipts.cache_set(key, shard_incoming_receipts);
+        }
+        for (hash, outcome) in outcomes {
+            self.chain_store.outcomes.cache_set(hash.into(), outcome);
+        }
+        for (hash, invalid_chunk) in invalid_chunks {
+            self.chain_store.invalid_chunks.cache_set(hash.into(), invalid_chunk);
+        }
+
+        Ok(())
     }
 }
 
@@ -1248,9 +1622,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 mod tests {
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis};
-    use near_crypto::{InMemorySigner, KeyType};
+    use borsh::ser::BorshSerialize;
+    use cached::Cached;
+    use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
+    use near_primitives::hash::hash;
+    use near_primitives::types::EpochId;
+    use near_primitives::utils::index_to_bytes;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
 
@@ -1413,5 +1792,39 @@ mod tests {
             ),
             Err(InvalidTxError::Expired)
         );
+    }
+
+    #[test]
+    fn test_cache_invalidation() {
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
+        let mut block2 = block1.clone();
+        block2.header.inner.epoch_id = EpochId(hash(&[1, 2, 3]));
+        let bytes = block2.header.try_to_vec().unwrap();
+        block2.header.hash = hash(&bytes);
+        block2.header.signature = signer.sign(block2.header.hash.as_ref());
+
+        let mut store_update = chain.mut_store().store_update();
+        store_update.chain_store_cache_update.block_index.insert(1, Some(hash(&[1])));
+        store_update.chain_store_cache_update.headers.insert(block1.hash(), block1.header);
+        store_update.commit().unwrap();
+
+        let block_hash = chain.mut_store().block_index.cache_get(&index_to_bytes(1)).cloned();
+        let epoch_id_to_hash =
+            chain.mut_store().block_hash_per_height.cache_get(&index_to_bytes(1)).cloned();
+
+        let mut store_update = chain.mut_store().store_update();
+        store_update.chain_store_cache_update.block_index.insert(1, Some(hash(&[2])));
+        store_update.chain_store_cache_update.headers.insert(block2.header.hash, block2.header);
+        store_update.commit().unwrap();
+
+        let block_hash1 = chain.mut_store().block_index.cache_get(&index_to_bytes(1)).cloned();
+        let epoch_id_to_hash1 =
+            chain.mut_store().block_hash_per_height.cache_get(&index_to_bytes(1)).cloned();
+
+        assert_ne!(block_hash, block_hash1);
+        assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
     }
 }

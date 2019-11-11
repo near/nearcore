@@ -4,6 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
@@ -63,21 +64,39 @@ pub enum ErrorKind {
     /// Invalid receipts proof.
     #[fail(display = "Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// Invalid outcomes proof.
+    #[fail(display = "Invalid Outcomes Proof")]
+    InvalidOutcomesProof,
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload,
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid challenge (wrong signature or format).
+    #[fail(display = "Invalid Challenge")]
+    InvalidChallenge,
+    /// Incorrect (malicious) challenge (slash the sender).
+    #[fail(display = "Malicious Challenge")]
+    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// One of the chunks has invalid proofs
+    #[fail(display = "Invalid Chunk Proofs")]
+    InvalidChunkProofs(ChunkProofs),
+    /// Invalid chunk state.
+    #[fail(display = "Invalid Chunk State")]
+    InvalidChunkState(ChunkState),
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
+    /// The chunk height is outside of the horizon
+    #[fail(display = "Invalid Chunk Height")]
+    InvalidChunkHeight,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -91,7 +110,7 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
     /// Validator error.
-    #[fail(display = "Validator Error")]
+    #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
@@ -105,6 +124,9 @@ pub enum ErrorKind {
     /// Not found record in the DB.
     #[fail(display = "DB Not Found Error: {}", _0)]
     DBNotFoundErr(String),
+    /// Storage error. Used for internal passing the error.
+    #[fail(display = "Storage Error")]
+    StorageError,
     /// Anything else
     #[fail(display = "Other Error: {}", _0)]
     Other(String),
@@ -144,12 +166,14 @@ impl Error {
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
+            | ErrorKind::InvalidChunkHeight
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
             | ErrorKind::ChallengedBlockOnChain
+            | ErrorKind::StorageError
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -159,15 +183,20 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkProofs(_)
+            | ErrorKind::InvalidChunkState(_)
             | ErrorKind::InvalidChunkMask
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidOutcomesProof
             | ErrorKind::InvalidChunkHeadersRoot
             | ErrorKind::InvalidChunkTxRoot
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
+            | ErrorKind::InvalidChallenge
+            | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals

@@ -6,11 +6,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
-use crate::block::BlockHeader;
 use crate::errors::ExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
+use crate::merkle::MerklePath;
+use crate::types::{AccountId, Balance, Gas, Nonce};
 
 pub type LogEntry = String;
 
@@ -214,6 +214,13 @@ impl Default for ExecutionStatus {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
+struct PartialExecutionOutcome {
+    pub status: ExecutionStatus,
+    pub receipt_ids: Vec<CryptoHash>,
+    pub gas_burnt: Gas,
+}
+
 /// Execution outcome for one signed transaction or one receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
 pub struct ExecutionOutcome {
@@ -225,6 +232,24 @@ pub struct ExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+}
+
+impl ExecutionOutcome {
+    pub fn to_hashes(&self) -> Vec<CryptoHash> {
+        let mut result = vec![hash(
+            &PartialExecutionOutcome {
+                status: self.status.clone(),
+                receipt_ids: self.receipt_ids.clone(),
+                gas_burnt: self.gas_burnt,
+            }
+            .try_to_vec()
+            .expect("Failed to serialize"),
+        )];
+        for log in self.logs.iter() {
+            result.push(hash(log.as_bytes()));
+        }
+        result
+    }
 }
 
 impl fmt::Debug for ExecutionOutcome {
@@ -248,6 +273,20 @@ pub struct ExecutionOutcomeWithId {
     pub outcome: ExecutionOutcome,
 }
 
+/// Execution outcome with path from it to the outcome root.
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub outcome: ExecutionOutcome,
+    pub proof: MerklePath,
+}
+
+/// Execution outcome with path from it to the outcome root and ID.
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithIdAndProof {
+    pub id: CryptoHash,
+    pub outcome_with_proof: ExecutionOutcomeWithProof,
+}
+
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
     public_keys: &[PublicKey],
@@ -255,21 +294,6 @@ pub fn verify_transaction_signature(
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
     public_keys.iter().any(|key| transaction.signature.verify(&hash, &key))
-}
-
-/// Check whether transaction is valid in terms of block history based on the block header that
-/// the transaction points to
-pub fn check_tx_history(
-    base_header: Option<&BlockHeader>,
-    current_height: BlockIndex,
-    validity_period: BlockIndex,
-) -> bool {
-    if let Some(base_header) = base_header {
-        current_height >= base_header.inner.height
-            && current_height - base_header.inner.height <= validity_period
-    } else {
-        false
-    }
 }
 
 #[cfg(test)]
@@ -355,5 +379,17 @@ mod tests {
             to_base(&new_signed_tx.get_hash()),
             "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
+    }
+
+    #[test]
+    fn test_outcome_to_hashes() {
+        let outcome = ExecutionOutcome {
+            status: ExecutionStatus::SuccessValue(vec![123]),
+            logs: vec!["123".to_string(), "321".to_string()],
+            receipt_ids: vec![],
+            gas_burnt: 123,
+        };
+        let hashes = outcome.to_hashes();
+        assert_eq!(hashes.len(), 3);
     }
 }

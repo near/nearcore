@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate bencher;
 
-use std::collections::HashMap;
-
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -51,10 +49,15 @@ fn create_block() -> Block {
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
-        HashMap::default(),
+        vec![],
         0,
         Some(0),
+        vec![],
+        vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     )
 }
 

@@ -1,4 +1,4 @@
-use std::cmp;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,10 +9,10 @@ use rand::{thread_rng, Rng};
 use near_chain::types::ShardStateSyncResponseHeader;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_chunks::NetworkAdapter;
-use near_network::types::ReasonForBan;
+use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, Range, ShardId};
+use near_primitives::types::{BlockIndex, Range, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -118,8 +118,8 @@ impl HeaderSync {
 
         // Received all necessary header, can request more.
         let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
-        // No headers processed and it's past timeout, request more.
 
+        // Did we stall downloading headers for given highest height? Request more or ban peer.
         let stalling = header_head.height <= latest_height && now > timeout;
 
         // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
@@ -320,8 +320,8 @@ impl BlockSync {
         }
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
-        let block_count = cmp::min(
-            cmp::min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
+        let block_count = min(
+            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
@@ -499,6 +499,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        most_weight_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
@@ -521,13 +522,10 @@ impl StateSync {
         for shard_id in tracking_shards {
             let mut download_timeout = false;
             let mut need_shard = false;
-            let shard_sync_download = if new_shard_sync.contains_key(&shard_id) {
-                &new_shard_sync[&shard_id]
-            } else {
+            let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
-                &init_sync_download
-            };
-            let mut new_sync_download = shard_sync_download.clone();
+                init_sync_download.clone()
+            });
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
@@ -536,7 +534,7 @@ impl StateSync {
                             chain.get_received_state_header(shard_id, sync_hash)?;
                         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
                         let state_num_parts = chunk.header.inner.prev_state_root.num_parts;
-                        new_sync_download = ShardSyncDownload {
+                        *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
                                     start_time: now,
@@ -556,9 +554,9 @@ impl StateSync {
                         let error = shard_sync_download.downloads[0].error;
                         if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
                             download_timeout = true;
-                            new_sync_download.downloads[0].run_me = true;
-                            new_sync_download.downloads[0].error = false;
-                            new_sync_download.downloads[0].prev_update_time = now;
+                            shard_sync_download.downloads[0].run_me = true;
+                            shard_sync_download.downloads[0].error = false;
+                            shard_sync_download.downloads[0].prev_update_time = now;
                             update_sync_status = true;
                             need_shard = true;
                         }
@@ -566,16 +564,16 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateDownloadParts => {
                     let mut parts_done = true;
-                    for (i, part_download) in shard_sync_download.downloads.iter().enumerate() {
+                    for part_download in shard_sync_download.downloads.iter_mut() {
                         if !part_download.done {
                             parts_done = false;
-                            let prev = shard_sync_download.downloads[i].prev_update_time;
-                            let error = shard_sync_download.downloads[i].error;
+                            let prev = part_download.prev_update_time;
+                            let error = part_download.error;
                             if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
                                 download_timeout = true;
-                                new_sync_download.downloads[i].run_me = true;
-                                new_sync_download.downloads[i].error = false;
-                                new_sync_download.downloads[i].prev_update_time = now;
+                                part_download.run_me = true;
+                                part_download.error = false;
+                                part_download.prev_update_time = now;
                                 update_sync_status = true;
                                 need_shard = true;
                             }
@@ -583,7 +581,7 @@ impl StateSync {
                     }
                     if parts_done {
                         update_sync_status = true;
-                        new_sync_download = ShardSyncDownload {
+                        *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateDownloadFinalize,
                         };
@@ -593,16 +591,17 @@ impl StateSync {
                     match chain.set_state_finalize(shard_id, sync_hash) {
                         Ok(_) => {
                             update_sync_status = true;
-                            new_sync_download = ShardSyncDownload {
+                            *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
                                 status: ShardSyncStatus::StateDownloadComplete,
                             }
                         }
-                        _ => {
+                        Err(e) => {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
+                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
                             update_sync_status = true;
-                            new_sync_download = init_sync_download.clone();
+                            *shard_sync_download = init_sync_download.clone();
                         }
                     }
                 }
@@ -613,16 +612,15 @@ impl StateSync {
             all_done &= this_done;
             // Execute syncing for shard `shard_id`
             if need_shard {
-                new_sync_download = self.request_shard(
+                *shard_sync_download = self.request_shard(
                     shard_id,
                     chain,
                     runtime_adapter,
                     sync_hash,
-                    new_sync_download,
+                    shard_sync_download.clone(),
+                    most_weight_peers,
                 )?;
             }
-
-            new_shard_sync.insert(shard_id, new_sync_download);
 
             if download_timeout {
                 error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
@@ -640,6 +638,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
+        most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
             unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
@@ -649,7 +648,7 @@ impl StateSync {
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
         );
-        let shard_bps = unwrap_or_return!(
+        let possible_targets = unwrap_or_return!(
             runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash),
             Ok(shard_sync_download)
         )
@@ -661,13 +660,20 @@ impl StateSync {
                 shard_id,
                 false,
             ) {
-                Some(account_id.clone())
+                Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
             } else {
                 None
             }
         })
+        .chain(most_weight_peers.iter().filter_map(|peer| {
+            if peer.chain_info.tracked_shards.contains(&shard_id) {
+                Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
+            } else {
+                None
+            }
+        }))
         .collect::<Vec<_>>();
-        if shard_bps.len() == 0 {
+        if possible_targets.len() == 0 {
             return Ok(shard_sync_download);
         }
 
@@ -680,7 +686,8 @@ impl StateSync {
                     hash,
                     need_header: true,
                     parts_ranges: vec![],
-                    account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+                    target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
+                        .clone(),
                 });
                 assert!(new_shard_sync_download.downloads[0].run_me);
                 new_shard_sync_download.downloads[0].run_me = false;
@@ -691,7 +698,7 @@ impl StateSync {
                 self.apply_download_strategy(
                     shard_id,
                     hash,
-                    &shard_bps,
+                    &possible_targets,
                     download_strategy,
                     &shard_sync_download,
                     &mut new_shard_sync_download,
@@ -708,6 +715,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        most_weight_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let now = Utc::now();
@@ -729,6 +737,7 @@ impl StateSync {
             new_shard_sync,
             chain,
             runtime_adapter,
+            most_weight_peers,
             tracking_shards,
             now,
         )?;
@@ -749,7 +758,7 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
-        shard_bps: &Vec<AccountId>,
+        possible_targets: &Vec<AccountOrPeerIdOrHash>,
         download_strategy: Vec<Vec<Range>>,
         shard_sync_download: &ShardSyncDownload,
         new_shard_sync_download: &mut ShardSyncDownload,
@@ -768,7 +777,7 @@ impl StateSync {
                 hash,
                 need_header: false,
                 parts_ranges,
-                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+                target: possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone(),
             });
         }
         Ok(())
@@ -783,7 +792,7 @@ mod test {
     use near_chain::Provenance;
     use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
-    use near_primitives::block::Block;
+    use near_primitives::block::{Block, GenesisId};
 
     use super::*;
     use crate::test_utils::MockNetworkAdapter;
@@ -817,21 +826,29 @@ mod test {
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, &*signer);
-            chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+            chain
+                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
-            chain2.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+            chain2
+                .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
+                .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
             chain_info: PeerChainInfo {
-                genesis: chain.genesis().hash(),
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: chain.genesis().hash(),
+                },
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
+                tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
         };

@@ -238,7 +238,6 @@ fn replay_chain(
                     header.inner.chunk_mask,
                     header.inner.rent_paid,
                     header.inner.validator_reward,
-                    header.inner.balance_burnt,
                     header.inner.total_supply,
                 )
                 .unwrap();

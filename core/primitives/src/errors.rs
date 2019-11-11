@@ -181,6 +181,7 @@ pub struct BalanceMismatchError {
     pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
     pub total_balance_burnt: Balance,
+    pub total_balance_slashed: Balance,
 }
 
 impl Display for BalanceMismatchError {
@@ -197,7 +198,8 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.final_postponed_receipts_balance)
             .saturating_add(self.total_rent_paid)
             .saturating_add(self.total_validator_reward)
-            .saturating_add(self.total_balance_burnt);
+            .saturating_add(self.total_balance_burnt)
+            .saturating_add(self.total_balance_slashed);
         write!(
             f,
             "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
@@ -212,7 +214,8 @@ impl Display for BalanceMismatchError {
              \tFinal postponed receipts balance sum: {}\n\
              \tTotal rent paid: {}\n\
              \tTotal validators reward: {}\n\
-             \tTotal balance burnt: {}",
+             \tTotal balance burnt: {}\n\
+             \tTotal balance slashed: {}",
             initial_balance,
             final_balance,
             self.incoming_validator_rewards,
@@ -224,7 +227,8 @@ impl Display for BalanceMismatchError {
             self.final_postponed_receipts_balance,
             self.total_rent_paid,
             self.total_validator_reward,
-            self.total_balance_burnt
+            self.total_balance_burnt,
+            self.total_balance_slashed,
         )
     }
 }

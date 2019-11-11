@@ -24,8 +24,10 @@ pub struct EpochConfig {
     pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per each shard.
     pub avg_fisherman_per_shard: Vec<ValidatorId>,
-    /// Criterion for kicking out validators
-    pub validator_kickout_threshold: u8,
+    /// Criterion for kicking out block producers
+    pub block_producer_kickout_threshold: u8,
+    /// Criterion for kicking out chunk producers
+    pub chunk_producer_kickout_threshold: u8,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -50,6 +52,8 @@ pub struct EpochInfo {
     pub validator_reward: HashMap<AccountId, Balance>,
     /// Total inflation in the epoch
     pub inflation: Balance,
+    /// Validators who are kicked out in this epoch
+    pub validator_kickout: HashSet<AccountId>,
 }
 
 /// Information per each block.
@@ -67,10 +71,10 @@ pub struct BlockInfo {
     pub rent_paid: Balance,
     /// Total validator reward in this block.
     pub validator_reward: Balance,
-    /// Total balance burnt in this block.
-    pub balance_burnt: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
+    /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
+    pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
 }
 
 impl BlockInfo {
@@ -82,7 +86,6 @@ impl BlockInfo {
         slashed: HashSet<AccountId>,
         rent_paid: Balance,
         validator_reward: Balance,
-        balance_burnt: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -93,12 +96,42 @@ impl BlockInfo {
             slashed,
             rent_paid,
             validator_reward,
-            balance_burnt,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
+            block_tracker: HashMap::default(),
         }
+    }
+
+    /// Updates block tracker given previous block tracker and current epoch info.
+    pub fn update_block_tracker(
+        &mut self,
+        epoch_info: &EpochInfo,
+        prev_block_index: BlockIndex,
+        mut prev_block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+    ) {
+        let block_producer_id = epoch_info.block_producers
+            [(self.index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+        prev_block_tracker
+            .entry(block_producer_id)
+            .and_modify(|(produced, expected)| {
+                *produced += 1;
+                *expected += 1;
+            })
+            .or_insert((1, 1));
+        // Iterate over all skipped blocks and increase the number of expected blocks.
+        for index in prev_block_index + 1..self.index {
+            let bp = epoch_info.block_producers
+                [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
+            prev_block_tracker
+                .entry(bp)
+                .and_modify(|(_produced, expected)| {
+                    *expected += 1;
+                })
+                .or_insert((0, 1));
+        }
+        self.block_tracker = prev_block_tracker;
     }
 }
 
@@ -178,5 +211,4 @@ pub struct EpochSummary {
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
-    pub total_balance_burnt: Balance,
 }

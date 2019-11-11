@@ -5,6 +5,9 @@ use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
 type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+struct ImportReference(*mut c_void);
+unsafe impl Send for ImportReference {}
+unsafe impl Sync for ImportReference {}
 
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
@@ -15,10 +18,14 @@ macro_rules! wrapped_imports {
                 }
             )*
 
-            pub(crate) fn build(memory: Memory, raw_ptr: *mut c_void) -> ImportObject {
-                let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+            pub(crate) fn build(memory: Memory, logic: &mut VMLogic) -> ImportObject {
+                let raw_ptr = logic as *mut _ as *mut c_void;
+                let import_reference = ImportReference(raw_ptr);
                 imports! {
-                    move || { (raw_ptr, dtor) },
+                    move || {
+                        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+                        (import_reference.0, dtor)
+                    },
                     "env" => {
                         "memory" => memory,
                         $(

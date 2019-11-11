@@ -1,11 +1,11 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
@@ -18,6 +18,7 @@ use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near::config::INITIAL_GAS_PRICE;
+use near_chain::types::ApplyTransactionResult;
 use near_primitives::errors::RuntimeError;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -71,16 +72,27 @@ impl RuntimeUser {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let apply_result = client
                 .runtime
-                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
+                .apply(
+                    client.trie.clone(),
+                    client.state_root,
+                    &None,
+                    &apply_state,
+                    &receipts,
+                    &txs,
+                    &HashSet::new(),
+                )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => format!("{}", e),
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                 })?;
-            for outcome_with_id in apply_result.tx_result.into_iter() {
-                self.transaction_results
-                    .borrow_mut()
-                    .insert(outcome_with_id.id, outcome_with_id.outcome.into());
+            let (_, proofs) =
+                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+            for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(proofs) {
+                self.transaction_results.borrow_mut().insert(
+                    outcome_with_id.id,
+                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof }.into(),
+                );
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root.hash;
