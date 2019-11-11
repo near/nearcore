@@ -63,8 +63,11 @@ const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 
-/// Criterion for kicking out validators.
-pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
+/// Criterion for kicking out block producers.
+pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
+
+/// Criterion for kicking out chunk producers.
+pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 200;
@@ -387,8 +390,10 @@ pub struct GenesisConfig {
     pub gas_limit: Gas,
     /// Initial gas price.
     pub gas_price: Balance,
-    /// Criterion for kicking out validators (this is a number between 0 and 100)
-    pub validator_kickout_threshold: u8,
+    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    pub block_producer_kickout_threshold: u8,
+    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    pub chunk_producer_kickout_threshold: u8,
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: u8,
     /// Runtime configuration (mostly economics constants).
@@ -503,7 +508,7 @@ impl GenesisConfig {
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-            validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
             records,
@@ -514,6 +519,7 @@ impl GenesisConfig {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
+            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
         }
     }
 
@@ -717,7 +723,7 @@ pub fn init_configs(
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-                validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+                block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
@@ -732,6 +738,7 @@ pub fn init_configs(
                 total_supply,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
+                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());

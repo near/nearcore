@@ -2,10 +2,11 @@ use std::fs::File;
 use std::path::Path;
 
 use near::config::{
-    get_initial_supply, Config, CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH,
-    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE,
-    MAX_INFLATION_RATE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
-    TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE, VALIDATOR_KICKOUT_THRESHOLD,
+    get_initial_supply, Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
+    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE, MAX_INFLATION_RATE,
+    NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
+    TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE,
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
@@ -63,7 +64,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String) {
         gas_limit: INITIAL_GAS_LIMIT,
         gas_price: INITIAL_GAS_PRICE,
         gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+        block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
         validators,
         transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
@@ -74,6 +75,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String) {
         total_supply,
         num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
         protocol_treasury_account: treasury,
+        chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     };
 
     // Write all configs to files.
