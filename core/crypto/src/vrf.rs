@@ -350,6 +350,26 @@ mod tests {
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
         assert!(sk.public_key().check_vrf(b"Test", &val, &proof));
+        assert!(!sk.public_key().check_vrf(b"Tent", &val, &proof));
+    }
+
+    #[test]
+    fn test_different_keys() {
+        let sk = SecretKey::random(&mut OsRng::new().unwrap());
+        let sk2 = SecretKey::random(&mut OsRng::new().unwrap());
+        assert_ne!(sk, sk2);
+        assert_ne!(Into::<[u8; 32]>::into(sk), Into::<[u8; 32]>::into(sk2));
+        let pk = sk.public_key();
+        let pk2 = sk2.public_key();
+        assert_ne!(pk, pk2);
+        assert_ne!(Into::<[u8; 32]>::into(pk), Into::<[u8; 32]>::into(pk2));
+        let (val, proof) = sk.compute_vrf_with_proof(b"Test");
+        let (val2, proof2) = sk2.compute_vrf_with_proof(b"Test");
+        assert_ne!(val, val2);
+        assert_ne!(proof, proof2);
+        assert!(!pk2.check_vrf(b"Test", &val, &proof));
+        assert!(!pk2.check_vrf(b"Test", &val2, &proof));
+        assert!(!pk2.check_vrf(b"Test", &val, &proof2));
     }
 
     fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
