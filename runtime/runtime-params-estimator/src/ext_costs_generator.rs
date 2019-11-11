@@ -103,16 +103,16 @@ impl ExtCostsGenerator {
         );
         self.extract(storage_write_10b_key_10kib_value_1k_evict, storage_write_evicted_byte, &[]);
         self.extract(
+            storage_read_10b_key_10b_value_1k,
+            storage_read_base,
+            &[storage_read_key_byte, storage_read_value_byte],
+        );
+        self.extract(
             storage_read_10kib_key_10b_value_1k,
             storage_read_key_byte,
             &[storage_read_value_byte],
         );
-        self.extract(storage_read_10kib_key_10b_value_1k, storage_read_value_byte, &[]);
-        self.extract(
-            storage_read_10b_key_10kib_value_1k,
-            storage_read_base,
-            &[storage_read_key_byte, storage_read_value_byte],
-        );
+        self.extract(storage_read_10b_key_10kib_value_1k, storage_read_value_byte, &[]);
         self.extract(
             storage_remove_10b_key_10b_value_1k,
             storage_remove_base,
