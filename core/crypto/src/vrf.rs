@@ -1,15 +1,17 @@
 use blake2::{Blake2b, VarBlake2b};
 use bs58;
-use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT};
+use curve25519_dalek::constants::{
+    RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
+};
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
 use rand_core::{CryptoRng, RngCore};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::de::{Error as _, Unexpected};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
-use std::convert::{TryFrom, identity};
+use std::convert::{identity, TryFrom};
 use std::fmt::{self, Debug, Display, Formatter};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
@@ -27,22 +29,31 @@ pub struct Error;
 struct Hash(VarBlake2b);
 
 impl Hash {
-    fn new() -> Self { Hash(VarBlake2b::new(32).unwrap()) }
-    fn chain(self, data: &[u8]) -> Self { Hash(self.0.chain(data)) }
+    fn new() -> Self {
+        Hash(VarBlake2b::new(32).unwrap())
+    }
+    fn chain(self, data: &[u8]) -> Self {
+        Hash(self.0.chain(data))
+    }
     fn result(self) -> [u8; 32] {
         let mut r = [0; 32];
-        self.0.variable_result(|s| { r = *array_ref!(s, 0, 32); });
+        self.0.variable_result(|s| {
+            r = *array_ref!(s, 0, 32);
+        });
         r
     }
-    fn result_scalar(self) -> Scalar { Scalar::from_bytes_mod_order(self.result()) }
+    fn result_scalar(self) -> Scalar {
+        Scalar::from_bytes_mod_order(self.result())
+    }
 }
 
 fn bvmul2(s1: Scalar, p1: &RistrettoPoint, s2: Scalar, p2: &RistrettoPoint) -> [u8; 32] {
-    RistrettoPoint::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied()).compress().to_bytes()
+    RistrettoPoint::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
+        .compress()
+        .to_bytes()
 }
 
 impl PublicKey {
-
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
         CompressedRistretto(*bytes).decompress().map(|p| PublicKey(*bytes, p))
     }
@@ -58,22 +69,24 @@ impl PublicKey {
     fn check(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = match CompressedRistretto(value.0).decompress() {
             Some(p) => p,
-            None => return false
+            None => return false,
         };
         let (&pr, &pc) = array_refs!(&proof.0, 32, 32);
         let r = match Scalar::from_canonical_bytes(pr) {
             Some(r) => r,
-            None => return false
+            None => return false,
         };
         let c = match Scalar::from_canonical_bytes(pc) {
             Some(c) => c,
-            None => return false
+            None => return false,
         };
-        Hash::new().chain(&self.0)
-                   .chain(&value.0)
-                   .chain(&bvmul2(r + c * self.offset(input), &G, c, &self.1))
-                   .chain(&bvmul2(r, &p, c, &G))
-                   .result_scalar() == c
+        Hash::new()
+            .chain(&self.0)
+            .chain(&value.0)
+            .chain(&bvmul2(r + c * self.offset(input), &G, c, &self.1))
+            .chain(&bvmul2(r, &p, c, &G))
+            .result_scalar()
+            == c
     }
 }
 
@@ -90,7 +103,6 @@ fn safe_invert(s: Scalar) -> Scalar {
 }
 
 impl SecretKey {
-
     fn from_scalar(sk: Scalar) -> Self {
         let pk = basemul(sk);
         SecretKey(sk, PublicKey(pk.compress().to_bytes(), pk))
@@ -125,11 +137,12 @@ impl SecretKey {
         let inv = safe_invert(x);
         let val = bbmul(inv);
         let k = Scalar::from_hash(Blake2b::default().chain(x.as_bytes()));
-        let c = Hash::new().chain(&(self.1).0)
-                           .chain(&val)
-                           .chain(&bbmul(k))
-                           .chain(&bbmul(inv * k))
-                           .result_scalar();
+        let c = Hash::new()
+            .chain(&(self.1).0)
+            .chain(&val)
+            .chain(&bbmul(k))
+            .chain(&bbmul(inv * k))
+            .result_scalar();
         let r = k - c * x;
         let mut proof = [0; 64];
         let (pr, pc) = mut_array_refs!(&mut proof, 32, 32);
@@ -144,29 +157,38 @@ impl SecretKey {
 }
 
 macro_rules! peq {
-    (Proof, $this:expr, $other:expr) => { $this.0[..] == $other.0[..] };
-    ($ty:ident, $this:expr, $other:expr) => { $this.0 == $other.0 }
+    (Proof, $this:expr, $other:expr) => {
+        $this.0[..] == $other.0[..]
+    };
+    ($ty:ident, $this:expr, $other:expr) => {
+        $this.0 == $other.0
+    };
 }
 
 macro_rules! as_bytes {
-    (SecretKey, $this:expr) => { $this.0.as_bytes() };
-    ($ty:ident, $this:expr) => { &$this.0 }
+    (SecretKey, $this:expr) => {
+        $this.0.as_bytes()
+    };
+    ($ty:ident, $this:expr) => {
+        &$this.0
+    };
 }
 
 macro_rules! to_str {
-    ($v:expr) => { identity::<String>($v.into()).as_str() }
+    ($v:expr) => {
+        identity::<String>($v.into()).as_str()
+    };
 }
 
 macro_rules! traits {
     ($ty:ident, $l:literal, $what:literal) => {
-
         impl PartialEq for $ty {
             fn eq(&self, other: &Self) -> bool {
                 peq!($ty, self, other)
             }
         }
 
-        impl Eq for $ty { }
+        impl Eq for $ty {}
 
         impl AsRef<[u8; $l]> for $ty {
             fn as_ref(&self) -> &[u8; $l] {
@@ -184,7 +206,7 @@ macro_rules! traits {
             type Error = Error;
             fn try_from(value: &[u8]) -> Result<Self, Error> {
                 if value.len() == $l {
-                    return Self::try_from(array_ref!(value, 0, $l)).or(Err(Error))
+                    return Self::try_from(array_ref!(value, 0, $l)).or(Err(Error));
                 }
                 Err(Error)
             }
@@ -195,7 +217,7 @@ macro_rules! traits {
             fn try_from(value: &str) -> Result<Self, Error> {
                 let mut buf = [0; $l];
                 if bs58::decode(value).into(&mut buf[..]) == Ok($l) {
-                    return Self::try_from(&buf).or(Err(Error))
+                    return Self::try_from(&buf).or(Err(Error));
                 }
                 Err(Error)
             }
@@ -247,7 +269,9 @@ macro_rules! traits {
         impl<'de> Deserialize<'de> for $ty {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let s = <&str as Deserialize<'de>>::deserialize(deserializer)?;
-                Self::try_from(s).map_err(|_| D::Error::invalid_value(Unexpected::Str(s), &concat!("a valid ", $what)))
+                Self::try_from(s).map_err(|_| {
+                    D::Error::invalid_value(Unexpected::Str(s), &concat!("a valid ", $what))
+                })
             }
         }
 
@@ -256,33 +280,31 @@ macro_rules! traits {
                 serializer.serialize_str(to_str!(self))
             }
         }
-    }
+    };
 }
 
 macro_rules! traits_k {
     ($ty:ident, $l:literal) => {
-
         impl TryFrom<&[u8; $l]> for $ty {
             type Error = Error;
             fn try_from(value: &[u8; $l]) -> Result<Self, Error> {
                 Self::from_bytes(value).ok_or(Error)
             }
         }
-    }
+    };
 }
 
 macro_rules! traits_v {
     ($ty:ident, $l:literal) => {
-
         impl AsMut<[u8; $l]> for $ty {
             fn as_mut(&mut self) -> &mut [u8; $l] {
-                return &mut self.0
+                &mut self.0
             }
         }
 
         impl AsMut<[u8]> for $ty {
             fn as_mut(&mut self) -> &mut [u8] {
-                return &mut self.0[..]
+                &mut self.0[..]
             }
         }
 
@@ -291,7 +313,7 @@ macro_rules! traits_v {
                 Self(*value)
             }
         }
-    }
+    };
 }
 
 traits!(PublicKey, 32, "public key");
