@@ -224,11 +224,16 @@ impl Peer {
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis_id, height, total_weight }) => {
+                Ok(NetworkClientResponses::ChainInfo {
+                    genesis_id,
+                    height,
+                    total_weight,
+                    tracked_shards,
+                }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, total_weight },
+                        PeerChainInfo { genesis_id, height, total_weight, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));

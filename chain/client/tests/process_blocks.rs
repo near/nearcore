@@ -421,6 +421,7 @@ fn client_sync_headers() {
                             genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
+                            tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
                     }],
@@ -432,6 +433,7 @@ fn client_sync_headers() {
                             genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
+                            tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
                     }],
@@ -458,7 +460,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i, Duration::from_millis(100)).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let more_accepted_blocks = client.run_catchup().unwrap();
+        let more_accepted_blocks = client.run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
