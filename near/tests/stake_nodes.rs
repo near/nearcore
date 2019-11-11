@@ -45,6 +45,7 @@ fn init_test_staking(
     genesis_config.epoch_length = epoch_length;
     genesis_config.num_block_producers = num_nodes;
     genesis_config.block_producer_kickout_threshold = 20;
+    genesis_config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
         genesis_config.max_inflation_rate = 0;
         genesis_config.gas_price = 0;
