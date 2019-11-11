@@ -470,9 +470,7 @@ impl StateSync {
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        debug!(target: "clinet", "MOO sync_block_status 1");
         let prev_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash.clone();
-        debug!(target: "clinet", "MOO sync_block_status 2");
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
@@ -489,7 +487,6 @@ impl StateSync {
             self.last_time_block_requested = None;
             (false, true)
         };
-        debug!(target: "clinet", "MOO sync_block_status 3");
         if request_block {
             self.last_time_block_requested = Some(now);
         };
@@ -532,9 +529,7 @@ impl StateSync {
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
-                    debug!(target: "client", "MOO 1");
                     if shard_sync_download.downloads[0].done {
-                        debug!(target: "client", "MOO WTF");
                         let shard_state_header =
                             chain.get_received_state_header(shard_id, sync_hash)?;
                         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
@@ -555,11 +550,9 @@ impl StateSync {
                         update_sync_status = true;
                         need_shard = true;
                     } else {
-                        debug!(target: "client", "MOO 2");
                         let prev = shard_sync_download.downloads[0].prev_update_time;
                         let error = shard_sync_download.downloads[0].error;
                         if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
-                            debug!(target: "client", "MOO 3");
                             download_timeout = true;
                             shard_sync_download.downloads[0].run_me = true;
                             shard_sync_download.downloads[0].error = false;
@@ -618,9 +611,7 @@ impl StateSync {
             }
             all_done &= this_done;
             // Execute syncing for shard `shard_id`
-            debug!(target: "client", "MOO 5");
             if need_shard {
-                debug!(target: "client", "MOO 6");
                 *shard_sync_download = self.request_shard(
                     shard_id,
                     chain,
@@ -629,7 +620,6 @@ impl StateSync {
                     shard_sync_download.clone(),
                     most_weight_peers,
                 )?;
-                debug!(target: "client", "MOO 7");
             }
 
             if download_timeout {
@@ -650,7 +640,6 @@ impl StateSync {
         shard_sync_download: ShardSyncDownload,
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
-        debug!(target: "client", "MOO got here!");
         let prev_block_hash =
             unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
                 .inner
@@ -671,7 +660,6 @@ impl StateSync {
                 shard_id,
                 false,
             ) {
-                debug!(target: "client", "MOO Account {}", account_id);
                 Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
             } else {
                 None
@@ -679,7 +667,6 @@ impl StateSync {
         })
         .chain(most_weight_peers.iter().filter_map(|peer| {
             if peer.chain_info.tracked_shards.contains(&shard_id) {
-                debug!(target: "client", "MOO Peer {}", peer.peer_info.id);
                 Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
             } else {
                 None
@@ -687,7 +674,6 @@ impl StateSync {
         }))
         .collect::<Vec<_>>();
         if possible_targets.len() == 0 {
-            debug!(target: "client", "MOO No targets");
             return Ok(shard_sync_download);
         }
 
@@ -732,26 +718,20 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
-        debug!(target: "client", "MOO PRELUDE 1");
         let now = Utc::now();
         let (request_block, have_block) = self.sync_block_status(sync_hash, chain, now)?;
-        debug!(target: "client", "MOO PRELUDE 2");
 
         if tracking_shards.is_empty() {
-            debug!(target: "client", "MOO PRELUDE 3");
             // This case is possible if a validator cares about the same shards in the new epoch as
             //    in the previous (or about a subset of them), return success right away
 
             return if !have_block {
-                debug!(target: "client", "MOO PRELUDE 4");
                 Ok(StateSyncResult::Changed(request_block))
             } else {
-                debug!(target: "client", "MOO PRELUDE 5");
                 Ok(StateSyncResult::Completed)
             };
         }
 
-        debug!(target: "client", "MOO ENTER");
         let (update_sync_status, all_done) = self.sync_shards_status(
             sync_hash,
             new_shard_sync,
@@ -761,7 +741,6 @@ impl StateSync {
             tracking_shards,
             now,
         )?;
-        debug!(target: "client", "MOO EXIT");
 
         if have_block && all_done {
             self.state_sync_time.clear();

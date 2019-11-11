@@ -273,7 +273,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 parts_ranges,
                 route_back,
             ) => {
-                debug!(target: "client", "MOO state request 1");
                 let mut parts = vec![];
                 for Range(from, to) in parts_ranges {
                     for part_id in from..to {
@@ -287,10 +286,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 if need_header {
-                    debug!(target: "client", "MOO state request 2");
                     match self.client.chain.get_state_response_header(shard_id, hash) {
                         Ok(header) => {
-                            debug!(target: "client", "MOO state request 3");
                             return NetworkClientResponses::StateResponse(
                                 StateResponseInfo {
                                     shard_id,
@@ -303,8 +300,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 route_back,
                             );
                         }
-                        Err(e) => {
-                            debug!(target: "client", "MOO state request 4, {:?}", e);
+                        Err(_) => {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
