@@ -29,7 +29,8 @@ macro_rules! calls_helper(
     };
 );
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone, Copy)]
+#[allow(non_camel_case_types)]
 pub enum Metric {
     Receipt,
     ActionTransfer,
@@ -73,6 +74,7 @@ pub enum Metric {
     storage_write_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k,
+    storage_write_10b_key_10kib_value_1k_evict,
     storage_read_10b_key_10b_value_1k,
     storage_read_10kib_key_10b_value_1k,
     storage_read_10b_key_10kib_value_1k,
@@ -372,6 +374,7 @@ pub fn run(config: Config) {
     storage_next_10b_from_10kib_to_1k_10kib_key_10b_value =>   storage_next_10b_from_10kib_to_1k ,
     storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
+    storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
     storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
     storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
     storage_next_10b_from_10b_to_1k_10b_key_10kib_value =>      storage_next_10b_from_10b_to_1k,
@@ -384,8 +387,7 @@ pub fn run(config: Config) {
     data_producer_10b => data_producer_10b,
     data_producer_100kib => data_producer_100kib,
     data_receipt_10b_1000 => data_receipt_10b_1000,
-    data_receipt_100kib_1000 => data_receipt_100kib_1000,
-    cpu_ram_soak_test => cpu_ram_soak_test
+    data_receipt_100kib_1000 => data_receipt_100kib_1000
         };
 
     // Measure the speed of all extern function calls.
@@ -404,8 +406,11 @@ pub fn run(config: Config) {
 
     //    let fees = crate::runtime_fees_generator::RuntimeFeesGenerator::new(&m);
     //    println!("{}", fees);
-    //    let ext_costs = crate::ext_costs_generator::ExtCostsGenerator::new(&m);
-    //    println!("{}", ext_costs);
+    let mut ext_costs = crate::ext_costs_generator::ExtCostsGenerator::new(&m);
+    println!("{}", ext_costs);
+    for (k, v) in ext_costs.compute() {
+        println!("{:?}\t\t\t\t{:.4}", k, v);
+    }
 
     //    let mut csv_path = PathBuf::from(&config.state_dump_path);
     //    csv_path.push("./metrics.csv");

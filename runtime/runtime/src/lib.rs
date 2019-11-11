@@ -60,6 +60,9 @@ mod metrics;
 pub mod state_viewer;
 mod store;
 
+#[cfg(feature = "costs_counting")]
+pub use near_vm_runner::EXT_COSTS_COUNTER;
+
 const OVERFLOW_CHECKED_ERR: &str = "Overflow has already been checked.";
 
 #[derive(Debug)]

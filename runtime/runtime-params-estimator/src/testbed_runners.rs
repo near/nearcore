@@ -142,6 +142,7 @@ where
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
     let mut gas_per_transaction = 0;
+    node_runtime::EXT_COSTS_COUNTER.write().unwrap().clear();
     for block_size in block_sizes(config) {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();

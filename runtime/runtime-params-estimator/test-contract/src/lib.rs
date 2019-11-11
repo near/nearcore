@@ -554,7 +554,7 @@ storage_iter_bench!(from, 10, to, 10240, 1000, storage_iter_range_10b_from_10kib
 
 // Storage iter next.
 
-// Needs to be run after the correspoding write benchmarks.
+// Needs to be run after the corresponding write benchmarks.
 macro_rules! storage_next {
     ($from_buf:ident, $from_len:expr, $to_buf:ident, $to_len:expr, $loop_n:expr, $exp_name:ident) => {
         #[no_mangle]
@@ -721,10 +721,10 @@ pub unsafe fn data_receipt_100kib_1000() {
 
 #[no_mangle]
 pub unsafe fn cpu_ram_soak_test() {
-    let mut buf = [0u8; 1024 * 1024];
+    let mut buf = [0u8; 100 * 1024];
     let len = buf.len();
-    for i in 0..1_000_000 {
-        let j = (i * 10 + 5 * 1024 * 1024) % len;
+    for i in 0..100_000 {
+        let j = (i * 10 + 5 * 100 * 1024) % len;
         let k = (i * 5) % len;
         let tmp = buf[k];
         buf[k] = buf[j];

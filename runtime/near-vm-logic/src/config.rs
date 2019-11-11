@@ -116,12 +116,12 @@ pub struct ExtCostsConfig {
     /// Base cost of decoding utf8.
     pub utf8_decoding_base: Gas,
     /// Cost per bye of decoding utf8.
-    pub utf8_decoding_bytes: Gas,
+    pub utf8_decoding_byte: Gas,
 
     /// Base cost of decoding utf16.
     pub utf16_decoding_base: Gas,
     /// Cost per bye of decoding utf16.
-    pub utf16_decoding_bytes: Gas,
+    pub utf16_decoding_byte: Gas,
 
     /// Cost of getting sha256 base
     pub sha256_base: Gas,
@@ -131,7 +131,7 @@ pub struct ExtCostsConfig {
     /// Cost for calling logging.
     pub log_base: Gas,
     /// Cost for logging per byte
-    pub log_per_byte: Gas,
+    pub log_byte: Gas,
 
     // ###############
     // # Storage API #
@@ -207,13 +207,13 @@ impl Default for ExtCostsConfig {
             write_register_base: 1,
             write_register_byte: 1,
             utf8_decoding_base: 1,
-            utf8_decoding_bytes: 1,
+            utf8_decoding_byte: 1,
             utf16_decoding_base: 1,
-            utf16_decoding_bytes: 1,
+            utf16_decoding_byte: 1,
             sha256_base: 1,
             sha256_byte: 1,
             log_base: 1,
-            log_per_byte: 1,
+            log_byte: 1,
             storage_write_base: 1,
             storage_write_key_byte: 1,
             storage_write_value_byte: 1,
@@ -254,13 +254,13 @@ impl ExtCostsConfig {
             write_register_base: 0,
             write_register_byte: 0,
             utf8_decoding_base: 0,
-            utf8_decoding_bytes: 0,
+            utf8_decoding_byte: 0,
             utf16_decoding_base: 0,
-            utf16_decoding_bytes: 0,
+            utf16_decoding_byte: 0,
             sha256_base: 0,
             sha256_byte: 0,
             log_base: 0,
-            log_per_byte: 0,
+            log_byte: 0,
             storage_write_base: 0,
             storage_write_key_byte: 0,
             storage_write_value_byte: 0,
@@ -284,6 +284,100 @@ impl ExtCostsConfig {
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
+        }
+    }
+}
+
+/// Strongly-typed representation of the fees for counting.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[allow(non_camel_case_types)]
+pub enum ExtCosts {
+    base,
+    read_memory_base,
+    read_memory_byte,
+    write_memory_base,
+    write_memory_byte,
+    read_register_base,
+    read_register_byte,
+    write_register_base,
+    write_register_byte,
+    utf8_decoding_base,
+    utf8_decoding_byte,
+    utf16_decoding_base,
+    utf16_decoding_byte,
+    sha256_base,
+    sha256_byte,
+    log_base,
+    log_byte,
+    storage_write_base,
+    storage_write_key_byte,
+    storage_write_value_byte,
+    storage_write_evicted_byte,
+    storage_read_base,
+    storage_read_key_byte,
+    storage_read_value_byte,
+    storage_remove_base,
+    storage_remove_key_byte,
+    storage_remove_ret_value_byte,
+    storage_has_key_base,
+    storage_has_key_byte,
+    storage_iter_create_prefix_base,
+    storage_iter_create_prefix_byte,
+    storage_iter_create_range_base,
+    storage_iter_create_from_byte,
+    storage_iter_create_to_byte,
+    storage_iter_next_base,
+    storage_iter_next_key_byte,
+    storage_iter_next_value_byte,
+    promise_and_base,
+    promise_and_per_promise,
+    promise_return,
+}
+
+impl ExtCosts {
+    pub fn value(&self, config: &ExtCostsConfig) -> Gas {
+        use ExtCosts::*;
+        match self {
+            base => config.base,
+            read_memory_base => config.read_memory_base,
+            read_memory_byte => config.read_memory_byte,
+            write_memory_base => config.write_memory_base,
+            write_memory_byte => config.write_memory_byte,
+            read_register_base => config.read_register_base,
+            read_register_byte => config.read_register_byte,
+            write_register_base => config.write_register_base,
+            write_register_byte => config.write_register_byte,
+            utf8_decoding_base => config.utf8_decoding_base,
+            utf8_decoding_byte => config.utf8_decoding_byte,
+            utf16_decoding_base => config.utf16_decoding_base,
+            utf16_decoding_byte => config.utf16_decoding_byte,
+            sha256_base => config.sha256_base,
+            sha256_byte => config.sha256_byte,
+            log_base => config.log_base,
+            log_byte => config.log_byte,
+            storage_write_base => config.storage_write_base,
+            storage_write_key_byte => config.storage_write_key_byte,
+            storage_write_value_byte => config.storage_write_value_byte,
+            storage_write_evicted_byte => config.storage_write_evicted_byte,
+            storage_read_base => config.storage_read_base,
+            storage_read_key_byte => config.storage_read_key_byte,
+            storage_read_value_byte => config.storage_read_value_byte,
+            storage_remove_base => config.storage_remove_base,
+            storage_remove_key_byte => config.storage_remove_key_byte,
+            storage_remove_ret_value_byte => config.storage_remove_ret_value_byte,
+            storage_has_key_base => config.storage_has_key_base,
+            storage_has_key_byte => config.storage_has_key_byte,
+            storage_iter_create_prefix_base => config.storage_iter_create_prefix_base,
+            storage_iter_create_prefix_byte => config.storage_iter_create_prefix_byte,
+            storage_iter_create_range_base => config.storage_iter_create_range_base,
+            storage_iter_create_from_byte => config.storage_iter_create_from_byte,
+            storage_iter_create_to_byte => config.storage_iter_create_to_byte,
+            storage_iter_next_base => config.storage_iter_next_base,
+            storage_iter_next_key_byte => config.storage_iter_next_key_byte,
+            storage_iter_next_value_byte => config.storage_iter_next_value_byte,
+            promise_and_base => config.promise_and_base,
+            promise_and_per_promise => config.promise_and_per_promise,
+            promise_return => config.promise_return,
         }
     }
 }

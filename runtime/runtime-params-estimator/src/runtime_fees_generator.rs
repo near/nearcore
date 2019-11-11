@@ -41,12 +41,12 @@ impl RuntimeFeesGenerator {
         let mut res = HashMap::new();
         res.insert(
             ReceiptFeesFloat::ActionReceiptCreation,
-            self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::DataReceiptCreationBase,
-            self.aggregated[&Metric::CallPromiseBatchCreateThen10K].sigma_micros() as f64
-                - self.aggregated[&Metric::CallPromiseBatchCreate10K].sigma_micros() as f64,
+            self.aggregated[&Metric::CallPromiseBatchCreateThen10K].upper() as f64
+                - self.aggregated[&Metric::CallPromiseBatchCreate10K].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::DataReceiptCreationPerByte,
@@ -55,26 +55,26 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFeesFloat::ActionCreateAccount,
-            self.aggregated[&Metric::ActionCreateAccount].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionCreateAccount].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeployContractBase,
             // TODO: This is a base cost, so we should not be charging for bytes here.
             // We ignore the fact that this includes 10K contract.
-            self.aggregated[&Metric::ActionDeploy10K].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionDeploy10K].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeployContractPerByte,
-            (self.aggregated[&Metric::ActionDeploy1M].sigma_micros() as f64
-                - self.aggregated[&Metric::ActionDeploy100K].sigma_micros() as f64)
+            (self.aggregated[&Metric::ActionDeploy1M].upper() as f64
+                - self.aggregated[&Metric::ActionDeploy100K].upper() as f64)
                 / (1024f64 * 1024f64 - 100f64 * 1024f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionFunctionCallBase,
-            (self.aggregated[&Metric::CallNoop].sigma_micros()
-                - self.aggregated[&Metric::Receipt].sigma_micros()) as f64,
+            (self.aggregated[&Metric::CallNoop].upper() - self.aggregated[&Metric::Receipt].upper())
+                as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionFunctionCallPerByte,
@@ -83,41 +83,40 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFeesFloat::ActionTransfer,
-            self.aggregated[&Metric::ActionTransfer].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionTransfer].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionStake,
-            self.aggregated[&Metric::ActionStake].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionStake].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFullAccessKey,
-            self.aggregated[&Metric::ActionAddFullAccessKey].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionAddFullAccessKey].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFunctionAccessKeyBase,
-            self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionAddFunctionAccessKeyPerByte,
             // These are 1k methods each 10bytes long.
-            (self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].sigma_micros() as f64
-                - self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].sigma_micros()
-                    as f64)
+            (self.aggregated[&Metric::ActionAddFunctionAccessKey1000Methods].upper() as f64
+                - self.aggregated[&Metric::ActionAddFunctionAccessKey1Method].upper() as f64)
                 / (1000f64 * 10f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionDeleteKey,
-            self.aggregated[&Metric::ActionDeleteAccessKey].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionDeleteAccessKey].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionDeleteAccount,
-            self.aggregated[&Metric::ActionDeleteAccount].sigma_micros() as f64
-                - self.aggregated[&Metric::Receipt].sigma_micros() as f64,
+            self.aggregated[&Metric::ActionDeleteAccount].upper() as f64
+                - self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res
     }

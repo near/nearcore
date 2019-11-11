@@ -1,15 +1,16 @@
 use crate::cases::Metric;
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
 use near_primitives::types::Gas;
+use near_vm_logic::ExtCosts;
 use rand::Rng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
 
 /// Stores measurements per block.
 #[derive(Default, Clone)]
 pub struct Measurements {
-    data: BTreeMap<Metric, Vec<(usize, Duration)>>,
+    data: BTreeMap<Metric, Vec<(usize, Duration, HashMap<ExtCosts, u64>)>>,
 }
 
 impl Measurements {
@@ -23,21 +24,18 @@ impl Measurements {
         block_size: usize,
         block_duration: Duration,
     ) {
-        self.data.entry(metric).or_insert_with(Vec::new).push((block_size, block_duration));
+        let ext_costs = node_runtime::EXT_COSTS_COUNTER.write().unwrap().drain().collect();
+        self.data.entry(metric).or_insert_with(Vec::new).push((
+            block_size,
+            block_duration,
+            ext_costs,
+        ));
     }
 
     pub fn aggregate(&self) -> BTreeMap<Metric, DataStats> {
         self.data
             .iter()
-            .map(|(metric, measurements)| {
-                let nanos: Vec<_> = measurements
-                    .iter()
-                    .map(|(block_size, block_duration)| {
-                        block_duration.as_nanos() / (*block_size as u128)
-                    })
-                    .collect();
-                (metric.clone(), DataStats::from_nanos(nanos))
-            })
+            .map(|(metric, measurements)| (metric.clone(), DataStats::aggregate(measurements)))
             .collect()
     }
 
@@ -94,7 +92,7 @@ impl Measurements {
             let (xs, ys): (Vec<_>, Vec<_>) = data
                 .iter()
                 .cloned()
-                .map(|(block_size, block_duration)| {
+                .map(|(block_size, block_duration, _)| {
                     (block_size as u64, (block_duration.as_micros() / block_size as u128) as u64)
                 })
                 .unzip();
@@ -142,10 +140,15 @@ pub struct DataStats {
     pub stddev: Duration,
     pub ile5: Duration,
     pub ile95: Duration,
+    pub ext_costs: BTreeMap<ExtCosts, f64>,
 }
 
 impl DataStats {
-    pub fn from_nanos(mut nanos: Vec<u128>) -> Self {
+    pub fn aggregate(un_aggregated: &Vec<(usize, Duration, HashMap<ExtCosts, u64>)>) -> Self {
+        let mut nanos = un_aggregated
+            .iter()
+            .map(|(block_size, duration, _)| duration.as_nanos() / *block_size as u128)
+            .collect::<Vec<_>>();
         nanos.sort();
         let mean = (nanos.iter().sum::<u128>() / (nanos.len() as u128)) as i128;
         let stddev2 = nanos.iter().map(|x| (*x as i128 - mean) * (*x as i128 - mean)).sum::<i128>()
@@ -154,17 +157,30 @@ impl DataStats {
         let ile5 = nanos[nanos.len() * 5 / 100];
         let ile95 = nanos[nanos.len() * 95 / 100];
 
+        let mut ext_costs: BTreeMap<ExtCosts, f64> = BTreeMap::new();
+        let mut div: BTreeMap<ExtCosts, u64> = BTreeMap::new();
+        for (block_size, _, un_aggregated_ext_costs) in un_aggregated {
+            for (ext_cost, count) in un_aggregated_ext_costs {
+                *ext_costs.entry(*ext_cost).or_default() += *count as f64;
+                *div.entry(*ext_cost).or_default() += *block_size as u64;
+            }
+        }
+        for (k, v) in div {
+            *ext_costs.get_mut(&k).unwrap() /= v as f64;
+        }
+
         Self {
             mean: Duration::from_nanos(mean as u64),
             stddev: Duration::from_nanos(stddev as u64),
             ile5: Duration::from_nanos(ile5 as u64),
             ile95: Duration::from_nanos(ile95 as u64),
+            ext_costs,
         }
     }
 
     /// Get mean + 4*sigma in micros
-    pub fn sigma_micros(&self) -> u64 {
-        (self.mean.as_micros() + 4 * self.stddev.as_micros()) as u64
+    pub fn upper(&self) -> u128 {
+        self.mean.as_nanos() + 4u128 * self.stddev.as_nanos()
     }
 }
 
@@ -178,7 +194,7 @@ impl std::fmt::Display for DataStats {
                 self.stddev.as_secs(),
                 self.ile5.as_secs(),
                 self.ile95.as_secs()
-            )
+            )?;
         } else if self.mean.as_millis() > 100 {
             write!(
                 f,
@@ -187,7 +203,7 @@ impl std::fmt::Display for DataStats {
                 self.stddev.as_millis(),
                 self.ile5.as_millis(),
                 self.ile95.as_millis()
-            )
+            )?;
         } else if self.mean.as_micros() > 100 {
             write!(
                 f,
@@ -196,7 +212,7 @@ impl std::fmt::Display for DataStats {
                 self.stddev.as_micros(),
                 self.ile5.as_micros(),
                 self.ile95.as_micros()
-            )
+            )?;
         } else {
             write!(
                 f,
@@ -205,7 +221,11 @@ impl std::fmt::Display for DataStats {
                 self.stddev.as_nanos(),
                 self.ile5.as_nanos(),
                 self.ile95.as_nanos()
-            )
+            )?;
         }
+        for (ext_cost, cnt) in &self.ext_costs {
+            write!(f, " {:?}=>{:.2}", ext_cost, cnt)?;
+        }
+        Ok(())
     }
 }
