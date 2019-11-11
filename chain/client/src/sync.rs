@@ -1,4 +1,4 @@
-use std::cmp;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -118,8 +118,8 @@ impl HeaderSync {
 
         // Received all necessary header, can request more.
         let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
-        // No headers processed and it's past timeout, request more.
 
+        // Did we stall downloading headers for given highest height? Request more or ban peer.
         let stalling = header_head.height <= latest_height && now > timeout;
 
         // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
@@ -320,8 +320,8 @@ impl BlockSync {
         }
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
-        let block_count = cmp::min(
-            cmp::min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
+        let block_count = min(
+            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
