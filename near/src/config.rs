@@ -61,7 +61,7 @@ pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Criterion for kicking out block producers.
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
