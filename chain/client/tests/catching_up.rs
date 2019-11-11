@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use actix::{Addr, System};
+    use borsh::{BorshDeserialize, BorshSerialize};
     use futures::future;
     use futures::future::Future;
     use near_chain::test_utils::account_id_to_shard_id;
@@ -8,6 +9,7 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+    use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
@@ -70,24 +72,46 @@ mod tests {
         WaitingForValidate,
     }
 
+    #[derive(
+        Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+    )]
+    pub struct StateRequestStruct {
+        pub shard_id: u64,
+        pub hash: CryptoHash,
+        pub need_header: bool,
+        pub part_ids: Vec<u64>,
+        pub num_parts: u64,
+        pub account_id: String,
+    }
+
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
     fn test_catchup_receipts_sync_third_epoch() {
-        test_catchup_receipts_sync_common(13, 1)
+        test_catchup_receipts_sync_common(13, 1, false)
+    }
+
+    #[test]
+    /// WARNING! Set manually STATE_SYNC_TIMEOUT to 1 before running the test.
+    /// Otherwise epochs will be changing faster than state sync.
+    ///
+    /// The test aggressively blocks lots of state requests
+    /// and causes at least two timeouts per node (first for header, second for parts).
+    fn test_catchup_receipts_sync_hold() {
+        test_catchup_receipts_sync_common(13, 1, true)
     }
 
     #[test]
     #[ignore]
     fn test_catchup_receipts_sync_last_block() {
-        test_catchup_receipts_sync_common(13, 5)
+        test_catchup_receipts_sync_common(13, 5, false)
     }
 
     #[test]
     fn test_catchup_receipts_sync_distant_epoch() {
-        test_catchup_receipts_sync_common(35, 1)
+        test_catchup_receipts_sync_common(35, 1, false)
     }
 
-    fn test_catchup_receipts_sync_common(wait_till: u64, send: u64) {
+    fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -101,6 +125,7 @@ mod tests {
 
             let phase = Arc::new(RwLock::new(ReceiptsSyncPhases::WaitingForFirstBlock));
             let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
+            let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
             let (_, conn) = setup_mock_all_validators(
@@ -120,6 +145,7 @@ mod tests {
                     let mut phase = phase.write().unwrap();
                     let mut seen_heights_with_receipts =
                         seen_heights_with_receipts.write().unwrap();
+                    let mut seen_hashes_with_state = seen_hashes_with_state.write().unwrap();
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
@@ -201,9 +227,37 @@ mod tests {
                                 //    being included in the block
                                 return (NetworkResponses::NoResponse, false);
                             }
+                            if let NetworkRequests::StateRequest {
+                                shard_id,
+                                hash,
+                                need_header,
+                                part_ids,
+                                num_parts,
+                                account_id,
+                            } = msg
+                            {
+                                if sync_hold {
+                                    let srs = StateRequestStruct {
+                                        shard_id: *shard_id,
+                                        hash: *hash,
+                                        need_header: *need_header,
+                                        part_ids: part_ids.clone(),
+                                        num_parts: *num_parts,
+                                        account_id: account_id.clone(),
+                                    };
+                                    if !seen_hashes_with_state
+                                        .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    {
+                                        seen_hashes_with_state
+                                            .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        return (NetworkResponses::NoResponse, false);
+                                    }
+                                }
+                            }
                         }
                         ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
                             for height in send + 2..=wait_till {
+                                println!("checking height {:?} out of {:?}", height, wait_till);
                                 assert!(seen_heights_with_receipts.contains(&height));
                             }
                             *phase = ReceiptsSyncPhases::WaitingForValidate;
