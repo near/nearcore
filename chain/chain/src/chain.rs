@@ -154,6 +154,7 @@ pub struct ChainGenesis {
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
     pub transaction_validity_period: BlockIndex,
+    pub epoch_length: BlockIndex,
 }
 
 impl ChainGenesis {
@@ -165,6 +166,7 @@ impl ChainGenesis {
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
         transaction_validity_period: BlockIndex,
+        epoch_length: BlockIndex,
     ) -> Self {
         Self {
             time,
@@ -174,6 +176,7 @@ impl ChainGenesis {
             max_inflation_rate,
             gas_price_adjustment_rate,
             transaction_validity_period,
+            epoch_length,
         }
     }
 }
@@ -188,6 +191,7 @@ pub struct Chain {
     genesis: BlockHeader,
     pub finality_gadget: FinalityGadget,
     pub transaction_validity_period: BlockIndex,
+    pub epoch_length: BlockIndex,
 }
 
 impl Chain {
@@ -308,6 +312,7 @@ impl Chain {
             genesis: genesis.header,
             finality_gadget: FinalityGadget {},
             transaction_validity_period: chain_genesis.transaction_validity_period,
+            epoch_length: chain_genesis.epoch_length,
         })
     }
 
@@ -389,6 +394,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
@@ -405,6 +411,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
@@ -464,6 +471,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
@@ -513,6 +521,7 @@ impl Chain {
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
+                    self.epoch_length,
                 );
 
                 match chain_update.check_header_known(header) {
@@ -548,6 +557,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
 
         if let Some(header) = headers.last() {
@@ -730,6 +740,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
 
@@ -1373,6 +1384,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         let mut height = shard_state_header.chunk.header.height_included;
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
@@ -1388,6 +1400,7 @@ impl Chain {
                 &self.orphans,
                 &self.blocks_with_missing_chunks,
                 self.transaction_validity_period,
+                self.epoch_length,
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
@@ -1428,6 +1441,7 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
+            self.epoch_length,
         );
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
@@ -1457,6 +1471,7 @@ impl Chain {
                     &self.orphans,
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
+                    self.epoch_length,
                 );
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
@@ -1755,6 +1770,7 @@ pub struct ChainUpdate<'a> {
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,
+    epoch_length: BlockIndex,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -1764,14 +1780,16 @@ impl<'a> ChainUpdate<'a> {
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
         transaction_validity_period: BlockIndex,
+        epoch_length: BlockIndex,
     ) -> Self {
-        let chain_store_update = store.store_update();
+        let chain_store_update: ChainStoreUpdate = store.store_update();
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
             orphans,
             blocks_with_missing_chunks,
             transaction_validity_period,
+            epoch_length,
         }
     }
 
@@ -2190,6 +2208,10 @@ impl<'a> ChainUpdate<'a> {
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
             return Err(ErrorKind::Orphan.into());
+        }
+
+        if block.header.inner.height > head.height + self.epoch_length {
+            return Err(ErrorKind::InvalidBlockHeight.into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
