@@ -240,6 +240,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     },
                     height: head.height,
                     total_weight: head.total_weight,
+                    tracked_shards: self.client.config.tracked_shards.clone(),
                 },
                 Err(err) => {
                     error!(target: "client", "{}", err);
@@ -272,6 +273,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 parts_ranges,
                 route_back,
             ) => {
+                debug!(target: "client", "MOO state request 1");
                 let mut parts = vec![];
                 for Range(from, to) in parts_ranges {
                     for part_id in from..to {
@@ -285,8 +287,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 if need_header {
+                    debug!(target: "client", "MOO state request 2");
                     match self.client.chain.get_state_response_header(shard_id, hash) {
                         Ok(header) => {
+                            debug!(target: "client", "MOO state request 3");
                             return NetworkClientResponses::StateResponse(
                                 StateResponseInfo {
                                     shard_id,
@@ -299,7 +303,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 route_back,
                             );
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            debug!(target: "client", "MOO state request 4, {:?}", e);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -950,7 +955,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.run_catchup() {
+        match self.client.run_catchup(&self.network_info.most_weight_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -1064,7 +1069,8 @@ impl ClientActor {
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
-                    shards_to_sync
+                    &self.network_info.most_weight_peers,
+                    shards_to_sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {

@@ -16,7 +16,7 @@ use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
-use near_network::types::{NetworkInfo, PeerChainInfo};
+use near_network::types::{AccountOrPeerIdOrHash, NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
@@ -239,6 +239,7 @@ pub fn setup_mock_all_validators(
                                         },
                                         height: last_height_weight1[i].0,
                                         total_weight: last_height_weight1[i].1,
+                                        tracked_shards: vec![],
                                     },
                                     edge_info: EdgeInfo::default(),
                                 })
@@ -387,8 +388,12 @@ pub fn setup_mock_all_validators(
                             hash,
                             need_header,
                             parts_ranges,
-                            account_id: target_account_id,
+                            target: target_account_id,
                         } => {
+                            let target_account_id = match target_account_id {
+                                AccountOrPeerIdOrHash::AccountId(x) => x,
+                                _ => panic!(),
+                            };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
                                     let connectors2 = connectors1.clone();
@@ -669,7 +674,7 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), format!("{:?}", result));
-        let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
+        let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(

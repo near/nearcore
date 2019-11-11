@@ -721,18 +721,38 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                need_header,
-                parts_ranges,
-                account_id,
-            } => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
-                );
+            NetworkRequests::StateRequest { shard_id, hash, need_header, parts_ranges, target } => {
+                match target {
+                    AccountOrPeerIdOrHash::AccountId(account_id) => {
+                        debug!(target: "client", "MOO requesting from account");
+                        self.send_message_to_account(
+                            ctx,
+                            &account_id,
+                            RoutedMessageBody::StateRequest(
+                                shard_id,
+                                hash,
+                                need_header,
+                                parts_ranges,
+                            ),
+                        )
+                    }
+                    peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
+                    | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => {
+                        debug!(target: "client", "MOO requesting from peer");
+                        self.send_message_to_peer(
+                            ctx,
+                            RawRoutedMessage {
+                                target: peer_or_hash,
+                                body: RoutedMessageBody::StateRequest(
+                                    shard_id,
+                                    hash,
+                                    need_header,
+                                    parts_ranges,
+                                ),
+                            },
+                        )
+                    }
+                };
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {

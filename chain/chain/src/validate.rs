@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::{debug, error, info};
 
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
@@ -21,6 +22,7 @@ pub fn validate_chunk_proofs(
 ) -> Result<bool, Error> {
     // 1. Checking chunk.header.hash
     if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        debug!(target: "client", "MOO err1");
         byzantine_assert!(false);
         return Ok(false);
     }
@@ -28,21 +30,30 @@ pub fn validate_chunk_proofs(
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
     if chunk.chunk_hash != chunk.header.hash {
+        debug!(target: "client", "MOO err2");
         byzantine_assert!(false);
         return Ok(false);
     }
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(&chunk.transactions);
     if tx_root != chunk.header.inner.tx_root {
+        debug!(target: "client", "MOO err3");
         byzantine_assert!(false);
         return Ok(false);
     }
     // 2c. Checking that chunk receipts are valid
-    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-    if receipts_root != chunk.header.inner.outgoing_receipts_root {
-        byzantine_assert!(false);
-        return Ok(false);
+    if chunk.header.inner.height_created == 0 {
+        debug!(target: "client", "MOO good4");
+        return Ok(chunk.receipts.len() == 0
+            && chunk.header.inner.outgoing_receipts_root == CryptoHash::default());
+    } else {
+        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+            debug!(target: "client", "MOO err4");
+            byzantine_assert!(false);
+            return Ok(false);
+        }
     }
     Ok(true)
 }

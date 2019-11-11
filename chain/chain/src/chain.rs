@@ -1035,24 +1035,37 @@ impl Chain {
             self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included)?.clone();
 
         // Collecting the `prev` state.
-        let prev_block = self.get_block(&block_header.inner.prev_hash)?;
-        if shard_id as usize >= prev_block.chunks.len() {
-            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
-        }
-        let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
-        let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
-            &prev_block
-                .chunks
-                .iter()
-                .map(|shard_chunk| {
-                    ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
-                })
-                .collect::<Vec<ChunkHashHeight>>(),
-        );
-        assert_eq!(prev_chunk_headers_root, prev_block.header.inner.chunk_headers_root);
+        let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
+            .get_block(&block_header.inner.prev_hash)
+        {
+            Ok(prev_block) => {
+                if shard_id as usize >= prev_block.chunks.len() {
+                    return Err(
+                        ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into()
+                    );
+                }
+                let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
+                let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
+                    &prev_block
+                        .chunks
+                        .iter()
+                        .map(|shard_chunk| {
+                            ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                        })
+                        .collect::<Vec<ChunkHashHeight>>(),
+                );
+                assert_eq!(prev_chunk_headers_root, prev_block.header.inner.chunk_headers_root);
 
-        let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
-        let prev_chunk_height_included = prev_chunk_header.height_included;
+                let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
+                let prev_chunk_height_included = prev_chunk_header.height_included;
+
+                (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
+            }
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => (None, None, 0),
+                _ => return Err(e),
+            },
+        };
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
@@ -1193,19 +1206,36 @@ impl Chain {
             self.get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?.clone();
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
-        let prev_block_header = self.get_block_header(&block_header.inner.prev_hash)?.clone();
-        let prev_chunk_height_included = prev_chunk_header.height_included;
-        if !verify_path(
-            prev_block_header.inner.chunk_headers_root,
-            &prev_chunk_proof,
-            &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_height_included),
-        ) {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: prev_chunk isn't included into block".into(),
-            )
-            .into());
-        }
+        let prev_chunk_height_included = match prev_chunk_header {
+            Some(header) => header.height_included,
+            None => 0,
+        };
+        match (prev_chunk_header, prev_chunk_proof) {
+            (Some(prev_chunk_header), Some(prev_chunk_proof)) => {
+                let prev_block_header =
+                    self.get_block_header(&block_header.inner.prev_hash)?.clone();
+                if !verify_path(
+                    prev_block_header.inner.chunk_headers_root,
+                    &prev_chunk_proof,
+                    &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_height_included),
+                ) {
+                    byzantine_assert!(false);
+                    return Err(ErrorKind::Other(
+                        "set_shard_state failed: prev_chunk isn't included into block".into(),
+                    )
+                    .into());
+                }
+            }
+            (None, None) => {
+                if chunk.header.height_included != 0 {
+                    return Err(ErrorKind::Other(
+                    "set_shard_state failed: received empty state response for a chunk that is not at height 0".into()
+                ).into());
+                }
+            }
+            _ =>
+                return Err(ErrorKind::Other("set_shard_state failed: `prev_chunk_header` and `prev_chunk_proof` must either both be present or both absent".into()).into())
+        };
 
         // 4. Proving incoming receipts validity
         // 4a. Checking len of proofs
