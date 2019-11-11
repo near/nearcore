@@ -17,7 +17,8 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::{
-    TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
+    TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
+    TrieStorage,
 };
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
@@ -371,6 +372,7 @@ impl RcTrieNode {
 
 pub struct Trie {
     storage: Box<dyn TrieStorage>,
+    pub counter: TouchedNodesCounter,
 }
 
 ///
@@ -497,7 +499,10 @@ impl WrappedTrieChanges {
 
 impl Trie {
     pub fn new(store: Arc<Store>) -> Self {
-        Trie { storage: Box::new(TrieCachingStorage::new(store)) }
+        Trie {
+            storage: Box::new(TrieCachingStorage::new(store)),
+            counter: TouchedNodesCounter::default(),
+        }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -510,7 +515,7 @@ impl Trie {
             },
             recorded: Arc::new(Mutex::new(Default::default())),
         };
-        Trie { storage: Box::new(storage) }
+        Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
     }
 
     pub fn empty_root() -> CryptoHash {
@@ -533,6 +538,7 @@ impl Trie {
                 recorded_storage,
                 visited_nodes: Default::default(),
             }),
+            counter: TouchedNodesCounter::default(),
         }
     }
 
@@ -587,6 +593,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNodeWithSize::empty()))
         } else {
+            self.counter.increment();
             let bytes = self.storage.retrieve_raw_bytes(hash)?;
             match RawTrieNodeWithSize::decode(&bytes) {
                 Ok(value) => {
@@ -610,6 +617,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
+        self.counter.increment();
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
@@ -631,6 +639,7 @@ impl Trie {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
+            self.counter.increment();
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
