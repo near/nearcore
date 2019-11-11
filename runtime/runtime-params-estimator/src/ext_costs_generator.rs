@@ -56,6 +56,7 @@ impl ExtCostsGenerator {
     }
 
     pub fn compute(&mut self) -> BTreeMap<ExtCosts, f64> {
+        self.result.clear();
         use ExtCosts::*;
         use Metric::*;
         self.extract(base_1M, base, &[]);
@@ -167,7 +168,7 @@ impl ExtCostsGenerator {
         self.extract(promise_and_100k, promise_and_base, &[promise_and_per_promise]);
         self.extract(promise_and_100k_on_1k_and, promise_and_per_promise, &[]);
         self.extract(promise_return_100k, promise_return, &[]);
-        self.result.drain().collect()
+        self.result.clone()
     }
 }
 impl std::fmt::Display for ExtCostsGenerator {
