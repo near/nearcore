@@ -1135,6 +1135,8 @@ mod test {
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
             genesis_config.epoch_length = epoch_length;
+            genesis_config.chunk_producer_kickout_threshold =
+                genesis_config.block_producer_kickout_threshold;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
