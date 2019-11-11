@@ -46,6 +46,7 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
         genesis_config.max_inflation_rate,
         genesis_config.gas_price_adjustment_rate,
         genesis_config.transaction_validity_period,
+        genesis_config.epoch_length,
     );
     let chain = Chain::new(store, runtime, &chain_genesis).unwrap();
     chain.genesis().clone()

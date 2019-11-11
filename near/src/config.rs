@@ -438,6 +438,7 @@ impl From<GenesisConfig> for ChainGenesis {
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
             genesis_config.transaction_validity_period,
+            genesis_config.epoch_length,
         )
     }
 }
