@@ -18,7 +18,7 @@ use near_chain::{
 };
 use near_chunks::{NetworkAdapter, ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{PeerId, ReasonForBan};
-use near_network::{NetworkClientResponses, NetworkRequests};
+use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::errors::RuntimeError;
@@ -294,7 +294,8 @@ impl Client {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        assert!(score >= prev_block.header.inner.score);
+        // TODO (#1675): this assert can currently trigger due to epoch switches not handled properly
+        //assert!(score >= prev_block.header.inner.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -1140,7 +1141,10 @@ impl Client {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    pub fn run_catchup(&mut self) -> Result<Vec<AcceptedBlock>, Error> {
+    pub fn run_catchup(
+        &mut self,
+        most_weight_peers: &Vec<FullPeerInfo>,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1161,6 +1165,7 @@ impl Client {
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,
+                most_weight_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}

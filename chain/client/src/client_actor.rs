@@ -240,6 +240,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     },
                     height: head.height,
                     total_weight: head.total_weight,
+                    tracked_shards: self.client.config.tracked_shards.clone(),
                 },
                 Err(err) => {
                     error!(target: "client", "{}", err);
@@ -954,7 +955,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.run_catchup() {
+        match self.client.run_catchup(&self.network_info.most_weight_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -1069,7 +1070,8 @@ impl ClientActor {
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
-                    shards_to_sync
+                    &self.network_info.most_weight_peers,
+                    shards_to_sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
