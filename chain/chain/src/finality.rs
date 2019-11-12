@@ -2,8 +2,12 @@ use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::{Approval, BlockHeader, BlockHeaderInner, Weight};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex};
+use near_primitives::types::{AccountId, BlockIndex, EpochId};
 use std::collections::{HashMap, HashSet};
+
+// How many blocks back to search for a new reference hash when the chain switches and the block
+//     producer cannot use the same reference hash as the last approval on chain
+const REFERENCE_HASH_LOOKUP_DEPTH: usize = 10;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct FinalityGadgetQuorums {
@@ -18,7 +22,6 @@ pub struct FinalityGadget {}
 
 impl FinalityGadget {
     pub fn process_approval(
-        &self,
         me: &Option<AccountId>,
         approval: &Approval,
         chain_store_update: &mut ChainStoreUpdate,
@@ -62,7 +65,6 @@ impl FinalityGadget {
     }
 
     pub fn verify_approval_conditions(
-        &mut self,
         _approval: &Approval,
         _chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<(), ApprovalVerificationError> {
@@ -71,7 +73,6 @@ impl FinalityGadget {
     }
 
     pub fn get_my_approval_reference_hash(
-        &self,
         prev_hash: CryptoHash,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Option<CryptoHash> {
@@ -101,7 +102,7 @@ impl FinalityGadget {
         let last_approval_on_chain =
             chain_store.get_my_last_approval(&prev_prev_hash).ok().cloned();
 
-        self.get_my_approval_reference_hash_inner(
+        FinalityGadget::get_my_approval_reference_hash_inner(
             prev_hash,
             last_approval_on_chain,
             largest_weight_approved,
@@ -111,7 +112,6 @@ impl FinalityGadget {
     }
 
     pub fn get_my_approval_reference_hash_inner(
-        &self,
         prev_hash: CryptoHash,
         last_approval_on_chain: Option<Approval>,
         largest_weight_approved: Weight,
@@ -121,15 +121,24 @@ impl FinalityGadget {
         let default_f = |chain_store: &mut dyn ChainStoreAccess| match chain_store
             .get_block_header(&prev_hash)
         {
-            Ok(header) => {
-                if header.inner.total_weight > largest_weight_approved
-                    && (header.inner.score > largest_score_approved
-                        || largest_score_approved == 0.into())
-                {
-                    Some(prev_hash)
-                } else {
-                    None
+            Ok(mut header) => {
+                let mut candidate = None;
+                // Get the reference_hash up to `REFERENCE_HASH_LOOKUP_DEPTH` blocks into the past
+                for _ in 0..REFERENCE_HASH_LOOKUP_DEPTH {
+                    if header.inner.total_weight > largest_weight_approved
+                        && header.inner.score >= largest_score_approved
+                    {
+                        candidate = Some(header.hash());
+                        let prev_hash = header.inner.prev_hash;
+                        match chain_store.get_block_header(&prev_hash) {
+                            Ok(new_header) => header = new_header,
+                            Err(_) => break,
+                        }
+                    } else {
+                        break;
+                    }
                 }
+                return candidate;
             }
             Err(_) => None,
         };
@@ -162,8 +171,8 @@ impl FinalityGadget {
     }
 
     pub fn compute_quorums(
-        &self,
         mut prev_hash: CryptoHash,
+        epoch_id: EpochId,
         mut height: BlockIndex,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
@@ -247,6 +256,21 @@ impl FinalityGadget {
             prev_hash = last_block_header.inner.prev_hash;
             approvals = last_block_header.inner.approvals.clone();
             height = last_block_header.inner.height;
+
+            if last_block_header.inner.epoch_id != epoch_id {
+                // Do not cross the epoch boundary. It is safe to get the last quorums from the last
+                //     block of the previous epoch, since no approval in the current epoch could
+                //     have finalized anything else in the previous epoch (they would exit here),
+                //     and if anything was finalized / had a prevote in this epoch, it would have
+                //     been found in previous iterations of the surrounding loop
+                if quorum_pre_vote.is_none() {
+                    quorum_pre_vote = Some(last_block_header.inner.last_quorum_pre_vote);
+                }
+                if quorum_pre_commit.is_none() {
+                    quorum_pre_commit = Some(last_block_header.inner.last_quorum_pre_commit);
+                }
+                break;
+            }
 
             // Move `highest_height_no_quorum` if needed
             while accounts_surrounding_no_quroum > total_block_producers * 2 / 3 {

@@ -145,7 +145,7 @@ fn create_invalid_proofs_chunk(
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
         0.into(),
-        CryptoHash::default(),
+        last_block.header.inner.prev_hash,
         CryptoHash::default(),
     );
     (chunk, merkle_paths, receipts, block)
@@ -207,6 +207,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
+    let prev_to_last_block =
+        env.clients[0].chain.get_block(&last_block.header.inner.prev_hash).unwrap().clone();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -255,8 +257,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         &signer,
         0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
+        last_block.header.inner.prev_hash,
+        prev_to_last_block.header.inner.prev_hash,
     );
 
     let challenge_body = {

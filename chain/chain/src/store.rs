@@ -465,6 +465,14 @@ impl ChainStore {
         }
         Err(InvalidTxError::Expired)
     }
+
+    pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockIndex, Error> {
+        if hash == &CryptoHash::default() {
+            Ok(0)
+        } else {
+            Ok(self.get_block_header(hash)?.inner.height)
+        }
+    }
 }
 
 impl ChainStoreAccess for ChainStore {

@@ -17,7 +17,7 @@ use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::block::{Approval, BlockHeader};
+use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -420,7 +420,7 @@ fn client_sync_headers() {
                         chain_info: PeerChainInfo {
                             genesis_id: Default::default(),
                             height: 5,
-                            total_weight: 100.into(),
+                            weight_and_score: WeightAndScore::from_ints(100, 100),
                             tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
@@ -432,7 +432,7 @@ fn client_sync_headers() {
                         chain_info: PeerChainInfo {
                             genesis_id: Default::default(),
                             height: 5,
-                            total_weight: 100.into(),
+                            weight_and_score: WeightAndScore::from_ints(100, 100),
                             tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
