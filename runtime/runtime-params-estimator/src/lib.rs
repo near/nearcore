@@ -1,7 +1,7 @@
 // Lists all cases that we want to measure.
 pub mod cases;
 // Generates runtime fees from the measurements.
-//pub mod runtime_fees_generator;
+pub mod runtime_fees_generator;
 // Generates external costs from the measurements.
 pub mod ext_costs_generator;
 // Collects and processes stats. Prints them on display, plots them, writes them into a file.

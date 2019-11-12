@@ -679,7 +679,7 @@ pub unsafe fn data_receipt_10b_1000() {
 }
 
 // Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
-// Produces 10 10kib data receipts.
+// Produces 1000 10kib data receipts.
 #[no_mangle]
 pub unsafe fn data_receipt_100kib_1000() {
     let buf = [0u8; 1000];

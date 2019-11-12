@@ -11,7 +11,7 @@ pub struct RuntimeFeesGenerator {
 }
 
 /// Fees for receipts and actions expressed in micros as floats.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
 enum ReceiptFeesFloat {
     ActionReceiptCreation,
     DataReceiptCreationBase,
@@ -37,21 +37,20 @@ impl RuntimeFeesGenerator {
     }
 
     /// Compute fees for receipts and actions in microseconds as floats.
-    fn receipt_fees_in_micros(&self) -> HashMap<ReceiptFeesFloat, f64> {
-        let mut res = HashMap::new();
+    pub fn compute(&self) -> BTreeMap<ReceiptFeesFloat, f64> {
+        let mut res = Default::default();
         res.insert(
             ReceiptFeesFloat::ActionReceiptCreation,
             self.aggregated[&Metric::Receipt].upper() as f64,
         );
         res.insert(
             ReceiptFeesFloat::DataReceiptCreationBase,
-            self.aggregated[&Metric::CallPromiseBatchCreateThen10K].upper() as f64
-                - self.aggregated[&Metric::CallPromiseBatchCreate10K].upper() as f64,
+            self.aggregated[&Metric::data_receipt_10b_1000].upper() as f64 / 1000f64,
         );
         res.insert(
             ReceiptFeesFloat::DataReceiptCreationPerByte,
-            // TODO: Currently we set it to 0, because we need to figure out how to compute it.
-            0f64,
+            self.aggregated[&Metric::data_receipt_100kib_1000].upper() as f64
+                / (1000f64 * 100f64 * 1024f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionCreateAccount,
@@ -73,13 +72,14 @@ impl RuntimeFeesGenerator {
         );
         res.insert(
             ReceiptFeesFloat::ActionFunctionCallBase,
-            (self.aggregated[&Metric::CallNoop].upper() - self.aggregated[&Metric::Receipt].upper())
+            (self.aggregated[&Metric::noop].upper() - self.aggregated[&Metric::Receipt].upper())
                 as f64,
         );
         res.insert(
             ReceiptFeesFloat::ActionFunctionCallPerByte,
-            // TODO: Currently we set it to 0, because we need to figure out how to compute it.
-            0f64,
+            (self.aggregated[&Metric::noop_1MiB].upper() - self.aggregated[&Metric::noop].upper())
+                as f64
+                / (1024f64 * 1024f64),
         );
         res.insert(
             ReceiptFeesFloat::ActionTransfer,
@@ -124,7 +124,7 @@ impl RuntimeFeesGenerator {
 
 impl std::fmt::Display for RuntimeFeesGenerator {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for (k, v) in self.receipt_fees_in_micros() {
+        for (k, v) in self.compute() {
             writeln!(f, "{:?}\t\t\t\t{}", k, v)?;
         }
         Ok(())

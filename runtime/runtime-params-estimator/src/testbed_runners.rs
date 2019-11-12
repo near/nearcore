@@ -15,20 +15,13 @@ pub fn get_account_id(account_index: usize) -> String {
     format!("near_{}_{}", account_index, account_index)
 }
 
-/// Block sizes that we are going to try running with.
-fn block_sizes(config: &Config) -> Vec<usize> {
-    (config.smallest_block_size_pow2..=config.largest_block_size_pow2)
-        .map(|x| 2usize.pow(x))
-        .collect()
-}
-
 /// Total number of transactions that we need to prepare.
 fn total_transactions(config: &Config) -> usize {
-    block_sizes(config).iter().sum::<usize>() * config.iter_per_block
+    config.block_sizes.iter().sum::<usize>() * config.iter_per_block
 }
 
 fn warmup_total_transactions(config: &Config) -> usize {
-    block_sizes(config).iter().sum::<usize>() * config.warmup_iters_per_block
+    config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
 /// Configuration which we use to run measurements.
@@ -40,10 +33,8 @@ pub struct Config {
     pub iter_per_block: usize,
     /// Total active accounts.
     pub active_accounts: usize,
-    /// Smallest size of the block expressed as power of 2.
-    pub smallest_block_size_pow2: u32,
-    /// Largest size of the block expressed as power of 2.
-    pub largest_block_size_pow2: u32,
+    /// Number of the transactions in the block.
+    pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
     pub state_dump_path: String,
 }
@@ -127,7 +118,7 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
     ));
-    for block_size in block_sizes(config) {
+    for block_size in config.block_sizes.clone() {
         for _ in 0..config.warmup_iters_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             testbed.process_block(&block, allow_failures);
@@ -143,7 +134,7 @@ where
     ));
     let mut gas_per_transaction = 0;
     node_runtime::EXT_COSTS_COUNTER.write().unwrap().clear();
-    for block_size in block_sizes(config) {
+    for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start_time = Instant::now();
@@ -154,7 +145,7 @@ where
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
-    //    gas_per_transaction /= block_sizes(config).into_iter().sum::<Gas>();
+    //    gas_per_transaction /= config.block_sizes.into_iter().sum::<Gas>();
     testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
     measurements.print();
