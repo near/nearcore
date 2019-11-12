@@ -24,7 +24,6 @@ use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum,
 use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
-    Transaction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
@@ -47,7 +46,7 @@ use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, total_send_fees, tx_cost, RuntimeConfig,
+    total_prepaid_gas, tx_cost, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
 
@@ -363,7 +362,7 @@ impl Runtime {
                     }
                     stats.total_rent_paid =
                         safe_add_balance(stats.total_rent_paid, verification_result.rent_paid)?;
-                    safe_add_balance(
+                    stats.total_validator_reward = safe_add_balance(
                         stats.total_validator_reward,
                         verification_result.validator_reward,
                     )?;
@@ -594,19 +593,19 @@ impl Runtime {
         };
 
         // Adding burnt gas reward if the account exists.
-        let gas_reward = result.gas_burnt
+        let receiver_gas_reward = result.gas_burnt
             * self.config.transaction_costs.burnt_gas_reward.numerator
             / self.config.transaction_costs.burnt_gas_reward.denominator;
         let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
-        if gas_reward > 0 {
+        if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
-                let reward = Balance::from(gas_reward) * action_receipt.gas_price;
+                let receiver_reward = safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?;
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
-                validator_reward -= reward;
-                account.amount = safe_add_balance(account.amount, reward)?;
+                validator_reward -= receiver_reward;
+                account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
                 state_update.commit();
             }

@@ -5,7 +5,7 @@ use crate::config::{
     total_prepaid_gas,
 };
 use crate::{ApplyStats, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
-use near_primitives::errors::{BalanceMismatchError, InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{BalanceMismatchError, RuntimeError, StorageError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
