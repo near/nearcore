@@ -68,7 +68,8 @@ pub fn epoch_config(
     num_shards: ShardId,
     num_block_producers: usize,
     num_fisherman: usize,
-    validator_kickout_threshold: u8,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
 ) -> EpochConfig {
     EpochConfig {
         epoch_length,
@@ -79,7 +80,8 @@ pub fn epoch_config(
             num_block_producers,
         ),
         avg_fisherman_per_shard: (0..num_shards).map(|_| num_fisherman).collect(),
-        validator_kickout_threshold,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
     }
 }
 
@@ -128,12 +130,19 @@ pub fn setup_epoch_manager(
     num_shards: ShardId,
     num_seats: usize,
     num_fisherman: usize,
-    kickout_threshold: u8,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
     reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
-    let config =
-        epoch_config(epoch_length, num_shards, num_seats, num_fisherman, kickout_threshold);
+    let config = epoch_config(
+        epoch_length,
+        num_shards,
+        num_seats,
+        num_fisherman,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+    );
     EpochManager::new(
         store,
         config,
@@ -149,7 +158,8 @@ pub fn setup_default_epoch_manager(
     num_shards: ShardId,
     num_seats: usize,
     num_fisherman: usize,
-    kickout_threshold: u8,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {
     setup_epoch_manager(
         validators,
@@ -157,7 +167,8 @@ pub fn setup_default_epoch_manager(
         num_shards,
         num_seats,
         num_fisherman,
-        kickout_threshold,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
         default_reward_calculator(),
     )
 }

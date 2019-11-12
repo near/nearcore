@@ -452,14 +452,12 @@ impl Tip {
     }
 }
 
-/// Block approval by other block producers.
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
-    pub prev_chunk_header: ShardChunkHeader,
-    pub prev_chunk_proof: MerklePath,
+    pub prev_chunk_header: Option<ShardChunkHeader>,
+    pub prev_chunk_proof: Option<MerklePath>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
 }

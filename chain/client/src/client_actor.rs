@@ -243,6 +243,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     },
                     height: head.height,
                     total_weight: head.total_weight,
+                    tracked_shards: self.client.config.tracked_shards.clone(),
                 },
                 Err(err) => {
                     error!(target: "client", "{}", err);
@@ -638,11 +639,15 @@ impl ClientActor {
                 }
             }
         } else {
-            let num_blocks_missing = self.client.runtime_adapter.get_num_missing_blocks(
-                &head.epoch_id,
-                &head.last_block_hash,
-                &next_block_producer_account,
-            )?;
+            let num_blocks_missing = if head.epoch_id == epoch_id {
+                self.client.runtime_adapter.get_num_missing_blocks(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    &next_block_producer_account,
+                )?
+            } else {
+                0
+            };
             // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
             if elapsed
                 < std::cmp::max(
@@ -962,7 +967,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.run_catchup() {
+        match self.client.run_catchup(&self.network_info.most_weight_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -1011,7 +1016,8 @@ impl ClientActor {
         if !needs_syncing {
             if currently_syncing {
                 debug!(
-                    "{:?} moo transitions to no sync",
+                    target: "client",
+                    "{:?} transitions to no sync",
                     self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
                 );
                 self.client.sync_status = SyncStatus::NoSync;
@@ -1076,7 +1082,8 @@ impl ClientActor {
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
-                    shards_to_sync
+                    &self.network_info.most_weight_peers,
+                    shards_to_sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
