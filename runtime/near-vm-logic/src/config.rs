@@ -46,7 +46,7 @@ impl Default for VMConfig {
             grow_mem_cost: 1,
             regular_op_cost: 1,
             max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 32 * 1024,        // 32Kib of stack.
+            max_stack_height: 16 * 1024,        // 16Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
             // By default registers are limited by 1GiB of memory.
@@ -76,7 +76,7 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 64 * 1024,
+            max_stack_height: 16 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,
             registers_memory_limit: 2u64.pow(30),
