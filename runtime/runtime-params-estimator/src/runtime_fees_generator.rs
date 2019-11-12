@@ -12,7 +12,7 @@ pub struct RuntimeFeesGenerator {
 
 /// Fees for receipts and actions expressed in micros as floats.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
-enum ReceiptFeesFloat {
+pub enum ReceiptFeesFloat {
     ActionReceiptCreation,
     DataReceiptCreationBase,
     DataReceiptCreationPerByte,
@@ -38,7 +38,7 @@ impl RuntimeFeesGenerator {
 
     /// Compute fees for receipts and actions in microseconds as floats.
     pub fn compute(&self) -> BTreeMap<ReceiptFeesFloat, f64> {
-        let mut res = Default::default();
+        let mut res: BTreeMap<ReceiptFeesFloat, f64> = Default::default();
         res.insert(
             ReceiptFeesFloat::ActionReceiptCreation,
             self.aggregated[&Metric::Receipt].upper() as f64,
