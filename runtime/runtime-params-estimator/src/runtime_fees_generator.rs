@@ -1,10 +1,6 @@
 use crate::cases::Metric;
 use crate::stats::{DataStats, Measurements};
-use near_runtime_fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
-    RuntimeFeesConfig, StorageUsageConfig,
-};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 pub struct RuntimeFeesGenerator {
     aggregated: BTreeMap<Metric, DataStats>,

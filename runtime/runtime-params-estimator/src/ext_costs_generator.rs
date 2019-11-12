@@ -1,7 +1,7 @@
 use crate::cases::Metric;
 use crate::stats::{DataStats, Measurements};
 use near_vm_logic::ExtCosts;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 pub struct ExtCostsGenerator {
     agg: BTreeMap<Metric, DataStats>,

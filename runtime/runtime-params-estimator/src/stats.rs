@@ -1,6 +1,5 @@
 use crate::cases::Metric;
 use gnuplot::{AxesCommon, Caption, Color, DotDotDash, Figure, Graph, LineStyle, PointSymbol};
-use near_primitives::types::Gas;
 use near_vm_logic::ExtCosts;
 use rand::Rng;
 use std::collections::{BTreeMap, HashMap};

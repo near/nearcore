@@ -2,6 +2,9 @@ use clap::{App, Arg};
 use near::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
 fn main() {
     let default_home = get_default_home();
@@ -43,11 +46,22 @@ fn main() {
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
-    run(Config {
+    let runtime_config = run(Config {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
-        state_dump_path,
+        state_dump_path: state_dump_path.clone(),
     });
+
+    println!("Generated RuntimeConfig:");
+    println!("{:#?}", runtime_config);
+
+    let str = serde_json::to_string_pretty(&runtime_config)
+        .expect("Failed serializing the runtime config");
+    let mut file = File::create(Path::new(&state_dump_path).join("runtime_config.json"))
+        .expect("Failed to create file");
+    if let Err(err) = file.write_all(str.as_bytes()) {
+        panic!("Failed to write runtime config to file {}", err);
+    }
 }

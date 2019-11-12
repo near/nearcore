@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -13,9 +12,59 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 
+use crate::ext_costs_generator::ExtCostsGenerator;
+use crate::runtime_fees_generator::RuntimeFeesGenerator;
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
+use crate::wasmer_estimator::nanosec_per_op;
+use near_runtime_fees::{
+    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
+    RuntimeFeesConfig, StorageUsageConfig,
+};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig};
+use node_runtime::config::RuntimeConfig;
+
+/// How much gas there is in a nanosecond worth of computation.
+const GAS_IN_NANOS: f64 = 1_000_000f64;
+/// The block limit is
+const GAS_IN_BLOCK: u64 = 1_000_000_000_000_000u64;
+
+fn measure_function(
+    metric: Metric,
+    method_name: &'static str,
+    measurements: &mut Measurements,
+    testbed: RuntimeTestbed,
+    accounts_deployed: &[usize],
+    nonces: &mut HashMap<usize, u64>,
+    config: &Config,
+    allow_failures: bool,
+    args: Vec<u8>,
+) -> RuntimeTestbed {
+    // Measure the speed of creating a function fixture with 1MiB input.
+    let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
+    let mut f = || {
+        let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        let function_call = Action::FunctionCall(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args.clone(),
+            gas: 10u64.pow(18),
+            deposit: 0,
+        });
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            vec![function_call],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
+}
 
 macro_rules! calls_helper(
     { $($el:ident => $method_name:ident),* } => {
@@ -108,181 +157,181 @@ pub enum Metric {
     cpu_ram_soak_test,
 }
 
-pub fn run(mut config: Config) {
+pub fn run(mut config: Config) -> RuntimeConfig {
     let mut m = Measurements::new();
     config.block_sizes = vec![100];
     // Measure the speed of processing empty receipts.
-    //    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
-    //
-    //    // Measure the speed of processing simple transfers.
-    //    measure_actions(
-    //        Metric::ActionTransfer,
-    //        &mut m,
-    //        &config,
-    //        None,
-    //        vec![Action::Transfer(TransferAction { deposit: 1 })],
-    //        false,
-    //        false,
-    //    );
-    //
-    //    // Measure the speed of creating account.
-    //    let mut nonces: HashMap<usize, u64> = HashMap::new();
-    //    let mut f = || {
-    //        let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //        let account_id = get_account_id(account_idx);
-    //        let other_account_id = format!("random_account_{}", rand::thread_rng().gen::<usize>());
-    //        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //        SignedTransaction::from_actions(
-    //            nonce as u64,
-    //            account_id,
-    //            other_account_id,
-    //            &signer,
-    //            vec![Action::CreateAccount(CreateAccountAction {})],
-    //            CryptoHash::default(),
-    //        )
-    //    };
-    //    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
-    //
-    //    // Measure the speed of deleting an account.
-    //    let mut nonces: HashMap<usize, u64> = HashMap::new();
-    //    let mut deleted_accounts = HashSet::new();
-    //    let mut beneficiaries = HashSet::new();
-    //    let mut f = || {
-    //        let account_idx = loop {
-    //            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
-    //                break x;
-    //            }
-    //        };
-    //        let beneficiary_idx = loop {
-    //            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //            if !deleted_accounts.contains(&x) && x != account_idx {
-    //                break x;
-    //            }
-    //        };
-    //        deleted_accounts.insert(account_idx);
-    //        beneficiaries.insert(beneficiary_idx);
-    //        let account_id = get_account_id(account_idx);
-    //        let beneficiary_id = get_account_id(beneficiary_idx);
-    //        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //        SignedTransaction::from_actions(
-    //            nonce as u64,
-    //            account_id.clone(),
-    //            account_id.clone(),
-    //            &signer,
-    //            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
-    //            CryptoHash::default(),
-    //        )
-    //    };
-    //    measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
-    //
-    //    // Measure the speed of adding a full access key.
-    //    measure_actions(
-    //        Metric::ActionAddFullAccessKey,
-    //        &mut m,
-    //        &config,
-    //        None,
-    //        vec![Action::AddKey(AddKeyAction {
-    //            public_key: serde_json::from_str(
-    //                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //            )
-    //            .unwrap(),
-    //            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-    //        })],
-    //        true,
-    //        true,
-    //    );
-    //
-    //    // Measure the speed of adding a function call access key.
-    //    measure_actions(
-    //        Metric::ActionAddFunctionAccessKey1Method,
-    //        &mut m,
-    //        &config,
-    //        None,
-    //        vec![Action::AddKey(AddKeyAction {
-    //            public_key: serde_json::from_str(
-    //                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //            )
-    //            .unwrap(),
-    //            access_key: AccessKey {
-    //                nonce: 0,
-    //                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-    //                    allowance: Some(100),
-    //                    receiver_id: get_account_id(0),
-    //                    method_names: vec!["method1".to_string()],
-    //                }),
-    //            },
-    //        })],
-    //        true,
-    //        true,
-    //    );
-    //
-    //    // Measure the speed of adding an access key with 1k methods each 10bytes long.
-    //    let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
-    //    measure_actions(
-    //        Metric::ActionAddFunctionAccessKey1000Methods,
-    //        &mut m,
-    //        &config,
-    //        None,
-    //        vec![Action::AddKey(AddKeyAction {
-    //            public_key: serde_json::from_str(
-    //                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //            )
-    //            .unwrap(),
-    //            access_key: AccessKey {
-    //                nonce: 0,
-    //                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-    //                    allowance: Some(100),
-    //                    receiver_id: get_account_id(0),
-    //                    method_names: many_methods,
-    //                }),
-    //            },
-    //        })],
-    //        true,
-    //        true,
-    //    );
-    //
-    //    // Measure the speed of deleting an access key.
-    //    let mut nonces: HashMap<usize, u64> = HashMap::new();
-    //    // Accounts with deleted access keys.
-    //    let mut deleted_accounts = HashSet::new();
-    //    let mut f = || {
-    //        let account_idx = loop {
-    //            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //            if !deleted_accounts.contains(&x) {
-    //                break x;
-    //            }
-    //        };
-    //        deleted_accounts.insert(account_idx);
-    //        let account_id = get_account_id(account_idx);
-    //        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //        SignedTransaction::from_actions(
-    //            nonce as u64,
-    //            account_id.clone(),
-    //            account_id.clone(),
-    //            &signer,
-    //            vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
-    //            CryptoHash::default(),
-    //        )
-    //    };
-    //    measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
-    //
-    //    // Measure the speed of staking.
-    //    measure_actions(
-    //        Metric::ActionStake,
-    //        &mut m,
-    //        &config,
-    //        None,
-    //        vec![Action::Stake(StakeAction {
-    //            stake: 1,
-    //            public_key: PublicKey::empty(KeyType::ED25519),
-    //        })],
-    //        true,
-    //        true,
-    //    );
+    measure_actions(Metric::Receipt, &mut m, &config, None, vec![], false, false);
+
+    // Measure the speed of processing simple transfers.
+    measure_actions(
+        Metric::ActionTransfer,
+        &mut m,
+        &config,
+        None,
+        vec![Action::Transfer(TransferAction { deposit: 1 })],
+        false,
+        false,
+    );
+
+    // Measure the speed of creating account.
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut f = || {
+        let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
+        let account_id = get_account_id(account_idx);
+        let other_account_id = format!("random_account_{}", rand::thread_rng().gen::<usize>());
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id,
+            other_account_id,
+            &signer,
+            vec![Action::CreateAccount(CreateAccountAction {})],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of deleting an account.
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut deleted_accounts = HashSet::new();
+    let mut beneficiaries = HashSet::new();
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
+                break x;
+            }
+        };
+        let beneficiary_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) && x != account_idx {
+                break x;
+            }
+        };
+        deleted_accounts.insert(account_idx);
+        beneficiaries.insert(beneficiary_idx);
+        let account_id = get_account_id(account_idx);
+        let beneficiary_id = get_account_id(beneficiary_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of adding a full access key.
+    measure_actions(
+        Metric::ActionAddFullAccessKey,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+        })],
+        true,
+        true,
+    );
+
+    // Measure the speed of adding a function call access key.
+    measure_actions(
+        Metric::ActionAddFunctionAccessKey1Method,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: get_account_id(0),
+                    method_names: vec!["method1".to_string()],
+                }),
+            },
+        })],
+        true,
+        true,
+    );
+
+    // Measure the speed of adding an access key with 1k methods each 10bytes long.
+    let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+    measure_actions(
+        Metric::ActionAddFunctionAccessKey1000Methods,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: get_account_id(0),
+                    method_names: many_methods,
+                }),
+            },
+        })],
+        true,
+        true,
+    );
+
+    // Measure the speed of deleting an access key.
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    // Accounts with deleted access keys.
+    let mut deleted_accounts = HashSet::new();
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) {
+                break x;
+            }
+        };
+        deleted_accounts.insert(account_idx);
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of staking.
+    measure_actions(
+        Metric::ActionStake,
+        &mut m,
+        &config,
+        None,
+        vec![Action::Stake(StakeAction {
+            stake: 1,
+            public_key: PublicKey::empty(KeyType::ED25519),
+        })],
+        true,
+        true,
+    );
 
     // Measure the speed of deploying some code.
     let code_10k = include_bytes!("../test-contract/res/small_contract.wasm");
@@ -439,12 +488,8 @@ pub fn run(mut config: Config) {
         );
     }
 
-    let fees = crate::runtime_fees_generator::RuntimeFeesGenerator::new(&m);
-    println!("{}", fees);
-    let mut ext_costs = crate::ext_costs_generator::ExtCostsGenerator::new(&m);
-    for (k, v) in ext_costs.compute() {
-        println!("{:?}\t\t\t\t{:.4}", k, v);
-    }
+    get_runtime_config(&m)
+
     //    let mut csv_path = PathBuf::from(&config.state_dump_path);
     //    csv_path.push("./metrics.csv");
     //    m.save_to_csv(csv_path.as_path());
@@ -452,38 +497,132 @@ pub fn run(mut config: Config) {
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-fn measure_function(
-    metric: Metric,
-    method_name: &'static str,
-    measurements: &mut Measurements,
-    testbed: RuntimeTestbed,
-    accounts_deployed: &[usize],
-    nonces: &mut HashMap<usize, u64>,
-    config: &Config,
-    allow_failures: bool,
-    args: Vec<u8>,
-) -> RuntimeTestbed {
-    // Measure the speed of creating a function fixture with 1MiB input.
-    let mut rng = rand_xorshift::XorShiftRng::from_seed([0u8; 16]);
-    let mut f = || {
-        let account_idx = *accounts_deployed.choose(&mut rng).unwrap();
-        let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        let function_call = Action::FunctionCall(FunctionCallAction {
-            method_name: method_name.to_string(),
-            args: args.clone(),
-            gas: 10u64.pow(18),
-            deposit: 0,
-        });
-        SignedTransaction::from_actions(
-            nonce as u64,
-            account_id.clone(),
-            account_id.clone(),
-            &signer,
-            vec![function_call],
-            CryptoHash::default(),
-        )
-    };
-    measure_transactions(metric, measurements, config, Some(testbed), &mut f, allow_failures)
+/// Converts time of a certain action to a fee, spliting it evenly between send and execution fee.
+fn f64_to_fee(value: f64) -> Fee {
+    let value = if value >= 0f64 { value } else { 0f64 };
+    let value: u64 = (value * GAS_IN_NANOS) as u64;
+    Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
+}
+
+fn f64_to_gas(value: f64) -> u64 {
+    let value = if value >= 0f64 { value } else { 0f64 };
+    (value * GAS_IN_NANOS) as u64
+}
+
+fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
+    use crate::runtime_fees_generator::ReceiptFeesFloat::*;
+    let generator = RuntimeFeesGenerator::new(measurement);
+    let pure = generator.compute();
+    RuntimeFeesConfig {
+        action_receipt_creation_config: f64_to_fee(pure[&ActionReceiptCreation]),
+        data_receipt_creation_config: DataReceiptCreationConfig {
+            base_cost: f64_to_fee(pure[&DataReceiptCreationBase]),
+            cost_per_byte: f64_to_fee(pure[&DataReceiptCreationPerByte]),
+        },
+        action_creation_config: ActionCreationConfig {
+            create_account_cost: f64_to_fee(pure[&ActionCreateAccount]),
+            deploy_contract_cost: f64_to_fee(pure[&ActionDeployContractBase]),
+            deploy_contract_cost_per_byte: f64_to_fee(pure[&ActionDeployContractPerByte]),
+            function_call_cost: f64_to_fee(pure[&ActionFunctionCallBase]),
+            function_call_cost_per_byte: f64_to_fee(pure[&ActionFunctionCallPerByte]),
+            transfer_cost: f64_to_fee(pure[&ActionTransfer]),
+            stake_cost: f64_to_fee(pure[&ActionStake]),
+            add_key_cost: AccessKeyCreationConfig {
+                full_access_cost: f64_to_fee(pure[&ActionAddFullAccessKey]),
+                function_call_cost: f64_to_fee(pure[&ActionAddFunctionAccessKeyBase]),
+                function_call_cost_per_byte: f64_to_fee(pure[&ActionAddFunctionAccessKeyPerByte]),
+            },
+            delete_key_cost: f64_to_fee(pure[&ActionDeleteKey]),
+            delete_account_cost: f64_to_fee(pure[&ActionDeleteAccount]),
+        },
+        storage_usage_config: StorageUsageConfig {
+            account_cost: 0,
+            data_record_cost: 0,
+            key_cost_per_byte: 0,
+            value_cost_per_byte: 0,
+            code_cost_per_byte: 0,
+        },
+        burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
+    }
+}
+
+fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
+    let mut generator = ExtCostsGenerator::new(measurement);
+    let pure = generator.compute();
+    use ExtCosts::*;
+    ExtCostsConfig {
+        base: f64_to_gas(pure[&base]),
+        read_memory_base: f64_to_gas(pure[&read_memory_base]),
+        read_memory_byte: f64_to_gas(pure[&read_memory_byte]),
+        write_memory_base: f64_to_gas(pure[&write_memory_base]),
+        write_memory_byte: f64_to_gas(pure[&write_memory_byte]),
+        read_register_base: f64_to_gas(pure[&read_register_base]),
+        read_register_byte: f64_to_gas(pure[&read_register_byte]),
+        write_register_base: f64_to_gas(pure[&write_register_base]),
+        write_register_byte: f64_to_gas(pure[&write_register_byte]),
+        utf8_decoding_base: f64_to_gas(pure[&utf8_decoding_base]),
+        utf8_decoding_byte: f64_to_gas(pure[&utf8_decoding_byte]),
+        utf16_decoding_base: f64_to_gas(pure[&utf16_decoding_base]),
+        utf16_decoding_byte: f64_to_gas(pure[&utf16_decoding_byte]),
+        sha256_base: f64_to_gas(pure[&sha256_base]),
+        sha256_byte: f64_to_gas(pure[&sha256_byte]),
+        log_base: f64_to_gas(pure[&log_base]),
+        log_byte: f64_to_gas(pure[&log_byte]),
+        storage_write_base: f64_to_gas(pure[&storage_write_base]),
+        storage_write_key_byte: f64_to_gas(pure[&storage_write_key_byte]),
+        storage_write_value_byte: f64_to_gas(pure[&storage_write_value_byte]),
+        storage_write_evicted_byte: f64_to_gas(pure[&storage_write_evicted_byte]),
+        storage_read_base: f64_to_gas(pure[&storage_read_base]),
+        storage_read_key_byte: f64_to_gas(pure[&storage_read_key_byte]),
+        storage_read_value_byte: f64_to_gas(pure[&storage_read_value_byte]),
+        storage_remove_base: f64_to_gas(pure[&storage_remove_base]),
+        storage_remove_key_byte: f64_to_gas(pure[&storage_remove_key_byte]),
+        storage_remove_ret_value_byte: f64_to_gas(pure[&storage_remove_ret_value_byte]),
+        storage_has_key_base: f64_to_gas(pure[&storage_has_key_base]),
+        storage_has_key_byte: f64_to_gas(pure[&storage_has_key_byte]),
+        storage_iter_create_prefix_base: f64_to_gas(pure[&storage_iter_create_prefix_base]),
+        storage_iter_create_prefix_byte: f64_to_gas(pure[&storage_iter_create_prefix_byte]),
+        storage_iter_create_range_base: f64_to_gas(pure[&storage_iter_create_range_base]),
+        storage_iter_create_from_byte: f64_to_gas(pure[&storage_iter_create_from_byte]),
+        storage_iter_create_to_byte: f64_to_gas(pure[&storage_iter_create_to_byte]),
+        storage_iter_next_base: f64_to_gas(pure[&storage_iter_next_base]),
+        storage_iter_next_key_byte: f64_to_gas(pure[&storage_iter_next_key_byte]),
+        storage_iter_next_value_byte: f64_to_gas(pure[&storage_iter_next_value_byte]),
+        promise_and_base: f64_to_gas(pure[&promise_and_base]),
+        promise_and_per_promise: f64_to_gas(pure[&promise_and_per_promise]),
+        promise_return: f64_to_gas(pure[&promise_return]),
+    }
+}
+
+fn get_vm_config(measurement: &Measurements) -> VMConfig {
+    VMConfig {
+        ext_costs: get_ext_costs_config(measurement),
+        // TODO: Figure out whether we need this fee at all. If we do what should be the memory
+        // growth cost.
+        grow_mem_cost: 1,
+        regular_op_cost: f64_to_gas(nanosec_per_op()) as u32,
+        max_gas_burnt: 10u64.pow(9),
+        max_stack_height: 32 * 1024,        // 32Kib of stack.
+        initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
+        max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
+        // By default registers are limited by 1GiB of memory.
+        registers_memory_limit: 2u64.pow(30),
+        // By default each register is limited by 100MiB of memory.
+        max_register_size: 2u64.pow(20) * 100,
+        // By default there is at most 100 registers.
+        max_number_registers: 100,
+        max_number_logs: 100,
+        max_log_len: 500,
+    }
+}
+
+fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
+    RuntimeConfig {
+        transaction_costs: get_runtime_fees_config(measurement),
+        wasm_config: get_vm_config(measurement),
+        // TODO: Figure out the following values.
+        storage_cost_byte_per_block: 1,
+        poke_threshold: 60,
+        account_length_baseline_cost_per_block: 6561,
+    }
 }

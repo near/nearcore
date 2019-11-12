@@ -8,7 +8,7 @@ pub mod mocks;
 pub mod serde_with;
 
 pub mod types;
-pub use config::{ExtCosts, VMConfig};
+pub use config::{ExtCosts, ExtCostsConfig, VMConfig};
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike};
 pub use logic::{VMLogic, VMOutcome};
