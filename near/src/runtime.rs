@@ -885,21 +885,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
-    fn obtain_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, Error> {
-        if part_id >= num_parts {
-            return Err("Invalid part_id in obtain_state_part".to_string().into());
-        }
-        Ok(self
-            .trie
+    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+        assert!(part_id < num_parts);
+        self.trie
             .get_trie_nodes_for_part(part_id, num_parts, state_root)
             .expect("storage should not fail")
             .try_to_vec()
-            .expect("serializer should not fail"))
+            .expect("serializer should not fail")
     }
 
     fn validate_state_part(
@@ -908,10 +900,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: u64,
         num_parts: u64,
         data: &Vec<u8>,
-    ) -> Result<bool, Error> {
-        if part_id >= num_parts {
-            return Err("Invalid part_id in validate_state_part".to_string().into());
-        }
+    ) -> bool {
+        assert!(part_id < num_parts);
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => match Trie::validate_trie_nodes_for_part(
                 state_root,
@@ -919,12 +909,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 num_parts,
                 &trie_nodes,
             ) {
-                Ok(_) => Ok(true),
+                Ok(_) => true,
                 // Storage error should not happen
-                Err(_) => Ok(false),
+                Err(_) => false,
             },
             // Deserialization error means we've got the data from malicious peer
-            Err(_) => Ok(false),
+            Err(_) => false,
         }
     }
 
@@ -944,32 +934,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(store_update.commit()?)
     }
 
-    /// Panics if requested hash is not in storage.
-    /// Never returns Error
-    fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error> {
+    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
         let (data, memory_usage) =
             self.trie.retrieve_root_node(state_root).expect("Failed to get root node");
-        Ok(StateRootNode { data, memory_usage })
+        StateRootNode { data, memory_usage }
     }
 
     fn validate_state_root_node(
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> Result<bool, Error> {
+    ) -> bool {
         if hash(&state_root_node.data) != *state_root {
-            Ok(false)
+            false
         } else {
             match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
                 Ok(memory_usage) => {
                     if memory_usage != state_root_node.memory_usage {
                         // Invalid value of memory_usage
-                        Ok(false)
+                        false
                     } else {
-                        Ok(true)
+                        true
                     }
                 }
-                Err(_) => Ok(false), // Invalid state_root_node
+                Err(_) => false, // Invalid state_root_node
             }
         }
     }
@@ -1666,9 +1654,8 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        assert!(env.runtime.obtain_state_part(&env.state_roots[0], 1, 1).is_err());
-        let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1).unwrap();
-        let root_node = env.runtime.get_state_root_node(&env.state_roots[0]).unwrap();
+        let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
+        let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1703,27 +1690,14 @@ mod test {
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
         }
-        assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]).unwrap());
+        assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
         let mut root_node_wrong = root_node.clone();
         root_node_wrong.memory_usage += 1;
-        assert!(!new_env
-            .runtime
-            .validate_state_root_node(&root_node_wrong, &env.state_roots[0])
-            .unwrap());
+        assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
-        assert!(!new_env
-            .runtime
-            .validate_state_root_node(&root_node_wrong, &env.state_roots[0])
-            .unwrap());
-        assert!(!new_env
-            .runtime
-            .validate_state_part(&StateRoot::default(), 0, 1, &state_part)
-            .unwrap());
-        assert!(new_env
-            .runtime
-            .validate_state_part(&env.state_roots[0], 1, 1, &state_part)
-            .is_err());
-        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part).unwrap();
+        assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
+        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
+        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
         new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {

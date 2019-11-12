@@ -1135,7 +1135,7 @@ impl Chain {
         }
 
         let state_root_node =
-            self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root)?;
+            self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
 
         Ok(ShardStateSyncResponseHeader {
             chunk,
@@ -1178,10 +1178,7 @@ impl Chain {
             )
             .into());
         }
-        let state_part = self
-            .runtime_adapter
-            .obtain_state_part(&state_root, part_id, num_parts)
-            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+        let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
     }
@@ -1349,7 +1346,7 @@ impl Chain {
         // 5. Checking that state_root_node is valid
         if !self
             .runtime_adapter
-            .validate_state_root_node(state_root_node, &chunk.header.inner.prev_state_root)?
+            .validate_state_root_node(state_root_node, &chunk.header.inner.prev_state_root)
         {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1393,7 +1390,7 @@ impl Chain {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data)? {
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_state_part failed: validate_state_part failed".into(),

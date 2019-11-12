@@ -692,24 +692,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn obtain_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, Error> {
-        if part_id >= num_parts {
-            return Err("Invalid part_id in obtain_state_part".to_string().into());
-        }
+    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+        assert!(part_id < num_parts);
         let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
-        let data = state.try_to_vec()?;
+        let data = state.try_to_vec().expect("should never fall");
         let state_size = data.len() as u64;
         let begin = state_size / num_parts * part_id;
         let mut end = state_size / num_parts * (part_id + 1);
         if part_id + 1 == num_parts {
             end = state_size;
         }
-        Ok(data[begin as usize..end as usize].to_vec())
+        data[begin as usize..end as usize].to_vec()
     }
 
     fn validate_state_part(
@@ -718,12 +711,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         part_id: u64,
         num_parts: u64,
         _data: &Vec<u8>,
-    ) -> Result<bool, Error> {
-        if part_id >= num_parts {
-            return Err("Invalid part_id in validate_state_part".to_string().into());
-        }
+    ) -> bool {
+        assert!(part_id < num_parts);
         // We do not care about deeper validation in test_utils
-        Ok(true)
+        true
     }
 
     fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error> {
@@ -740,20 +731,28 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self.state.read().unwrap().get(&state_root).unwrap().clone().try_to_vec()?,
+    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
+        StateRootNode {
+            data: self
+                .state
+                .read()
+                .unwrap()
+                .get(&state_root)
+                .unwrap()
+                .clone()
+                .try_to_vec()
+                .expect("should never fall"),
             memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
-        })
+        }
     }
 
     fn validate_state_root_node(
         &self,
         _state_root_node: &StateRootNode,
         _state_root: &StateRoot,
-    ) -> Result<bool, Error> {
+    ) -> bool {
         // We do not care about deeper validation in test_utils
-        Ok(true)
+        true
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

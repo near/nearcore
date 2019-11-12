@@ -385,35 +385,32 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
-    fn obtain_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, Error>;
+    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8>;
 
     /// Validate state part that expected to be given state root with provided data.
-    /// Returns error if the resulting part doesn't match the expected one.
+    /// Returns false if the resulting part doesn't match the expected one.
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
         data: &Vec<u8>,
-    ) -> Result<bool, Error>;
+    ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
-    fn get_state_root_node(&self, state_root: &StateRoot) -> Result<StateRootNode, Error>;
+    /// Panics if requested hash is not in storage.
+    /// Never returns Error
+    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode;
 
     /// Validate StateRootNode of a state.
     fn validate_state_root_node(
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> Result<bool, Error>;
+    ) -> bool;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
