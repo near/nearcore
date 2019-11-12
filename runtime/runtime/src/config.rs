@@ -3,7 +3,7 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction,
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{Balance, BlockIndex, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
@@ -146,6 +146,25 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
+}
+
+pub fn tx_cost(
+    config: &RuntimeFeesConfig,
+    transaction: &Transaction,
+    gas_price: Balance,
+    sender_is_receiver: bool,
+) -> Result<(Gas, Gas, Balance), IntegerOverflowError> {
+    let mut gas_burnt: Gas = config.action_receipt_creation_config.send_fee(sender_is_receiver);
+    gas_burnt = safe_add_gas(
+        gas_burnt,
+        total_send_fees(&config, sender_is_receiver, &transaction.actions)?,
+    )?;
+    let mut gas_used = safe_add_gas(gas_burnt, config.action_receipt_creation_config.exec_fee())?;
+    gas_used = safe_add_gas(gas_used, total_exec_fees(&config, &transaction.actions)?)?;
+    gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
+    let mut total_cost = safe_gas_to_balance(gas_price, gas_used)?;
+    total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
+    Ok((gas_burnt, gas_used, total_cost))
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

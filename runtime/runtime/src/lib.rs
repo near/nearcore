@@ -47,7 +47,7 @@ use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, total_send_fees, RuntimeConfig,
+    total_prepaid_gas, total_send_fees, tx_cost, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
 
@@ -182,39 +182,6 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    fn tx_cost(
-        &self,
-        transaction: &Transaction,
-        apply_state: &ApplyState,
-        sender_is_receiver: bool,
-    ) -> Result<(Gas, Gas, Balance), InvalidTxError> {
-        let mut gas_burnt: Gas = self
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(sender_is_receiver);
-        gas_burnt = safe_add_gas(
-            gas_burnt,
-            total_send_fees(
-                &self.config.transaction_costs,
-                sender_is_receiver,
-                &transaction.actions,
-            )?,
-        )?;
-        let mut gas_used = safe_add_gas(
-            gas_burnt,
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-        )?;
-        gas_used = safe_add_gas(
-            gas_used,
-            total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
-        )?;
-        gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
-        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
-        total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
-        Ok((gas_burnt, gas_used, total_cost))
-    }
-
     /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
     /// and balances, and updates the state for the used account and access keys.
     pub fn verify_and_charge_transaction(
@@ -265,8 +232,13 @@ impl Runtime {
         let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = transaction.nonce;
 
-        let (gas_burnt, gas_used, total_cost) =
-            self.tx_cost(&transaction, &apply_state, sender_is_receiver)?;
+        let (gas_burnt, gas_used, total_cost) = tx_cost(
+            &self.config.transaction_costs,
+            &transaction,
+            apply_state.gas_price,
+            sender_is_receiver,
+        )
+        .map_err(|_| InvalidTxError::CostOverflow)?;
 
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
@@ -634,12 +606,14 @@ impl Runtime {
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
                 validator_reward -= reward;
-                account.amount += reward;
+                account.amount = safe_add_balance(account.amount, reward)?;
                 set_account(state_update, account_id, account);
                 state_update.commit();
             }
         }
-        stats.total_validator_reward += validator_reward;
+
+        stats.total_validator_reward =
+            safe_add_balance(stats.total_validator_reward, validator_reward)?;
 
         // Generating outgoing data
         if !action_receipt.output_data_receivers.is_empty() {

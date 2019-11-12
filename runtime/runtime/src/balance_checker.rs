@@ -45,7 +45,7 @@ pub(crate) fn check_balance(
         } else {
             0
         };
-    let total_accounts_balance = |state| -> Result<Balance, StorageError> {
+    let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
         Ok(all_accounts_ids
             .iter()
             .map(
@@ -53,12 +53,12 @@ pub(crate) fn check_balance(
             )
             .collect::<Result<Vec<Balance>, StorageError>>()?
             .into_iter()
-            .sum::<Balance>())
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
     };
     let initial_accounts_balance = total_accounts_balance(&initial_state)?;
     let final_accounts_balance = total_accounts_balance(&final_state)?;
     // Receipts
-    let receipt_cost = |receipt: &Receipt| -> Result<Balance, InvalidTxError> {
+    let receipt_cost = |receipt: &Receipt| -> Result<Balance, RuntimeError> {
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
@@ -81,13 +81,13 @@ pub(crate) fn check_balance(
         receipts
             .iter()
             .map(receipt_cost)
-            .collect::<Result<Vec<u128>, InvalidTxError>>()
+            .collect::<Result<Vec<Balance>, RuntimeError>>()
             .expect(OVERFLOW_CHECKED_ERR)
             .into_iter()
-            .sum::<Balance>()
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
     };
-    let incoming_receipts_balance = receipts_cost(prev_receipts);
-    let outgoing_receipts_balance = receipts_cost(new_receipts);
+    let incoming_receipts_balance = receipts_cost(prev_receipts)?;
+    let outgoing_receipts_balance = receipts_cost(new_receipts)?;
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
