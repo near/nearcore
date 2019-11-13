@@ -15,7 +15,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
-use near_primitives::views::QueryResponse;
+use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -370,6 +370,8 @@ pub trait RuntimeAdapter: Send + Sync {
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+
+    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root + proof.
     fn obtain_state_part(

@@ -27,7 +27,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId, StateRoot};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -973,69 +973,46 @@ impl Client {
         let header =
             unwrap_or_return!(self.chain.head_header(), NetworkClientResponses::NoResponse).clone();
         let path_parts: Vec<&str> = path.split('/').collect();
-        let state_root = {
-            if path_parts[0] == "validators" && path_parts.len() == 1 {
-                // for querying validators we don't need state root
-                StateRoot { hash: CryptoHash::default(), num_parts: 0 }
-            } else {
-                let account_id = AccountId::from(path_parts[1]);
-                let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-                match self.chain.get_chunk_extra(&header.hash, shard_id) {
-                    Ok(chunk_extra) => chunk_extra.state_root.clone(),
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
-                            let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-                            let validator = unwrap_or_return!(
-                                self.find_validator_for_forwarding(shard_id),
-                                {
-                                    warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
-                                    NetworkClientResponses::NoResponse
-                                }
-                            );
-                            // TODO: remove this duplicate code
-                            if let Some(account_id) = me {
-                                if account_id == &validator {
-                                    // this probably means that we are crossing epoch boundary and the current node
-                                    // does not have state for the next epoch. TODO: figure out what to do in this case
-                                    return NetworkClientResponses::NoResponse;
-                                }
-                            }
-                            self.query_requests.cache_set(id.clone(), ());
-                            self.network_adapter.send(NetworkRequests::Query {
-                                account_id: validator,
-                                path,
-                                data,
-                                id,
-                            });
-                            return NetworkClientResponses::RequestRouted;
-                        }
-                        _ => {
-                            warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    },
-                }
-            }
-        };
-
-        let response = unwrap_or_return!(
-            self.runtime_adapter
-                .query(
+        let account_id = AccountId::from(path_parts[1].clone());
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+        match self.chain.get_chunk_extra(&header.hash, shard_id) {
+            Ok(chunk_extra) => {
+                let state_root = chunk_extra.state_root.clone();
+                if let Ok(response) = self.runtime_adapter.query(
                     &state_root,
                     header.inner.height,
                     header.inner.timestamp,
                     &header.hash,
-                    path_parts,
+                    path_parts.clone(),
                     &data,
-                )
-                .map_err(|err| err.to_string()),
-            {
-                warn!(target: "client", "Query {} failed", path);
-                NetworkClientResponses::NoResponse
+                ) {
+                    return NetworkClientResponses::QueryResponse { response, id };
+                }
             }
-        );
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {}
+                _ => {
+                    warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
+                    return NetworkClientResponses::NoResponse;
+                }
+            },
+        }
 
-        NetworkClientResponses::QueryResponse { response, id }
+        // route request
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let validator = unwrap_or_return!(self.find_validator_for_forwarding(shard_id), {
+            warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
+            NetworkClientResponses::NoResponse
+        });
+        self.query_requests.cache_set(id.clone(), ());
+        self.network_adapter.send(NetworkRequests::Query {
+            account_id: validator,
+            path: path.clone(),
+            data: data.clone(),
+            id: id.clone(),
+        });
+
+        NetworkClientResponses::RequestRouted
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
