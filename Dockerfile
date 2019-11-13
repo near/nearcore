@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile-upstream:experimental
 
-FROM ubuntu:18.04
+FROM ubuntu:18.04 as build
 
 RUN apt-get update -qq && apt-get install -y \
     git \
@@ -33,12 +33,22 @@ RUN --mount=type=cache,target=/tmp/target \
     cargo build -p near --release && \
     cargo build -p keypair-generator --release && \
     cargo build -p genesis-csv-to-json --release && \
-    cp /tmp/target/release/near /usr/local/bin/ && \
-    cp /tmp/target/release/keypair-generator /usr/local/bin && \
-    cp /tmp/target/release/genesis-csv-to-json /usr/local/bin
+    mkdir /tmp/build && \
+    cd /tmp/target/release && \
+    mv ./near ./keypair-generator ./genesis-csv-to-json /tmp/build
+
+COPY scripts/run_docker.sh /tmp/build/run.sh
+
+
+# Actual image
+FROM ubuntu:18.04
 
 EXPOSE 3030 24567
 
-COPY scripts/run_docker.sh /usr/local/bin/run.sh
+RUN apt-get update -qq && apt-get install -y \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /tmp/build/* /usr/local/bin
 
 CMD ["/usr/local/bin/run.sh"]
