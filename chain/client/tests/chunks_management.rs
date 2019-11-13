@@ -40,7 +40,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 1000);
+        chunks_produced_and_distributed_common(2, true, 1500);
     });
 }
 
