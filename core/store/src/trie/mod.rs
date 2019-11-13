@@ -543,10 +543,6 @@ impl Trie {
         }
     }
 
-    pub fn get_memory_usage_from_serialized_node(node: &TrieNodeWithSize) -> u64 {
-        node.memory_usage
-    }
-
     #[cfg(test)]
     fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
         if self.storage.as_recording_storage().is_some() {

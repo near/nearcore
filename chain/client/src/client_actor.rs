@@ -276,14 +276,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
             ) => {
                 let mut data = vec![];
                 for part_id in part_ids.iter() {
-                    if let Ok(part) = self
+                    match self
                         .client
                         .chain
                         .get_state_response_part(shard_id, *part_id, num_parts, hash)
                     {
-                        data.push(part);
-                    } else {
-                        return NetworkClientResponses::NoResponse;
+                        Ok(part) => data.push(part),
+                        Err(e) => {
+                            error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
+                            return NetworkClientResponses::NoResponse;
+                        }
                     }
                 }
                 if need_header {
@@ -302,7 +304,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 route_back,
                             );
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
