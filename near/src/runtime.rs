@@ -366,7 +366,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else if has_records {
             self.genesis_state_from_records()
         } else {
-            panic!("Found neither records in the confign nor the state dump file. Either one should be present")
+            panic!("Found neither records in the config nor the state dump file. Either one should be present")
         }
     }
 

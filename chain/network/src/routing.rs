@@ -355,9 +355,9 @@ impl RoutingTable {
     }
 
     pub fn contains_account(&self, announce_account: AnnounceAccount) -> bool {
-        self.account_peers
-            .get(&announce_account.account_id)
-            .map_or(false, |cur_announce_account| *cur_announce_account == announce_account)
+        self.account_peers.get(&announce_account.account_id).map_or(false, |cur_announce_account| {
+            cur_announce_account.peer_id == announce_account.peer_id
+        })
     }
 
     /// Add this edge to the current view of the network.
