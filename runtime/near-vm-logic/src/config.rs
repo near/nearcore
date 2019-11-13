@@ -198,6 +198,8 @@ pub struct ExtCostsConfig {
     pub log_base: Gas,
     /// Cost for logging per byte
     pub log_per_byte: Gas,
+    /// Cost per touched trie node
+    pub touching_trie_node: Gas,
 }
 
 impl Default for ExtCostsConfig {
@@ -257,6 +259,7 @@ impl Default for ExtCostsConfig {
             promise_return: 1,
             log_base: 1,
             log_per_byte: 1,
+            touching_trie_node: 1,
         }
     }
 }
@@ -318,6 +321,7 @@ impl ExtCostsConfig {
             promise_return: 0,
             log_base: 0,
             log_per_byte: 0,
+            touching_trie_node: 0,
         }
     }
 }
