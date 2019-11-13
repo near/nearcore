@@ -246,7 +246,7 @@ pub enum RuntimeError {
 }
 
 impl From<IntegerOverflowError> for InvalidTxError {
-    fn from (_: IntegerOverflowError) -> Self {
+    fn from(_: IntegerOverflowError) -> Self {
         InvalidTxError::CostOverflow
     }
 }

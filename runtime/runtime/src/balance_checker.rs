@@ -4,8 +4,10 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas,
 };
-use crate::{ApplyStats, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
-use near_primitives::errors::{BalanceMismatchError, RuntimeError, StorageError};
+use crate::{ApplyStats, ValidatorAccountsUpdate};
+use near_primitives::errors::{
+    BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
+};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -41,24 +43,30 @@ pub(crate) fn check_balance(
             if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
                 all_accounts_ids.insert(account_id.clone());
             }
-            validator_accounts_update.validator_rewards.values().sum::<Balance>()
+            validator_accounts_update
+                .validator_rewards
+                .values()
+                .try_fold(0u128, |res, balance| safe_add_balance(res, *balance))?
         } else {
             0
         };
     let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
         Ok(all_accounts_ids
             .iter()
-            .map(
-                |account_id| Ok(get_account(state, account_id)?.map_or(0, |a| a.amount + a.locked)),
-            )
-            .collect::<Result<Vec<Balance>, StorageError>>()?
+            .map(|account_id| {
+                get_account(state, account_id)?.map_or(Ok(0), |a| {
+                    safe_add_balance(a.amount, a.locked)
+                        .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+                })
+            })
+            .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
             .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
     };
     let initial_accounts_balance = total_accounts_balance(&initial_state)?;
     let final_accounts_balance = total_accounts_balance(&final_state)?;
     // Receipts
-    let receipt_cost = |receipt: &Receipt| -> Result<Balance, RuntimeError> {
+    let receipt_cost = |receipt: &Receipt| -> Result<Balance, IntegerOverflowError> {
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
@@ -77,12 +85,11 @@ pub(crate) fn check_balance(
             ReceiptEnum::Data(_) => 0,
         })
     };
-    let receipts_cost = |receipts: &[Receipt]| {
+    let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
         receipts
             .iter()
             .map(receipt_cost)
-            .collect::<Result<Vec<Balance>, RuntimeError>>()
-            .expect(OVERFLOW_CHECKED_ERR)
+            .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
             .into_iter()
             .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
     };
@@ -126,7 +133,7 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .sum::<Balance>())
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
     };
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;

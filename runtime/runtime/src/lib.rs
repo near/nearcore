@@ -575,7 +575,7 @@ impl Runtime {
             }
         } else {
             // Calculating and generating refunds
-            self.generate_refund_receipts(receipt, action_receipt, &mut result);
+            self.generate_refund_receipts(receipt, action_receipt, &mut result)?;
         }
 
         // Moving validator proposals
@@ -600,7 +600,8 @@ impl Runtime {
         if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
-                let receiver_reward = safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?;
+                let receiver_reward =
+                    safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?;
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
@@ -698,22 +699,23 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-    ) {
-        let total_deposit = total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
-        let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
-            .expect(OVERFLOW_CHECKED_ERR)
-            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+    ) -> Result<(), RuntimeError> {
+        let total_deposit = total_deposit(&action_receipt.actions)?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
+        let exec_gas = safe_add_gas(
+            total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt
+            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_burnt
         } else {
-            prepaid_gas + exec_gas - result.gas_used
+            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
         };
-        let mut gas_balance_refund = Balance::from(gas_refund) * action_receipt.gas_price;
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
         if action_receipt.signer_id == receipt.predecessor_id {
             // Merging 2 refunds
-            deposit_refund += gas_balance_refund;
+            deposit_refund = safe_add_balance(deposit_refund, gas_balance_refund)?;
             gas_balance_refund = 0;
         }
         if deposit_refund > 0 {
@@ -724,6 +726,7 @@ impl Runtime {
                 .new_receipts
                 .push(Receipt::new_refund(&action_receipt.signer_id, gas_balance_refund));
         }
+        Ok(())
     }
 
     fn process_receipt(
