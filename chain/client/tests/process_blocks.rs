@@ -421,6 +421,7 @@ fn client_sync_headers() {
                             genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
+                            tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
                     }],
@@ -432,6 +433,7 @@ fn client_sync_headers() {
                             genesis_id: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
+                            tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
                     }],
@@ -458,7 +460,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i, Duration::from_millis(100)).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let more_accepted_blocks = client.run_catchup().unwrap();
+        let more_accepted_blocks = client.run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -485,7 +487,6 @@ fn test_process_invalid_tx() {
         Some("test1"),
         network_adapter,
         chain_genesis,
-        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
@@ -530,7 +531,6 @@ fn test_time_attack() {
         Some("test1"),
         network_adapter,
         chain_genesis,
-        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -561,7 +561,6 @@ fn test_invalid_approvals() {
         Some("test1"),
         network_adapter,
         chain_genesis,
-        5,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -594,8 +593,25 @@ fn test_invalid_approvals() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
+}
+
+#[test]
+fn test_invalid_block_height() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
+    let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
+    match tip {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidBlockHeight => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => assert!(false, "succeeded, tip: {:?}", tip),
+    }
 }

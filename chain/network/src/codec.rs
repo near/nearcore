@@ -99,6 +99,7 @@ mod test {
                 genesis_id: Default::default(),
                 height: 0,
                 total_weight: 0.into(),
+                tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
         };

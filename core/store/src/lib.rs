@@ -132,7 +132,6 @@ impl Store {
             let value_len = file.read_u32::<LittleEndian>()? as usize;
             let mut value = Vec::<u8>::with_capacity(value_len);
             Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
-            //            println!("{:?} {:?}", key, value);
             transaction.put(column, &key, &value);
         }
         self.storage.write(transaction)?;

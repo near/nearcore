@@ -234,7 +234,9 @@ fn test_rpc_routing() {
                         actix::spawn(
                             client
                                 .query("account/near.2".to_string(), "".to_string())
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| {
+                                    println!("Error retrieving account: {:?}", err);
+                                })
                                 .map(move |result| match result {
                                     QueryResponse::ViewAccount(account_view) => {
                                         assert_eq!(account_view.amount, TESTING_INIT_BALANCE);

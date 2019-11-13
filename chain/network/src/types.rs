@@ -175,6 +175,8 @@ pub struct PeerChainInfo {
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
     pub total_weight: Weight,
+    /// Shards that the peer is tracking
+    pub tracked_shards: Vec<ShardId>,
 }
 
 /// Peer type.
@@ -320,6 +322,7 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -708,6 +711,9 @@ pub struct NetworkConfig {
     pub ttl_account_id_router: Duration,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
+    /// Height horizon for most weighted peers. For example if one peer is 1 block ahead of 100s of others,
+    /// we still want to use the rest to query for state/headers/blocks.
+    pub most_weighted_peer_height_horizon: BlockIndex,
 }
 
 /// Status of the known peers.
@@ -912,7 +918,7 @@ pub enum NetworkRequests {
         hash: CryptoHash,
         need_header: bool,
         parts_ranges: Vec<Range>,
-        account_id: AccountId,
+        target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
     BanPeer {
@@ -1090,7 +1096,12 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockIndex,
+        total_weight: Weight,
+        tracked_shards: Vec<ShardId>,
+    },
     /// Block response.
     Block(Block),
     /// Headers response.

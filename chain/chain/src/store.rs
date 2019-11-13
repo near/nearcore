@@ -186,8 +186,8 @@ pub trait ChainStoreAccess {
                 return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
             }
             Ok(shard_chunk) => {
-                byzantine_assert!(header.height_included > 0);
-                if header.height_included == 0 {
+                byzantine_assert!(header.height_included > 0 || header.inner.height_created == 0);
+                if header.height_included == 0 && header.inner.height_created > 0 {
                     return Err(ErrorKind::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
                         header, shard_chunk

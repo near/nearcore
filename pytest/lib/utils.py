@@ -14,7 +14,7 @@ class TxContext:
     def get_balance(self, whose):
         r = self.nodes[self.act_to_val[whose]].get_account("test%s" % whose)
         assert 'result' in r, r
-        return int(r['result']['amount'])
+        return int(r['result']['amount']) + int(r['result']['locked'])
 
     def get_balances(self):
         return [
@@ -25,7 +25,10 @@ class TxContext:
     def send_moar_txs(self, last_block_hash, num, use_routing):
         last_balances = [x for x in self.expected_balances]
         for i in range(num):
-            from_ = random.randint(0, self.num_nodes - 1)
+            while True:
+                from_ = random.randint(0, self.num_nodes - 1)
+                if self.nodes[from_] is not None:
+                    break
             to = random.randint(0, self.num_nodes - 2)
             if to >= from_:
                 to += 1

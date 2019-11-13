@@ -79,7 +79,8 @@ impl NightshadeRuntime {
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
             avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
-            validator_kickout_threshold: genesis_config.validator_kickout_threshold,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis_config.max_inflation_rate,
@@ -517,6 +518,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
+    }
+
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
+            .map_err(Error::from)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -1102,6 +1115,8 @@ mod test {
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
             genesis_config.epoch_length = epoch_length;
+            genesis_config.chunk_producer_kickout_threshold =
+                genesis_config.block_producer_kickout_threshold;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
