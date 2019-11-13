@@ -6,7 +6,6 @@ use near_crypto::Signature;
 use near_primitives::block::Approval;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -16,9 +15,11 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
-use near_store::{PartialStorage, StoreUpdate, TrieUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_pool::types::DrainingIterator;
+use near_primitives::errors::InvalidTxError;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -147,13 +148,23 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_update: &mut TrieUpdate,
+        state_root: StateRoot,
         transaction: &SignedTransaction,
-    ) -> Result<Gas, RuntimeError>;
+    ) -> Result<Option<InvalidTxError>, Error>;
 
-    /// Returns a state update for a given `state_root`.
-    /// NOTE: It's used for continuous filtering.
-    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate;
+    /// Filter transactions by verifying each one by one in the given order. Every successful
+    /// verification stores the updated account balances to be used by next transaction.
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        gas_price: Balance,
+        gas_limit: Gas,
+        state_root: StateRoot,
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn DrainingIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.

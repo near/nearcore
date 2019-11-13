@@ -16,7 +16,7 @@ use near_chain::{
 use near_crypto::Signer;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::NetworkRequests;
-use near_pool::{DrainingIterator, TransactionPool};
+use near_pool::{PoolIterator, TransactionPool};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -190,7 +190,7 @@ impl ShardsManager {
         );
     }
 
-    pub fn get_pool_draining_iterator(&mut self, shard_id: ShardId) -> Option<DrainingIterator> {
+    pub fn get_pool_draining_iterator(&mut self, shard_id: ShardId) -> Option<PoolIterator> {
         if let Some(tx_pool) = self.tx_pools.get_mut(&shard_id) {
             Some(tx_pool.draining_iterator())
         } else {

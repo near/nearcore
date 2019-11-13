@@ -1,20 +1,19 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use near_crypto::PublicKey;
+pub mod types;
+use crate::types::{AccountPK, DrainingIterator, TransactionGroup};
+
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
 
 use near_primitives::hash::CryptoHash;
-
-type TxMap = HashMap<(AccountId, PublicKey), Vec<SignedTransaction>>;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 #[derive(Default)]
 pub struct TransactionPool {
     /// Transactions grouped by a pair of (account ID, signer public key).
-    /// It's more efficient to keep transactions unsorted and with potentially conflicting nonce
-    /// than create a BTreeMap for every transaction on average.
-    pub transactions: TxMap,
+    /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
+    /// conflicting nonce than to create a BTreeMap for every transaction.
+    pub transactions: HashMap<AccountPK, Vec<SignedTransaction>>,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     pub unique_transactions: HashSet<CryptoHash>,
 }
@@ -37,8 +36,8 @@ impl TransactionPool {
     /// Returns a draining structure that pulls transactions from the pool in the proper order.
     /// It has an option to take transactions with the same key as the last one or with the new key.
     /// When the iterator is dropped, the rest of the transactions remain in the pool.
-    pub fn draining_iterator(&mut self) -> DrainingIterator {
-        DrainingIterator::new(self)
+    pub fn draining_iterator(&mut self) -> PoolIterator {
+        PoolIterator::new(self)
     }
 
     /// Quick reconciliation step - evict all transactions that already in the block
@@ -90,20 +89,11 @@ impl TransactionPool {
 /// Draining Iterator is a structure to pull transactions from the pool.
 /// It allows to request a next transaction either with the new key (next key) or with the same key.
 /// When a draining iterator is dropped the remaining transactions are returned back to the pool.
-pub struct DrainingIterator<'a> {
+pub struct PoolIterator<'a> {
     /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
     pool: &'a mut TransactionPool,
-    /// Whether every group of transactions is already sorted.
-    sorted: bool,
-    /// Helper flag to know which map is the current one and which map is the next one.
-    /// Instead of swapping memory between maps, the implementation uses helper functions.
-    current_map_is_pool: bool,
-    /// The temporary map to hold transactions for which keys were already used in the current batch.
-    temp_map: TxMap,
-    /// The last entry from the current map. If it's None, it means the entry for the key was fully
-    /// drained or was not yet initialized.
-    /// If it's Some, then it guarantees that there are a least one transaction in the vector.
-    last_entry: Option<((AccountId, PublicKey), Vec<SignedTransaction>)>,
+
+    sorted_groups: VecDeque<TransactionGroup>,
 }
 
 /// The iterator works with the following algorithm:
@@ -116,104 +106,66 @@ pub struct DrainingIterator<'a> {
 /// 4. If a new entry is needed for a new key, inserts the current entry to the next map.
 /// 5. Pulls the latest the transaction from the current entry.
 /// 6. If the current entry becomes empty, sets it to None.  
-impl<'a> DrainingIterator<'a> {
+impl<'a> PoolIterator<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
-        Self {
-            pool,
-            sorted: false,
-            current_map_is_pool: true,
-            temp_map: Default::default(),
-            last_entry: None,
-        }
+        Self { pool, sorted_groups: Default::default() }
     }
+}
 
-    /// Helper function to get a map from which the iterators drains new keys and transactions.
-    fn current_map(&mut self) -> &mut TxMap {
-        if self.current_map_is_pool {
-            &mut self.pool.transactions
-        } else {
-            &mut self.temp_map
-        }
-    }
-
-    /// Helper function to get a map towards which the used keys and transactions go.
-    fn next_map(&mut self) -> &mut TxMap {
-        if self.current_map_is_pool {
-            &mut self.temp_map
-        } else {
-            &mut self.pool.transactions
-        }
-    }
-
-    /// Returns the next transaction in the proper order. `from_same_tx_group` defines whether the
-    /// transaction should be from the same group (with the same key) as the previous transaction.
-    /// If the previous transaction was invalid, the next transaction has to be with the same key to
-    /// maintain the proper order. Otherwise the invalid transaction skips the given key.
-    pub fn next(&mut self, from_same_tx_group: bool) -> Option<SignedTransaction> {
-        // If we need the new/next key, or the current transaction group is fully used.
-        if !from_same_tx_group || self.last_entry.is_none() {
-            if let Some((key, txs)) = self.last_entry.take() {
-                self.next_map().insert(key, txs);
+impl<'a> DrainingIterator for PoolIterator<'a> {
+    fn next(&mut self) -> Option<&mut TransactionGroup> {
+        let key = self.pool.transactions.keys().next().cloned();
+        match key {
+            Some(key) => {
+                let mut transactions =
+                    self.pool.transactions.remove(&key.clone()).expect("just checked existence");
+                transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
+                self.sorted_groups.push_back(TransactionGroup { key, transactions });
+                Some(self.sorted_groups.back_mut().expect("just pushed"))
             }
-            if self.current_map().is_empty() {
-                self.sorted = true;
-                self.current_map_is_pool = !self.current_map_is_pool;
+            None => {
+                loop {
+                    match self.sorted_groups.pop_front() {
+                        None => break None, // All transactions were processed.
+                        Some(sorted_group) => {
+                            if sorted_group.transactions.is_empty() {
+                                continue;
+                            } else {
+                                self.sorted_groups.push_back(sorted_group);
+                                break Some(self.sorted_groups.back_mut().expect("just pushed"));
+                            }
+                        }
+                    }
+                }
             }
-            let key = if let Some(key) = self.current_map().keys().next() {
-                key.clone()
-            } else {
-                return None;
-            };
-            self.last_entry = self.current_map().remove_entry(&key);
-            if !self.sorted {
-                // Sort by nonce in non-increasing order to pop from the end
-                self.last_entry
-                    .as_mut()
-                    .unwrap()
-                    .1
-                    .sort_by_key(|a| std::cmp::Reverse(a.transaction.nonce));
-            }
-        }
-
-        if self.last_entry.is_some() {
-            let tx = self
-                .last_entry
-                .as_mut()
-                .unwrap()
-                .1
-                .pop()
-                .expect("transaction groups shouldn't be empty");
-            if self.last_entry.as_ref().unwrap().1.is_empty() {
-                self.last_entry = None;
-            }
-            self.pool.unique_transactions.remove(&tx.get_hash());
-            Some(tx)
-        } else {
-            None
         }
     }
 }
 
-impl<'a> Drop for DrainingIterator<'a> {
+impl<'a> Drop for PoolIterator<'a> {
     fn drop(&mut self) {
-        if let Some((key, txs)) = self.last_entry.take() {
-            self.pool.transactions.insert(key, txs);
-        }
-        self.pool.transactions.extend(self.temp_map.drain());
+        self.pool.transactions.extend(self.sorted_groups.drain(..).filter_map(
+            |TransactionGroup { key, transactions }| {
+                if !transactions.is_empty() {
+                    Some((key, transactions))
+                } else {
+                    None
+                }
+            },
+        ));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::sync::Arc;
 
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::transaction::SignedTransaction;
 
-    use crate::TransactionPool;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
 
@@ -271,10 +223,12 @@ mod tests {
         max_number_of_transactions: u32,
     ) -> Vec<SignedTransaction> {
         let mut res = vec![];
-        let mut iter = pool.draining_iterator();
-        for _ in 0..max_number_of_transactions {
-            if let Some(tx) = iter.next(false) {
-                res.push(tx);
+        let mut pool_iter = pool.draining_iterator();
+        while res.len() < max_number_of_transactions as usize {
+            if let Some(iter) = pool_iter.next() {
+                if let Some(tx) = iter.next() {
+                    res.push(tx);
+                }
             } else {
                 break;
             }
@@ -385,24 +339,13 @@ mod tests {
         let (nonces, mut pool) = process_txs_to_nonces(transactions, 0);
         assert!(nonces.is_empty());
         let mut res = vec![];
-        let mut iter = pool.draining_iterator();
-        loop {
-            let mut same_key = false;
-            let tx = loop {
-                if let Some(tx) = iter.next(same_key) {
-                    if tx.transaction.nonce & 1 == 1 {
-                        break Some(tx);
-                    } else {
-                        same_key = true;
-                    }
-                } else {
-                    break None;
+        let mut pool_iter = pool.draining_iterator();
+        while let Some(iter) = pool_iter.next() {
+            while let Some(tx) = iter.next() {
+                if tx.transaction.nonce & 1 == 1 {
+                    res.push(tx);
+                    break;
                 }
-            };
-            if let Some(tx) = tx {
-                res.push(tx);
-            } else {
-                break;
             }
         }
         let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce).collect();

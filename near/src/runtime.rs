@@ -10,13 +10,17 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::debug;
 
+use crate::config::GenesisConfig;
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
+use near_pool::types::DrainingIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
@@ -36,10 +40,6 @@ use near_store::{
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
-
-use crate::config::GenesisConfig;
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::block::Approval;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -626,9 +626,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_update: &mut TrieUpdate,
+        state_root: StateRoot,
         transaction: &SignedTransaction,
-    ) -> Result<Gas, RuntimeError> {
+    ) -> Result<Option<InvalidTxError>, Error> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -636,21 +637,83 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_timestamp,
         };
 
-        self.runtime
-            .verify_and_charge_transaction(state_update, &apply_state, &transaction)
-            .map_err(|err| {
-                state_update.rollback();
+        match self.runtime.verify_and_charge_transaction(
+            &mut state_update,
+            &apply_state,
+            &transaction,
+        ) {
+            Ok(_) => Ok(None),
+            Err(RuntimeError::InvalidTxError(err)) => {
                 debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                err
-            })
-            .map(|verification_result| {
-                state_update.commit();
-                verification_result.gas_burnt
-            })
+                Ok(Some(err))
+            }
+            Err(RuntimeError::StorageError(_err)) => Err(Error::from(ErrorKind::StorageError)),
+            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+        }
     }
 
-    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(self.trie.clone(), state_root.hash)
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        block_timestamp: u64,
+        gas_price: Balance,
+        gas_limit: Gas,
+        state_root: StateRoot,
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn DrainingIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
+
+        // Total amount of gas burnt for converting transactions towards receipts.
+        let mut total_gas_burnt = 0;
+        // TODO: Update gas limit for transactions
+        let transactions_gas_limit = gas_limit / 2;
+        let mut transactions = vec![];
+        let mut num_checked_transactions = 0;
+
+        while transactions.len() < max_number_of_transactions
+            && total_gas_burnt < transactions_gas_limit
+        {
+            if let Some(iter) = pool_iterator.next() {
+                while let Some(tx) = iter.next() {
+                    num_checked_transactions += 1;
+                    // Verifying the transaction is on the same chain and hasn't expired yet.
+                    if chain_validate(&tx) {
+                        // Verifying the validity of the transaction based on the current state.
+                        match self.runtime.verify_and_charge_transaction(
+                            &mut state_update,
+                            &apply_state,
+                            &tx,
+                        ) {
+                            Ok(verification_result) => {
+                                state_update.commit();
+                                transactions.push(tx);
+                                total_gas_burnt += verification_result.gas_burnt;
+                                break;
+                            }
+                            Err(RuntimeError::InvalidTxError(_err)) => {
+                                state_update.rollback();
+                            }
+                            Err(RuntimeError::StorageError(_err)) => {
+                                return Err(Error::from(ErrorKind::StorageError))
+                            }
+                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        Ok(transactions)
     }
 
     fn add_validator_proposals(

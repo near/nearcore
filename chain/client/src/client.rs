@@ -21,7 +21,6 @@ use near_network::types::{PeerId, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
-use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -397,7 +396,7 @@ impl Client {
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
 
-        let (num_checked_transactions, transactions) = self.get_filtered_transactions(
+        let transactions = self.get_filtered_transactions(
             next_height,
             prev_block_timestamp,
             shard_id,
@@ -409,10 +408,8 @@ impl Client {
 
         let (tx_root, _) = merklize(&transactions);
         debug!(
-            "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
-            num_filtered_transactions,
-            num_checked_transactions,
-            shard_id
+            "Creating a chunk with {} filtered transactions for shard {}",
+            num_filtered_transactions, shard_id
         );
 
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
@@ -480,79 +477,39 @@ impl Client {
         shard_id: u64,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
-    ) -> (usize, Vec<SignedTransaction>) {
+    ) -> Vec<SignedTransaction> {
         // Total number of transactions pulled from the pool.
-        let mut num_checked_transactions = 0;
-        let mut transactions = vec![];
+        let transaction_validity_period = self.chain.transaction_validity_period;
+        let store = self.chain.mut_store();
         if let Some(mut iter) = self.shards_mgr.get_pool_draining_iterator(shard_id) {
-            // Total amount of gas burnt for converting transactions towards receipts.
-            let mut total_gas_burnt = 0;
-            // TODO: Update gas limit for transactions
-            let transactions_gas_limit = chunk_extra.gas_limit / 2;
-
-            let transaction_validity_period = self.chain.transaction_validity_period;
-            let mut state_update =
-                self.runtime_adapter.get_state_update(chunk_extra.state_root.clone());
-
-            // TODO: Check if we still need to use `block_expected_weight` from the config.
-            while transactions.len() < self.config.block_expected_weight as usize
-                && total_gas_burnt < transactions_gas_limit
-            {
-                // Whether we need to pull the transaction with the same key as before. It's true
-                // if the previous transaction was invalid.
-                let mut same_key = false;
-                let tx_with_gas_burnt = loop {
-                    if let Some(tx) = iter.next(same_key) {
-                        num_checked_transactions += 1;
-                        same_key = true;
-                        // Verifying the transaction is on the same chain and hasn't expired yet.
-                        if self
-                            .chain
-                            .mut_store()
+            self.runtime_adapter
+                .filter_transactions(
+                    next_height,
+                    prev_block_timestamp,
+                    prev_block_header.inner.gas_price,
+                    chunk_extra.gas_limit,
+                    chunk_extra.state_root.clone(),
+                    self.config.block_expected_weight as usize,
+                    &mut iter,
+                    &mut |tx: &SignedTransaction| -> bool {
+                        store
                             .check_blocks_on_same_chain(
                                 &prev_block_header,
                                 &tx.transaction.block_hash,
                                 transaction_validity_period,
                             )
-                            .is_err()
-                        {
-                            continue;
-                        } else {
-                            // Verifying the validity of the transaction based on the current state.
-                            match self.runtime_adapter.validate_tx(
-                                next_height,
-                                prev_block_timestamp,
-                                prev_block_header.inner.gas_price,
-                                &mut state_update,
-                                &tx,
-                            ) {
-                                Ok(gas_burnt) => {
-                                    break Some((tx, gas_burnt));
-                                }
-                                Err(RuntimeError::InvalidTxError(_err)) => {
-                                    continue;
-                                }
-                                Err(RuntimeError::StorageError(err)) => panic!("{}", err),
-                                Err(RuntimeError::BalanceMismatch(err)) => unreachable!(
-                                    "Unexpected BalanceMismatch error in validate_tx: {}",
-                                    err
-                                ),
-                            }
-                        }
-                    } else {
-                        break None;
-                    }
-                };
+                            .is_ok()
+                    },
+                )
+                .expect("no StorageError please")
+        } else {
+            vec![]
+        }
+        /*
 
-                if let Some((tx, gas_burnt)) = tx_with_gas_burnt {
-                    transactions.push(tx);
-                    total_gas_burnt += gas_burnt;
-                } else {
-                    break;
-                }
-            }
         }
         (num_checked_transactions, transactions)
+        */
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
@@ -1145,40 +1102,37 @@ impl Client {
                     return self.forward_tx(tx);
                 }
             };
-            match self.runtime_adapter.validate_tx(
-                head.height + 1,
-                cur_block_header.inner.timestamp,
-                gas_price,
-                &mut self.runtime_adapter.get_state_update(state_root),
-                &tx,
-            ) {
-                Ok(_gas_burnt) => {
-                    let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
-                        warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-                        NetworkClientResponses::NoResponse
-                    });
+            if let Some(err) = self
+                .runtime_adapter
+                .validate_tx(
+                    head.height + 1,
+                    cur_block_header.inner.timestamp,
+                    gas_price,
+                    state_root,
+                    &tx,
+                )
+                .expect("no storage errors")
+            {
+                debug!(target: "client", "Invalid tx: {:?}", err);
+                NetworkClientResponses::InvalidTx(err)
+            } else {
+                let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
+                    warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
+                    NetworkClientResponses::NoResponse
+                });
 
-                    // If I'm not an active validator I should forward tx to next validators.
-                    if active_validator {
-                        debug!(
-                            target: "client",
-                            "Recording a transaction. I'm {:?}, {}",
-                            me,
-                            shard_id
-                        );
-                        self.shards_mgr.insert_transaction(shard_id, tx);
-                        NetworkClientResponses::ValidTx
-                    } else {
-                        self.forward_tx(tx)
-                    }
-                }
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "client", "Invalid tx: {:?}", err);
-                    NetworkClientResponses::InvalidTx(err)
-                }
-                Err(RuntimeError::StorageError(err)) => panic!("{}", err),
-                Err(RuntimeError::BalanceMismatch(err)) => {
-                    unreachable!("Unexpected BalanceMismatch error in validate_tx: {}", err)
+                // If I'm not an active validator I should forward tx to next validators.
+                if active_validator {
+                    debug!(
+                        target: "client",
+                        "Recording a transaction. I'm {:?}, {}",
+                        me,
+                        shard_id
+                    );
+                    self.shards_mgr.insert_transaction(shard_id, tx);
+                    NetworkClientResponses::ValidTx
+                } else {
+                    self.forward_tx(tx)
                 }
             }
         } else {

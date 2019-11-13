@@ -15,10 +15,11 @@ use crate::types::{
 };
 use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_pool::types::DrainingIterator;
 use near_primitives::account::Account;
 use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -35,8 +36,7 @@ use near_primitives::types::{
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
 use near_store::{
-    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate, WrappedTrieChanges,
-    COL_BLOCK_HEADER,
+    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
 };
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
@@ -442,19 +442,33 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
-    fn get_state_update(&self, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(self.trie.clone(), state_root.hash)
-    }
-
     fn validate_tx(
         &self,
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
-        _state_update: &mut TrieUpdate,
+        _state_update: StateRoot,
         _transaction: &SignedTransaction,
-    ) -> Result<Gas, RuntimeError> {
-        Ok(0)
+    ) -> Result<Option<InvalidTxError>, Error> {
+        Ok(None)
+    }
+
+    fn filter_transactions(
+        &self,
+        _block_index: BlockIndex,
+        _block_timestamp: u64,
+        _gas_price: Balance,
+        _gas_limit: Gas,
+        _state_root: StateRoot,
+        _max_number_of_transactions: usize,
+        transactions: &mut dyn DrainingIterator,
+        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        let mut res = vec![];
+        while let Some(iter) = transactions.next() {
+            res.push(iter.next().unwrap());
+        }
+        Ok(res)
     }
 
     fn add_validator_proposals(
