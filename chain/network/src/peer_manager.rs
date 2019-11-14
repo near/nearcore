@@ -829,7 +829,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 let new_accounts = accounts
                     .into_iter()
                     .filter(|announce_account| {
-                        !self.routing_table.contains_account(announce_account.clone())
+                        !self.routing_table.contains_account(&announce_account)
                     })
                     .collect();
 
