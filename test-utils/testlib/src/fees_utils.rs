@@ -4,7 +4,7 @@ use near::config::INITIAL_GAS_PRICE;
 use near_primitives::types::{Balance, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
 
-pub const GAS_PRICE: u128 = INITIAL_GAS_PRICE;
+const GAS_PRICE: u128 = INITIAL_GAS_PRICE;
 
 pub fn gas_burnt_to_reward(gas_burnt: Gas) -> Balance {
     let cfg = RuntimeFeesConfig::default();

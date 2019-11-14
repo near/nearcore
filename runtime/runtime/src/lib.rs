@@ -1219,15 +1219,16 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use near::config::INITIAL_GAS_PRICE;
+    use near_crypto::KeyType;
     use near_primitives::hash::hash;
+    use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
+    use testlib::fees_utils::gas_burnt_to_reward;
     use testlib::runtime_utils::{alice_account, bob_account};
-
-    use super::*;
-    use near_crypto::KeyType;
-    use near_primitives::transaction::TransferAction;
-    use testlib::fees_utils::{gas_burnt_to_reward, GAS_PRICE};
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1281,7 +1282,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
-            gas_price: GAS_PRICE,
+            gas_price: INITIAL_GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
         };
