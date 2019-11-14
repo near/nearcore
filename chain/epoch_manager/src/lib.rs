@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
-use near_primitives::views::EpochValidatorInfo;
+use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO};
 
 use crate::proposals::proposals_to_epoch_info;
@@ -606,12 +606,28 @@ impl EpochManager {
         block_hash: &CryptoHash,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = self.get_epoch_id(block_hash)?;
-        let current_validators = self.get_epoch_info(&epoch_id)?.validators.clone();
+        let slashed = self.get_slashed_validators(block_hash)?.clone();
+        let current_validators = self
+            .get_epoch_info(&epoch_id)?
+            .validators
+            .clone()
+            .into_iter()
+            .map(|info| {
+                let num_missing_blocks =
+                    self.get_num_missing_blocks(&epoch_id, &block_hash, &info.account_id)?;
+                Ok(CurrentEpochValidatorInfo {
+                    is_slashed: slashed.contains(&info.account_id),
+                    account_id: info.account_id,
+                    stake: info.amount,
+                    num_missing_blocks,
+                })
+            })
+            .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
         let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
         Ok(EpochValidatorInfo {
-            current_validators: current_validators.into_iter().map(Into::into).collect(),
+            current_validators,
             next_validators: next_validators.into_iter().map(Into::into).collect(),
             current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
         })

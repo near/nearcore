@@ -1033,7 +1033,7 @@ mod test {
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRoot, ValidatorStake,
     };
-    use near_primitives::views::{AccountView, EpochValidatorInfo};
+    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
@@ -1758,15 +1758,21 @@ mod test {
             .unwrap()
             .validators
             .clone();
+        let current_epoch_validator_info = current_validators
+            .clone()
+            .into_iter()
+            .map(|v| CurrentEpochValidatorInfo {
+                account_id: v.account_id,
+                is_slashed: false,
+                stake: v.amount,
+                num_missing_blocks: 0,
+            })
+            .collect::<Vec<_>>();
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
         assert_eq!(
             response,
             EpochValidatorInfo {
-                current_validators: current_validators
-                    .clone()
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
+                current_validators: current_epoch_validator_info.clone(),
                 next_validators: current_validators.clone().into_iter().map(Into::into).collect(),
                 current_proposals: vec![ValidatorStake {
                     account_id: "test1".to_string(),
@@ -1778,9 +1784,8 @@ mod test {
         );
         env.step_default(vec![]);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
-        let v: Vec<ValidatorStake> =
-            response.current_validators.clone().into_iter().map(Into::into).collect();
-        assert_eq!(v, current_validators);
+
+        assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
             vec![ValidatorStake {
