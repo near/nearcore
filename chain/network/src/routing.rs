@@ -14,7 +14,6 @@ use near_primitives::types::AccountId;
 
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
-use crate::utils::CloneNone;
 
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
@@ -223,7 +222,6 @@ impl Edge {
     }
 }
 
-#[derive(Clone)]
 pub struct RoutingTable {
     // TODO(MarX, #1363): Use cache and file storing to keep this information.
     /// PeerId associated for every known account id.
@@ -233,7 +231,7 @@ pub struct RoutingTable {
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
-    pub route_back: CloneNone<SizedCache<CryptoHash, PeerId>>,
+    pub route_back: SizedCache<CryptoHash, PeerId>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
@@ -264,7 +262,7 @@ impl RoutingTable {
             account_peers: HashMap::new(),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
-            route_back: CloneNone::new(SizedCache::with_size(ROUTE_BACK_CACHE_SIZE)),
+            route_back: SizedCache::with_size(ROUTE_BACK_CACHE_SIZE),
             raw_graph: Graph::new(peer_id),
             route_nonce: HashMap::new(),
             recalculation_scheduled: None,
@@ -354,11 +352,9 @@ impl RoutingTable {
         }
     }
 
+    // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
     pub fn contains_account(&self, announce_account: &AnnounceAccount) -> bool {
-        self.account_peers.get(&announce_account.account_id).map_or(false, |cur_announce_account| {
-            assert_eq!(cur_announce_account.account_id, announce_account.account_id);
-            cur_announce_account.peer_id == announce_account.peer_id
-        })
+        self.account_peers.contains_key(&announce_account.account_id)
     }
 
     /// Add this edge to the current view of the network.
@@ -433,16 +429,16 @@ impl RoutingTable {
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.value().cache_set(hash, peer_id);
+        self.route_back.cache_set(hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
     fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.value().cache_remove(&hash)
+        self.route_back.cache_remove(&hash)
     }
 
     pub fn compare_route_back(&mut self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.route_back.value().cache_get(&hash).map_or(false, |value| value == peer_id)
+        self.route_back.cache_get(&hash).map_or(false, |value| value == peer_id)
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
