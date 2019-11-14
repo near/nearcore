@@ -1400,7 +1400,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(part_id, state_root).try_to_vec()?;
+        let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
         store_update.set_ser(COL_STATE_PARTS, &key, data)?;
         store_update.commit()?;
         Ok(())
@@ -1417,7 +1417,7 @@ impl Chain {
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
         for i in 0..num_parts {
-            let key = StatePartKey(i, state_root.clone()).try_to_vec()?;
+            let key = StatePartKey(shard_id, i, state_root.clone()).try_to_vec()?;
             parts.push(self.store.owned_store().get_ser(COL_STATE_PARTS, &key)?.unwrap());
         }
 
@@ -1471,7 +1471,7 @@ impl Chain {
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut store_update = self.store.owned_store().store_update();
         for part_id in 0..num_parts {
-            let key = StatePartKey(part_id, state_root).try_to_vec()?;
+            let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
             store_update.delete(COL_STATE_PARTS, &key);
         }
         Ok(store_update.commit()?)

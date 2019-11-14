@@ -577,8 +577,7 @@ impl StateSync {
                     let shard_state_header =
                         chain.get_received_state_header(shard_id, sync_hash)?;
                     let state_num_parts = self.get_num_parts(&shard_state_header.state_root_node);
-                    // TODO MOO ask Alex why uncommenting this fails
-                    //chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }
             all_done &= this_done;

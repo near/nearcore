@@ -33,7 +33,7 @@ pub struct RootProof(pub CryptoHash, pub MerklePath);
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePartKey(pub u64, pub StateRoot);
+pub struct StatePartKey(pub ShardId, pub u64 /* PartId */, pub StateRoot);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateRootNode {
