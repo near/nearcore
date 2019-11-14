@@ -17,7 +17,10 @@ use serde_json::Value;
 use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
-use near_client::{ClientActor, GetBlock, GetChunk, GetNetworkInfo, Status, TxStatus, ViewClientActor, GetValidatorInfo};
+use near_client::{
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetValidatorInfo, Status, TxStatus,
+    ViewClientActor,
+};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
@@ -395,7 +398,12 @@ impl JsonRpcHandler {
 
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let block_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorInfo { last_block_hash: block_hash }).compat().await)
+        jsonify(
+            self.view_client_addr
+                .send(GetValidatorInfo { last_block_hash: block_hash })
+                .compat()
+                .await,
+        )
     }
 }
 
