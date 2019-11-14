@@ -11,13 +11,14 @@ RUN apt-get update -qq && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+COPY ./rust-toolchain /tmp/rust-toolchain
+
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=nightly-2019-10-04
+    PATH=/usr/local/cargo/bin:$PATH
 
 RUN curl https://sh.rustup.rs -sSf | \
-    sh -s -- -y --no-modify-path --default-toolchain $RUST_VERSION
+    sh -s -- -y --no-modify-path --default-toolchain "$(cat /tmp/rust-toolchain)"
 
 VOLUME [ /near ]
 WORKDIR /near
