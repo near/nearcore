@@ -132,20 +132,18 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
-    let mut gas_per_transaction = 0;
     node_runtime::EXT_COSTS_COUNTER.write().unwrap().clear();
     for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start_time = Instant::now();
-            gas_per_transaction += testbed.process_block(&block, allow_failures);
+            testbed.process_block(&block, allow_failures);
             let end_time = Instant::now();
             measurements.record_measurement(metric.clone(), block_size, end_time - start_time);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
-    //    gas_per_transaction /= config.block_sizes.into_iter().sum::<Gas>();
     testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
     measurements.print();

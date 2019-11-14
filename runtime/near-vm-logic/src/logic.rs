@@ -150,8 +150,11 @@ impl<'a> VMLogic<'a> {
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
+        self.gas_counter.pay_base(read_memory_base)?;
+        self.gas_counter.pay_per_byte(read_memory_byte, len)?;
+        self.try_fit_mem(offset, len)?;
         let mut buf = vec![0; len as usize];
-        self.memory_get_into(offset, &mut buf)?;
+        self.memory.read_memory(offset, &mut buf);
         Ok(buf)
     }
 
@@ -799,8 +802,12 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
         }
         self.gas_counter.pay_base(promise_and_base)?;
-        self.gas_counter
-            .pay_per_byte(promise_and_per_promise, promise_idx_count * size_of::<u64>() as u64)?;
+        self.gas_counter.pay_per_byte(
+            promise_and_per_promise,
+            promise_idx_count
+                .checked_mul(size_of::<u64>() as u64)
+                .ok_or(HostError::IntegerOverflow)?,
+        )?;
 
         let promise_indices = self.memory_get_vec_u64(promise_idx_ptr, promise_idx_count)?;
 

@@ -71,6 +71,10 @@ impl GasCounter {
         *EXT_COSTS_COUNTER.write().unwrap().entry(cost).or_default() += value;
     }
 
+    #[cfg(not(feature = "costs_counting"))]
+    #[inline]
+    fn inc_ext_costs_counter(&self, _cost: ExtCosts, _value: u64) {}
+
     /// A helper function to pay per byte gas
     pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
         self.inc_ext_costs_counter(cost, num_bytes);
