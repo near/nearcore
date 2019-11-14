@@ -55,6 +55,7 @@ pub(crate) fn check_balance(
             .iter()
             .map(|account_id| {
                 get_account(state, account_id)?.map_or(Ok(0), |a| {
+                    println!("{:?}", a.amount);
                     safe_add_balance(a.amount, a.locked)
                         .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
                 })
@@ -336,5 +337,63 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_total_balance_overflow_returns_unexpected_overflow() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let alice_id = alice_account();
+        let bob_id = bob_account();
+        let gas_price = 100;
+        let deposit = 1000;
+
+        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let alice = Account::new(std::u128::MAX, hash(&[]), 0);
+        let bob = Account::new(1u128, hash(&[]), 0);
+
+        set_account(&mut initial_state, &alice_id, &alice);
+        set_account(&mut initial_state, &bob_id, &bob);
+        initial_state.commit();
+
+        let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
+
+        let tx = SignedTransaction::send_money(
+            0,
+            alice_id.clone(),
+            bob_id.clone(),
+            &signer,
+            1,
+            CryptoHash::default(),
+        );
+
+        let receipt = Receipt {
+            predecessor_id: tx.transaction.signer_id.clone(),
+            receiver_id: tx.transaction.receiver_id.clone(),
+            receipt_id: Default::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx.transaction.signer_id.clone(),
+                signer_public_key: tx.transaction.public_key.clone(),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit })],
+            }),
+        };
+
+        let transaction_costs = RuntimeFeesConfig::default();
+        assert_eq!(
+            check_balance(
+                &transaction_costs,
+                &initial_state,
+                &initial_state,
+                &None,
+                &[receipt],
+                &[tx],
+                &[],
+                &ApplyStats::default(),
+            ),
+            Err(RuntimeError::UnexpectedIntegerOverflow)
+        );
     }
 }

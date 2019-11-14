@@ -251,6 +251,12 @@ impl From<IntegerOverflowError> for InvalidTxError {
     }
 }
 
+impl From<IntegerOverflowError> for RuntimeError {
+    fn from(_: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow
+    }
+}
+
 impl From<StorageError> for RuntimeError {
     fn from(e: StorageError) -> Self {
         RuntimeError::StorageError(e)
@@ -263,12 +269,9 @@ impl From<BalanceMismatchError> for RuntimeError {
     }
 }
 
-impl<T> From<T> for RuntimeError
-where
-    T: Into<InvalidTxError>,
-{
-    fn from(e: T) -> Self {
-        RuntimeError::InvalidTxError(e.into())
+impl From<InvalidTxError> for RuntimeError {
+    fn from(e: InvalidTxError) -> Self {
+        RuntimeError::InvalidTxError(e)
     }
 }
 

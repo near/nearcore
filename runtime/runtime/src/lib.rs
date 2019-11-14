@@ -60,8 +60,6 @@ mod metrics;
 pub mod state_viewer;
 mod store;
 
-const OVERFLOW_CHECKED_ERR: &str = "Overflow has already been checked.";
-
 #[derive(Debug)]
 pub struct ApplyState {
     /// Currently building block index.
@@ -125,7 +123,7 @@ pub struct ActionResult {
 }
 
 impl ActionResult {
-    pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), InvalidTxError> {
+    pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
         self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
         self.result = next_result.result;
@@ -214,9 +212,11 @@ impl Runtime {
             match get_access_key(state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
-                    return Err(InvalidAccessKeyError::AccessKeyNotFound(
-                        signer_id.clone(),
-                        transaction.public_key.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::AccessKeyNotFound(
+                            signer_id.clone(),
+                            transaction.public_key.clone(),
+                        ),
                     )
                     .into());
                 }
@@ -248,12 +248,12 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidAccessKeyError::NotEnoughAllowance(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance(
                         signer_id.clone(),
                         transaction.public_key.clone(),
                         *allowance,
                         total_cost,
-                    )
+                    ))
                 })?;
             }
         }
@@ -267,13 +267,17 @@ impl Runtime {
             access_key.permission
         {
             if transaction.actions.len() != 1 {
-                return Err(InvalidAccessKeyError::ActionError.into());
+                return Err(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
+                );
             }
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(InvalidAccessKeyError::ReceiverMismatch(
-                        transaction.receiver_id.clone(),
-                        function_call_permission.receiver_id.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::ReceiverMismatch(
+                            transaction.receiver_id.clone(),
+                            function_call_permission.receiver_id.clone(),
+                        ),
                     )
                     .into());
                 }
@@ -283,13 +287,17 @@ impl Runtime {
                         .iter()
                         .all(|method_name| &function_call.method_name != method_name)
                 {
-                    return Err(InvalidAccessKeyError::MethodNameMismatch(
-                        function_call.method_name.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::MethodNameMismatch(
+                            function_call.method_name.clone(),
+                        ),
                     )
                     .into());
                 }
             } else {
-                return Err(InvalidAccessKeyError::ActionError.into());
+                return Err(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
+                );
             }
         };
 
@@ -570,8 +578,7 @@ impl Runtime {
             // If the refund fails, instead of just burning tokens, we report the total number of
             // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
             if result.result.is_err() {
-                stats.total_balance_burnt +=
-                    total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
+                stats.total_balance_burnt += total_deposit(&action_receipt.actions)?;
             }
         } else {
             // Calculating and generating refunds
