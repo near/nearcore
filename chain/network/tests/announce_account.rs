@@ -1,18 +1,24 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
 use futures::{future, Future};
 
+use actix::actors::mocker::Mocker;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
-use near_network::types::NetworkInfo;
-use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, SyncData};
+use near_network::{
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
+    NetworkResponses, PeerManagerActor,
+};
+use near_primitives::hash::hash;
 use near_primitives::test_utils::init_integration_logger;
+use near_primitives::types::EpochId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use testlib::test_helpers::heavy_test;
@@ -287,4 +293,125 @@ fn circle_extra_connection() {
 
         check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
     });
+}
+
+type ClientMock = Mocker<ClientActor>;
+
+fn make_peer_manager(
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+    peer_max_count: u32,
+) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
+    let store = create_test_store();
+    let mut config = NetworkConfig::from_seed(seed, port);
+    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.peer_max_count = peer_max_count;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let counter1 = counter.clone();
+    let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
+        match msg {
+            NetworkClientMessages::AnnounceAccount(accounts) => {
+                if !accounts.is_empty() {
+                    counter1.fetch_add(1, Ordering::SeqCst);
+                }
+                Box::new(Some(NetworkClientResponses::AnnounceAccount(accounts.clone())))
+            }
+            _ => Box::new(Some(NetworkClientResponses::NoResponse)),
+        }
+    }))
+    .start();
+    let peer_id = config.public_key.clone().into();
+    (PeerManagerActor::new(store, config, client_addr.recipient()).unwrap(), peer_id, counter)
+}
+
+#[test]
+fn test_infinite_loop() {
+    init_integration_logger();
+    System::run(|| {
+        let (port1, port2) = (open_port(), open_port());
+        let (pm1, peer_id1, counter1) =
+            make_peer_manager("test1", port1, vec![("test2", port2)], 10);
+        let (pm2, _, counter2) = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
+        let pm1 = pm1.start();
+        let pm2 = pm2.start();
+        let peer_id = peer_id1.clone();
+        let request1 = NetworkRequests::Sync {
+            peer_id: peer_id.clone(),
+            sync_data: SyncData {
+                edges: vec![],
+                accounts: vec![AnnounceAccount {
+                    account_id: "near".to_string(),
+                    peer_id: peer_id.clone(),
+                    epoch_id: Default::default(),
+                    signature: Default::default(),
+                }],
+            },
+        };
+        let request2 = NetworkRequests::Sync {
+            peer_id: peer_id.clone(),
+            sync_data: SyncData {
+                edges: vec![],
+                accounts: vec![AnnounceAccount {
+                    account_id: "near".to_string(),
+                    peer_id: peer_id.clone(),
+                    epoch_id: EpochId(hash(&[1])),
+                    signature: Default::default(),
+                }],
+            },
+        };
+        let has_started = AtomicBool::new(false);
+
+        let num_iter = 10;
+        let first_finished: Arc<Vec<_>> =
+            Arc::new((0..num_iter).map(|_| AtomicBool::new(false)).collect());
+        let second_finished: Arc<Vec<_>> =
+            Arc::new((0..num_iter).map(|_| AtomicBool::new(false)).collect());
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                if !has_started.load(Ordering::SeqCst) {
+                    for i in 0..num_iter {
+                        let first_finished1 = first_finished.clone();
+                        let second_finished1 = second_finished.clone();
+                        if i % 2 == 0 {
+                            actix::spawn(pm1.clone().send(request1.clone()).then(move |res| {
+                                assert!(res.is_ok());
+                                first_finished1[i].store(true, Ordering::SeqCst);
+                                future::ok(())
+                            }));
+                            actix::spawn(pm2.clone().send(request2.clone()).then(move |res| {
+                                assert!(res.is_ok());
+                                second_finished1[i].store(true, Ordering::SeqCst);
+                                future::ok(())
+                            }));
+                        } else {
+                            actix::spawn(pm1.clone().send(request2.clone()).then(move |res| {
+                                assert!(res.is_ok());
+                                first_finished1[i].store(true, Ordering::SeqCst);
+                                future::ok(())
+                            }));
+                            actix::spawn(pm2.clone().send(request1.clone()).then(move |res| {
+                                assert!(res.is_ok());
+                                second_finished1[i].store(true, Ordering::SeqCst);
+                                future::ok(())
+                            }));
+                        }
+                    }
+                    has_started.store(true, Ordering::SeqCst);
+                }
+                if first_finished.iter().all(|x| x.load(Ordering::SeqCst))
+                    && second_finished.iter().all(|x| x.load(Ordering::SeqCst))
+                {
+                    assert_eq!(counter1.load(Ordering::SeqCst), 1);
+                    assert_eq!(counter2.load(Ordering::SeqCst), 1);
+                    System::current().stop();
+                }
+            }),
+            100,
+            10000,
+        )
+        .start();
+    })
+    .unwrap();
 }
