@@ -142,7 +142,11 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Validates transaction and returns total gas burnt for converting the TX to a receipt.
+    /// Validates a given signed transaction on top of the given state root.
+    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
+    /// a validation error, or `None` in case the transaction succeeded.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
         block_index: BlockIndex,
@@ -152,9 +156,14 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error>;
 
-    /// Filter transactions by verifying each one by one in the given order. Every successful
-    /// verification stores the updated account balances to be used by next transaction.
-    fn filter_transactions(
+    /// Returns an ordered list of valid transactions from the pool up the given limits.
+    /// Pulls transactions from the given pool iterators one by one. Validates each transaction
+    /// against the given `chain_validate` closure and runtime's transaction verifier.
+    /// If the transaction is valid for both, it's added to the result and the temporary state
+    /// update is preserved for validation of next transactions.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,

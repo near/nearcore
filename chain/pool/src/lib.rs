@@ -362,4 +362,21 @@ mod tests {
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
+
+    /// Test draining iterator updates unique transactions.
+    #[test]
+    fn test_draining_iterator_removes_unique() {
+        let transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+
+        let (nonces, mut pool) = process_txs_to_nonces(transactions.clone(), 5);
+        assert_eq!(nonces.len(), 5);
+        assert_eq!(pool.len(), 5);
+
+        for tx in transactions {
+            pool.insert_transaction(tx);
+        }
+        assert_eq!(pool.len(), 10);
+        let txs = prepare_transactions(&mut pool, 10);
+        assert_eq!(txs.len(), 10);
+    }
 }

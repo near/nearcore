@@ -652,7 +652,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn filter_transactions(
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,

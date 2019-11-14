@@ -396,7 +396,7 @@ impl Client {
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
 
-        let transactions = self.get_filtered_transactions(
+        let transactions = self.prepare_transactions(
             next_height,
             prev_block_timestamp,
             shard_id,
@@ -468,9 +468,8 @@ impl Client {
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
-    /// Pulls transactions from the transaction pool for a given shard up to the gas_limit.
-    /// Filters transactions one by one by persisting the state across valid validations.
-    fn get_filtered_transactions(
+    /// Prepares an ordered list of valid transactions from the pool up the limits.
+    fn prepare_transactions(
         &mut self,
         next_height: u64,
         prev_block_timestamp: u64,
@@ -478,21 +477,21 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
-        // Total number of transactions pulled from the pool.
-        let transaction_validity_period = self.chain.transaction_validity_period;
-        let store = self.chain.mut_store();
-        if let Some(mut iter) = self.shards_mgr.get_pool_draining_iterator(shard_id) {
-            self.runtime_adapter
-                .filter_transactions(
+        let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
+        if let Some(mut iter) = shards_mgr.get_pool_draining_iterator(shard_id) {
+            let transaction_validity_period = chain.transaction_validity_period;
+            runtime_adapter
+                .prepare_transactions(
                     next_height,
                     prev_block_timestamp,
                     prev_block_header.inner.gas_price,
                     chunk_extra.gas_limit,
                     chunk_extra.state_root.clone(),
-                    self.config.block_expected_weight as usize,
+                    config.block_expected_weight as usize,
                     &mut iter,
                     &mut |tx: &SignedTransaction| -> bool {
-                        store
+                        chain
+                            .mut_store()
                             .check_blocks_on_same_chain(
                                 &prev_block_header,
                                 &tx.transaction.block_hash,
@@ -505,11 +504,6 @@ impl Client {
         } else {
             vec![]
         }
-        /*
-
-        }
-        (num_checked_transactions, transactions)
-        */
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {

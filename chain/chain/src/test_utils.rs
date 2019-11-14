@@ -453,7 +453,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(None)
     }
 
-    fn filter_transactions(
+    fn prepare_transactions(
         &self,
         _block_index: BlockIndex,
         _block_timestamp: u64,
