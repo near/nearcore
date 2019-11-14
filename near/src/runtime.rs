@@ -16,7 +16,7 @@ use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVer
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
-use near_pool::types::DrainingIterator;
+use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
@@ -660,7 +660,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         state_root: StateRoot,
         max_number_of_transactions: usize,
-        pool_iterator: &mut dyn DrainingIterator,
+        pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);

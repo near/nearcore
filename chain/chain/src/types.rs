@@ -18,7 +18,7 @@ use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
-use near_pool::types::DrainingIterator;
+use near_pool::types::PoolIterator;
 use near_primitives::errors::InvalidTxError;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
@@ -171,7 +171,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         state_root: StateRoot,
         max_number_of_transactions: usize,
-        pool_iterator: &mut dyn DrainingIterator,
+        pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error>;
 

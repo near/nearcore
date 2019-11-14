@@ -478,7 +478,7 @@ impl Client {
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
         let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
-        if let Some(mut iter) = shards_mgr.get_pool_draining_iterator(shard_id) {
+        if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
                 .prepare_transactions(

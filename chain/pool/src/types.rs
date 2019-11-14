@@ -3,10 +3,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 
-/// Trait acts as an iterator, but removes the returned item form the pool.
-/// This iterator returns transaction groups one by one from the pool in the round robin scheduling.
-/// When a draining iterator is dropped the remaining transactions are returned back to the pool.
-pub trait DrainingIterator {
+/// Trait acts like an iterator. It iterates over transactions groups by returning mutable
+/// references to them. Each transaction group implements a draining iterator to pull transactions.
+/// The order of the transaction groups is round robin scheduling.
+/// When this iterator is dropped the remaining transactions are returned back to the pool.
+pub trait PoolIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
 }
 

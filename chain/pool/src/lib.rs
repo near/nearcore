@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::types::{AccountPK, DrainingIterator, TransactionGroup};
+use crate::types::{AccountPK, PoolIterator, TransactionGroup};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 
@@ -32,11 +32,11 @@ impl TransactionPool {
             .push(signed_transaction);
     }
 
-    /// Returns a draining structure that pulls transaction groups with the same key from the pool
-    /// in the proper order defined by the protocol. When the iterator is dropped, all remaining
-    /// transaction groups are inserted back into the pool.
-    pub fn draining_iterator(&mut self) -> PoolIterator {
-        PoolIterator::new(self)
+    /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
+    /// transaction groups in the proper order defined by the protocol.
+    /// When the iterator is dropped, all remaining groups are inserted back into the pool.
+    pub fn pool_iterator(&mut self) -> PoolIteratorWrapper {
+        PoolIteratorWrapper::new(self)
     }
 
     /// Quick reconciliation step - evict all transactions that already in the block
@@ -86,9 +86,9 @@ impl TransactionPool {
 }
 
 /// PoolIterator is a structure to pull transactions from the pool.
-/// It implements `DrainingIterator` trait that returns a transaction groups one by one.
-/// When a draining iterator is dropped the remaining transactions are returned back to the pool.
-pub struct PoolIterator<'a> {
+/// It implements `PoolIterator` trait that iterates over transaction groups one by one.
+/// When the wrapper is dropped the remaining transactions are returned back to the pool.
+pub struct PoolIteratorWrapper<'a> {
     /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
     pool: &'a mut TransactionPool,
 
@@ -96,29 +96,29 @@ pub struct PoolIterator<'a> {
     sorted_groups: VecDeque<TransactionGroup>,
 }
 
-impl<'a> PoolIterator<'a> {
+impl<'a> PoolIteratorWrapper<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
         Self { pool, sorted_groups: Default::default() }
     }
 }
 
 /// The iterator works with the following algorithm:
-/// On next(), the iterator tries to pulls a transaction group from the pool, sorts transactions in
+/// On next(), the iterator tries to get a transaction group from the pool, sorts transactions in
 /// it, and add it to the back of the sorted groups queue.
 ///
-/// If the pool is empty, the iterator pulls group from the front of the sorted groups queue.
+/// If the pool is empty, the iterator gets the group from the front of the sorted groups queue.
 ///
-/// If this pulled group is empty (no transactions left inside), then the discards the iterator
-/// updates `unique_transactions` in the pool and discards the group. Then pulls the next one.
+/// If this group is empty (no transactions left inside), then the iterator discards it and
+/// updates `unique_transactions` in the pool. Then gets the next one.
 ///
-/// Once a non-empty group found, the group is pushed back to the back of the sorted groups
-/// queue and the iterator returns a mutable reference to this group.
+/// Once a non-empty group is found, this group is pushed to the back of the sorted groups queue
+/// and the iterator returns a mutable reference to this group.
 ///
 /// If the sorted groups queue is empty, the iterator returns None.
 ///
 /// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
 /// And all non-empty group from the sorted groups queue are inserted back into the pool.
-impl<'a> DrainingIterator for PoolIterator<'a> {
+impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         let key = self.pool.transactions.keys().next().cloned();
         match key {
@@ -153,7 +153,7 @@ impl<'a> DrainingIterator for PoolIterator<'a> {
 /// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
 /// groups queue are inserted back into the pool. And removed transactions hashes from groups are
 /// removed from the pool's unique_transactions.
-impl<'a> Drop for PoolIterator<'a> {
+impl<'a> Drop for PoolIteratorWrapper<'a> {
     fn drop(&mut self) {
         for group in self.sorted_groups.drain(..) {
             for hash in group.removed_transaction_hashes {
@@ -233,7 +233,7 @@ mod tests {
         max_number_of_transactions: u32,
     ) -> Vec<SignedTransaction> {
         let mut res = vec![];
-        let mut pool_iter = pool.draining_iterator();
+        let mut pool_iter = pool.pool_iterator();
         while res.len() < max_number_of_transactions as usize {
             if let Some(iter) = pool_iter.next() {
                 if let Some(tx) = iter.next() {
@@ -342,14 +342,14 @@ mod tests {
     /// Add transactions of nonce from 1..=3 and transactions with nonce 21..=31. Pull 10.
     /// Then try to get another 10.
     #[test]
-    fn test_draining_iterator() {
+    fn test_pool_iterator() {
         let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);
         transactions.extend(generate_transactions("alice.near", "bob.near", 21, 31));
 
         let (nonces, mut pool) = process_txs_to_nonces(transactions, 0);
         assert!(nonces.is_empty());
         let mut res = vec![];
-        let mut pool_iter = pool.draining_iterator();
+        let mut pool_iter = pool.pool_iterator();
         while let Some(iter) = pool_iter.next() {
             while let Some(tx) = iter.next() {
                 if tx.transaction.nonce & 1 == 1 {
@@ -363,9 +363,9 @@ mod tests {
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
 
-    /// Test draining iterator updates unique transactions.
+    /// Test pool iterator updates unique transactions.
     #[test]
-    fn test_draining_iterator_removes_unique() {
+    fn test_pool_iterator_removes_unique() {
         let transactions = generate_transactions("alice.near", "alice.near", 1, 10);
 
         let (nonces, mut pool) = process_txs_to_nonces(transactions.clone(), 5);

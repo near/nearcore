@@ -15,7 +15,7 @@ use crate::types::{
 };
 use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
-use near_pool::types::DrainingIterator;
+use near_pool::types::PoolIterator;
 use near_primitives::account::Account;
 use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
@@ -461,7 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _state_root: StateRoot,
         _max_number_of_transactions: usize,
-        transactions: &mut dyn DrainingIterator,
+        transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut res = vec![];
