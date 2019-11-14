@@ -74,6 +74,8 @@ fn chunks_produced_and_distributed_common(
         let heights = Arc::new(RwLock::new(HashMap::new()));
         let heights1 = heights.clone();
 
+        let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
+
         let check_height =
             move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
                 Entry::Occupied(entry) => {
@@ -105,14 +107,27 @@ fn chunks_produced_and_distributed_common(
                         check_height(block.hash(), block.header.inner.height);
                         check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
 
+                        let mut height_to_hash = height_to_hash.write().unwrap();
+                        height_to_hash.insert(block.header.inner.height, block.hash());
+
                         println!(
-                            "BLOCK HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}",
+                            "BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            block.hash(),
                             block.header.inner.height,
                             block.chunks[0].inner.height_created,
                             block.chunks[1].inner.height_created,
                             block.chunks[2].inner.height_created,
-                            block.chunks[3].inner.height_created
+                            block.chunks[3].inner.height_created,
+                            block.header.inner.last_quorum_pre_vote,
+                            block.header.inner.last_quorum_pre_commit,
                         );
+
+                        if block.header.inner.height > 1 {
+                            assert_eq!(block.header.inner.last_quorum_pre_vote, *height_to_hash.get(&(block.header.inner.height - 1)).unwrap());
+                        }
+                        if block.header.inner.height > 2 {
+                            assert_eq!(block.header.inner.last_quorum_pre_commit, *height_to_hash.get(&(block.header.inner.height - 2)).unwrap());
+                        }
 
                         if block.header.inner.height > 1 {
                             for shard_id in 0..4 {
@@ -197,7 +212,7 @@ fn chunks_produced_and_distributed_common(
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1, 5);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     for i in 1..4 {
         env.produce_block(0, i);
         env.network_adapters[0].pop();

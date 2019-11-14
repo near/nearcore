@@ -1,4 +1,4 @@
-use std::cmp;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,10 +9,10 @@ use rand::{thread_rng, Rng};
 use near_chain::types::ShardStateSyncResponseHeader;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_chunks::NetworkAdapter;
-use near_network::types::ReasonForBan;
+use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, Range, ShardId};
+use near_primitives::types::{BlockIndex, Range, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -118,8 +118,8 @@ impl HeaderSync {
 
         // Received all necessary header, can request more.
         let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
-        // No headers processed and it's past timeout, request more.
 
+        // Did we stall downloading headers for given highest height? Request more or ban peer.
         let stalling = header_head.height <= latest_height && now > timeout;
 
         // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
@@ -320,8 +320,8 @@ impl BlockSync {
         }
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
-        let block_count = cmp::min(
-            cmp::min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
+        let block_count = min(
+            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
@@ -484,6 +484,7 @@ impl StateSync {
                 }
             }
         } else {
+            self.last_time_block_requested = None;
             (false, true)
         };
         if request_block {
@@ -498,6 +499,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        most_weight_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
@@ -616,6 +618,7 @@ impl StateSync {
                     runtime_adapter,
                     sync_hash,
                     shard_sync_download.clone(),
+                    most_weight_peers,
                 )?;
             }
 
@@ -635,6 +638,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
+        most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
             unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
@@ -644,7 +648,7 @@ impl StateSync {
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
         );
-        let shard_bps = unwrap_or_return!(
+        let possible_targets = unwrap_or_return!(
             runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash),
             Ok(shard_sync_download)
         )
@@ -656,13 +660,20 @@ impl StateSync {
                 shard_id,
                 false,
             ) {
-                Some(account_id.clone())
+                Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
             } else {
                 None
             }
         })
+        .chain(most_weight_peers.iter().filter_map(|peer| {
+            if peer.chain_info.tracked_shards.contains(&shard_id) {
+                Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
+            } else {
+                None
+            }
+        }))
         .collect::<Vec<_>>();
-        if shard_bps.len() == 0 {
+        if possible_targets.len() == 0 {
             return Ok(shard_sync_download);
         }
 
@@ -675,7 +686,8 @@ impl StateSync {
                     hash,
                     need_header: true,
                     parts_ranges: vec![],
-                    account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+                    target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
+                        .clone(),
                 });
                 assert!(new_shard_sync_download.downloads[0].run_me);
                 new_shard_sync_download.downloads[0].run_me = false;
@@ -686,7 +698,7 @@ impl StateSync {
                 self.apply_download_strategy(
                     shard_id,
                     hash,
-                    &shard_bps,
+                    &possible_targets,
                     download_strategy,
                     &shard_sync_download,
                     &mut new_shard_sync_download,
@@ -703,6 +715,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        most_weight_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let now = Utc::now();
@@ -724,6 +737,7 @@ impl StateSync {
             new_shard_sync,
             chain,
             runtime_adapter,
+            most_weight_peers,
             tracking_shards,
             now,
         )?;
@@ -744,7 +758,7 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
-        shard_bps: &Vec<AccountId>,
+        possible_targets: &Vec<AccountOrPeerIdOrHash>,
         download_strategy: Vec<Vec<Range>>,
         shard_sync_download: &ShardSyncDownload,
         new_shard_sync_download: &mut ShardSyncDownload,
@@ -763,7 +777,7 @@ impl StateSync {
                 hash,
                 need_header: false,
                 parts_ranges,
-                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+                target: possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone(),
             });
         }
         Ok(())
@@ -834,6 +848,7 @@ mod test {
                 },
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
+                tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
         };

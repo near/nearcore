@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cached::{Cached, SizedCache};
@@ -141,5 +142,26 @@ impl TrieStorage for TrieCachingStorage {
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
+    }
+}
+
+/// Runtime counts the number of touched trie nodes for the purpose of gas calculation.
+/// Trie increments it on every call to TrieStorage::retrieve_raw_bytes()
+#[derive(Default)]
+pub struct TouchedNodesCounter {
+    counter: AtomicU64,
+}
+
+impl TouchedNodesCounter {
+    pub fn increment(&self) {
+        self.counter.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn reset(&self) {
+        self.counter.store(0, Ordering::SeqCst);
+    }
+
+    pub fn get(&self) -> u64 {
+        self.counter.load(Ordering::SeqCst)
     }
 }

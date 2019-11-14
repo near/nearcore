@@ -118,4 +118,8 @@ pub trait External {
     ) -> Result<()>;
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
+
+    fn get_touched_nodes_count(&self) -> u64;
+
+    fn reset_touched_nodes_counter(&mut self);
 }

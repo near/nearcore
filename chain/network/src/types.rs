@@ -15,10 +15,10 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockApproval, BlockHeader, Weight};
+use near_chain::{Block, BlockHeader, Weight};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::GenesisId;
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -175,6 +175,8 @@ pub struct PeerChainInfo {
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
     pub total_weight: Weight,
+    /// Shards that the peer is tracking
+    pub tracked_shards: Vec<ShardId>,
 }
 
 /// Peer type.
@@ -291,7 +293,7 @@ pub struct Pong {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(Approval),
     ForwardTx(SignedTransaction),
 
     TxStatusRequest(AccountId, CryptoHash),
@@ -320,6 +322,7 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -493,7 +496,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
                 RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
                 RoutedMessageBody::TxStatusResponse(_) => {
@@ -591,7 +594,7 @@ impl PeerMessage {
                 near_metrics::inc_counter_by(&metrics::TRANSACTION_RECEIVED_BYTES, size as i64);
             }
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => {
+                RoutedMessageBody::BlockApproval(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_BYTES,
@@ -708,6 +711,9 @@ pub struct NetworkConfig {
     pub ttl_account_id_router: Duration,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
+    /// Height horizon for most weighted peers. For example if one peer is 1 block ahead of 100s of others,
+    /// we still want to use the rest to query for state/headers/blocks.
+    pub most_weighted_peer_height_horizon: BlockIndex,
 }
 
 /// Status of the known peers.
@@ -894,7 +900,7 @@ pub enum NetworkRequests {
     /// participating in this epoch.
     BlockHeaderAnnounce {
         header: BlockHeader,
-        approval: Option<BlockApproval>,
+        approval_message: Option<ApprovalMessage>,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -912,7 +918,7 @@ pub enum NetworkRequests {
         hash: CryptoHash,
         need_header: bool,
         parts_ranges: Vec<Range>,
-        account_id: AccountId,
+        target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
     BanPeer {
@@ -1054,7 +1060,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(Approval, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -1090,7 +1096,12 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockIndex,
+        total_weight: Weight,
+        tracked_shards: Vec<ShardId>,
+    },
     /// Block response.
     Block(Block),
     /// Headers response.

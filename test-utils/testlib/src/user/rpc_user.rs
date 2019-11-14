@@ -23,7 +23,7 @@ use near_jsonrpc_client::BlockId;
 pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<dyn Signer>,
-    client: RwLock<JsonRpcClient>,
+    pub client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {

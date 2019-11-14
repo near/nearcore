@@ -230,6 +230,12 @@ impl External for MockedExternal {
         let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
         Ok(value_hash.as_ref().to_vec())
     }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        0
+    }
+
+    fn reset_touched_nodes_counter(&mut self) {}
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -268,21 +268,29 @@ impl PeerManagerActor {
 
     /// Returns single random peer with the most weight.
     fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
-        let max_weight = match self
+        // This finds max of weight and height and returns such height.
+        let height_with_max_weight = match self
             .active_peers
             .values()
-            .map(|active_peer| active_peer.full_peer_info.chain_info.total_weight)
+            .map(|active_peers| {
+                (
+                    active_peers.full_peer_info.chain_info.total_weight,
+                    active_peers.full_peer_info.chain_info.height,
+                )
+            })
             .max()
         {
-            Some(w) => w,
-            None => {
-                return vec![];
-            }
+            Some((_, height)) => height,
+            None => return vec![],
         };
+        // Find all peers whose height is within `most_weighted_peer_height_horizon` from max weight peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.total_weight == max_weight {
+                if active_peer.full_peer_info.chain_info.height
+                    >= height_with_max_weight
+                        .saturating_sub(self.config.most_weighted_peer_height_horizon)
+                {
                     Some(active_peer.full_peer_info.clone())
                 } else {
                     None
@@ -691,19 +699,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                if let Some(approval) = approval {
-                    if let Some(account_id) = self.config.account_id.clone() {
-                        self.send_message_to_account(
-                            ctx,
-                            &approval.target,
-                            RoutedMessageBody::BlockApproval(
-                                account_id,
-                                approval.hash,
-                                approval.signature,
-                            ),
-                        )
-                    }
+            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
+                if let Some(approval_message) = approval_message {
+                    self.send_message_to_account(
+                        ctx,
+                        &approval_message.target,
+                        RoutedMessageBody::BlockApproval(approval_message.approval),
+                    )
                 }
                 self.broadcast_message(
                     ctx,
@@ -727,18 +729,27 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                need_header,
-                parts_ranges,
-                account_id,
-            } => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
-                );
+            NetworkRequests::StateRequest { shard_id, hash, need_header, parts_ranges, target } => {
+                match target {
+                    AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
+                        ctx,
+                        &account_id,
+                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
+                    ),
+                    peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
+                    | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
+                        ctx,
+                        RawRoutedMessage {
+                            target: peer_or_hash,
+                            body: RoutedMessageBody::StateRequest(
+                                shard_id,
+                                hash,
+                                need_header,
+                                parts_ranges,
+                            ),
+                        },
+                    ),
+                };
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {

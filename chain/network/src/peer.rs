@@ -36,7 +36,7 @@ const MAX_TRACK_SIZE: usize = 30;
 
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = 50000;
+const MAX_PEER_MSG_PER_MIN: u64 = std::u64::MAX;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -224,11 +224,16 @@ impl Peer {
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis_id, height, total_weight }) => {
+                Ok(NetworkClientResponses::ChainInfo {
+                    genesis_id,
+                    height,
+                    total_weight,
+                    tracked_shards,
+                }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, total_weight },
+                        PeerChainInfo { genesis_id, height, total_weight, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -295,8 +300,8 @@ impl Peer {
                 msg_hash = Some(routed_message.hash());
 
                 match routed_message.body {
-                    RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                        NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+                    RoutedMessageBody::BlockApproval(approval) => {
+                        NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
                         NetworkClientMessages::Transaction(transaction)

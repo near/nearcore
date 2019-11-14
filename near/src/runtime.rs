@@ -39,6 +39,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::block::Approval;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -78,7 +79,8 @@ impl NightshadeRuntime {
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
             avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
-            validator_kickout_threshold: genesis_config.validator_kickout_threshold,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis_config.max_inflation_rate,
@@ -462,25 +464,34 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn verify_approval_signature(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sigs: &[Signature],
-        data: &[u8],
+        prev_block_hash: &CryptoHash,
+        approvals: &[Approval],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
-            .get_all_block_producer_info(epoch_id, last_known_block_hash)
+            .get_all_block_producer_info(epoch_id, prev_block_hash)
             .map_err(Error::from)?;
-        let mut i = 0;
-        for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
-            if *is_approved && !is_slashed {
-                if !approval_sigs[i].verify(data, &validator.public_key) {
-                    return Ok(false);
+        let approvals_hash_map =
+            approvals.iter().map(|x| (x.account_id.clone(), x)).collect::<HashMap<_, _>>();
+        let mut signatures_verified = 0;
+        for (validator, is_slashed) in info.into_iter() {
+            if !is_slashed {
+                if let Some(approval) = approvals_hash_map.get(&validator.account_id) {
+                    if &approval.parent_hash != prev_block_hash {
+                        return Ok(false);
+                    }
+                    if !approval.signature.verify(
+                        Approval::get_data_for_sig(&approval.parent_hash, &approval.reference_hash)
+                            .as_ref(),
+                        &validator.public_key,
+                    ) {
+                        return Ok(false);
+                    }
+                    signatures_verified += 1;
                 }
-                i += 1;
             }
         }
-        Ok(true)
+        Ok(signatures_verified == approvals.len())
     }
 
     fn get_epoch_block_producers(
@@ -509,6 +520,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
+    }
+
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
+            .map_err(Error::from)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -1124,6 +1147,8 @@ mod test {
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
             genesis_config.epoch_length = epoch_length;
+            genesis_config.chunk_producer_kickout_threshold =
+                genesis_config.block_producer_kickout_threshold;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,

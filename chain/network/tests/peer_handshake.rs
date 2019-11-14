@@ -37,6 +37,7 @@ fn make_peer_manager(
                     genesis_id: Default::default(),
                     height: 1,
                     total_weight: 1.into(),
+                    tracked_shards: vec![],
                 }))
             }
             _ => Box::new(Some(NetworkClientResponses::NoResponse)),

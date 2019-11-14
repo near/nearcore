@@ -110,7 +110,7 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
     /// Validator error.
-    #[fail(display = "Validator Error")]
+    #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
