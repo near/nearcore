@@ -1,16 +1,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-pub mod types;
 use crate::types::{AccountPK, DrainingIterator, TransactionGroup};
-
+use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 
-use near_primitives::hash::CryptoHash;
+pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 #[derive(Default)]
 pub struct TransactionPool {
-    /// Transactions grouped by a pair of (account ID, signer public key).
+    /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
     pub transactions: HashMap<AccountPK, Vec<SignedTransaction>>,
@@ -33,9 +32,9 @@ impl TransactionPool {
             .push(signed_transaction);
     }
 
-    /// Returns a draining structure that pulls transactions from the pool in the proper order.
-    /// It has an option to take transactions with the same key as the last one or with the new key.
-    /// When the iterator is dropped, the rest of the transactions remain in the pool.
+    /// Returns a draining structure that pulls transaction groups with the same key from the pool
+    /// in the proper order defined by the protocol. When the iterator is dropped, all remaining
+    /// transaction groups are inserted back into the pool.
     pub fn draining_iterator(&mut self) -> PoolIterator {
         PoolIterator::new(self)
     }
@@ -86,32 +85,39 @@ impl TransactionPool {
     }
 }
 
-/// Draining Iterator is a structure to pull transactions from the pool.
-/// It allows to request a next transaction either with the new key (next key) or with the same key.
+/// PoolIterator is a structure to pull transactions from the pool.
+/// It implements `DrainingIterator` trait that returns a transaction groups one by one.
 /// When a draining iterator is dropped the remaining transactions are returned back to the pool.
 pub struct PoolIterator<'a> {
     /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
     pool: &'a mut TransactionPool,
 
+    /// Queue of transaction groups. Each group there is sorted by nonce.
     sorted_groups: VecDeque<TransactionGroup>,
 }
 
-/// The iterator works with the following algorithm:
-/// 1. Initializes the current map to be the one from the pool.
-/// 2. An entry is pulled from the current map.
-///    2.1. If the current map is empty, swaps it with the next map.
-///    2.2. Remembers that all entries are sorted now.
-/// 3. If a not sorted yet, sorts the transactions in the entry in non-decreasing order by nonce, so
-///    a transaction with the lowest nonce is the last element.
-/// 4. If a new entry is needed for a new key, inserts the current entry to the next map.
-/// 5. Pulls the latest the transaction from the current entry.
-/// 6. If the current entry becomes empty, sets it to None.  
 impl<'a> PoolIterator<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
         Self { pool, sorted_groups: Default::default() }
     }
 }
 
+/// The iterator works with the following algorithm:
+/// On next(), the iterator tries to pulls a transaction group from the pool, sorts transactions in
+/// it, and add it to the back of the sorted groups queue.
+///
+/// If the pool is empty, the iterator pulls group from the front of the sorted groups queue.
+///
+/// If this pulled group is empty (no transactions left inside), then the discards the iterator
+/// updates `unique_transactions` in the pool and discards the group. Then pulls the next one.
+///
+/// Once a non-empty group found, the group is pushed back to the back of the sorted groups
+/// queue and the iterator returns a mutable reference to this group.
+///
+/// If the sorted groups queue is empty, the iterator returns None.
+///
+/// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
+/// And all non-empty group from the sorted groups queue are inserted back into the pool.
 impl<'a> DrainingIterator for PoolIterator<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         let key = self.pool.transactions.keys().next().cloned();
@@ -120,39 +126,43 @@ impl<'a> DrainingIterator for PoolIterator<'a> {
                 let mut transactions =
                     self.pool.transactions.remove(&key.clone()).expect("just checked existence");
                 transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
-                self.sorted_groups.push_back(TransactionGroup { key, transactions });
+                self.sorted_groups.push_back(TransactionGroup {
+                    key,
+                    transactions,
+                    removed_transaction_hashes: vec![],
+                });
                 Some(self.sorted_groups.back_mut().expect("just pushed"))
             }
             None => {
-                loop {
-                    match self.sorted_groups.pop_front() {
-                        None => break None, // All transactions were processed.
-                        Some(sorted_group) => {
-                            if sorted_group.transactions.is_empty() {
-                                continue;
-                            } else {
-                                self.sorted_groups.push_back(sorted_group);
-                                break Some(self.sorted_groups.back_mut().expect("just pushed"));
-                            }
+                while let Some(sorted_group) = self.sorted_groups.pop_front() {
+                    if sorted_group.transactions.is_empty() {
+                        for hash in sorted_group.removed_transaction_hashes {
+                            self.pool.unique_transactions.remove(&hash);
                         }
+                    } else {
+                        self.sorted_groups.push_back(sorted_group);
+                        return Some(self.sorted_groups.back_mut().expect("just pushed"));
                     }
                 }
+                None
             }
         }
     }
 }
 
+/// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
+/// groups queue are inserted back into the pool. And removed transactions hashes from groups are
+/// removed from the pool's unique_transactions.
 impl<'a> Drop for PoolIterator<'a> {
     fn drop(&mut self) {
-        self.pool.transactions.extend(self.sorted_groups.drain(..).filter_map(
-            |TransactionGroup { key, transactions }| {
-                if !transactions.is_empty() {
-                    Some((key, transactions))
-                } else {
-                    None
-                }
-            },
-        ));
+        for group in self.sorted_groups.drain(..) {
+            for hash in group.removed_transaction_hashes {
+                self.pool.unique_transactions.remove(&hash);
+            }
+            if !group.transactions.is_empty() {
+                self.pool.transactions.insert(group.key, group.transactions);
+            }
+        }
     }
 }
 
