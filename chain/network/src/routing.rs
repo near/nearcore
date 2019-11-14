@@ -344,20 +344,21 @@ impl RoutingTable {
     /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, announce_account: AnnounceAccount) -> bool {
-        let account_id = announce_account.account_id.clone();
-        self.account_peers.insert(account_id, announce_account.clone()).map_or_else(
-            || {
-                near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
-                true
-            },
-            |old_announce_account| old_announce_account != announce_account,
-        )
+        if !self.contains_account(&announce_account) {
+            let account_id = announce_account.account_id.clone();
+            self.account_peers.insert(account_id, announce_account);
+            near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn contains_account(&self, announce_account: AnnounceAccount) -> bool {
-        self.account_peers
-            .get(&announce_account.account_id)
-            .map_or(false, |cur_announce_account| *cur_announce_account == announce_account)
+    pub fn contains_account(&self, announce_account: &AnnounceAccount) -> bool {
+        self.account_peers.get(&announce_account.account_id).map_or(false, |cur_announce_account| {
+            assert_eq!(cur_announce_account.account_id, announce_account.account_id);
+            cur_announce_account.peer_id == announce_account.peer_id
+        })
     }
 
     /// Add this edge to the current view of the network.

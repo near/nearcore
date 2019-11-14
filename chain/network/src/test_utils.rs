@@ -1,14 +1,15 @@
+use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, AsyncContext, Context, System};
+use futures::future;
 use futures::future::Future;
 use tokio::timer::Delay;
 
-use crate::types::{NetworkConfig, PeerId, PeerInfo};
-use futures::future;
 use near_crypto::{KeyType, SecretKey};
-use std::collections::{HashMap, HashSet};
+
+use crate::types::{NetworkConfig, PeerId, PeerInfo};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
