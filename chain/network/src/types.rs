@@ -15,10 +15,10 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockHeader, Weight};
+use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -173,8 +173,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
-    /// Last known chain weight of the peer.
-    pub total_weight: Weight,
+    /// Last known chain weight/score of the peer.
+    pub weight_and_score: WeightAndScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
 }
@@ -1099,7 +1099,7 @@ pub enum NetworkClientResponses {
     ChainInfo {
         genesis_id: GenesisId,
         height: BlockIndex,
-        total_weight: Weight,
+        weight_and_score: WeightAndScore,
         tracked_shards: Vec<ShardId>,
     },
     /// Block response.

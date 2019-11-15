@@ -233,6 +233,7 @@ fn replay_chain(
                     header.inner.prev_hash,
                     header.hash(),
                     header.inner.height,
+                    chain_store.get_block_height(&header.inner.last_quorum_pre_commit).unwrap(),
                     header.inner.validator_proposals,
                     vec![],
                     header.inner.chunk_mask,

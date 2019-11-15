@@ -65,7 +65,7 @@ def doit(seq = []):
     sequence = seq
 
     config = {'local': True, 'near_root': '../target/debug/'}
-    nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["validator_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+    nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
 
     started = time.time()
     last_iter = started

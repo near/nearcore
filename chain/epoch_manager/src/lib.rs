@@ -687,11 +687,49 @@ impl EpochManager {
             [(index % (epoch_info.chunk_producers[shard_id as usize].len() as BlockIndex)) as usize]
     }
 
-    /// Returns true, if given current block info, next block suppose to be in the next epoch.
+    /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
+    /// beyond that height in the current epoch to get final, otherwise the safety of the finality
+    /// gadget can get violated.
+    pub fn push_final_block_back_if_needed(
+        &mut self,
+        parent_hash: CryptoHash,
+        mut last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, EpochError> {
+        if last_final_hash == CryptoHash::default() {
+            return Ok(last_final_hash);
+        }
+
+        let block_info = self.get_block_info(&parent_hash)?;
+        let epoch_first_block = block_info.epoch_first_block;
+        let estimated_next_epoch_start =
+            self.get_block_info(&epoch_first_block)?.index + self.config.epoch_length;
+
+        loop {
+            let block_info = self.get_block_info(&last_final_hash)?;
+            let prev_hash = block_info.prev_hash;
+            let prev_block_info = self.get_block_info(&prev_hash)?;
+            // See `is_next_block_in_next_epoch` for details on ` + 3`
+            if prev_block_info.index + 3 >= estimated_next_epoch_start {
+                last_final_hash = prev_hash;
+            } else {
+                return Ok(last_final_hash);
+            }
+        }
+    }
+
+    /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        Ok(block_info.index + 1
-            >= self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length)
+        let estimated_next_epoch_start =
+            self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length;
+        // Say the epoch length is 10, and say all the blocks have all the approvals.
+        // Say the first block of a particular epoch has height 111. We want the block 121 to be
+        //     the first block of the next epoch. For 121 to be the next block, the current block
+        //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
+        // 121 - 118 = 3, hence the `last_finalized_height + 3`
+        Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
+            || self.config.num_block_producers < 4)
+            && block_info.index + 1 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -1101,7 +1139,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[1],
-                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(1, 0, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()
@@ -1203,6 +1241,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1222,6 +1261,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1241,6 +1281,7 @@ mod tests {
                 &h[2],
                 BlockInfo {
                     index: 2,
+                    last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1308,6 +1349,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1327,6 +1369,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1346,6 +1389,7 @@ mod tests {
                 &h[2],
                 BlockInfo {
                     index: 2,
+                    last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1441,6 +1485,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1460,6 +1505,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1479,6 +1525,7 @@ mod tests {
                 &h[3],
                 BlockInfo {
                     index: 3,
+                    last_finalized_height: 3,
                     prev_hash: h[1],
                     epoch_first_block: h[2],
                     epoch_id: Default::default(),
@@ -1597,6 +1644,7 @@ mod tests {
             &h[1],
             BlockInfo {
                 index: 1,
+                last_finalized_height: 1,
                 prev_hash: h[0],
                 epoch_first_block: h[1],
                 epoch_id: Default::default(),
@@ -1615,6 +1663,7 @@ mod tests {
             &h[2],
             BlockInfo {
                 index: 2,
+                last_finalized_height: 2,
                 prev_hash: h[1],
                 epoch_first_block: h[1],
                 epoch_id: Default::default(),
@@ -1633,6 +1682,7 @@ mod tests {
             &h[3],
             BlockInfo {
                 index: 3,
+                last_finalized_height: 3,
                 prev_hash: h[2],
                 epoch_first_block: h[3],
                 epoch_id: Default::default(),
