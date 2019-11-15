@@ -293,9 +293,10 @@ impl NightshadeRuntime {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
                 RuntimeError::BalanceMismatch(e) => panic!("RuntimeError::BalanceMismatch: {}", e),
                 // TODO: process gracefully
-                RuntimeError::UnexpectedIntegerOverflow => panic!("RuntimeError::UnexpectedIntegerOverflow"),
+                RuntimeError::UnexpectedIntegerOverflow => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                }
                 RuntimeError::StorageError(_) => ErrorKind::StorageError,
-
             })?;
 
         // Sort the receipts into appropriate outgoing shards.
