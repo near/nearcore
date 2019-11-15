@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_store::{create_store, Trie, COL_STATE};
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
@@ -43,13 +43,18 @@ impl RuntimeTestbed {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let mut state_roots: Vec<MerkleHash> =
+        let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         assert!(state_roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!state_roots.is_empty(), "No state roots found.");
-        let root = state_roots.pop().unwrap();
+        let root = state_roots[0].hash;
 
-        let runtime_config = RuntimeConfig::default();
+        let mut runtime_config = RuntimeConfig::default();
+        runtime_config.wasm_config.max_log_len = std::u64::MAX;
+        runtime_config.wasm_config.max_number_registers = std::u64::MAX;
+        runtime_config.wasm_config.max_gas_burnt = std::u64::MAX;
+        runtime_config.wasm_config.max_register_size = std::u64::MAX;
+        runtime_config.wasm_config.max_number_logs = std::u64::MAX;
         let runtime = Runtime::new(runtime_config);
         let prev_receipts = vec![];
 
@@ -65,7 +70,11 @@ impl RuntimeTestbed {
         Self { workdir, trie, root, runtime, prev_receipts, apply_state }
     }
 
-    pub fn process_block(&mut self, transactions: &[SignedTransaction], allow_failures: bool) {
+    pub fn process_block(
+        &mut self,
+        transactions: &[SignedTransaction],
+        allow_failures: bool,
+    ) -> Gas {
         let apply_result = self
             .runtime
             .apply(
@@ -84,8 +93,10 @@ impl RuntimeTestbed {
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
 
+        let mut total_burnt_gas = 0;
         if !allow_failures {
             for outcome in &apply_result.outcomes {
+                total_burnt_gas += outcome.outcome.gas_burnt;
                 match &outcome.outcome.status {
                     ExecutionStatus::Failure(e) => panic!("Execution failed {:#?}", e),
                     _ => (),
@@ -93,5 +104,12 @@ impl RuntimeTestbed {
             }
         }
         self.prev_receipts = apply_result.new_receipts;
+        total_burnt_gas
+    }
+
+    pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) {
+        while !self.prev_receipts.is_empty() {
+            self.process_block(&[], allow_failures);
+        }
     }
 }

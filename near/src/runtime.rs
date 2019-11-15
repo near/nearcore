@@ -143,13 +143,9 @@ impl NightshadeRuntime {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_root_hashes: Vec<MerkleHash> =
+        let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         // TODO MOO read new_state_num_parts
-        let mut state_roots = vec![];
-        for hash in state_root_hashes {
-            state_roots.push(StateRoot { hash, num_parts: 1 /* TODO MOO */ })
-        }
         (store_update, state_roots)
     }
 

@@ -29,7 +29,10 @@ near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
-test-utils = []
+default = []
+
+# Use this feature to enable counting of fees and costs applied.
+costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 
 [dev-dependencies]
 tempdir = "0.3"
