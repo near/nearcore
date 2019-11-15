@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -16,12 +16,12 @@ use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
-use near_network::types::{NetworkInfo, PeerChainInfo};
+use near_network::types::{AccountOrPeerIdOrHash, NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, GenesisId, Weight};
+use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId};
 use near_store::test_utils::create_test_store;
@@ -29,7 +29,8 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -58,7 +59,8 @@ pub fn setup(
     epoch_length: u64,
     account_id: &str,
     skip_sync_wait: bool,
-    block_prod_time: u64,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
     recipient: Recipient<NetworkRequests>,
     tx_validity_period: BlockIndex,
     genesis_time: DateTime<Utc>,
@@ -72,15 +74,28 @@ pub fn setup(
         num_shards,
         epoch_length,
     ));
-    let chain_genesis =
-        ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period);
+    let chain_genesis = ChainGenesis::new(
+        genesis_time,
+        1_000_000,
+        100,
+        1_000_000_000,
+        0,
+        0,
+        tx_validity_period,
+        epoch_length,
+    );
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
-    let config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
+    let config = ClientConfig::test(
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validators,
+    );
     let client = ClientActor::new(
         config,
         store,
@@ -142,6 +157,7 @@ pub fn setup_mock_with_validity_period(
             account_id,
             skip_sync_wait,
             100,
+            200,
             pm.recipient(),
             validity_period,
             Utc::now(),
@@ -157,6 +173,36 @@ fn sample_binary(n: u64, k: u64) -> bool {
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
+///
+/// # Arguments
+/// * `validators` - a vector or vector of validator names. Each vector is a set of validators for a
+///                 particular epoch. E.g. if `validators` has three elements, then the each epoch
+///                 with id % 3 == 0 will have the first set of validators, with id % 3 == 1 will
+///                 have the second set of validators, and with id % 3 == 2 will have the third
+/// * `key_pairs` - a flattened list of key pairs for the `validators`
+/// * `validator_groups` - how many groups to split validators into. E.g. say there are four shards,
+///                 and four validators in a particular epoch. If `validator_groups == 1`, all vals
+///                 will validate all shards. If `validator_groups == 2`, shards 0 and 1 will have
+///                 two validators validating them, and shards 2 and 3 will have the remaining two.
+///                 If `validator_groups == 4`, each validator will validate a single shard
+/// `skip_sync_wait`
+/// `block_prod_time` - Minimum block production time, assuming there is enough approvals. The
+///                 maximum block production time depends on the value of `tamper_with_fg`, and is
+///                 equal to `block_prod_time` if `tamper_with_fg` is `true`, otherwise it is
+///                 `block_prod_time * 2`
+/// `drop_chunks` - if set to true, 10% of all the chunk messages / requests will be dropped
+/// `tamper_with_fg` - if set to true, will split the heights into groups of 100. For some groups
+///                 all the approvals will be dropped (thus completely disabling the finality gadget
+///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
+///                 for some groups will keep all the approvals (and test the fg invariants), and
+///                 for some will drop 50% of the approvals.
+/// `epoch_length` - approximate number of heights per epoch
+/// `network_mock` - the callback that is called for each message sent. The `mock` is called before
+///                 the default processing. `mock` returns `(response, perform_default)`. If
+///                 `perform_default` is false, then the message is not processed or broadcasted
+///                 further and `response` is returned to the requester immediately. Otherwise
+///                 the default action is performed, that might (and likely will) overwrite the
+///                 `response` before it is sent back to the requester.
 pub fn setup_mock_all_validators(
     validators: Vec<Vec<&'static str>>,
     key_pairs: Vec<PeerInfo>,
@@ -164,6 +210,7 @@ pub fn setup_mock_all_validators(
     skip_sync_wait: bool,
     block_prod_time: u64,
     drop_chunks: bool,
+    tamper_with_fg: bool,
     epoch_length: u64,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
@@ -185,7 +232,11 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as ShardId;
 
-    let last_height_weight = Arc::new(RwLock::new(vec![(0, Weight::from(0)); key_pairs.len()]));
+    let last_height_weight =
+        Arc::new(RwLock::new(vec![(0, WeightAndScore::from_ints(0, 0)); key_pairs.len()]));
+    let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
+    let approval_intervals: Arc<RwLock<Vec<BTreeSet<(WeightAndScore, WeightAndScore)>>>> =
+        Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
 
     for account_id in validators.iter().flatten().cloned() {
         let view_client_addr = Arc::new(RwLock::new(None));
@@ -199,6 +250,8 @@ pub fn setup_mock_all_validators(
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height_weight1 = last_height_weight.clone();
+        let hash_to_score1 = hash_to_score.clone();
+        let approval_intervals1 = approval_intervals.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let _client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -222,7 +275,6 @@ pub fn setup_mock_all_validators(
                     let my_key_pair = my_key_pair.unwrap();
                     let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
-                    let my_account_id = account_id;
 
                     match msg {
                         NetworkRequests::FetchInfo { .. } => {
@@ -239,7 +291,8 @@ pub fn setup_mock_all_validators(
                                             hash: Default::default(),
                                         },
                                         height: last_height_weight1[i].0,
-                                        total_weight: last_height_weight1[i].1,
+                                        weight_and_score: last_height_weight1[i].1,
+                                        tracked_shards: vec![],
                                     },
                                     edge_info: EdgeInfo::default(),
                                 })
@@ -270,7 +323,12 @@ pub fn setup_mock_all_validators(
 
                             my_height_weight.0 = max(my_height_weight.0, block.header.inner.height);
                             my_height_weight.1 =
-                                max(my_height_weight.1, block.header.inner.total_weight);
+                                max(my_height_weight.1, block.header.inner.weight_and_score());
+
+                            hash_to_score1
+                                .write()
+                                .unwrap()
+                                .insert(block.header.hash(), block.header.inner.weight_and_score());
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -388,8 +446,12 @@ pub fn setup_mock_all_validators(
                             hash,
                             need_header,
                             parts_ranges,
-                            account_id: target_account_id,
+                            target: target_account_id,
                         } => {
+                            let target_account_id = match target_account_id {
+                                AccountOrPeerIdOrHash::AccountId(x) => x,
+                                _ => panic!(),
+                            };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
                                     let connectors2 = connectors1.clone();
@@ -443,20 +505,72 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::BlockHeaderAnnounce {
-                            header: _,
-                            approval: Some(approval),
+                            header,
+                            approval_message: Some(approval_message),
                         } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == &approval.target {
-                                    connectors1.read().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::BlockApproval(
-                                            my_account_id.to_string(),
-                                            approval.hash,
-                                            approval.signature.clone(),
-                                            my_key_pair.id.clone(),
-                                        ),
-                                    );
+                            let height_mod = header.inner.height % 300;
+
+                            let do_propagate = if tamper_with_fg {
+                                if height_mod < 100 {
+                                    false
+                                } else if height_mod < 200 {
+                                    let mut rng = rand::thread_rng();
+                                    rng.gen()
+                                } else {
+                                    true
                                 }
+                            } else {
+                                true
+                            };
+
+                            let approval = approval_message.approval.clone();
+
+                            if do_propagate {
+                                for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                    if name == &approval_message.target {
+                                        connectors1.read().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::BlockApproval(
+                                                approval.clone(),
+                                                my_key_pair.id.clone(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Ensure the finality gadget invariant that no two approvals intersect
+                            //     is maintained
+                            let hh = hash_to_score1.read().unwrap();
+                            let arange =
+                                (hh.get(&approval.reference_hash), hh.get(&approval.parent_hash));
+                            if let (Some(left), Some(right)) = arange {
+                                let arange = (*left, *right);
+                                assert!(arange.0 <= arange.1);
+
+                                let approval_intervals =
+                                    &mut approval_intervals1.write().unwrap()[my_ord];
+                                let prev = approval_intervals
+                                    .range((Unbounded, Excluded((arange.0, arange.0))))
+                                    .next_back();
+                                let mut next_weight_and_score = arange.0;
+                                next_weight_and_score.weight =
+                                    (next_weight_and_score.weight.to_num() + 1).into();
+                                let next = approval_intervals
+                                    .range((
+                                        Included((next_weight_and_score, next_weight_and_score)),
+                                        Unbounded,
+                                    ))
+                                    .next();
+
+                                if let Some(prev) = prev {
+                                    assert!(prev.1 < arange.0);
+                                }
+
+                                if let Some(next) = next {
+                                    assert!(next.0 > arange.1);
+                                }
+
+                                approval_intervals.insert(arange);
                             }
                         }
                         NetworkRequests::ForwardTx(_, _)
@@ -484,6 +598,13 @@ pub fn setup_mock_all_validators(
                 account_id,
                 skip_sync_wait,
                 block_prod_time,
+                // When we tamper with fg, some blocks will have enough approvals, some will not,
+                //     and the `block_prod_timeout` is carefully chosen to get enough forkfulness,
+                //     but not to break the synchrony assumption, so we can't allow the timeout to
+                //     be too different for blocks with and without enough approvals.
+                // When not tampering with fg, make the relationship between constants closer to the
+                //     actual relationship.
+                if tamper_with_fg { block_prod_time } else { block_prod_time * 2 },
                 pm.recipient(),
                 10000,
                 genesis_time,
@@ -494,6 +615,11 @@ pub fn setup_mock_all_validators(
         });
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
+    hash_to_score.write().unwrap().insert(CryptoHash::default(), WeightAndScore::from_ints(0, 0));
+    hash_to_score.write().unwrap().insert(
+        genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(),
+        WeightAndScore::from_ints(0, 0),
+    );
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret)
@@ -547,12 +673,11 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    epoch_length: u64,
 ) -> Client {
     let block_producer =
         account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
-    let mut config = ClientConfig::test(true, 10, num_validators);
-    config.epoch_length = epoch_length;
+    let mut config = ClientConfig::test(true, 10, 20, num_validators);
+    config.epoch_length = chain_genesis.epoch_length;
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
 }
@@ -565,7 +690,6 @@ pub fn setup_client(
     account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
-    epoch_length: u64,
 ) -> Client {
     let num_validators = validators.iter().map(|x| x.len()).sum();
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
@@ -573,7 +697,7 @@ pub fn setup_client(
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
-        epoch_length,
+        chain_genesis.epoch_length,
     ));
     setup_client_with_runtime(
         store,
@@ -582,7 +706,6 @@ pub fn setup_client(
         network_adapter,
         chain_genesis,
         runtime_adapter,
-        epoch_length,
     )
 }
 
@@ -591,16 +714,10 @@ pub struct TestEnv {
     validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
-    epoch_length: u64,
 }
 
 impl TestEnv {
-    pub fn new(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validators: usize,
-        epoch_length: u64,
-    ) -> Self {
+    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
         let network_adapters =
@@ -616,11 +733,10 @@ impl TestEnv {
                     Some(&format!("test{}", i)),
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
-                    epoch_length,
                 )
             })
             .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients, epoch_length }
+        TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
     pub fn new_with_runtime(
@@ -628,7 +744,6 @@ impl TestEnv {
         num_clients: usize,
         num_validators: usize,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-        epoch_length: u64,
     ) -> Self {
         let network_adapters: Vec<Arc<MockNetworkAdapter>> =
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
@@ -638,7 +753,6 @@ impl TestEnv {
             num_validators,
             runtime_adapters,
             network_adapters,
-            epoch_length,
         )
     }
 
@@ -648,7 +762,6 @@ impl TestEnv {
         num_validators: usize,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
-        epoch_length: u64,
     ) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
@@ -662,17 +775,16 @@ impl TestEnv {
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
                     runtime_adapters[i].clone(),
-                    epoch_length,
                 )
             })
             .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients, epoch_length }
+        TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), format!("{:?}", result));
-        let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
+        let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
@@ -711,7 +823,6 @@ impl TestEnv {
             Some(&format!("test{}", id)),
             self.network_adapters[id].clone(),
             self.chain_genesis.clone(),
-            self.epoch_length,
         )
     }
 }

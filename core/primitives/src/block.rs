@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 
@@ -10,9 +8,10 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
+use std::cmp::Ordering;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInner {
@@ -37,12 +36,10 @@ pub struct BlockHeaderInner {
     pub chunks_included: u64,
     /// Timestamp at which the block was built.
     pub timestamp: u64,
-    /// Approval mask, given current block producers.
-    pub approval_mask: Vec<bool>,
-    /// Approval signatures for previous block.
-    pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
+    /// Score.
+    pub score: Weight,
     /// Validator proposals.
     pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
@@ -57,6 +54,14 @@ pub struct BlockHeaderInner {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     pub challenges_result: ChallengesResult,
+
+    /// Last block that has a quorum pre-vote on this chain
+    pub last_quorum_pre_vote: CryptoHash,
+    /// Last block that has a quorum pre-commit on this chain
+    pub last_quorum_pre_commit: CryptoHash,
+
+    /// All the approvals included in this block
+    pub approvals: Vec<Approval>,
 }
 
 impl BlockHeaderInner {
@@ -71,9 +76,8 @@ impl BlockHeaderInner {
         outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
-        approval_mask: Vec<bool>,
-        approval_sigs: Vec<Signature>,
         total_weight: Weight,
+        score: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
@@ -81,6 +85,9 @@ impl BlockHeaderInner {
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
+        last_quorum_pre_vote: CryptoHash,
+        last_quorum_pre_commit: CryptoHash,
+        approvals: Vec<Approval>,
     ) -> Self {
         Self {
             height,
@@ -93,9 +100,8 @@ impl BlockHeaderInner {
             outcome_root,
             timestamp,
             chunks_included,
-            approval_mask,
-            approval_sigs,
             total_weight,
+            score,
             validator_proposals,
             chunk_mask,
             gas_price,
@@ -103,7 +109,63 @@ impl BlockHeaderInner {
             validator_reward,
             total_supply,
             challenges_result,
+            last_quorum_pre_vote,
+            last_quorum_pre_commit,
+            approvals,
         }
+    }
+
+    pub fn weight_and_score(&self) -> WeightAndScore {
+        WeightAndScore { weight: self.total_weight, score: self.score }
+    }
+}
+
+/// Block approval by other block producers.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Approval {
+    pub parent_hash: CryptoHash,
+    pub reference_hash: CryptoHash,
+    pub signature: Signature,
+    pub account_id: AccountId,
+}
+
+/// Block approval by other block producers.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalMessage {
+    pub approval: Approval,
+    pub target: AccountId,
+}
+
+impl Approval {
+    pub fn new(
+        parent_hash: CryptoHash,
+        reference_hash: CryptoHash,
+        signer: &dyn Signer,
+        account_id: AccountId,
+    ) -> Self {
+        let signature =
+            signer.sign(Approval::get_data_for_sig(&parent_hash, &reference_hash).as_ref());
+        Approval { parent_hash, reference_hash, signature, account_id }
+    }
+
+    pub fn get_data_for_sig(parent_hash: &CryptoHash, reference_hash: &CryptoHash) -> Vec<u8> {
+        let mut res = Vec::with_capacity(64);
+        res.extend_from_slice(parent_hash.as_ref());
+        res.extend_from_slice(reference_hash.as_ref());
+        res
+    }
+}
+
+impl ApprovalMessage {
+    pub fn new(
+        parent_hash: CryptoHash,
+        reference_hash: CryptoHash,
+        signer: &dyn Signer,
+        account_id: AccountId,
+        target: AccountId,
+    ) -> Self {
+        let approval = Approval::new(parent_hash, reference_hash, signer, account_id);
+        ApprovalMessage { approval, target }
     }
 }
 
@@ -136,9 +198,8 @@ impl BlockHeader {
         outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
-        approval_mask: Vec<bool>,
-        approval_sigs: Vec<Signature>,
         total_weight: Weight,
+        score: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         epoch_id: EpochId,
@@ -148,6 +209,9 @@ impl BlockHeader {
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn Signer,
+        last_quorum_pre_vote: CryptoHash,
+        last_quorum_pre_commit: CryptoHash,
+        approvals: Vec<Approval>,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -160,9 +224,8 @@ impl BlockHeader {
             outcome_root,
             timestamp,
             chunks_included,
-            approval_mask,
-            approval_sigs,
             total_weight,
+            score,
             validator_proposals,
             chunk_mask,
             gas_price,
@@ -170,6 +233,9 @@ impl BlockHeader {
             validator_reward,
             total_supply,
             challenges_result,
+            last_quorum_pre_vote,
+            last_quorum_pre_commit,
+            approvals,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
@@ -196,8 +262,7 @@ impl BlockHeader {
             CryptoHash::default(),
             to_timestamp(timestamp),
             chunks_included,
-            vec![],
-            vec![],
+            0.into(),
             0.into(),
             vec![],
             vec![],
@@ -205,6 +270,9 @@ impl BlockHeader {
             0,
             0,
             initial_total_supply,
+            vec![],
+            CryptoHash::default(),
+            CryptoHash::default(),
             vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
@@ -225,7 +293,7 @@ impl BlockHeader {
     }
 
     pub fn num_approvals(&self) -> u64 {
-        self.inner.approval_mask.iter().map(|x| if *x { 1u64 } else { 0u64 }).sum()
+        self.inner.approvals.len() as u64
     }
 }
 
@@ -300,22 +368,16 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
-        mut approvals: HashMap<usize, Signature>,
+        approvals: Vec<Approval>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
+        score: Weight,
+        last_quorum_pre_vote: CryptoHash,
+        last_quorum_pre_commit: CryptoHash,
     ) -> Self {
-        let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
-            (
-                (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
-                (0..=*max_approver).filter_map(|i| approvals.remove(&i)).collect(),
-            )
-        } else {
-            (vec![], vec![])
-        };
-
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
@@ -347,11 +409,11 @@ impl Block {
 
         let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
-        let num_approvals: u128 =
-            approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
+        let num_approvals: u128 = approvals.len() as u128;
         let total_weight = prev.inner.total_weight.next(num_approvals);
         let now = to_timestamp(Utc::now());
         let time = if now <= prev.inner.timestamp { prev.inner.timestamp + 1 } else { now };
+
         Block {
             header: BlockHeader::new(
                 height,
@@ -363,9 +425,8 @@ impl Block {
                 Block::compute_outcome_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
-                approval_mask,
-                approval_sigs,
                 total_weight,
+                score,
                 validator_proposals,
                 chunk_mask,
                 epoch_id,
@@ -375,6 +436,9 @@ impl Block {
                 new_total_supply,
                 challenges_result,
                 signer,
+                last_quorum_pre_vote,
+                last_quorum_pre_commit,
+                approvals,
             ),
             chunks,
             challenges,
@@ -534,6 +598,12 @@ pub struct Weight {
     num: u128,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WeightAndScore {
+    pub weight: Weight,
+    pub score: Weight,
+}
+
 impl Weight {
     pub fn to_num(self) -> u128 {
         self.num
@@ -553,6 +623,40 @@ impl From<u128> for Weight {
 impl std::fmt::Display for Weight {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.num)
+    }
+}
+
+impl WeightAndScore {
+    pub fn from_ints(weight: u128, score: u128) -> Self {
+        Self { weight: weight.into(), score: score.into() }
+    }
+
+    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is losely
+    /// defined as either having the score exceeding by the `threshold` (finality gadget is working
+    /// fine, and the last reported final block is way ahead of the last known to us), or having the
+    /// same score, but the weight exceeding by the `threshold` (finality gadget is down, and the
+    /// canonical chain is has significantly higher weight)
+    pub fn beyond_threshold(&self, other: &WeightAndScore, threshold: u128) -> bool {
+        if self.score == other.score {
+            self.weight.to_num() > other.weight.to_num() + threshold
+        } else {
+            self.score.to_num() > other.score.to_num() + threshold
+        }
+    }
+}
+
+impl PartialOrd for WeightAndScore {
+    fn partial_cmp(&self, other: &WeightAndScore) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for WeightAndScore {
+    fn cmp(&self, other: &WeightAndScore) -> Ordering {
+        match self.score.cmp(&other.score) {
+            v @ Ordering::Less | v @ Ordering::Greater => v,
+            Ordering::Equal => self.weight.cmp(&other.weight),
+        }
     }
 }
 

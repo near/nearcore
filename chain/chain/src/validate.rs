@@ -41,11 +41,16 @@ pub fn validate_chunk_proofs(
         return Ok(false);
     }
     // 2c. Checking that chunk receipts are valid
-    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-    if receipts_root != chunk.header.inner.outgoing_receipts_root {
-        byzantine_assert!(false);
-        return Ok(false);
+    if chunk.header.inner.height_created == 0 {
+        return Ok(chunk.receipts.len() == 0
+            && chunk.header.inner.outgoing_receipts_root == CryptoHash::default());
+    } else {
+        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+            byzantine_assert!(false);
+            return Ok(false);
+        }
     }
     Ok(true)
 }

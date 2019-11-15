@@ -202,6 +202,7 @@ impl GenesisBuilder {
                 CryptoHash::default(),
                 genesis.hash(),
                 genesis.header.inner.height,
+                0,
                 vec![],
                 vec![],
                 vec![],

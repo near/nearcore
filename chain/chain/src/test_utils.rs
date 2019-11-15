@@ -36,6 +36,7 @@ use crate::types::{
     ValidatorSignatureVerificationResult, Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::block::Approval;
 
 pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
@@ -308,10 +309,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn verify_approval_signature(
         &self,
         _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _approval_mask: &[bool],
-        _approval_sigs: &[Signature],
-        _data: &[u8],
+        _prev_block_hash: &CryptoHash,
+        _approvals: &[Approval],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -348,6 +347,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
+    }
+
+    fn get_num_missing_blocks(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        Ok(0)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -460,6 +468,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
         _block_index: u64,
+        _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
@@ -799,6 +808,14 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
     }
+
+    fn push_final_block_back_if_needed(
+        &self,
+        _prev_block: CryptoHash,
+        last_final: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        Ok(last_final)
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
@@ -813,7 +830,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity, 10),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
@@ -930,6 +947,7 @@ impl ChainGenesis {
             max_inflation_rate: 0,
             gas_price_adjustment_rate: 0,
             transaction_validity_period: 100,
+            epoch_length: 5,
         }
     }
 }

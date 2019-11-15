@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::block::{Approval, Block, BlockHeader, BlockHeaderInner};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
@@ -245,10 +245,10 @@ pub struct BlockHeaderView {
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub timestamp: u64,
-    pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<Signature>,
     #[serde(with = "u128_dec_format")]
     pub total_weight: u128,
+    #[serde(with = "u128_dec_format")]
+    pub score: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
@@ -260,6 +260,9 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub challenges_result: ChallengesResult,
+    pub last_quorum_pre_vote: CryptoHash,
+    pub last_quorum_pre_commit: CryptoHash,
+    pub approvals: Vec<(AccountId, CryptoHash, CryptoHash, Signature)>,
     pub signature: Signature,
 }
 
@@ -277,9 +280,8 @@ impl From<BlockHeader> for BlockHeaderView {
             chunks_included: header.inner.chunks_included,
             outcome_root: header.inner.outcome_root,
             timestamp: header.inner.timestamp,
-            approval_mask: header.inner.approval_mask,
-            approval_sigs: header.inner.approval_sigs,
             total_weight: header.inner.total_weight.to_num(),
+            score: header.inner.score.to_num(),
             validator_proposals: header
                 .inner
                 .validator_proposals
@@ -292,6 +294,14 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_reward: header.inner.validator_reward,
             total_supply: header.inner.total_supply,
             challenges_result: header.inner.challenges_result,
+            last_quorum_pre_vote: header.inner.last_quorum_pre_vote,
+            last_quorum_pre_commit: header.inner.last_quorum_pre_commit,
+            approvals: header
+                .inner
+                .approvals
+                .into_iter()
+                .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
+                .collect(),
             signature: header.signature,
         }
     }
@@ -311,9 +321,8 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunks_included: view.chunks_included,
                 outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
-                approval_mask: view.approval_mask,
-                approval_sigs: view.approval_sigs,
                 total_weight: view.total_weight.into(),
+                score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals
                     .into_iter()
@@ -325,6 +334,18 @@ impl From<BlockHeaderView> for BlockHeader {
                 challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
+                last_quorum_pre_vote: view.last_quorum_pre_vote,
+                last_quorum_pre_commit: view.last_quorum_pre_commit,
+                approvals: view
+                    .approvals
+                    .into_iter()
+                    .map(|(account_id, parent_hash, reference_hash, signature)| Approval {
+                        account_id,
+                        parent_hash,
+                        reference_hash,
+                        signature,
+                    })
+                    .collect(),
             },
             signature: view.signature,
             hash: CryptoHash::default(),

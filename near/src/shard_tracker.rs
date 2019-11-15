@@ -247,7 +247,8 @@ mod tests {
             num_block_producers: 1,
             block_producers_per_shard: vec![1],
             avg_fisherman_per_shard: vec![],
-            validator_kickout_threshold: 90,
+            block_producer_kickout_threshold: 90,
+            chunk_producer_kickout_threshold: 60,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: 0,
@@ -284,6 +285,7 @@ mod tests {
                 &cur_h,
                 BlockInfo::new(
                     index,
+                    0,
                     prev_h,
                     proposals,
                     vec![],

@@ -100,6 +100,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid quorum_pre_vote or quorum_pre_commit
+    #[fail(display = "Invalid Finality Info")]
+    InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -128,7 +131,7 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
     /// Validator error.
-    #[fail(display = "Validator Error")]
+    #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
@@ -217,6 +220,7 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals

@@ -339,4 +339,12 @@ impl<'a> External for RuntimeExt<'a> {
         let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
         Ok(value_hash.as_ref().to_vec())
     }
+
+    fn get_touched_nodes_count(&self) -> u64 {
+        self.trie_update.trie.counter.get()
+    }
+
+    fn reset_touched_nodes_counter(&mut self) {
+        self.trie_update.trie.counter.reset()
+    }
 }

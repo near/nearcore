@@ -56,10 +56,11 @@ pub fn setup_network_node(
     ));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);
+    let chain_genesis =
+        ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false, 100, num_validators);
+        let mut client_config = ClientConfig::test(false, 100, 200, num_validators);
         client_config.ttl_account_id_router = ttl_account_id_router;
         let client_actor = ClientActor::new(
             client_config,

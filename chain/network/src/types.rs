@@ -15,10 +15,10 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockApproval, BlockHeader, Weight};
+use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::GenesisId;
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -173,8 +173,10 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
-    /// Last known chain weight of the peer.
-    pub total_weight: Weight,
+    /// Last known chain weight/score of the peer.
+    pub weight_and_score: WeightAndScore,
+    /// Shards that the peer is tracking
+    pub tracked_shards: Vec<ShardId>,
 }
 
 /// Peer type.
@@ -291,7 +293,7 @@ pub struct Pong {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(Approval),
     ForwardTx(SignedTransaction),
 
     TxStatusRequest(AccountId, CryptoHash),
@@ -320,6 +322,7 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -493,7 +496,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
                 RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
                 RoutedMessageBody::TxStatusRequest(_, _) => f.write_str("Transaction status query"),
                 RoutedMessageBody::TxStatusResponse(_) => {
@@ -591,7 +594,7 @@ impl PeerMessage {
                 near_metrics::inc_counter_by(&metrics::TRANSACTION_RECEIVED_BYTES, size as i64);
             }
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                RoutedMessageBody::BlockApproval(_, _, _) => {
+                RoutedMessageBody::BlockApproval(_) => {
                     near_metrics::inc_counter(&metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_BLOCK_APPROVAL_RECEIVED_BYTES,
@@ -708,6 +711,9 @@ pub struct NetworkConfig {
     pub ttl_account_id_router: Duration,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
+    /// Height horizon for most weighted peers. For example if one peer is 1 block ahead of 100s of others,
+    /// we still want to use the rest to query for state/headers/blocks.
+    pub most_weighted_peer_height_horizon: BlockIndex,
 }
 
 /// Status of the known peers.
@@ -894,7 +900,7 @@ pub enum NetworkRequests {
     /// participating in this epoch.
     BlockHeaderAnnounce {
         header: BlockHeader,
-        approval: Option<BlockApproval>,
+        approval_message: Option<ApprovalMessage>,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -912,7 +918,7 @@ pub enum NetworkRequests {
         hash: CryptoHash,
         need_header: bool,
         parts_ranges: Vec<Range>,
-        account_id: AccountId,
+        target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
     BanPeer {
@@ -1054,7 +1060,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(Approval, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -1090,7 +1096,12 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { genesis_id: GenesisId, height: BlockIndex, total_weight: Weight },
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockIndex,
+        weight_and_score: WeightAndScore,
+        tracked_shards: Vec<ShardId>,
+    },
     /// Block response.
     Block(Block),
     /// Headers response.
@@ -1164,3 +1175,74 @@ pub struct PartialEncodedChunkRequestMsg {
 
 #[derive(Message)]
 pub struct StopSignal {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    const ALLOWED_SIZE: usize = 1 << 20;
+    const NOTIFY_SIZE: usize = 1024;
+
+    macro_rules! assert_size {
+        ($type:ident) => {
+            let struct_size = size_of::<$type>();
+            if struct_size >= NOTIFY_SIZE {
+                println!("The size of {} is {}", stringify!($type), struct_size);
+            }
+            assert!(struct_size <= ALLOWED_SIZE);
+        };
+    }
+
+    #[test]
+    fn test_enum_size() {
+        assert_size!(PeerType);
+        assert_size!(PeerStatus);
+        assert_size!(HandshakeFailureReason);
+        assert_size!(RoutedMessageBody);
+        assert_size!(PeerIdOrHash);
+        assert_size!(KnownPeerStatus);
+        assert_size!(ConsolidateResponse);
+        assert_size!(PeerRequest);
+        assert_size!(PeerResponse);
+        assert_size!(ReasonForBan);
+        assert_size!(NetworkRequests);
+        assert_size!(PeerManagerRequest);
+        assert_size!(NetworkResponses);
+        assert_size!(NetworkClientMessages);
+        assert_size!(NetworkClientResponses);
+    }
+
+    #[test]
+    fn test_struct_size() {
+        assert_size!(PeerInfo);
+        assert_size!(PeerChainInfo);
+        assert_size!(Handshake);
+        assert_size!(AnnounceAccountRoute);
+        assert_size!(AnnounceAccount);
+        assert_size!(Ping);
+        assert_size!(Pong);
+        assert_size!(RawRoutedMessage);
+        assert_size!(RoutedMessageNoSignature);
+        assert_size!(RoutedMessage);
+        assert_size!(RoutedMessageFrom);
+        assert_size!(SyncData);
+        assert_size!(NetworkConfig);
+        assert_size!(KnownPeerState);
+        assert_size!(InboundTcpConnect);
+        assert_size!(OutboundTcpConnect);
+        assert_size!(SendMessage);
+        assert_size!(Consolidate);
+        assert_size!(Unregister);
+        assert_size!(PeerList);
+        assert_size!(PeersRequest);
+        assert_size!(PeersResponse);
+        assert_size!(Ban);
+        assert_size!(FullPeerInfo);
+        assert_size!(NetworkInfo);
+        assert_size!(StateResponseInfo);
+        assert_size!(QueryPeerStats);
+        assert_size!(PartialEncodedChunkRequestMsg);
+        assert_size!(StopSignal);
+    }
+}

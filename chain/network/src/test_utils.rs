@@ -1,14 +1,15 @@
+use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, AsyncContext, Context, System};
+use futures::future;
 use futures::future::Future;
 use tokio::timer::Delay;
 
-use crate::types::{NetworkConfig, PeerId, PeerInfo};
-use futures::future;
 use near_crypto::{KeyType, SecretKey};
-use std::collections::{HashMap, HashSet};
+
+use crate::types::{NetworkConfig, PeerId, PeerInfo};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -40,6 +41,7 @@ impl NetworkConfig {
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
             max_routes_to_store: 1,
+            most_weighted_peer_height_horizon: 5,
         }
     }
 }

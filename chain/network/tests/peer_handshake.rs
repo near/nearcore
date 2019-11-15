@@ -14,6 +14,7 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerManagerActor,
 };
+use near_primitives::block::WeightAndScore;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 
@@ -36,7 +37,8 @@ fn make_peer_manager(
                 Box::new(Some(NetworkClientResponses::ChainInfo {
                     genesis_id: Default::default(),
                     height: 1,
-                    total_weight: 1.into(),
+                    weight_and_score: WeightAndScore::from_ints(1, 0),
+                    tracked_shards: vec![],
                 }))
             }
             _ => Box::new(Some(NetworkClientResponses::NoResponse)),
