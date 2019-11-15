@@ -1985,6 +1985,7 @@ impl<'a> ChainUpdate<'a> {
                 &prev_chunk.transactions,
                 &prev_chunk.header.inner.validator_proposals,
                 prev_block.header.inner.gas_price,
+                prev_chunk.header.inner.gas_limit,
                 &challenges_result,
                 true,
             )
@@ -2111,6 +2112,7 @@ impl<'a> ChainUpdate<'a> {
                             &chunk.transactions,
                             &chunk.header.inner.validator_proposals,
                             block.header.inner.gas_price,
+                            chunk.header.inner.gas_limit,
                             &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -2169,6 +2171,7 @@ impl<'a> ChainUpdate<'a> {
                             &vec![],
                             &new_extra.validator_proposals,
                             block.header.inner.gas_price,
+                            new_extra.gas_limit,
                             &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -2701,6 +2704,7 @@ impl<'a> ChainUpdate<'a> {
             &chunk.transactions,
             &chunk.header.inner.validator_proposals,
             block_header.inner.gas_price,
+            chunk.header.inner.gas_limit,
             &block_header.inner.challenges_result,
         )?;
 
@@ -2779,6 +2783,7 @@ impl<'a> ChainUpdate<'a> {
             &vec![],
             &chunk_extra.validator_proposals,
             block_header.inner.gas_price,
+            chunk_extra.gas_limit,
             &block_header.inner.challenges_result,
         )?;
 

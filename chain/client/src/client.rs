@@ -428,6 +428,7 @@ impl Client {
             next_height,
             prev_block_timestamp,
             block_header.inner.gas_price,
+            chunk_extra.gas_limit,
             chunk_extra.state_root.clone(),
             transactions,
         );
