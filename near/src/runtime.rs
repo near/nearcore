@@ -621,6 +621,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
     }
 
+    fn push_final_block_back_if_needed(
+        &self,
+        parent_hash: CryptoHash,
+        last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.push_final_block_back_if_needed(parent_hash, last_final_hash)?)
+    }
+
     fn validate_tx(
         &self,
         block_index: BlockIndex,
@@ -678,6 +687,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
         block_index: BlockIndex,
+        last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         chunk_mask: Vec<bool>,
@@ -696,6 +706,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let block_info = BlockInfo::new(
             block_index,
+            last_finalized_height,
             parent_hash,
             proposals,
             chunk_mask,
@@ -1025,7 +1036,7 @@ mod test {
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::block::Weight;
+    use near_primitives::block::WeightAndScore;
     use near_primitives::challenge::ChallengesResult;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
@@ -1152,6 +1163,7 @@ mod test {
                     CryptoHash::default(),
                     genesis_hash,
                     0,
+                    0,
                     vec![],
                     vec![],
                     vec![],
@@ -1167,7 +1179,7 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
-                    total_weight: Weight::default(),
+                    weight_and_score: WeightAndScore::from_ints(0, 0),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1217,6 +1229,7 @@ mod test {
                     self.head.last_block_hash,
                     new_hash,
                     self.head.height + 1,
+                    self.head.height.saturating_sub(1),
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
@@ -1232,7 +1245,10 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                total_weight: Weight::from(self.head.total_weight.to_num() + 1),
+                weight_and_score: WeightAndScore::from_ints(
+                    self.head.weight_and_score.weight.to_num() + 1,
+                    self.head.weight_and_score.score.to_num(),
+                ),
             };
         }
 
@@ -1644,6 +1660,7 @@ mod test {
                     prev_hash,
                     cur_hash,
                     i,
+                    i.saturating_sub(2),
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],

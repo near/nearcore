@@ -104,7 +104,7 @@ impl HeaderSync {
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
             if let Some(peer) = most_weight_peer(&most_weight_peers) {
-                if peer.chain_info.total_weight > header_head.total_weight {
+                if peer.chain_info.weight_and_score > header_head.weight_and_score {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -150,8 +150,8 @@ impl HeaderSync {
                                 if now > *stalling_ts + Duration::seconds(120)
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
-                                        peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}, score: {}",
+                                        peer.peer_info, peer.chain_info.height, peer.chain_info.weight_and_score.weight, peer.chain_info.weight_and_score.score);
                                     self.network_adapter.send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
@@ -847,7 +847,7 @@ mod test {
                     hash: chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
-                total_weight: chain2.head().unwrap().total_weight,
+                weight_and_score: chain2.head().unwrap().weight_and_score,
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),

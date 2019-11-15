@@ -468,6 +468,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
         _block_index: u64,
+        _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
@@ -806,6 +807,14 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
+    }
+
+    fn push_final_block_back_if_needed(
+        &self,
+        _prev_block: CryptoHash,
+        last_final: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        Ok(last_final)
     }
 }
 

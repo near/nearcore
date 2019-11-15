@@ -11,6 +11,7 @@ use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
+use std::cmp::Ordering;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInner {
@@ -120,6 +121,10 @@ impl BlockHeaderInner {
             last_quorum_pre_commit,
             approvals,
         }
+    }
+
+    pub fn weight_and_score(&self) -> WeightAndScore {
+        WeightAndScore { weight: self.total_weight, score: self.score }
     }
 }
 
@@ -567,6 +572,12 @@ pub struct Weight {
     num: u128,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WeightAndScore {
+    pub weight: Weight,
+    pub score: Weight,
+}
+
 impl Weight {
     pub fn to_num(self) -> u128 {
         self.num
@@ -586,6 +597,40 @@ impl From<u128> for Weight {
 impl std::fmt::Display for Weight {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.num)
+    }
+}
+
+impl WeightAndScore {
+    pub fn from_ints(weight: u128, score: u128) -> Self {
+        Self { weight: weight.into(), score: score.into() }
+    }
+
+    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is losely
+    /// defined as either having the score exceeding by the `threshold` (finality gadget is working
+    /// fine, and the last reported final block is way ahead of the last known to us), or having the
+    /// same score, but the weight exceeding by the `threshold` (finality gadget is down, and the
+    /// canonical chain is has significantly higher weight)
+    pub fn beyond_threshold(&self, other: &WeightAndScore, threshold: u128) -> bool {
+        if self.score == other.score {
+            self.weight.to_num() > other.weight.to_num() + threshold
+        } else {
+            self.score.to_num() > other.score.to_num() + threshold
+        }
+    }
+}
+
+impl PartialOrd for WeightAndScore {
+    fn partial_cmp(&self, other: &WeightAndScore) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for WeightAndScore {
+    fn cmp(&self, other: &WeightAndScore) -> Ordering {
+        match self.score.cmp(&other.score) {
+            v @ Ordering::Less | v @ Ordering::Greater => v,
+            Ordering::Equal => self.weight.cmp(&other.weight),
+        }
     }
 }
 

@@ -185,6 +185,7 @@ pub fn record_block(
             &cur_h,
             BlockInfo::new(
                 index,
+                0,
                 prev_h,
                 proposals,
                 vec![],

@@ -100,6 +100,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid quorum_pre_vote or quorum_pre_commit
+    #[fail(display = "Invalid Finality Info")]
+    InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -199,6 +202,7 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals => true,
