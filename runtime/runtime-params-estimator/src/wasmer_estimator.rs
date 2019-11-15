@@ -33,7 +33,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
 fn call() -> (Option<VMOutcome>, Option<VMError>) {
     let code = include_bytes!("../test-contract/res/large_contract.wasm");
     let mut fake_external = MockedExternal::new();
-    let mut context = create_context(vec![]);
+    let context = create_context(vec![]);
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
 

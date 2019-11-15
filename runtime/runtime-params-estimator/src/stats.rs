@@ -23,7 +23,8 @@ impl Measurements {
         block_size: usize,
         block_duration: Duration,
     ) {
-        let ext_costs = node_runtime::EXT_COSTS_COUNTER.write().unwrap().drain().collect();
+        let ext_costs = node_runtime::EXT_COSTS_COUNTER
+            .with(|f| f.borrow_mut().drain().collect::<HashMap<_, _>>());
         self.data.entry(metric).or_insert_with(Vec::new).push((
             block_size,
             block_duration,

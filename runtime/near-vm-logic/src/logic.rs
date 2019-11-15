@@ -1557,7 +1557,7 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let message = format!("LOG: {}", self.get_utf8_string(len, ptr)?);
+        let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(message);
@@ -1577,9 +1577,12 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let message = format!("LOG: {}", self.get_utf16_string(len, ptr)?);
+        let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per_byte(
+            log_byte,
+            message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
+        )?;
         self.logs.push(message);
         Ok(())
     }

@@ -4,11 +4,8 @@ use crate::{HostError, HostErrorOrStorageError};
 use near_runtime_fees::Fee;
 
 #[cfg(feature = "costs_counting")]
-use lazy_static::lazy_static;
-
-#[cfg(feature = "costs_counting")]
-lazy_static! {
-    pub static ref EXT_COSTS_COUNTER: std::sync::RwLock<std::collections::HashMap<ExtCosts, u64>> =
+thread_local! {
+    pub static EXT_COSTS_COUNTER: std::cell::RefCell<std::collections::HashMap<ExtCosts, u64>> =
         Default::default();
 }
 
@@ -68,7 +65,9 @@ impl GasCounter {
     #[cfg(feature = "costs_counting")]
     #[inline]
     fn inc_ext_costs_counter(&self, cost: ExtCosts, value: u64) {
-        *EXT_COSTS_COUNTER.write().unwrap().entry(cost).or_default() += value;
+        EXT_COSTS_COUNTER.with(|f| {
+            *f.borrow_mut().entry(cost).or_default() += value;
+        });
     }
 
     #[cfg(not(feature = "costs_counting"))]
