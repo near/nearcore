@@ -276,6 +276,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             validity_period,
             epoch_length,
+            0,
         );
 
         chain_update

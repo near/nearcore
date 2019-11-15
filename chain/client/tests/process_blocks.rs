@@ -600,6 +600,39 @@ fn test_no_double_sign() {
 }
 
 #[test]
+fn test_invalid_gas_price() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+    );
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    b1.header.inner.gas_price = 0;
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+
+    let (_, result) = client.process_block(b1, Provenance::NONE);
+    match result {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidGasPrice => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => assert!(false, "succeeded, tip: {:?}", result),
+    }
+}
+
+#[test]
 fn test_invalid_block_height() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
