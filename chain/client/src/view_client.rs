@@ -8,11 +8,13 @@ use actix::{Actor, Context, Handler};
 use near_chain::{Chain, ChainGenesis, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, StateRoot};
-use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::{
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
-use crate::GetChunk;
+use crate::{GetChunk, GetValidatorInfo};
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -123,5 +125,13 @@ impl Handler<TxStatus> for ViewClientActor {
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
         self.chain.get_final_transaction_result(&msg.tx_hash)
+    }
+}
+
+impl Handler<GetValidatorInfo> for ViewClientActor {
+    type Result = Result<EpochValidatorInfo, String>;
+
+    fn handle(&mut self, msg: GetValidatorInfo, _: &mut Context<Self>) -> Self::Result {
+        self.runtime_adapter.get_validator_info(&msg.last_block_hash).map_err(|e| e.to_string())
     }
 }

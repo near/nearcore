@@ -970,9 +970,18 @@ impl TryFrom<ReceiptView> for Receipt {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
-    pub current_validators: Vec<ValidatorStakeView>,
+    pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct CurrentEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub is_slashed: bool,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub num_missing_blocks: BlockIndex,
 }
