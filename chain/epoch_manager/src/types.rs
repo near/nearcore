@@ -60,6 +60,7 @@ pub struct EpochInfo {
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct BlockInfo {
     pub index: BlockIndex,
+    pub last_finalized_height: BlockIndex,
     pub prev_hash: CryptoHash,
     pub epoch_first_block: CryptoHash,
     pub epoch_id: EpochId,
@@ -81,6 +82,7 @@ pub struct BlockInfo {
 impl BlockInfo {
     pub fn new(
         index: BlockIndex,
+        last_finalized_height: BlockIndex,
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
@@ -91,6 +93,7 @@ impl BlockInfo {
     ) -> Self {
         Self {
             index,
+            last_finalized_height,
             prev_hash,
             proposals,
             chunk_mask: validator_mask,

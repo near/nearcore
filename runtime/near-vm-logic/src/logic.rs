@@ -81,6 +81,7 @@ impl<'a> VMLogic<'a> {
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
     ) -> Self {
+        ext.reset_touched_nodes_counter();
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
         let gas_counter =
@@ -1526,8 +1527,13 @@ impl<'a> VMLogic<'a> {
         gas_counter.pay_base(config.ext_costs.storage_read_base)?;
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
         gas_counter.pay_per_byte(config.ext_costs.storage_read_key_byte, key.len() as u64)?;
-        let read = ext.storage_get(&key)?;
-        match read {
+        let nodes_before = ext.get_touched_nodes_count();
+        let read = ext.storage_get(&key);
+        gas_counter.pay_per_byte(
+            config.ext_costs.touching_trie_node,
+            ext.get_touched_nodes_count() - nodes_before,
+        )?;
+        match read? {
             Some(value) => {
                 gas_counter
                     .pay_per_byte(config.ext_costs.storage_read_key_byte, value.len() as u64)?;
@@ -1571,9 +1577,14 @@ impl<'a> VMLogic<'a> {
         let key = Self::get_from_memory_or_register(*memory, registers, key_ptr, key_len)?;
 
         gas_counter.pay_per_byte(config.ext_costs.storage_remove_key_byte, key.len() as u64)?;
-        let removed = ext.storage_remove(&key)?;
+        let nodes_before = ext.get_touched_nodes_count();
+        let removed = ext.storage_remove(&key);
+        gas_counter.pay_per_byte(
+            config.ext_costs.touching_trie_node,
+            ext.get_touched_nodes_count() - nodes_before,
+        )?;
         let storage_config = &fees_config.storage_usage_config;
-        match removed {
+        match removed? {
             Some(value) => {
                 gas_counter.pay_per_byte(
                     config.ext_costs.storage_remove_ret_value_byte,
@@ -1603,8 +1614,13 @@ impl<'a> VMLogic<'a> {
             Self::get_from_memory_or_register(self.memory, &self.registers, key_ptr, key_len)?;
         self.gas_counter
             .pay_per_byte(self.config.ext_costs.storage_has_key_byte, key.len() as u64)?;
-        let res = self.ext.storage_has_key(&key)?;
-        Ok(res as u64)
+        let nodes_before = self.ext.get_touched_nodes_count();
+        let res = self.ext.storage_has_key(&key);
+        self.gas_counter.pay_per_byte(
+            self.config.ext_costs.touching_trie_node,
+            self.ext.get_touched_nodes_count() - nodes_before,
+        )?;
+        Ok(res? as u64)
     }
 
     /// Creates an iterator object inside the host. Returns the identifier that uniquely
@@ -1628,7 +1644,13 @@ impl<'a> VMLogic<'a> {
             self.config.ext_costs.storage_iter_create_key_byte,
             prefix.len() as u64,
         )?;
-        let iterator_index = self.ext.storage_iter(&prefix)?;
+        let nodes_before = self.ext.get_touched_nodes_count();
+        let iterator_index = self.ext.storage_iter(&prefix);
+        self.gas_counter.pay_per_byte(
+            self.config.ext_costs.touching_trie_node,
+            self.ext.get_touched_nodes_count() - nodes_before,
+        )?;
+        let iterator_index = iterator_index?;
         self.valid_iterators.insert(iterator_index);
         Ok(iterator_index)
     }
@@ -1662,7 +1684,13 @@ impl<'a> VMLogic<'a> {
             self.config.ext_costs.storage_iter_create_key_byte,
             end_key.len() as u64,
         )?;
-        let iterator_index = self.ext.storage_iter_range(&start_key, &end_key)?;
+        let nodes_before = self.ext.get_touched_nodes_count();
+        let iterator_index = self.ext.storage_iter_range(&start_key, &end_key);
+        self.gas_counter.pay_per_byte(
+            self.config.ext_costs.touching_trie_node,
+            self.ext.get_touched_nodes_count() - nodes_before,
+        )?;
+        let iterator_index = iterator_index?;
         self.valid_iterators.insert(iterator_index);
         Ok(iterator_index)
     }
@@ -1705,8 +1733,13 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::InvalidIteratorIndex.into());
         }
 
-        let value = ext.storage_iter_next(iterator_id)?;
-        match value {
+        let nodes_before = ext.get_touched_nodes_count();
+        let value = ext.storage_iter_next(iterator_id);
+        gas_counter.pay_per_byte(
+            config.ext_costs.touching_trie_node,
+            ext.get_touched_nodes_count() - nodes_before,
+        )?;
+        match value? {
             Some((key, value)) => {
                 gas_counter
                     .pay_per_byte(config.ext_costs.storage_iter_next_key_byte, key.len() as u64)?;

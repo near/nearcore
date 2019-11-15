@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::Signature;
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::RuntimeError;
@@ -282,12 +282,19 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
+    fn push_final_block_back_if_needed(
+        &self,
+        parent_hash: CryptoHash,
+        last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, Error>;
+
     /// Add proposals for validators.
     fn add_validator_proposals(
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
         block_index: BlockIndex,
+        last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
@@ -436,7 +443,7 @@ pub struct Tip {
     /// Previous block
     pub prev_block_hash: CryptoHash,
     /// Total weight on that fork
-    pub total_weight: Weight,
+    pub weight_and_score: WeightAndScore,
     /// Previous epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
 }
@@ -448,7 +455,7 @@ impl Tip {
             height: header.inner.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.inner.prev_hash,
-            total_weight: header.inner.total_weight,
+            weight_and_score: header.inner.weight_and_score(),
             epoch_id: header.inner.epoch_id.clone(),
         }
     }

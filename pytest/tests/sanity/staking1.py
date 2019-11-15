@@ -12,7 +12,7 @@ from transaction import sign_staking_tx
 TIMEOUT = 150
 
 config = {'local': True, 'near_root': '../target/debug/'}
-nodes = start_cluster(2, 1, 1, config, [["epoch_length", 5], ["validator_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
+nodes = start_cluster(2, 1, 1, config, [["epoch_length", 5], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
 
