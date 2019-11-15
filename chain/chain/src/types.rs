@@ -14,7 +14,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
-use near_primitives::views::QueryResponse;
+use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -81,8 +81,6 @@ pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,
     pub provenance: Provenance,
-    pub gas_used: Gas,
-    pub gas_limit: Gas,
 }
 
 /// Map of shard to list of receipts to send to it.
@@ -389,6 +387,8 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
+    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
+
     /// Get the part of the state from given state root + proof.
     fn obtain_state_part(
         &self,
@@ -512,7 +512,6 @@ mod tests {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             Utc::now(),
-            1_000_000,
             100,
             1_000_000_000,
         );

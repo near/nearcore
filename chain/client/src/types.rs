@@ -11,7 +11,9 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
-use near_primitives::views::{BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::{
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+};
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -298,4 +300,12 @@ pub struct TxStatus {
 
 impl Message for TxStatus {
     type Result = Result<FinalExecutionOutcomeView, String>;
+}
+
+pub struct GetValidatorInfo {
+    pub last_block_hash: CryptoHash,
+}
+
+impl Message for GetValidatorInfo {
+    type Result = Result<EpochValidatorInfo, String>;
 }

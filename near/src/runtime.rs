@@ -31,7 +31,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
+    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
@@ -855,7 +855,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
-        block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
@@ -925,17 +925,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     })),
                 }
             }
-            "validators" => {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                match epoch_manager.get_validator_info(block_hash) {
-                    Ok(info) => Ok(QueryResponse::Validators(info)),
-                    Err(e) => {
-                        Ok(QueryResponse::Error(QueryError { error: e.to_string(), logs: vec![] }))
-                    }
-                }
-            }
             _ => Err(format!("Unknown path {}", path_parts[0]).into()),
         }
+    }
+
+    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+        println!("get validator info");
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
     fn obtain_state_part(
@@ -1099,7 +1096,7 @@ mod test {
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
-    use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
+    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
@@ -1833,57 +1830,44 @@ mod test {
             .unwrap()
             .validators
             .clone();
-        let response = env
-            .runtime
-            .query(&env.state_roots[0], 2, 0, &env.head.last_block_hash, vec!["validators"], &[])
-            .unwrap();
-        match response {
-            QueryResponse::Validators(info) => assert_eq!(
-                info,
-                EpochValidatorInfo {
-                    current_validators: current_validators
-                        .clone()
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    next_validators: current_validators
-                        .clone()
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    current_proposals: vec![ValidatorStake {
-                        account_id: "test1".to_string(),
-                        public_key: block_producers[0].signer.public_key(),
-                        amount: 0
-                    }
-                    .into()]
+        let current_epoch_validator_info = current_validators
+            .clone()
+            .into_iter()
+            .map(|v| CurrentEpochValidatorInfo {
+                account_id: v.account_id,
+                is_slashed: false,
+                stake: v.amount,
+                num_missing_blocks: 0,
+            })
+            .collect::<Vec<_>>();
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        assert_eq!(
+            response,
+            EpochValidatorInfo {
+                current_validators: current_epoch_validator_info.clone(),
+                next_validators: current_validators.clone().into_iter().map(Into::into).collect(),
+                current_proposals: vec![ValidatorStake {
+                    account_id: "test1".to_string(),
+                    public_key: block_producers[0].signer.public_key(),
+                    amount: 0
                 }
-            ),
-            _ => panic!("wrong response"),
-        }
-        env.step_default(vec![]);
-        let response = env
-            .runtime
-            .query(&env.state_roots[0], 3, 0, &env.head.last_block_hash, vec!["validators"], &[])
-            .unwrap();
-        match response {
-            QueryResponse::Validators(info) => {
-                let v: Vec<ValidatorStake> =
-                    info.current_validators.clone().into_iter().map(Into::into).collect();
-                assert_eq!(v, current_validators);
-                assert_eq!(
-                    info.next_validators,
-                    vec![ValidatorStake {
-                        account_id: "test2".to_string(),
-                        public_key: block_producers[1].signer.public_key(),
-                        amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
-                    }
-                    .into()]
-                );
-                assert!(info.current_proposals.is_empty());
+                .into()]
             }
-            _ => panic!("wrong response"),
-        }
+        );
+        env.step_default(vec![]);
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+
+        assert_eq!(response.current_validators, current_epoch_validator_info);
+        assert_eq!(
+            response.next_validators,
+            vec![ValidatorStake {
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].signer.public_key(),
+                amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
+            }
+            .into()]
+        );
+        assert!(response.current_proposals.is_empty());
     }
 
     #[test]
