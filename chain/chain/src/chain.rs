@@ -189,7 +189,6 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
-    pub finality_gadget: FinalityGadget,
     pub transaction_validity_period: BlockIndex,
     pub epoch_length: BlockIndex,
 }
@@ -257,6 +256,7 @@ impl Chain {
                         CryptoHash::default(),
                         genesis.hash(),
                         genesis.header.inner.height,
+                        0,
                         vec![],
                         vec![],
                         vec![],
@@ -302,7 +302,7 @@ impl Chain {
         }
         store_update.commit()?;
 
-        info!(target: "chain", "Init: head: {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+        info!(target: "chain", "Init: head: weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
 
         Ok(Chain {
             store,
@@ -310,7 +310,6 @@ impl Chain {
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: OrphanBlockPool::new(),
             genesis: genesis.header,
-            finality_gadget: FinalityGadget {},
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
         })
@@ -322,7 +321,7 @@ impl Chain {
         approval: &Approval,
     ) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-        self.finality_gadget.process_approval(me, approval, &mut chain_store_update)?;
+        FinalityGadget::process_approval(me, approval, &mut chain_store_update)?;
         chain_store_update.commit()?;
         Ok(())
     }
@@ -331,27 +330,33 @@ impl Chain {
         &mut self,
         approval: &Approval,
     ) -> Result<(), ApprovalVerificationError> {
-        self.finality_gadget.verify_approval_conditions(approval, &mut self.store)
+        FinalityGadget::verify_approval_conditions(approval, &mut self.store)
     }
 
     pub fn get_my_approval_reference_hash(&mut self, last_hash: CryptoHash) -> Option<CryptoHash> {
-        self.finality_gadget.get_my_approval_reference_hash(last_hash, &mut self.store)
+        FinalityGadget::get_my_approval_reference_hash(last_hash, &mut self.store)
     }
 
     pub fn compute_quorums(
-        &mut self,
         prev_hash: CryptoHash,
+        epoch_id: EpochId,
         height: BlockIndex,
         approvals: Vec<Approval>,
         total_block_producers: usize,
+        runtime_adapter: &dyn RuntimeAdapter,
+        chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<FinalityGadgetQuorums, Error> {
-        self.finality_gadget.compute_quorums(
+        let mut ret = FinalityGadget::compute_quorums(
             prev_hash,
+            epoch_id,
             height,
             approvals,
-            &mut self.store,
+            chain_store,
             total_block_producers,
-        )
+        )?;
+        ret.last_quorum_pre_commit = runtime_adapter
+            .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
+        Ok(ret)
     }
 
     /// Reset "sync" head to current header head.
@@ -541,6 +546,7 @@ impl Chain {
                     header.inner.prev_hash,
                     header.hash(),
                     header.inner.height,
+                    self.store.get_block_height(&header.inner.last_quorum_pre_commit)?,
                     header.inner.validator_proposals.clone(),
                     vec![],
                     header.inner.chunk_mask.clone(),
@@ -579,7 +585,7 @@ impl Chain {
         let header_head = self.header_head()?;
         let mut hashes = vec![];
 
-        if block_head.total_weight >= header_head.total_weight {
+        if block_head.weight_and_score >= header_head.weight_and_score {
             return Ok((false, hashes));
         }
 
@@ -1979,6 +1985,7 @@ impl<'a> ChainUpdate<'a> {
                 &prev_chunk.transactions,
                 &prev_chunk.header.inner.validator_proposals,
                 prev_block.header.inner.gas_price,
+                prev_chunk.header.inner.gas_limit,
                 &challenges_result,
                 true,
             )
@@ -2105,6 +2112,7 @@ impl<'a> ChainUpdate<'a> {
                             &chunk.transactions,
                             &chunk.header.inner.validator_proposals,
                             block.header.inner.gas_price,
+                            chunk.header.inner.gas_limit,
                             &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -2163,6 +2171,7 @@ impl<'a> ChainUpdate<'a> {
                             &vec![],
                             &new_extra.validator_proposals,
                             block.header.inner.gas_price,
+                            new_extra.gas_limit,
                             &block.header.inner.challenges_result,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -2236,8 +2245,7 @@ impl<'a> ChainUpdate<'a> {
         self.process_header_for_block(&block.header, provenance, on_challenge)?;
 
         for approval in block.header.inner.approvals.iter() {
-            let fg = FinalityGadget {};
-            fg.process_approval(me, approval, &mut self.chain_store_update)?;
+            FinalityGadget::process_approval(me, approval, &mut self.chain_store_update)?;
         }
 
         // We need to know the last approval on the previous block to later compute the reference
@@ -2297,10 +2305,17 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // If block checks out, record validator proposals for given block.
+        let last_quorum_pre_commit = &block.header.inner.last_quorum_pre_commit;
+        let last_finalized_height = if last_quorum_pre_commit == &CryptoHash::default() {
+            0
+        } else {
+            self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner.height
+        };
         self.runtime_adapter.add_validator_proposals(
             block.header.inner.prev_hash,
             block.hash(),
             block.header.inner.height,
+            last_finalized_height,
             block.header.inner.validator_proposals.clone(),
             block.header.inner.challenges_result.clone(),
             block.header.inner.chunk_mask.clone(),
@@ -2433,6 +2448,24 @@ impl<'a> ChainUpdate<'a> {
             if weight != header.inner.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());
             }
+
+            let quorums = Chain::compute_quorums(
+                header.inner.prev_hash,
+                header.inner.epoch_id.clone(),
+                header.inner.height,
+                header.inner.approvals.clone(),
+                self.runtime_adapter
+                    .get_epoch_block_producers(&header.inner.epoch_id, &header.inner.prev_hash)?
+                    .len(),
+                &*self.runtime_adapter,
+                &mut self.chain_store_update,
+            )?;
+
+            if header.inner.last_quorum_pre_commit != quorums.last_quorum_pre_commit
+                || header.inner.last_quorum_pre_vote != quorums.last_quorum_pre_vote
+            {
+                return Err(ErrorKind::InvalidFinalityInfo.into());
+            }
         }
 
         Ok(())
@@ -2444,7 +2477,7 @@ impl<'a> ChainUpdate<'a> {
         header: &BlockHeader,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.inner.total_weight > header_head.total_weight {
+        if header.inner.weight_and_score() > header_head.weight_and_score {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
@@ -2462,7 +2495,7 @@ impl<'a> ChainUpdate<'a> {
         // if we made a fork with more weight than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.inner.total_weight > head.total_weight {
+        if block.header.inner.weight_and_score() > head.weight_and_score {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip)?;
@@ -2671,6 +2704,7 @@ impl<'a> ChainUpdate<'a> {
             &chunk.transactions,
             &chunk.header.inner.validator_proposals,
             block_header.inner.gas_price,
+            chunk.header.inner.gas_limit,
             &block_header.inner.challenges_result,
         )?;
 
@@ -2749,6 +2783,7 @@ impl<'a> ChainUpdate<'a> {
             &vec![],
             &chunk_extra.validator_proposals,
             block_header.inner.gas_price,
+            chunk_extra.gas_limit,
             &block_header.inner.challenges_result,
         )?;
 

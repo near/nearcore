@@ -277,10 +277,27 @@ impl Client {
             }
         }
 
-        let quorums = self
-            .chain
-            .compute_quorums(prev_hash, next_height, approvals.clone(), total_block_producers)?
-            .clone();
+        // At this point, the previous epoch hash must be available
+        let epoch_id = self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .expect("Epoch hash should exist at this point");
+
+        // Here `total_block_producers` is the number of block producers in the epoch of the previous
+        // block. It would be more correct to pass the number of block producers in the current epoch.
+        // However, in the case when the epochs differ the `compute_quorums` will exit on the very
+        // first iteration without using `total_block_producers`, thus it doesn't affect the
+        // correctness of the computation.
+        let quorums = Chain::compute_quorums(
+            prev_hash,
+            epoch_id.clone(),
+            next_height,
+            approvals.clone(),
+            total_block_producers,
+            &*self.runtime_adapter,
+            self.chain.mut_store(),
+        )?
+        .clone();
 
         let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
@@ -293,8 +310,7 @@ impl Client {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        // TODO (#1675): this assert can currently trigger due to epoch switches not handled properly
-        //assert!(score >= prev_block.header.inner.score);
+        assert!(score >= prev_block.header.inner.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -303,12 +319,6 @@ impl Client {
         }
 
         let prev_header = &prev_block.header;
-
-        // At this point, the previous epoch hash must be available
-        let epoch_id = self
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .expect("Epoch hash should exist at this point");
 
         let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             let next_epoch_id =

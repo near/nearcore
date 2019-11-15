@@ -476,6 +476,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
         _block_index: u64,
+        _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
@@ -498,6 +499,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -689,6 +691,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         _gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
@@ -814,6 +817,14 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
+    }
+
+    fn push_final_block_back_if_needed(
+        &self,
+        _prev_block: CryptoHash,
+        last_final: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        Ok(last_final)
     }
 }
 

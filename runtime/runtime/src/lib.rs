@@ -10,9 +10,16 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use kvdb::DBValue;
 
+use crate::actions::*;
+use crate::balance_checker::check_balance;
+use crate::config::{
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    total_prepaid_gas, total_send_fees, RuntimeConfig,
+};
+pub use crate::store::StateRecord;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
@@ -28,10 +35,11 @@ use near_primitives::transaction::{
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
 };
+use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, is_valid_account_id, key_for_delayed_receipt,
+    key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
+    key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -41,14 +49,6 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
-
-use crate::actions::*;
-use crate::balance_checker::check_balance;
-use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, total_send_fees, RuntimeConfig,
-};
-pub use crate::store::StateRecord;
 
 mod actions;
 pub mod adapter;
@@ -72,6 +72,9 @@ pub struct ApplyState {
     pub gas_price: Balance,
     /// A block timestamp
     pub block_timestamp: u64,
+    /// Gas limit for a given chunk.
+    /// If None is given, assumes there is no gas limit.
+    pub gas_limit: Option<Gas>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -112,6 +115,15 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub key_value_changes: PrefixKeyValueChanges,
     pub stats: ApplyStats,
+}
+
+/// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
+#[derive(Default, BorshSerialize, BorshDeserialize)]
+pub struct DelayedReceiptIndices {
+    // First inclusive index in the queue.
+    first_index: u64,
+    // Exclusive end index of the queue
+    next_available_index: u64,
 }
 
 #[derive(Debug)]
@@ -914,6 +926,7 @@ impl Runtime {
 
         Ok(())
     }
+
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
@@ -950,21 +963,32 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
+        let mut total_gas_burnt = 0;
 
         for signed_transaction in transactions {
-            outcomes.push(self.process_transaction(
+            let outcome_with_id = self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
                 &mut stats,
-            )?);
+            )?;
+            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
+
+            outcomes.push(outcome_with_id);
         }
 
-        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
+        let mut delayed_receipts_indices: DelayedReceiptIndices =
+            get(&state_update, DELAYED_RECEIPT_INDICES)?.unwrap_or_default();
+        let mut delayed_receipts_changed = false;
+
+        let mut process_receipt = |receipt: &Receipt,
+                                   state_update: &mut TrieUpdate,
+                                   total_gas_burnt: &mut Gas|
+         -> Result<_, StorageError> {
             self.process_receipt(
-                &mut state_update,
+                state_update,
                 apply_state,
                 receipt,
                 &mut new_receipts,
@@ -972,7 +996,49 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|outcome_with_id| outcomes.push(outcome_with_id));
+            .for_each(|outcome_with_id| {
+                *total_gas_burnt += outcome_with_id.outcome.gas_burnt;
+                outcomes.push(outcome_with_id);
+            });
+            Ok(())
+        };
+
+        let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+
+        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
+            if total_gas_burnt >= gas_limit {
+                break;
+            }
+            let key = key_for_delayed_receipt(delayed_receipts_indices.first_index);
+            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} should be in the state",
+                    delayed_receipts_indices.first_index
+                ))
+            })?;
+            state_update.remove(&key);
+            delayed_receipts_indices.first_index += 1;
+            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            delayed_receipts_changed = true;
+        }
+
+        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
+            if total_gas_burnt < gas_limit {
+                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            } else {
+                // Saving to the state as a delayed receipt.
+                set(
+                    &mut state_update,
+                    key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
+                    receipt,
+                );
+                delayed_receipts_indices.next_available_index += 1;
+                delayed_receipts_changed = true;
+            }
+        }
+
+        if delayed_receipts_changed {
+            set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
         }
 
         check_balance(
@@ -1153,12 +1219,16 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use near::config::INITIAL_GAS_PRICE;
+    use near_crypto::KeyType;
     use near_primitives::hash::hash;
+    use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
+    use testlib::fees_utils::gas_burnt_to_reward;
     use testlib::runtime_utils::{alice_account, bob_account};
-
-    use super::*;
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1190,41 +1260,16 @@ mod tests {
     /* Apply tests */
     /***************/
 
-    #[test]
-    fn test_apply_no_op() {
+    fn setup_runtime(
+        initial_balance: Balance,
+        initial_locked: Balance,
+        gas_limit: Gas,
+    ) -> (Runtime, Arc<Trie>, CryptoHash, ApplyState) {
         let trie = create_trie();
         let root = MerkleHash::default();
         let runtime = Runtime::new(RuntimeConfig::default());
 
         let account_id = alice_account();
-
-        let initial_balance = 1_000_000;
-
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
-        let initial_account = Account::new(initial_balance, hash(&[]), 0);
-        set_account(&mut initial_state, &account_id, &initial_account);
-        let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
-        store_update.commit().unwrap();
-
-        let apply_state =
-            ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
-
-        runtime.apply(trie, root, &None, &apply_state, &[], &[], &HashSet::new()).unwrap();
-    }
-
-    #[test]
-    fn test_apply_check_balance_validation_rewards() {
-        let trie = create_trie();
-        let root = MerkleHash::default();
-        let runtime = Runtime::new(RuntimeConfig::default());
-
-        let account_id = alice_account();
-
-        let initial_balance = 1_000_000;
-        let initial_locked = 500_000;
-        let reward = 10_000_000;
-        let small_refund = 500;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
@@ -1234,12 +1279,34 @@ mod tests {
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
-        let apply_state =
-            ApplyState { block_index: 0, epoch_length: 3, gas_price: 100, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 0,
+            epoch_length: 3,
+            gas_price: INITIAL_GAS_PRICE,
+            block_timestamp: 100,
+            gas_limit: Some(gas_limit),
+        };
+
+        (runtime, trie, root, apply_state)
+    }
+
+    #[test]
+    fn test_apply_no_op() {
+        let (runtime, trie, root, apply_state) = setup_runtime(1_000_000, 0, 10_000_000);
+        runtime.apply(trie, root, &None, &apply_state, &[], &[], &HashSet::new()).unwrap();
+    }
+
+    #[test]
+    fn test_apply_check_balance_validation_rewards() {
+        let initial_locked = 500_000;
+        let reward = 10_000_000;
+        let small_refund = 500;
+        let (runtime, trie, root, apply_state) =
+            setup_runtime(1_000_000, initial_locked, 10_000_000);
 
         let validator_accounts_update = ValidatorAccountsUpdate {
-            stake_info: vec![(account_id.clone(), initial_locked)].into_iter().collect(),
-            validator_rewards: vec![(account_id.clone(), reward)].into_iter().collect(),
+            stake_info: vec![(alice_account(), initial_locked)].into_iter().collect(),
+            validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
             slashed_accounts: HashSet::default(),
@@ -1251,10 +1318,161 @@ mod tests {
                 root,
                 &Some(validator_accounts_update),
                 &apply_state,
-                &[Receipt::new_refund(&account_id, small_refund)],
+                &[Receipt::new_refund(&alice_account(), small_refund)],
                 &[],
                 &HashSet::new(),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts_feed_all_at_once() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, mut root, apply_state) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts = generate_receipts(small_transfer, n);
+
+        let reward_per_receipt = gas_burnt_to_reward(
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
+        );
+
+        // Checking n receipts delayed by 1 + 3 extra
+        for i in 1..=n + 3 {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            let capped_i = std::cmp::min(i, n);
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts_add_more_using_chunks() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let (runtime, trie, mut root, mut apply_state) =
+            setup_runtime(initial_balance, initial_locked, 1);
+
+        let receipt_gas_cost =
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        apply_state.gas_limit = Some(receipt_gas_cost * 3);
+
+        let n = 40;
+        let receipts = generate_receipts(small_transfer, n);
+        let mut receipt_chunks = receipts.chunks_exact(4);
+
+        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+
+        // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
+        for i in 1..=n / 3 + 3 {
+            let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            let capped_i = std::cmp::min(i * 3, n);
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_delayed_receipts_adjustable_gas_limit() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let (runtime, trie, mut root, mut apply_state) =
+            setup_runtime(initial_balance, initial_locked, 1);
+
+        let receipt_gas_cost =
+            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
+                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+
+        let n = 120;
+        let receipts = generate_receipts(small_transfer, n);
+        let mut receipt_chunks = receipts.chunks_exact(4);
+
+        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+
+        let mut num_receipts_given = 0;
+        let mut num_receipts_processed = 0;
+        let mut num_receipts_per_block = 1;
+        // Test adjusts gas limit based on the number of receipt given and number of receipts processed.
+        while num_receipts_processed < n {
+            if num_receipts_given > num_receipts_processed {
+                num_receipts_per_block += 1;
+            } else if num_receipts_per_block > 1 {
+                num_receipts_per_block -= 1;
+            }
+            apply_state.gas_limit = Some(num_receipts_per_block * receipt_gas_cost);
+            let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
+            num_receipts_given += prev_receipts.len() as u64;
+            let apply_result = runtime
+                .apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[], &HashSet::new())
+                .unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = TrieUpdate::new(trie.clone(), root);
+            num_receipts_processed += apply_result.outcomes.len() as u64;
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            assert_eq!(
+                account.amount,
+                initial_balance
+                    + (small_transfer + reward_per_receipt) * Balance::from(num_receipts_processed)
+                    + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
+            );
+            println!(
+                "{} processed out of {} given. With limit {} receipts per block",
+                num_receipts_processed, num_receipts_given, num_receipts_per_block
+            );
+        }
+    }
+
+    fn generate_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+        (0..n)
+            .map(|i| Receipt {
+                predecessor_id: bob_account(),
+                receiver_id: alice_account(),
+                receipt_id: create_nonce_with_nonce(&CryptoHash::default(), i),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: bob_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction {
+                        deposit: small_transfer + Balance::from(i),
+                    })],
+                }),
+            })
+            .collect()
     }
 }

@@ -114,6 +114,7 @@ impl RuntimeUser {
             block_timestamp: 0,
             epoch_length: client.epoch_length,
             gas_price: INITIAL_GAS_PRICE,
+            gas_limit: None,
         }
     }
 

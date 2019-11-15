@@ -211,6 +211,7 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
@@ -278,6 +279,7 @@ impl NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit: Some(gas_limit),
         };
 
         let apply_result = self
@@ -621,6 +623,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
     }
 
+    fn push_final_block_back_if_needed(
+        &self,
+        parent_hash: CryptoHash,
+        last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.push_final_block_back_if_needed(parent_hash, last_final_hash)?)
+    }
+
     fn validate_tx(
         &self,
         block_index: BlockIndex,
@@ -635,6 +646,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            // NOTE: verify transaction doesn't use gas limit
+            gas_limit: None,
         };
 
         match self.runtime.verify_and_charge_transaction(
@@ -669,6 +682,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit: Some(gas_limit),
         };
 
         // Total amount of gas burnt for converting transactions towards receipts.
@@ -721,6 +735,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
         block_index: BlockIndex,
+        last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         chunk_mask: Vec<bool>,
@@ -739,6 +754,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let block_info = BlockInfo::new(
             block_index,
+            last_finalized_height,
             parent_hash,
             proposals,
             chunk_mask,
@@ -768,6 +784,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -787,6 +804,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         ) {
             Ok(result) => Ok(result),
@@ -812,6 +830,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
@@ -826,6 +845,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         )
     }
@@ -1068,7 +1088,7 @@ mod test {
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::block::Weight;
+    use near_primitives::block::WeightAndScore;
     use near_primitives::challenge::ChallengesResult;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
@@ -1077,7 +1097,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
     use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
     use near_store::create_store;
@@ -1123,6 +1143,7 @@ mod test {
             transactions: &[SignedTransaction],
             last_proposals: &[ValidatorStake],
             gas_price: Balance,
+            gas_limit: Gas,
             challenges: &ChallengesResult,
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
@@ -1137,6 +1158,7 @@ mod test {
                     transactions,
                     last_proposals,
                     gas_price,
+                    gas_limit,
                     challenges,
                 )
                 .unwrap();
@@ -1195,6 +1217,7 @@ mod test {
                     CryptoHash::default(),
                     genesis_hash,
                     0,
+                    0,
                     vec![],
                     vec![],
                     vec![],
@@ -1210,7 +1233,7 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
-                    total_weight: Weight::default(),
+                    weight_and_score: WeightAndScore::from_ints(0, 0),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1243,6 +1266,7 @@ mod test {
                     &transactions[i as usize],
                     self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
                     self.runtime.genesis_config.gas_price,
+                    u64::max_value(),
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;
@@ -1260,6 +1284,7 @@ mod test {
                     self.head.last_block_hash,
                     new_hash,
                     self.head.height + 1,
+                    self.head.height.saturating_sub(1),
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
@@ -1275,7 +1300,10 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                total_weight: Weight::from(self.head.total_weight.to_num() + 1),
+                weight_and_score: WeightAndScore::from_ints(
+                    self.head.weight_and_score.weight.to_num() + 1,
+                    self.head.weight_and_score.score.to_num(),
+                ),
             };
         }
 
@@ -1687,6 +1715,7 @@ mod test {
                     prev_hash,
                     cur_hash,
                     i,
+                    i.saturating_sub(2),
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
@@ -1982,8 +2011,13 @@ mod test {
             10,
             CryptoHash::default(),
         );
-        let apply_state =
-            ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 1,
+            epoch_length: 2,
+            gas_price: 10,
+            block_timestamp: 100,
+            gas_limit: None,
+        };
         let mut prefixes = HashSet::new();
         prefixes.insert(prefix);
         let apply_result = env
