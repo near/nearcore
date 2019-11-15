@@ -17,7 +17,10 @@ fn test_valid_utf8() {
     let len = string_bytes.len() as u64;
     logic.log_utf8(len, string_bytes.as_ptr() as _).expect("Valid utf-8 string_bytes");
     let outcome = logic.outcome();
-    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes.clone()).unwrap());
+    assert_eq!(
+        outcome.logs[0],
+        format!("LOG: {}", String::from_utf8(string_bytes.clone()).unwrap())
+    );
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::log_base:  1,
@@ -71,7 +74,10 @@ fn test_valid_null_terminated_utf8() {
         ExtCosts::utf8_decoding_base: 1,
         ExtCosts::utf8_decoding_byte: len - 1,
     });
-    assert_eq!(outcome.logs[0], String::from_utf8(string_bytes.clone()).unwrap());
+    assert_eq!(
+        outcome.logs[0],
+        format!("LOG: {}", String::from_utf8(string_bytes.clone()).unwrap())
+    );
 }
 
 #[test]
@@ -145,7 +151,7 @@ fn test_valid_log_utf16() {
         ExtCosts::log_byte: len,
     });
     let outcome = logic.outcome();
-    assert_eq!(outcome.logs[0], string);
+    assert_eq!(outcome.logs[0], format!("LOG: {}", string));
 }
 
 #[test]
@@ -226,7 +232,7 @@ fn test_valid_log_utf16_null_terminated() {
 
     let len = utf16_bytes.len() as u64;
     let outcome = logic.outcome();
-    assert_eq!(outcome.logs[0], string);
+    assert_eq!(outcome.logs[0], format!("LOG: {}", string));
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::read_memory_base: len / 2 ,
@@ -285,7 +291,7 @@ fn test_valid_log_utf16_null_terminated_fail() {
         ExtCosts::log_base: 1,
         ExtCosts::log_byte: len - 2,
     });
-    assert_ne!(logic.outcome().logs[0], string);
+    assert_ne!(logic.outcome().logs[0], format!("LOG: {}", string));
 }
 
 #[test]
