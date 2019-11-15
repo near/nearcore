@@ -703,8 +703,11 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
+            let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner.height);
 
-            self.info_helper.block_processed();
+            self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
         }
     }

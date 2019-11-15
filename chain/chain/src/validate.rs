@@ -14,6 +14,9 @@ use crate::byzantine_assert;
 use crate::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 
+/// Gas limit cannot be adjusted for more than 0.1% at a time.
+const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
+
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
@@ -101,8 +104,9 @@ pub fn validate_chunk_with_chunk_extra(
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit;
-    if chunk_header.inner.gas_limit < prev_gas_limit - prev_gas_limit / 1000
-        || chunk_header.inner.gas_limit > prev_gas_limit + prev_gas_limit / 1000
+    if chunk_header.inner.gas_limit < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+        || chunk_header.inner.gas_limit
+            > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
         return Err(ErrorKind::InvalidGasLimit.into());
     }
