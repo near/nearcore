@@ -190,7 +190,6 @@ impl GenesisBuilder {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.config.genesis_time,
-            self.config.gas_limit,
             self.config.gas_price,
             self.config.total_supply,
         );
@@ -203,6 +202,7 @@ impl GenesisBuilder {
                 CryptoHash::default(),
                 genesis.hash(),
                 genesis.header.inner.height,
+                0,
                 vec![],
                 vec![],
                 vec![],

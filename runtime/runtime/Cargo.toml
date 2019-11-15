@@ -43,5 +43,6 @@ rayon = "1.1"
 assert_matches = "1.3.0"
 
 testlib = { path = "../../test-utils/testlib" }
+near = { path = "../../near" }
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}
