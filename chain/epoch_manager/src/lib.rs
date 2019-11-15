@@ -178,22 +178,22 @@ impl EpochManager {
             let info = self.get_block_info(&hash)?.clone();
             if hash == *last_block_hash {
                 block_validator_tracker = info.block_tracker;
+                for proposal in info.all_proposals.into_iter().rev() {
+                    if !slashed_validators.contains(&proposal.account_id) {
+                        if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
+                            validator_kickout.insert(proposal.account_id.clone());
+                        }
+                        // This code relies on the fact that within a block the proposals are ordered
+                        // in the order they are added. So we only take the last proposal for any given
+                        // account in this manner.
+                        proposals.entry(proposal.account_id.clone()).or_insert(proposal);
+                    }
+                }
             }
             if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
                 break;
             }
 
-            for proposal in info.proposals.into_iter().rev() {
-                if !slashed_validators.contains(&proposal.account_id) {
-                    if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
-                        validator_kickout.insert(proposal.account_id.clone());
-                    }
-                    // This code relies on the fact that within a block the proposals are ordered
-                    // in the order they are added. So we only take the last proposal for any given
-                    // account in this manner.
-                    proposals.entry(proposal.account_id.clone()).or_insert(proposal);
-                }
-            }
             produced_block_indices.insert(info.index);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
                 let chunk_validator_id =
@@ -368,12 +368,20 @@ impl EpochManager {
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
 
+                let BlockInfo { block_tracker, mut all_proposals, .. } = prev_block_info;
+
                 // Update block produced/expected tracker.
                 block_info.update_block_tracker(
                     &epoch_info,
                     prev_block_info.index,
-                    if is_epoch_start { HashMap::default() } else { prev_block_info.block_tracker },
+                    if is_epoch_start { HashMap::default() } else { block_tracker },
                 );
+                if is_epoch_start {
+                    block_info.all_proposals = block_info.proposals.clone();
+                } else {
+                    all_proposals.extend(block_info.proposals.clone());
+                    block_info.all_proposals = all_proposals;
+                }
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
@@ -625,11 +633,11 @@ impl EpochManager {
             .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
-        let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
+        let current_proposals = self.get_block_info(block_hash)?.all_proposals.clone();
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators: next_validators.into_iter().map(Into::into).collect(),
-            current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
+            current_proposals: current_proposals.into_iter().map(Into::into).collect(),
         })
     }
 
@@ -1229,6 +1237,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1248,6 +1257,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1267,6 +1277,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1334,6 +1345,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1353,6 +1365,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1372,6 +1385,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1467,6 +1481,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1486,6 +1501,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1505,6 +1521,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1623,6 +1640,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )
@@ -1641,6 +1659,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )
@@ -1659,6 +1678,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )

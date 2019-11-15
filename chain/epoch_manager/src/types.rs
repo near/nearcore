@@ -63,7 +63,6 @@ pub struct BlockInfo {
     pub prev_hash: CryptoHash,
     pub epoch_first_block: CryptoHash,
     pub epoch_id: EpochId,
-
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
@@ -75,6 +74,8 @@ pub struct BlockInfo {
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+    /// All proposals in this epoch up to this block
+    pub all_proposals: Vec<ValidatorStake>,
 }
 
 impl BlockInfo {
@@ -101,6 +102,7 @@ impl BlockInfo {
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
             block_tracker: HashMap::default(),
+            all_proposals: vec![],
         }
     }
 
