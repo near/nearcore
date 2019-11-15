@@ -289,7 +289,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         assert_eq!(
-            challenge_body.partial_state,
+            challenge_body.partial_state.0,
             vec![
                 vec![
                     1, 7, 0, 227, 6, 86, 139, 125, 37, 242, 104, 89, 182, 115, 113, 193, 120, 119,

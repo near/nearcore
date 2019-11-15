@@ -384,11 +384,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
+                            let num_parts = shard_sync_download.downloads.len();
                             for (i, part_id) in shard_state.part_ids.iter().enumerate() {
                                 let part_id = *part_id as usize;
-                                let num_parts = shard_sync_download.downloads.len();
                                 if part_id >= num_parts {
-                                    // TODO MOO ask Alex if continue is enough here
+                                    // This may happen only if we somehow have accepted wrong header
                                     continue;
                                 }
                                 if !shard_sync_download.downloads[part_id].done {

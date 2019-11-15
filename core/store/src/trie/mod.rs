@@ -528,12 +528,12 @@ impl Trie {
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
         let mut nodes: Vec<_> = guard.drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes })
+        Some(PartialStorage { nodes: PartialState(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
         let recorded_storage =
-            partial_storage.nodes.into_iter().map(|value| (hash(&value), value)).collect();
+            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
         Trie {
             storage: Box::new(TrieMemoryPartialStorage {
                 recorded_storage,
@@ -1127,7 +1127,7 @@ mod tests {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             trie2.get(&root, b"doge").unwrap();
             // record extension, branch and one leaf, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 3);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 3);
         }
 
         {
@@ -1135,7 +1135,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(&root, updates.into_iter()).unwrap();
             // record extension, branch and both leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
         }
 
         {
@@ -1143,7 +1143,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(&root, updates.into_iter()).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
         }
     }
 

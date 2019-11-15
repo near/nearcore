@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
 
-use near_primitives::challenge::PartialStateStruct;
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
@@ -24,7 +24,7 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
         state_root: &StateRoot,
-    ) -> Result<PartialStateStruct, StorageError> {
+    ) -> Result<PartialState, StorageError> {
         assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
         let root_node = self.retrieve_node(&state_root)?;
@@ -38,7 +38,7 @@ impl Trie {
 
         let trie_nodes = recorded.nodes;
 
-        Ok(PartialStateStruct(trie_nodes))
+        Ok(trie_nodes)
     }
 
     /// Assume we lay out all trie nodes in dfs order visiting children before the parent.
@@ -150,11 +150,10 @@ impl Trie {
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
-        trie_nodes: &PartialStateStruct,
+        trie_nodes: &PartialState,
     ) -> Result<(), StorageError> {
-        let trie_nodes = trie_nodes.clone().0;
         assert!(part_id < num_parts);
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.to_vec() });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.clone() });
 
         let root_node = trie.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
@@ -164,7 +163,7 @@ impl Trie {
         trie.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() != trie_nodes.len() {
+        if storage.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() != trie_nodes.0.len() {
             // TODO #1603 not actually TrieNodeMissing.
             // The error is that the proof has more nodes than needed.
             return Err(StorageError::TrieNodeMissing);
@@ -259,7 +258,7 @@ impl Trie {
             .flatten()
             .map(|data| data.to_vec())
             .collect::<Vec<_>>();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
         let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
         trie.traverse_all_nodes(&state_root, |hash| {
             if let Some((_bytes, rc)) = insertions.get_mut(hash) {
@@ -361,7 +360,7 @@ mod tests {
                     &state_root,
                     0,
                     1,
-                    &PartialStateStruct(all_nodes.clone()),
+                    &PartialState(all_nodes.clone()),
                 )
                 .expect("validate ok");
 

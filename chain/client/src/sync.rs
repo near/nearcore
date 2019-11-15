@@ -421,10 +421,12 @@ impl StateSync {
         }
     }
 
-    // TODO MOO ask Alex for this
     pub fn get_num_parts(&self, state_root_node: &StateRootNode) -> u64 {
         let state_size = state_root_node.memory_usage;
-        state_size / 1000000 + 3
+        // We assume that 1 Mb is a good limit for state part size.
+        // On the other side, it's important to divide any state into
+        // several parts to make sure that partitioning always works.
+        state_size / (1024 * 1024) + 3
     }
 
     pub fn sync_block_status(

@@ -10,11 +10,8 @@ use crate::types::AccountId;
 /// Serialized TrieNodeWithSize
 pub type StateItem = Vec<u8>;
 
-pub type PartialState = Vec<StateItem>;
-
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-// TODO MOO this is weird
-pub struct PartialStateStruct(pub PartialState);
+pub struct PartialState(pub Vec<StateItem>);
 
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
