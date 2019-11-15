@@ -47,7 +47,7 @@ impl RuntimeTestbed {
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         assert!(state_roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!state_roots.is_empty(), "No state roots found.");
-        let root = state_roots[0].hash;
+        let root = state_roots[0];
 
         let mut runtime_config = RuntimeConfig::default();
         runtime_config.wasm_config.max_log_len = std::u64::MAX;
