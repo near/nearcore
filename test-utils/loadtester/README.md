@@ -3,61 +3,42 @@
 This tool can be used to test a local or remote set of nodes. It submits transactions at a given rate and monitors
 the output TPS by periodically requesting the most recent block from the leading nodes.
 
-## Example
+## Example of a local testnet
 
-The following is an example of how to crash a locally running TestNet by saturating it with transactions.
-As of 2019-04-16, this has not been fixed.
+The following is an example of starting a local testnet suitable for load testing and load testing it.
 
-Start the local TestNet:
+Create 10 validator accounts and totally 400 accounts (these are default arguments):
 ```bash
-./ops/local_alphanet.sh
+target/debug/loadtester create_genesis
 ```
 
-Host machine needs to have keys that nodes use for their associated accounts. Generate the keys like this:
-
-```bash
-cargo run --package keystore --bin keystore keygen --test-seed near.0 -p /tmp/keys/
-cargo run --package keystore --bin keystore keygen --test-seed near.1 -p /tmp/keys/
-cargo run --package keystore --bin keystore keygen --test-seed near.2 -p /tmp/keys/
-cargo run --package keystore --bin keystore keygen --test-seed near.3 -p /tmp/keys/
-```
-
-Make sure the load tester is configured to send 700 TPS of monetary transactions. See the `main.rs` file:
-```rust
- Executor::spawn(nodes, TransactionType::Monetary, None, None, 700, TrafficType::Regular);
-```
+Start a local testnet from home dir of `~/.near/near.x`
 
 Launch the load tester:
 ```bash
-cargo run --package loadtester --bin loadtester -- --key-files-path /tmp/keys \
---addresses 127.0.0.1:3030 127.0.0.1:3031 127.0.0.1:3032 127.0.0.1:3033 \
---public-keys 82M8LNM7AzJHhHKn6hymVW1jBzSwFukHp1dycVcU7MD CTVkQMjLyr4QzoXrTDVzfCUp95sCJPwLJZ34JTiekxMV EJ1DMa6s2ngC5GtZb3Z2DZzat2xFZ34j15VLY37dcdXX 3DToePHssYc75SsxZgzgVLwXE8XQXKjdpdL7CT7D34UE \
---account-ids near.0 near.1 near.2 near.3 2>&1  | tee /tmp/out2.txt
+target/debug/loadtester run --addrs 127.0.0.1:3030 127.0.0.1:3031 127.0.0.1:3032 127.0.0.1:3033
 ```
 
-Observe that the TestNet produces up to 700 TPS and then after a random amount of time it stops creating new blocks.
-
-## Benchmark NEAR (1 node)
-
-Here how you can run benchmarking for one local node:
-
-```
-cargo build --release -p near
-cargo build --release -p loadtester
-
-# Start NEAR node
-./target/release/near init
-./target/release/near run
-
-# Run load tester
-mkdir /tmp/keys
-cp ~/.near/validator_key.json /tmp/keys/
-# Get public key to use for next command.
-cat ~/.near/validator_key.json
-
-./target/release/loadtester --key-files-path /tmp/keys \
- --address 127.0.0.1:3030 \
- --public-keys <PUBLIC KEY> \
- --account-ids test.near 2>&1 | tee /tmp/out.txt
+## Example of a launch and load test a remote testnet
+Delete `sudo rm -rf ~/.near/near.*/data` if there is any. Create 10 validator accounts and totally 400 accounts (these are default arguments):
+```bash
+target/debug/loadtester create_genesis
 ```
 
+Launch a testnet in several remote nodes.
+
+Running loadtester with 100 tps, using 10 of accounts created in the first step.
+```
+target/debug/loadtester run --tps 100 --accounts 10 --addrs <list-of-node-socket-addrs>
+```
+
+## More usages
+
+More parameters, like tps, number of accounts to create for loadtest network config, etc. is customizable. See them by
+`loadtester run --help` and `loadtester create_genesis --help`.
+
+## Further work
+- [x] run loadtester with different kind of txns.
+- [x] run loadtester from gcloud to a all gcloud network
+- [1/2] run loadtester from local to hybrid of local/gcloud network.
+- [1/2] exposing peer node information from nearcore, so you can specify only one address to post transaction to all public facing nodes.

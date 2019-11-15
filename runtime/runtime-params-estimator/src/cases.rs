@@ -588,6 +588,8 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         storage_iter_next_base: f64_to_gas(pure[&storage_iter_next_base]),
         storage_iter_next_key_byte: f64_to_gas(pure[&storage_iter_next_key_byte]),
         storage_iter_next_value_byte: f64_to_gas(pure[&storage_iter_next_value_byte]),
+        // TODO: Actually compute it once our storage is complete.
+        touching_trie_node: 1,
         promise_and_base: f64_to_gas(pure[&promise_and_base]),
         promise_and_per_promise: f64_to_gas(pure[&promise_and_per_promise]),
         promise_return: f64_to_gas(pure[&promise_return]),

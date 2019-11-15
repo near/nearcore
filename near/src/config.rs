@@ -10,8 +10,6 @@ use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_chain::ChainGenesis;
@@ -26,7 +24,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
-use near_primitives::utils::get_num_block_producers_per_shard;
+use near_primitives::utils::{generate_random_string, get_num_block_producers_per_shard};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
@@ -50,20 +48,26 @@ pub const ATTO_NEAR: Balance = 1;
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
 
-/// Expected block production time in secs.
-pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
+/// Expected block production time in ms.
+pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
 
-/// Maximum time to delay block production without approvals.
-pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2;
+/// Maximum time to delay block production without approvals is ms.
+pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 
-/// Maximum time until skipping the previous block.
-pub const MAX_BLOCK_WAIT_DELAY: u64 = 6;
+/// Maximum time until skipping the previous block is ms.
+pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
+
+/// Reduce wait time for every missing block in ms.
+const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 
-/// Criterion for kicking out validators.
-pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
+/// Criterion for kicking out block producers.
+pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
+
+/// Criterion for kicking out chunk producers.
+pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 200;
@@ -104,6 +108,9 @@ pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
+
+/// How much height horizon to give to consider peer up to date.
+pub const MOST_WEIGHTED_PEER_HEIGHT_HORIZON: BlockIndex = 5;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -148,6 +155,11 @@ impl Default for Network {
     }
 }
 
+/// Serde default only supports functions without parameters.
+fn default_reduce_wait_for_missing_block() -> Duration {
+    Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -160,6 +172,9 @@ pub struct Consensus {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
+    /// Duration to reduce the wait for each missed block by validator.
+    #[serde(default = "default_reduce_wait_for_missing_block")]
+    pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
 }
@@ -169,9 +184,10 @@ impl Default for Consensus {
         Consensus {
             min_num_peers: 3,
             block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
-            min_block_production_delay: Duration::from_secs(MIN_BLOCK_PRODUCTION_DELAY),
-            max_block_production_delay: Duration::from_secs(MAX_BLOCK_PRODUCTION_DELAY),
-            max_block_wait_delay: Duration::from_secs(MAX_BLOCK_WAIT_DELAY),
+            min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
+            max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
+            max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
+            reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
             produce_empty_blocks: true,
         }
     }
@@ -258,6 +274,7 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
+                reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
@@ -277,7 +294,7 @@ impl NearConfig {
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
-                chunk_request_retry_period: Duration::from_millis(100),
+                chunk_request_retry_period: Duration::from_millis(200),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },
@@ -310,6 +327,7 @@ impl NearConfig {
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
+                most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
@@ -372,8 +390,10 @@ pub struct GenesisConfig {
     pub gas_limit: Gas,
     /// Initial gas price.
     pub gas_price: Balance,
-    /// Criterion for kicking out validators (this is a number between 0 and 100)
-    pub validator_kickout_threshold: u8,
+    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    pub block_producer_kickout_threshold: u8,
+    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    pub chunk_producer_kickout_threshold: u8,
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: u8,
     /// Runtime configuration (mostly economics constants).
@@ -418,6 +438,7 @@ impl From<GenesisConfig> for ChainGenesis {
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
             genesis_config.transaction_validity_period,
+            genesis_config.epoch_length,
         )
     }
 }
@@ -488,7 +509,7 @@ impl GenesisConfig {
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-            validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
             records,
@@ -499,6 +520,7 @@ impl GenesisConfig {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
+            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
         }
     }
 
@@ -564,7 +586,7 @@ impl From<&str> for GenesisConfig {
 }
 
 fn random_chain_id() -> String {
-    format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
+    format!("test-chain-{}", generate_random_string(5))
 }
 
 fn state_records_account_with_key(
@@ -625,7 +647,7 @@ pub fn init_configs(
             // TODO:
             unimplemented!();
         }
-        "testnet" => {
+        "testnet" | "staging" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
@@ -645,7 +667,10 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            testnet_genesis().write_to_file(&dir.join(config.genesis_file));
+            let mut genesis_config = testnet_genesis();
+            genesis_config.chain_id = chain_id;
+
+            genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
@@ -699,7 +724,7 @@ pub fn init_configs(
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-                validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+                block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
@@ -714,6 +739,7 @@ pub fn init_configs(
                 total_supply,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
+                chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());

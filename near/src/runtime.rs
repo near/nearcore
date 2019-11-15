@@ -39,6 +39,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::block::Approval;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -56,6 +57,8 @@ pub struct NightshadeRuntime {
     pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
     shard_tracker: ShardTracker,
+    /// Subscriptions to prefixes in the state.
+    subscriptions: HashSet<Vec<u8>>,
 }
 
 impl NightshadeRuntime {
@@ -76,7 +79,8 @@ impl NightshadeRuntime {
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
             avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
-            validator_kickout_threshold: genesis_config.validator_kickout_threshold,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis_config.max_inflation_rate,
@@ -123,6 +127,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             shard_tracker,
+            subscriptions: HashSet::new(),
         }
     }
 
@@ -280,6 +285,7 @@ impl NightshadeRuntime {
                 &apply_state,
                 &receipts,
                 &transactions,
+                &self.subscriptions,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
@@ -289,7 +295,7 @@ impl NightshadeRuntime {
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
-        for receipt in apply_result.new_receipts.into_iter() {
+        for receipt in apply_result.new_receipts {
             receipt_result
                 .entry(self.account_id_to_shard_id(&receipt.receiver_id))
                 .or_insert_with(|| vec![])
@@ -356,7 +362,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else if has_records {
             self.genesis_state_from_records()
         } else {
-            panic!("Found neither records in the confign nor the state dump file. Either one should be present")
+            panic!("Found neither records in the config nor the state dump file. Either one should be present")
         }
     }
 
@@ -452,25 +458,34 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn verify_approval_signature(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        approval_mask: &[bool],
-        approval_sigs: &[Signature],
-        data: &[u8],
+        prev_block_hash: &CryptoHash,
+        approvals: &[Approval],
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
-            .get_all_block_producer_info(epoch_id, last_known_block_hash)
+            .get_all_block_producer_info(epoch_id, prev_block_hash)
             .map_err(Error::from)?;
-        let mut i = 0;
-        for ((validator, is_slashed), is_approved) in info.into_iter().zip(approval_mask.iter()) {
-            if *is_approved && !is_slashed {
-                if !approval_sigs[i].verify(data, &validator.public_key) {
-                    return Ok(false);
+        let approvals_hash_map =
+            approvals.iter().map(|x| (x.account_id.clone(), x)).collect::<HashMap<_, _>>();
+        let mut signatures_verified = 0;
+        for (validator, is_slashed) in info.into_iter() {
+            if !is_slashed {
+                if let Some(approval) = approvals_hash_map.get(&validator.account_id) {
+                    if &approval.parent_hash != prev_block_hash {
+                        return Ok(false);
+                    }
+                    if !approval.signature.verify(
+                        Approval::get_data_for_sig(&approval.parent_hash, &approval.reference_hash)
+                            .as_ref(),
+                        &validator.public_key,
+                    ) {
+                        return Ok(false);
+                    }
+                    signatures_verified += 1;
                 }
-                i += 1;
             }
         }
-        Ok(true)
+        Ok(signatures_verified == approvals.len())
     }
 
     fn get_epoch_block_producers(
@@ -499,6 +514,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
+    }
+
+    fn get_num_missing_blocks(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<u64, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager
+            .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
+            .map_err(Error::from)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -986,7 +1013,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use tempdir::TempDir;
 
@@ -1013,6 +1040,8 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use near_primitives::utils::key_for_account;
+    use node_runtime::ApplyState;
 
     fn stake(
         nonce: Nonce,
@@ -1102,6 +1131,8 @@ mod test {
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
             genesis_config.epoch_length = epoch_length;
+            genesis_config.chunk_producer_kickout_threshold =
+                genesis_config.block_producer_kickout_threshold;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
@@ -1885,5 +1916,42 @@ mod test {
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
+    }
+
+    #[test]
+    fn test_key_value_changes() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_key_value_changes", vec![validators.clone()], 2, vec![], vec![]);
+        let prefix = key_for_account(&"test1".to_string());
+        env.runtime.subscriptions.insert(prefix.clone());
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
+        let transaction = SignedTransaction::send_money(
+            1,
+            validators[0].clone(),
+            validators[1].clone(),
+            &signer,
+            10,
+            CryptoHash::default(),
+        );
+        let apply_state =
+            ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let mut prefixes = HashSet::new();
+        prefixes.insert(prefix);
+        let apply_result = env
+            .runtime
+            .runtime
+            .apply(
+                env.runtime.trie.clone(),
+                env.state_roots[0].hash,
+                &None,
+                &apply_state,
+                &[],
+                &[transaction],
+                &prefixes,
+            )
+            .unwrap();
+        assert!(!apply_result.key_value_changes.is_empty());
     }
 }

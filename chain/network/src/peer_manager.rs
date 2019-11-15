@@ -268,21 +268,29 @@ impl PeerManagerActor {
 
     /// Returns single random peer with the most weight.
     fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
-        let max_weight = match self
+        // This finds max of weight and height and returns such height.
+        let height_with_max_weight = match self
             .active_peers
             .values()
-            .map(|active_peer| active_peer.full_peer_info.chain_info.total_weight)
+            .map(|active_peers| {
+                (
+                    active_peers.full_peer_info.chain_info.total_weight,
+                    active_peers.full_peer_info.chain_info.height,
+                )
+            })
             .max()
         {
-            Some(w) => w,
-            None => {
-                return vec![];
-            }
+            Some((_, height)) => height,
+            None => return vec![],
         };
+        // Find all peers whose height is within `most_weighted_peer_height_horizon` from max weight peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.total_weight == max_weight {
+                if active_peer.full_peer_info.chain_info.height
+                    >= height_with_max_weight
+                        .saturating_sub(self.config.most_weighted_peer_height_horizon)
+                {
                     Some(active_peer.full_peer_info.clone())
                 } else {
                     None
@@ -691,19 +699,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                if let Some(approval) = approval {
-                    if let Some(account_id) = self.config.account_id.clone() {
-                        self.send_message_to_account(
-                            ctx,
-                            &approval.target,
-                            RoutedMessageBody::BlockApproval(
-                                account_id,
-                                approval.hash,
-                                approval.signature,
-                            ),
-                        )
-                    }
+            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
+                if let Some(approval_message) = approval_message {
+                    self.send_message_to_account(
+                        ctx,
+                        &approval_message.target,
+                        RoutedMessageBody::BlockApproval(approval_message.approval),
+                    )
                 }
                 self.broadcast_message(
                     ctx,
@@ -727,18 +729,27 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                need_header,
-                parts_ranges,
-                account_id,
-            } => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
-                );
+            NetworkRequests::StateRequest { shard_id, hash, need_header, parts_ranges, target } => {
+                match target {
+                    AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
+                        ctx,
+                        &account_id,
+                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
+                    ),
+                    peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
+                    | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
+                        ctx,
+                        RawRoutedMessage {
+                            target: peer_or_hash,
+                            body: RoutedMessageBody::StateRequest(
+                                shard_id,
+                                hash,
+                                need_header,
+                                parts_ranges,
+                            ),
+                        },
+                    ),
+                };
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
@@ -757,47 +768,29 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPartRequest { account_id, part_request } => {
+            NetworkRequests::PartialEncodedChunkRequest { account_id, request } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::ChunkPartRequest(part_request),
+                    RoutedMessageBody::PartialEncodedChunkRequest(request),
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartRequest { account_id, one_part_request } => {
-                self.send_message_to_account(
-                    ctx,
-                    &account_id,
-                    RoutedMessageBody::ChunkOnePartRequest(one_part_request),
-                );
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::ChunkOnePartResponse { route_back, header_and_part } => {
+            NetworkRequests::PartialEncodedChunkResponse { route_back, partial_encoded_chunk } => {
                 self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
+                        body: RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
                     },
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkPart { route_back, part } => {
-                self.send_message_to_peer(
-                    ctx,
-                    RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::Hash(route_back),
-                        body: RoutedMessageBody::ChunkPart(part),
-                    },
-                );
-                NetworkResponses::NoResponse
-            }
-            NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
+            NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::ChunkOnePart(header_and_part),
+                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
                 );
                 NetworkResponses::NoResponse
             }
@@ -810,6 +803,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     ctx,
                     &account_id,
                     RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::Query { account_id, path, data, id } => {
+                self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::QueryRequest { path, data, id },
                 );
                 NetworkResponses::NoResponse
             }
@@ -828,7 +829,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 let new_accounts = accounts
                     .into_iter()
                     .filter(|announce_account| {
-                        !self.routing_table.contains_account(announce_account.clone())
+                        !self.routing_table.contains_account(&announce_account)
                     })
                     .collect();
 

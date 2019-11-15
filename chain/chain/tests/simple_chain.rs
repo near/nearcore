@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
 use near_crypto::Signer;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 
 #[test]
@@ -43,12 +42,15 @@ fn build_chain_with_orhpans() {
         10,
         last_block.chunks.clone(),
         last_block.header.inner.epoch_id.clone(),
-        HashMap::default(),
+        vec![],
         0,
         Some(0),
         vec![],
         vec![],
         &*signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     );
     assert_eq!(
         chain

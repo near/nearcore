@@ -6,6 +6,7 @@ use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_store::{create_store, Trie, COL_STATE};
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -82,6 +83,7 @@ impl RuntimeTestbed {
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
+                &HashSet::new(),
             )
             .unwrap();
 

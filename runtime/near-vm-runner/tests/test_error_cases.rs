@@ -252,7 +252,7 @@ fn test_stack_overflow() {
     assert_eq!(
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(32768)),
+            Some(vm_outcome_with_gas(16384)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
         )
     );

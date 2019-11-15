@@ -14,25 +14,23 @@ use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
 };
 use near_chain::{
-    BlockApproval, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
-    RuntimeAdapter, Tip,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter, Tip,
 };
-use near_chunks::{NetworkAdapter, ProcessChunkOnePartResult, ShardsManager};
-use near_crypto::Signature;
-use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
-use near_network::{NetworkClientResponses, NetworkRequests};
-use near_primitives::block::{Block, BlockHeader};
+use near_chunks::{NetworkAdapter, ProcessPartialEncodedChunkResult, ShardsManager};
+use near_network::types::{PeerId, ReasonForBan};
+use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
+use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId, StateRoot};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
-use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use near_store::Store;
 
 use crate::metrics;
@@ -65,9 +63,9 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
     /// Set of approvals for blocks.
-    pub approvals: SizedCache<CryptoHash, HashMap<usize, Signature>>,
+    pub approvals: SizedCache<CryptoHash, HashMap<usize, Approval>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Approval, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -83,6 +81,10 @@ pub struct Client {
     pub tx_status_requests: SizedCache<CryptoHash, ()>,
     /// Transaction status response
     pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
+    /// Query requests that need to be forwarded to other shards
+    pub query_requests: SizedCache<String, ()>,
+    /// Query responses
+    pub query_responses: SizedCache<String, QueryResponse>,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
 }
@@ -126,6 +128,8 @@ impl Client {
             },
             tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
             tx_status_response: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
+            query_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
+            query_responses: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
             challenges: Default::default(),
         })
     }
@@ -207,7 +211,7 @@ impl Client {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(None);
         }
-        let prev = self.chain.get_block_header(&head.last_block_hash)?;
+        let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
 
@@ -228,17 +232,19 @@ impl Client {
         }
 
         // Wait until we have all approvals or timeouts per max block production delay.
-        let validators =
+        let block_producers =
             self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
-        let total_validators = validators.len();
+        let total_block_producers = block_producers.len();
         let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, head.height)?
             == block_producer.account_id.clone();
-        // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
+        // If epoch changed, and before there was 2 block producers and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
+            total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
+        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
         if head.height > 0
-            && num_approvals < total_approvals
+            && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
+            && (new_chunks.len() as ShardId) < self.runtime_adapter.num_shards()
             && elapsed_since_last_block < self.config.max_block_production_delay
         {
             // Will retry after a `block_production_tracking_delay`.
@@ -246,20 +252,50 @@ impl Client {
             return Ok(None);
         }
 
-        // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
-
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
             return Ok(None);
         }
 
+        let approvals_map =
+            self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
+        let mut approvals: Vec<Approval> = approvals_map.values().cloned().collect();
+
+        if !approvals.iter().any(|x| x.account_id == block_producer.account_id) {
+            let my_approval = match self.chain.mut_store().get_my_last_approval(&prev_hash) {
+                Ok(approval) => Some(approval.clone()),
+                Err(_) => {
+                    // It's OK here to not filter by DBNotFoundError, if the approval wasn't fetched
+                    //    for any other reason, but actually existed, `create_block_approval` will
+                    //    fail because the score/weight of the largest approval will not match that
+                    //    of the approval as of *two* blocks ago
+                    self.create_block_approval(&prev).map(|x| x.approval)
+                }
+            };
+            if let Some(my_approval) = my_approval {
+                approvals.push(my_approval);
+            }
+        }
+
+        let quorums = self
+            .chain
+            .compute_quorums(prev_hash, next_height, approvals.clone(), total_block_producers)?
+            .clone();
+
+        let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
+            0.into()
+        } else {
+            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner.total_weight
+        };
+
         // Get block extra from previous block.
         let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
-
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
+
+        // TODO (#1675): this assert can currently trigger due to epoch switches not handled properly
+        //assert!(score >= prev_block.header.inner.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -283,9 +319,6 @@ impl Client {
             None
         };
 
-        let approval =
-            self.approvals.cache_remove(&prev_hash).unwrap_or_else(|| HashMap::default());
-
         // Get all the current challenges.
         let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
 
@@ -294,12 +327,15 @@ impl Client {
             next_height,
             chunks,
             epoch_id,
-            approval.into_iter().collect(),
+            approvals,
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
             prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,
+            score,
+            quorums.last_quorum_pre_vote,
+            quorums.last_quorum_pre_commit,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -472,6 +508,7 @@ impl Client {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
+
         let result = {
             let me = self
                 .block_producer
@@ -516,62 +553,30 @@ impl Client {
             }
         }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
     }
 
-    pub fn process_chunk_part(&mut self, part: ChunkPartMsg) -> Result<Vec<AcceptedBlock>, Error> {
-        if let Some(block_hash) =
-            self.shards_mgr.process_chunk_part(part, self.chain.mut_store())?
-        {
-            Ok(self.process_blocks_with_missing_chunks(block_hash))
-        } else {
-            Ok(vec![])
-        }
-    }
-
-    pub fn process_chunk_one_part(
+    pub fn process_partial_encoded_chunk(
         &mut self,
-        one_part_msg: ChunkOnePart,
+        partial_encoded_chunk: PartialEncodedChunk,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        let process_result =
-            self.shards_mgr.process_chunk_one_part(one_part_msg.clone(), self.chain.mut_store())?;
+        let process_result = self
+            .shards_mgr
+            .process_partial_encoded_chunk(partial_encoded_chunk.clone(), self.chain.mut_store())?;
 
-        let has_all_one_parts = match process_result {
-            ProcessChunkOnePartResult::Known => return Ok(vec![]),
-            ProcessChunkOnePartResult::HaveAllOneParts => true,
-            ProcessChunkOnePartResult::NeedMoreOneParts => false,
-        };
-
-        // After processing one part we might need to request more parts or one parts.
-        // If we are missing some of our own one parts, we need to request them no matter what, since
-        //    nightshade data availability relies on it. Otherwise only request parts if this chunk
-        //    builds on the current head.
-        // TODO: if the bp receives the chunk before they receive the prev block, they will
-        //     not collect the parts currently. It will result in chunk not included
-        //     in the next block.
-
-        let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
-        let builds_on_head = self
-            .chain
-            .head()
-            .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
-            .unwrap_or(false);
-        let care_about_shard = self.shards_mgr.cares_about_shard_this_or_next_epoch(
-            self.block_producer.as_ref().map(|x| &x.account_id),
-            &prev_block_hash,
-            one_part_msg.shard_id,
-            true,
-        );
-        if !has_all_one_parts || (care_about_shard && builds_on_head) {
-            self.shards_mgr.request_chunks(vec![one_part_msg.header], !has_all_one_parts).unwrap();
+        match process_result {
+            ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
+            ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
+                Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
+            }
+            ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
+                self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                Ok(vec![])
+            }
         }
-        if has_all_one_parts {
-            return Ok(self.process_blocks_with_missing_chunks(prev_block_hash));
-        }
-        Ok(vec![])
     }
 
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {
@@ -613,10 +618,10 @@ impl Client {
         // If we produced the block, then it should have already been broadcasted.
         // If received the block from another node then broadcast "header first" to minimise network traffic.
         if provenance == Provenance::NONE {
-            let approval = self.pending_approvals.cache_remove(&block_hash);
-            if let Some(approval) = approval {
-                for (account_id, (sig, peer_id)) in approval {
-                    if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
+            let approvals = self.pending_approvals.cache_remove(&block_hash);
+            if let Some(approvals) = approvals {
+                for (_account_id, (approval, peer_id)) in approvals {
+                    if !self.collect_block_approval(&approval, &peer_id) {
                         self.network_adapter.send(NetworkRequests::BanPeer {
                             peer_id,
                             ban_reason: ReasonForBan::BadBlockApproval,
@@ -624,11 +629,15 @@ impl Client {
                     }
                 }
             }
-            let approval = self.create_block_approval(&block);
+            let approval_message = self.create_block_approval(&block.header);
             self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
                 header: block.header.clone(),
-                approval,
+                approval_message,
             });
+        }
+
+        if status.is_new_head() {
+            self.shards_mgr.update_largest_seen_height(block.header.inner.height);
         }
 
         if let Some(bp) = self.block_producer.clone() {
@@ -751,35 +760,53 @@ impl Client {
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks
     }
 
     /// Create approval for given block or return none if not a block producer.
-    fn create_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&block.hash()).ok()?;
+    fn create_block_approval(&mut self, block_header: &BlockHeader) -> Option<ApprovalMessage> {
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&block_header.hash()).ok()?;
         let next_block_producer_account =
-            self.runtime_adapter.get_block_producer(&epoch_id, block.header.inner.height + 1);
+            self.runtime_adapter.get_block_producer(&epoch_id, block_header.inner.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
-            if &block_producer.account_id != next_block_producer_account {
-                if let Ok(validators) = self
-                    .runtime_adapter
-                    .get_epoch_block_producers(&block.header.inner.epoch_id, &block.hash())
+            if let Ok(validators) = self
+                .runtime_adapter
+                .get_epoch_block_producers(&block_header.inner.epoch_id, &block_header.hash())
+            {
+                if let Some((_, is_slashed)) =
+                    validators.into_iter().find(|v| v.0 == block_producer.account_id)
                 {
-                    if let Some((_, is_slashed)) =
-                        validators.into_iter().find(|v| v.0 == block_producer.account_id)
-                    {
-                        if !is_slashed {
-                            return Some(BlockApproval::new(
-                                block.hash(),
-                                &*block_producer.signer,
-                                next_block_producer_account.clone(),
-                            ));
+                    if !is_slashed {
+                        let reference_hash =
+                            match self.chain.get_my_approval_reference_hash(block_header.hash()) {
+                                Some(hash) => hash,
+                                None => return None,
+                            };
+                        let msg = ApprovalMessage::new(
+                            block_header.hash(),
+                            reference_hash,
+                            &*block_producer.signer,
+                            block_producer.account_id.clone(),
+                            next_block_producer_account.clone(),
+                        );
+                        if self
+                            .chain
+                            .process_approval(
+                                &Some(block_producer.account_id.clone()),
+                                &msg.approval,
+                            )
+                            .is_err()
+                        {
+                            return None;
                         }
+
+                        return Some(msg);
                     }
                 }
             }
@@ -788,23 +815,20 @@ impl Client {
     }
 
     /// Collects block approvals. Returns false if block approval is invalid.
-    pub fn collect_block_approval(
-        &mut self,
-        account_id: &AccountId,
-        hash: &CryptoHash,
-        signature: &Signature,
-        peer_id: &PeerId,
-    ) -> bool {
-        let header = match self.chain.get_block_header(&hash) {
+    pub fn collect_block_approval(&mut self, approval: &Approval, peer_id: &PeerId) -> bool {
+        let Approval { parent_hash, reference_hash, account_id, signature } = approval;
+        let header = match self.chain.get_block_header(&parent_hash) {
             Ok(h) => h.clone(),
             Err(e) => {
                 if e.is_bad_data() {
                     return false;
                 }
-                let mut entry =
-                    self.pending_approvals.cache_remove(hash).unwrap_or_else(|| HashMap::new());
-                entry.insert(account_id.clone(), (signature.clone(), peer_id.clone()));
-                self.pending_approvals.cache_set(*hash, entry);
+                let mut entry = self
+                    .pending_approvals
+                    .cache_remove(parent_hash)
+                    .unwrap_or_else(|| HashMap::new());
+                entry.insert(account_id.clone(), (approval.clone(), peer_id.clone()));
+                self.pending_approvals.cache_set(*parent_hash, entry);
                 return true;
             }
         };
@@ -812,41 +836,48 @@ impl Client {
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position =
-            match self.runtime_adapter.get_epoch_block_producers(&header.inner.epoch_id, &hash) {
-                Ok(validators) => {
-                    let position = validators.iter().position(|x| &(x.0) == account_id);
-                    if let Some(idx) = position {
-                        if !validators[idx].1 {
-                            idx
-                        } else {
-                            return false;
-                        }
+        let position = match self
+            .runtime_adapter
+            .get_epoch_block_producers(&header.inner.epoch_id, &parent_hash)
+        {
+            Ok(validators) => {
+                let position = validators.iter().position(|x| &(x.0) == account_id);
+                if let Some(idx) = position {
+                    if !validators[idx].1 {
+                        idx
                     } else {
                         return false;
                     }
-                }
-                Err(err) => {
-                    error!(target: "client", "Block approval error: {}", err);
+                } else {
                     return false;
                 }
-            };
+            }
+            Err(err) => {
+                error!(target: "client", "Block approval error: {}", err);
+                return false;
+            }
+        };
         // Check signature is correct for given validator.
         if let ValidatorSignatureVerificationResult::Invalid =
             self.runtime_adapter.verify_validator_signature(
                 &header.inner.epoch_id,
                 &header.inner.prev_hash,
                 account_id,
-                hash.as_ref(),
+                Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
                 signature,
             )
         {
             return false;
         }
-        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
-        let mut entry = self.approvals.cache_remove(hash).unwrap_or_else(|| HashMap::default());
-        entry.insert(position, signature.clone());
-        self.approvals.cache_set(*hash, entry);
+        if let Err(e) = self.chain.verify_approval_conditions(&approval) {
+            debug!(target: "client", "Rejecting approval {:?}: {:?}", approval, e);
+            return false;
+        }
+        debug!(target: "client", "Received approval for {} from {}", parent_hash, account_id);
+        let mut entry =
+            self.approvals.cache_remove(parent_hash).unwrap_or_else(|| HashMap::default());
+        entry.insert(position, approval.clone());
+        self.approvals.cache_set(*parent_hash, entry);
         true
     }
 
@@ -928,6 +959,83 @@ impl Client {
         self.tx_status_requests.cache_set(tx_hash, ());
         self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
         NetworkClientResponses::RequestRouted
+    }
+
+    pub fn handle_query(
+        &mut self,
+        path: String,
+        data: Vec<u8>,
+        id: String,
+    ) -> NetworkClientResponses {
+        if let Some(response) = self.query_responses.cache_remove(&id) {
+            return NetworkClientResponses::QueryResponse { response, id };
+        }
+        let header =
+            unwrap_or_return!(self.chain.head_header(), NetworkClientResponses::NoResponse).clone();
+        let path_parts: Vec<&str> = path.split('/').collect();
+        let state_root = {
+            if path_parts[0] == "validators" && path_parts.len() == 1 {
+                // for querying validators we don't need state root
+                StateRoot { hash: CryptoHash::default(), num_parts: 0 }
+            } else {
+                let account_id = AccountId::from(path_parts[1]);
+                let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+                match self.chain.get_chunk_extra(&header.hash, shard_id) {
+                    Ok(chunk_extra) => chunk_extra.state_root.clone(),
+                    Err(e) => match e.kind() {
+                        ErrorKind::DBNotFoundErr(_) => {
+                            let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+                            let validator = unwrap_or_return!(
+                                self.find_validator_for_forwarding(shard_id),
+                                {
+                                    warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
+                                    NetworkClientResponses::NoResponse
+                                }
+                            );
+                            // TODO: remove this duplicate code
+                            if let Some(account_id) = me {
+                                if account_id == &validator {
+                                    // this probably means that we are crossing epoch boundary and the current node
+                                    // does not have state for the next epoch. TODO: figure out what to do in this case
+                                    return NetworkClientResponses::NoResponse;
+                                }
+                            }
+                            self.query_requests.cache_set(id.clone(), ());
+                            self.network_adapter.send(NetworkRequests::Query {
+                                account_id: validator,
+                                path,
+                                data,
+                                id,
+                            });
+                            return NetworkClientResponses::RequestRouted;
+                        }
+                        _ => {
+                            warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
+                            return NetworkClientResponses::NoResponse;
+                        }
+                    },
+                }
+            }
+        };
+
+        let response = unwrap_or_return!(
+            self.runtime_adapter
+                .query(
+                    &state_root,
+                    header.inner.height,
+                    header.inner.timestamp,
+                    &header.hash,
+                    path_parts,
+                    &data,
+                )
+                .map_err(|err| err.to_string()),
+            {
+                warn!(target: "client", "Query {} failed", path);
+                NetworkClientResponses::NoResponse
+            }
+        );
+
+        NetworkClientResponses::QueryResponse { response, id }
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
@@ -1033,7 +1141,10 @@ impl Client {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    pub fn run_catchup(&mut self) -> Result<Vec<AcceptedBlock>, Error> {
+    pub fn run_catchup(
+        &mut self,
+        most_weight_peers: &Vec<FullPeerInfo>,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1054,6 +1165,7 @@ impl Client {
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,
+                most_weight_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}
@@ -1080,7 +1192,7 @@ impl Client {
                     self.send_challenges(challenges);
 
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks, false).unwrap();
+                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
                     }
                     let unwrapped_accepted_blocks =
                         accepted_blocks.write().unwrap().drain(..).collect();

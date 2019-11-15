@@ -46,7 +46,7 @@ impl Default for VMConfig {
             grow_mem_cost: 1,
             regular_op_cost: 1,
             max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 32 * 1024,        // 32Kib of stack.
+            max_stack_height: 16 * 1024,        // 16Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
             // By default registers are limited by 1GiB of memory.
@@ -76,7 +76,7 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 64 * 1024,
+            max_stack_height: 16 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,
             registers_memory_limit: 2u64.pow(30),
@@ -183,6 +183,9 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
+    /// Cost per touched trie node
+    pub touching_trie_node: Gas,
+
     // ###############
     // # Promise API #
     // ###############
@@ -234,6 +237,7 @@ impl Default for ExtCostsConfig {
             storage_iter_next_base: 1,
             storage_iter_next_key_byte: 1,
             storage_iter_next_value_byte: 1,
+            touching_trie_node: 1,
             promise_and_base: 1,
             promise_and_per_promise: 1,
             promise_return: 1,
@@ -281,6 +285,7 @@ impl ExtCostsConfig {
             storage_iter_next_base: 0,
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
+            touching_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
@@ -329,6 +334,7 @@ pub enum ExtCosts {
     storage_iter_next_base,
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
+    touching_trie_node,
     promise_and_base,
     promise_and_per_promise,
     promise_return,
@@ -375,6 +381,7 @@ impl ExtCosts {
             storage_iter_next_base => config.storage_iter_next_base,
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
+            touching_trie_node => config.touching_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,

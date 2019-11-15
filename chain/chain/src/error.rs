@@ -94,6 +94,9 @@ pub enum ErrorKind {
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
+    /// The chunk height is outside of the horizon
+    #[fail(display = "Invalid Chunk Height")]
+    InvalidChunkHeight,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -107,7 +110,7 @@ pub enum ErrorKind {
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
     /// Validator error.
-    #[fail(display = "Validator Error")]
+    #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
@@ -163,6 +166,7 @@ impl Error {
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
+            | ErrorKind::InvalidChunkHeight
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
