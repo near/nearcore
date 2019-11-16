@@ -33,7 +33,7 @@ def run_test(path):
 
 fails = []
 for f in files_to_test:
-    if f in files_to_skip:
+    if f not in files_to_skip:
         if not run_test(f):
             fails.append(f)
 if fails:
