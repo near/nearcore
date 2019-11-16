@@ -5,6 +5,7 @@ mod tests {
     use futures::future;
     use futures::future::Future;
     use near_chain::test_utils::account_id_to_shard_id;
+    use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
@@ -79,8 +80,7 @@ mod tests {
         pub shard_id: u64,
         pub hash: CryptoHash,
         pub need_header: bool,
-        pub part_ids: Vec<u64>,
-        pub num_parts: u64,
+        pub parts: StateRequestParts,
         pub target: AccountOrPeerIdOrHash,
     }
 
@@ -238,8 +238,7 @@ mod tests {
                                 shard_id,
                                 hash,
                                 need_header,
-                                part_ids,
-                                num_parts,
+                                parts,
                                 target,
                             } = msg
                             {
@@ -248,8 +247,7 @@ mod tests {
                                         shard_id: *shard_id,
                                         hash: *hash,
                                         need_header: *need_header,
-                                        part_ids: part_ids.clone(),
-                                        num_parts: *num_parts,
+                                        parts: parts.clone(),
                                         target: target.clone(),
                                     };
                                     if !seen_hashes_with_state
