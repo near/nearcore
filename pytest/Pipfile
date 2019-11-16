@@ -11,7 +11,8 @@ requests = "*"
 ed25519 = "*"
 base58 = "*"
 google-api-python-client = "*"
-six = "*" # requires by gcloud.py
+six = "*"
+python-rc = "==0.1.3"
 
 [dev-packages]
 

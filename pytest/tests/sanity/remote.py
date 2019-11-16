@@ -7,7 +7,7 @@ import os
 sys.path.append('lib')
 
 from cluster import init_cluster, start_cluster, GCloudNode
-import retry
+import retrying as retry
 
 args = (3, 1, 1, {
     'local': False,

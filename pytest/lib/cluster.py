@@ -10,7 +10,7 @@ import requests
 import time
 import base58
 import base64
-import retry
+import retrying as retry
 from gcloud import compute, get_zone, ssh, copy_to_instance
 import uuid
 
