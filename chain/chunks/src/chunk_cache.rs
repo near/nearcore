@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use cached::{Cached, SizedCache};
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
@@ -7,6 +9,7 @@ use near_primitives::types::{BlockIndex, ShardId};
 
 const HEIGHT_HORIZON: u64 = 1024;
 const MAX_HEIGHTS_AHEAD: u64 = 5;
+const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 10;
 
 pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
@@ -19,6 +22,7 @@ pub struct EncodedChunksCache {
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     height_map: HashMap<BlockIndex, Vec<ChunkHash>>,
+    block_hash_to_chunk_headers: SizedCache<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -49,6 +53,7 @@ impl EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
+            block_hash_to_chunk_headers: SizedCache::with_size(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
         }
     }
 
@@ -111,7 +116,7 @@ impl EncodedChunksCache {
     pub fn update_largest_seen_height<T>(
         &mut self,
         new_height: BlockIndex,
-        requested_chunks: &HashMap<ChunkHash, T>,
+        requested_chunks: &mut SizedCache<ChunkHash, T>,
     ) {
         let old_largest_seen_height = self.largest_seen_height;
         self.largest_seen_height = new_height;
@@ -120,11 +125,33 @@ impl EncodedChunksCache {
         {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
-                    if !requested_chunks.contains_key(&chunk_hash) {
+                    if !requested_chunks.cache_get(&chunk_hash).is_some() {
                         self.encoded_chunks.remove(&chunk_hash);
                     }
                 }
             }
         }
+    }
+
+    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
+        if header.inner.height_created
+            > self.largest_seen_height.saturating_sub(NUM_BLOCK_HASH_TO_CHUNK_HEADER as BlockIndex)
+        {
+            let mut block_hash_to_chunk_headers = self
+                .block_hash_to_chunk_headers
+                .cache_remove(&header.inner.prev_block_hash)
+                .unwrap_or_else(|| vec![]);
+            let prev_block_hash = header.inner.prev_block_hash;
+            block_hash_to_chunk_headers.push((shard_id, header));
+            self.block_hash_to_chunk_headers
+                .cache_set(prev_block_hash, block_hash_to_chunk_headers);
+        }
+    }
+
+    pub fn get_chunk_headers_for_block(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+    ) -> Vec<(ShardId, ShardChunkHeader)> {
+        self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(|| vec![])
     }
 }

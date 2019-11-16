@@ -241,7 +241,7 @@ impl Client {
         let total_approvals =
             total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
+        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         if head.height > 0
             && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
             && (new_chunks.len() as ShardId) < self.runtime_adapter.num_shards()

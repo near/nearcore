@@ -31,6 +31,7 @@ use near_primitives::types::{
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use cached::{Cached, SizedCache};
 
 mod chunk_cache;
 mod types;
@@ -39,6 +40,7 @@ const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
+const MAX_NUM_CHUNK_REQUEST: usize = 1000;
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
@@ -96,7 +98,7 @@ struct RequestPool {
     switch_to_others_duration: Duration,
     switch_to_full_fetch_duration: Duration,
     max_duration: Duration,
-    requests: HashMap<ChunkHash, ChunkRequestInfo>,
+    requests: SizedCache<ChunkHash, ChunkRequestInfo>,
 }
 
 impl RequestPool {
@@ -111,37 +113,34 @@ impl RequestPool {
             switch_to_others_duration,
             switch_to_full_fetch_duration,
             max_duration,
-            requests: HashMap::default(),
+            requests: SizedCache::with_size(MAX_NUM_CHUNK_REQUEST),
         }
     }
-    pub fn contains_key(&self, chunk_hash: &ChunkHash) -> bool {
-        self.requests.contains_key(chunk_hash)
+    pub fn contains_key(&mut self, chunk_hash: &ChunkHash) -> bool {
+        self.requests.cache_get(chunk_hash).is_some()
     }
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, chunk_request: ChunkRequestInfo) {
-        self.requests.insert(chunk_hash, chunk_request);
+        self.requests.cache_set(chunk_hash, chunk_request);
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
-        let _ = self.requests.remove(chunk_hash);
+        self.requests.cache_remove(chunk_hash);
     }
 
     pub fn fetch(&mut self) -> Vec<(ChunkHash, ChunkRequestInfo)> {
-        let mut removed_requests = HashSet::<ChunkHash>::default();
-        let mut requests = Vec::new();
-        for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
+        let mut requests = vec![];
+        for chunk_hash in self.requests.key_order().cloned().collect::<Vec<_>>() {
+            let chunk_request = self.requests.cache_remove(&chunk_hash).unwrap();
             if chunk_request.added.elapsed() > self.max_duration {
-                debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
-                removed_requests.insert(chunk_hash.clone());
                 continue;
             }
             if chunk_request.last_requested.elapsed() > self.retry_duration {
-                chunk_request.last_requested = Instant::now();
-                requests.push((chunk_hash.clone(), chunk_request.clone()));
+                requests.push((chunk_hash, chunk_request));
             }
         }
-        for chunk_hash in removed_requests {
-            self.requests.remove(&chunk_hash);
+        for (chunk_hash, chunk_request) in requests.clone().into_iter().rev() {
+            self.requests.cache_set(chunk_hash, chunk_request);
         }
         requests
     }
@@ -156,8 +155,6 @@ pub struct ShardsManager {
     network_adapter: Arc<dyn NetworkAdapter>,
 
     encoded_chunks: EncodedChunksCache,
-    block_hash_to_chunk_headers: HashMap<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
-
     requested_partial_encoded_chunks: RequestPool,
 }
 
@@ -173,7 +170,6 @@ impl ShardsManager {
             runtime_adapter,
             network_adapter,
             encoded_chunks: EncodedChunksCache::new(),
-            block_hash_to_chunk_headers: HashMap::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MS),
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_OTHERS_MS),
@@ -186,7 +182,7 @@ impl ShardsManager {
     pub fn update_largest_seen_height(&mut self, new_height: BlockIndex) {
         self.encoded_chunks.update_largest_seen_height(
             new_height,
-            &self.requested_partial_encoded_chunks.requests,
+            &mut self.requested_partial_encoded_chunks.requests,
         );
     }
 
@@ -419,9 +415,9 @@ impl ShardsManager {
 
     pub fn prepare_chunks(
         &mut self,
-        prev_block_hash: CryptoHash,
+        prev_block_hash: &CryptoHash,
     ) -> Vec<(ShardId, ShardChunkHeader)> {
-        self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
+        self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
@@ -717,11 +713,9 @@ impl ShardsManager {
             entry.parts.len() >= self.runtime_adapter.num_data_parts(&prev_block_hash);
 
         if have_all_parts {
-            self.block_hash_to_chunk_headers
-                .entry(header.inner.prev_block_hash)
-                .or_insert_with(|| vec![])
-                .push((partial_encoded_chunk.shard_id, header.clone()));
+            self.encoded_chunks.insert_chunk_header(partial_encoded_chunk.shard_id, header.clone());
         }
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         if have_all_parts && have_all_receipts {
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
@@ -1063,10 +1057,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.block_hash_to_chunk_headers
-            .entry(prev_block_hash)
-            .or_insert_with(|| vec![])
-            .push((shard_id, encoded_chunk.header.clone()));
+        self.encoded_chunks.insert_chunk_header(shard_id, encoded_chunk.header.clone());
 
         // Store the chunk in the permanent storage
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
