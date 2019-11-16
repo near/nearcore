@@ -173,7 +173,7 @@ fn test_status_fail() {
                 }));
             }),
             100,
-            1000,
+            10000,
         )
         .start();
     })
@@ -215,7 +215,7 @@ fn test_health_fail_no_blocks() {
                 }));
             }),
             300,
-            2000,
+            10000,
         )
         .start();
     })
