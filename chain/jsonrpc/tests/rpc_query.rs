@@ -88,8 +88,7 @@ fn test_chunk_by_hash() {
                     assert_eq!(chunk.header.height_included, 0);
                     assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
                     assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
-                    assert_eq!(chunk.header.prev_state_num_parts, 17);
-                    assert_eq!(chunk.header.prev_state_root_hash.as_ref().len(), 32);
+                    assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
                     assert_eq!(chunk.header.rent_paid, 0);
                     assert_eq!(chunk.header.shard_id, 0);
                     assert!(if let Signature::ED25519(_) = chunk.header.signature {

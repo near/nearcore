@@ -360,8 +360,7 @@ pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub outcome_root: CryptoHash,
-    pub prev_state_root_hash: CryptoHash,
-    pub prev_state_num_parts: u64,
+    pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -387,8 +386,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: chunk.hash.0,
             prev_block_hash: chunk.inner.prev_block_hash,
             outcome_root: chunk.inner.outcome_root,
-            prev_state_root_hash: chunk.inner.prev_state_root.hash,
-            prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
+            prev_state_root: chunk.inner.prev_state_root,
             encoded_merkle_root: chunk.inner.encoded_merkle_root,
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -417,10 +415,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
         let mut header = ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash,
-                prev_state_root: StateRoot {
-                    hash: view.prev_state_root_hash,
-                    num_parts: view.prev_state_num_parts,
-                },
+                prev_state_root: view.prev_state_root,
                 outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,

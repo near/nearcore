@@ -323,12 +323,12 @@ impl Peer {
                     RoutedMessageBody::QueryResponse { response, id } => {
                         NetworkClientMessages::QueryResponse { response, id }
                     }
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts) => {
                         NetworkClientMessages::StateRequest(
                             shard_id,
                             hash,
                             need_header,
-                            parts_ranges,
+                            parts,
                             msg_hash.clone().unwrap(),
                         )
                     }

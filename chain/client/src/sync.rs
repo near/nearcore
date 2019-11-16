@@ -6,13 +6,13 @@ use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
-use near_chain::types::ShardStateSyncResponseHeader;
+use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_chunks::NetworkAdapter;
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, Range, ShardId};
+use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -404,49 +404,6 @@ pub enum StateSyncResult {
     Completed,
 }
 
-pub struct StateSyncStrategy {}
-
-impl StateSyncStrategy {
-    pub fn download_by_one(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
-        let mut strategy = vec![];
-        for (i, download) in downloads.iter().enumerate() {
-            if download.run_me {
-                strategy.push(vec![Range(i as u64, i as u64 + 1)]);
-            }
-        }
-        strategy
-    }
-
-    pub fn download_sqrt(downloads: &Vec<DownloadStatus>) -> Vec<Vec<Range>> {
-        let len = downloads.len();
-        let run_count = downloads.iter().filter(|d| d.run_me).count();
-        if run_count * 5 < len {
-            // We downloaded more than 80% of the state.
-            // Let's distribute all small pieces between all nodes.
-            return StateSyncStrategy::download_by_one(downloads);
-        }
-        let mut strategy = vec![];
-        let mut begin = 0;
-        for (i, download) in downloads.iter().enumerate() {
-            if download.run_me {
-                if i - begin >= (len as f64).sqrt() as usize {
-                    strategy.push(vec![Range(begin as u64, i as u64)]);
-                    begin = i;
-                }
-            } else {
-                if begin != i {
-                    strategy.push(vec![Range(begin as u64, i as u64)]);
-                }
-                begin = i + 1;
-            }
-        }
-        if begin != len {
-            strategy.push(vec![Range(begin as u64, len as u64)]);
-        }
-        strategy
-    }
-}
-
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -462,6 +419,15 @@ impl StateSync {
             state_sync_time: Default::default(),
             last_time_block_requested: None,
         }
+    }
+
+    pub fn get_num_parts(&self, state_root_node: &StateRootNode) -> u64 {
+        let state_size = state_root_node.memory_usage;
+        // We assume that 1 Mb is a good limit for state part size.
+        // On the other side, it's important to divide any state into
+        // several parts to make sure that partitioning always works.
+        // TODO #1708
+        state_size / (1024 * 1024) + 3
     }
 
     pub fn sync_block_status(
@@ -532,8 +498,8 @@ impl StateSync {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header =
                             chain.get_received_state_header(shard_id, sync_hash)?;
-                        let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-                        let state_num_parts = chunk.header.inner.prev_state_root.num_parts;
+                        let state_num_parts =
+                            self.get_num_parts(&shard_state_header.state_root_node);
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
@@ -588,7 +554,10 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadFinalize => {
-                    match chain.set_state_finalize(shard_id, sync_hash) {
+                    let shard_state_header =
+                        chain.get_received_state_header(shard_id, sync_hash)?;
+                    let state_num_parts = self.get_num_parts(&shard_state_header.state_root_node);
+                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
@@ -602,11 +571,16 @@ impl StateSync {
                             error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
                             update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
+                            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                         }
                     }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     this_done = true;
+                    let shard_state_header =
+                        chain.get_received_state_header(shard_id, sync_hash)?;
+                    let state_num_parts = self.get_num_parts(&shard_state_header.state_root_node);
+                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }
             all_done &= this_done;
@@ -685,7 +659,7 @@ impl StateSync {
                     shard_id,
                     hash,
                     need_header: true,
-                    parts_ranges: vec![],
+                    parts: StateRequestParts::default(),
                     target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
                         .clone(),
                 });
@@ -693,16 +667,22 @@ impl StateSync {
                 new_shard_sync_download.downloads[0].run_me = false;
             }
             ShardSyncStatus::StateDownloadParts => {
-                let download_strategy =
-                    StateSyncStrategy::download_sqrt(&shard_sync_download.downloads);
-                self.apply_download_strategy(
-                    shard_id,
-                    hash,
-                    &possible_targets,
-                    download_strategy,
-                    &shard_sync_download,
-                    &mut new_shard_sync_download,
-                )?;
+                for (i, download) in new_shard_sync_download.downloads.iter().enumerate() {
+                    if download.run_me {
+                        self.network_adapter.send(NetworkRequests::StateRequest {
+                            shard_id,
+                            hash,
+                            need_header: false,
+                            parts: StateRequestParts {
+                                ids: vec![i as u64],
+                                num_parts: new_shard_sync_download.downloads.len() as u64,
+                            },
+                            target: possible_targets
+                                [thread_rng().gen_range(0, possible_targets.len())]
+                            .clone(),
+                        });
+                    }
+                }
             }
             _ => {}
         }
@@ -752,35 +732,6 @@ impl StateSync {
         } else {
             StateSyncResult::Unchanged
         })
-    }
-
-    pub fn apply_download_strategy(
-        &mut self,
-        shard_id: ShardId,
-        hash: CryptoHash,
-        possible_targets: &Vec<AccountOrPeerIdOrHash>,
-        download_strategy: Vec<Vec<Range>>,
-        shard_sync_download: &ShardSyncDownload,
-        new_shard_sync_download: &mut ShardSyncDownload,
-    ) -> Result<(), near_chain::Error> {
-        let state_num_parts = shard_sync_download.downloads.len();
-        assert_eq!(state_num_parts, new_shard_sync_download.downloads.len());
-        for parts_ranges in download_strategy {
-            for Range(from, to) in parts_ranges.iter() {
-                for i in *from as usize..*to as usize {
-                    assert!(new_shard_sync_download.downloads[i].run_me);
-                    new_shard_sync_download.downloads[i].run_me = false;
-                }
-            }
-            self.network_adapter.send(NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                need_header: false,
-                parts_ranges,
-                target: possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone(),
-            });
-        }
-        Ok(())
     }
 }
 

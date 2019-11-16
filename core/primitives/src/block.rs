@@ -476,10 +476,7 @@ impl Block {
 
     pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
         merklize(
-            &chunks
-                .iter()
-                .map(|chunk| chunk.inner.prev_state_root.hash)
-                .collect::<Vec<CryptoHash>>(),
+            &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
         )
         .0
     }
