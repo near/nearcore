@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
 use near_primitives::hash::CryptoHash;
@@ -21,7 +21,7 @@ pub struct EncodedChunksCache {
     largest_seen_height: BlockIndex,
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
-    height_map: HashMap<BlockIndex, Vec<ChunkHash>>,
+    height_map: HashMap<BlockIndex, HashSet<ChunkHash>>,
     block_hash_to_chunk_headers: SizedCache<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
 }
 
@@ -96,8 +96,13 @@ impl EncodedChunksCache {
     ) -> bool {
         let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
         if self.encoded_chunks.contains_key(&chunk_hash) || partial_encoded_chunk.header.is_some() {
-            self.get_or_insert_from_header(chunk_hash, partial_encoded_chunk.header.as_ref())
-                .merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+            let entry = self.get_or_insert_from_header(
+                chunk_hash.clone(),
+                partial_encoded_chunk.header.as_ref(),
+            );
+            let height = entry.header.height_included;
+            entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+            self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
             return true;
         } else {
             return false;
@@ -116,7 +121,7 @@ impl EncodedChunksCache {
     pub fn update_largest_seen_height<T>(
         &mut self,
         new_height: BlockIndex,
-        requested_chunks: &mut SizedCache<ChunkHash, T>,
+        requested_chunks: &HashMap<ChunkHash, T>,
     ) {
         let old_largest_seen_height = self.largest_seen_height;
         self.largest_seen_height = new_height;
@@ -125,7 +130,7 @@ impl EncodedChunksCache {
         {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
-                    if !requested_chunks.cache_get(&chunk_hash).is_some() {
+                    if !requested_chunks.contains_key(&chunk_hash) {
                         self.encoded_chunks.remove(&chunk_hash);
                     }
                 }
@@ -134,8 +139,10 @@ impl EncodedChunksCache {
     }
 
     pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
-        if header.inner.height_created
-            > self.largest_seen_height.saturating_sub(NUM_BLOCK_HASH_TO_CHUNK_HEADER as BlockIndex)
+        let height = header.inner.height_created;
+        if height
+            >= self.largest_seen_height.saturating_sub(NUM_BLOCK_HASH_TO_CHUNK_HEADER as BlockIndex)
+            && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
