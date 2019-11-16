@@ -445,8 +445,7 @@ pub fn setup_mock_all_validators(
                             shard_id,
                             hash,
                             need_header,
-                            part_ids,
-                            num_parts,
+                            parts,
                             target: target_account_id,
                         } => {
                             let target_account_id = match target_account_id {
@@ -463,8 +462,7 @@ pub fn setup_mock_all_validators(
                                                 *shard_id,
                                                 *hash,
                                                 *need_header,
-                                                part_ids.to_vec(),
-                                                *num_parts,
+                                                parts.clone(),
                                                 my_address,
                                             ))
                                             .then(move |response| {

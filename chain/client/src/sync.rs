@@ -6,13 +6,13 @@ use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
-use near_chain::types::StateRootNode;
+use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_chunks::NetworkAdapter;
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -426,6 +426,7 @@ impl StateSync {
         // We assume that 1 Mb is a good limit for state part size.
         // On the other side, it's important to divide any state into
         // several parts to make sure that partitioning always works.
+        // TODO #1708
         state_size / (1024 * 1024) + 3
     }
 
@@ -658,8 +659,7 @@ impl StateSync {
                     shard_id,
                     hash,
                     need_header: true,
-                    part_ids: vec![],
-                    num_parts: 0, /* we don't use it here */
+                    parts: StateRequestParts::default(),
                     target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
                         .clone(),
                 });
@@ -673,8 +673,10 @@ impl StateSync {
                             shard_id,
                             hash,
                             need_header: false,
-                            part_ids: vec![i as u64],
-                            num_parts: new_shard_sync_download.downloads.len() as u64,
+                            parts: StateRequestParts {
+                                ids: vec![i as u64],
+                                num_parts: new_shard_sync_download.downloads.len() as u64,
+                            },
                             target: possible_targets
                                 [thread_rng().gen_range(0, possible_targets.len())]
                             .clone(),

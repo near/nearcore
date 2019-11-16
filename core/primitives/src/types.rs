@@ -33,6 +33,14 @@ pub type PromiseId = Vec<ReceiptIndex>;
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateRootNode {
+    /// in Nightshade, data is the serialized TrieNodeWithSize
+    pub data: Vec<u8>,
+    /// in Nightshade, memory_usage is a field of TrieNodeWithSize
+    pub memory_usage: u64,
+}
+
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 #[derive(
     Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,

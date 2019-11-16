@@ -266,21 +266,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(
-                shard_id,
-                hash,
-                need_header,
-                part_ids,
-                num_parts,
-                route_back,
-            ) => {
+            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
                 let mut data = vec![];
-                for part_id in part_ids.iter() {
-                    match self
-                        .client
-                        .chain
-                        .get_state_response_part(shard_id, *part_id, num_parts, hash)
-                    {
+                for part_id in parts.ids.iter() {
+                    match self.client.chain.get_state_response_part(
+                        shard_id,
+                        *part_id,
+                        parts.num_parts,
+                        hash,
+                    ) {
                         Ok(part) => data.push(part),
                         Err(e) => {
                             error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
@@ -297,7 +291,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     hash,
                                     shard_state: ShardStateSyncResponse {
                                         header: Some(header),
-                                        part_ids,
+                                        part_ids: parts.ids,
                                         data,
                                     },
                                 },
@@ -314,7 +308,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         StateResponseInfo {
                             shard_id,
                             hash,
-                            shard_state: ShardStateSyncResponse { header: None, part_ids, data },
+                            shard_state: ShardStateSyncResponse {
+                                header: None,
+                                part_ids: parts.ids,
+                                data,
+                            },
                         },
                         route_back,
                     );

@@ -12,7 +12,7 @@ use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::StateRoot;
+use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -629,11 +629,25 @@ impl Trie {
         }
     }
 
-    pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<(Vec<u8>, u64), StorageError> {
+    pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         if *root == Trie::empty_root() {
-            return Ok((vec![], 0));
+            return Err(StorageError::StorageInconsistentState(format!(
+                "Failed to retrieve root node {}",
+                root
+            )));
         }
-        Ok((self.storage.retrieve_raw_bytes(root)?, self.retrieve_node(root)?.memory_usage))
+        self.counter.increment();
+        let data = self.storage.retrieve_raw_bytes(root)?;
+        match RawTrieNodeWithSize::decode(&data) {
+            Ok(value) => {
+                let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
+                Ok(StateRootNode { data, memory_usage })
+            }
+            Err(_) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to decode node {}",
+                root
+            ))),
+        }
     }
 
     fn lookup(

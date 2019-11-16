@@ -20,7 +20,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
+    ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::test_utils::create_test_store;
@@ -31,8 +32,8 @@ use near_store::{
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StateRootNode,
-    ValidatorSignatureVerificationResult, Weight,
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
+    Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
 use near_primitives::block::Approval;

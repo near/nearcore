@@ -9,9 +9,7 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
-use near_chain::types::{
-    ApplyTransactionResult, StateRootNode, ValidatorSignatureVerificationResult,
-};
+use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
@@ -24,7 +22,8 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -935,9 +934,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
-        let (data, memory_usage) =
-            self.trie.retrieve_root_node(state_root).expect("Failed to get root node");
-        StateRootNode { data, memory_usage }
+        self.trie.retrieve_root_node(state_root).expect("Failed to get root node")
     }
 
     fn validate_state_root_node(

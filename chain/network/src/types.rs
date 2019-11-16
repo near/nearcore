@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::ShardStateSyncResponse;
+use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
@@ -307,7 +307,7 @@ pub enum RoutedMessageBody {
         response: QueryResponse,
         id: String,
     },
-    StateRequest(ShardId, CryptoHash, bool, Vec<u64>, u64),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -406,7 +406,7 @@ impl RoutedMessage {
         match self.body {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequest(_, _, _, _, _)
+            | RoutedMessageBody::StateRequest(_, _, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. } => true,
             _ => false,
@@ -504,7 +504,7 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequest(_, _, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
@@ -636,7 +636,7 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _, _) => {
+                RoutedMessageBody::StateRequest(_, _, _, _) => {
                     near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
                         &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
@@ -917,8 +917,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         hash: CryptoHash,
         need_header: bool,
-        part_ids: Vec<u64>,
-        num_parts: u64,
+        parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
@@ -1067,7 +1066,7 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<u64>, u64, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.

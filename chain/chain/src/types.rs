@@ -13,7 +13,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
@@ -34,14 +35,6 @@ pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StatePartKey(pub ShardId, pub u64 /* PartId */, pub StateRoot);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StateRootNode {
-    /// data is the serialized TrieNodeWithSize
-    pub data: Vec<u8>,
-    /// memory_usage is a field of TrieNodeWithSize
-    pub memory_usage: u64,
-}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -485,6 +478,12 @@ pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
     pub part_ids: Vec<u64>,
     pub data: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Default)]
+pub struct StateRequestParts {
+    pub ids: Vec<u64>,
+    pub num_parts: u64,
 }
 
 #[cfg(test)]
