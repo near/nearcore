@@ -1,3 +1,4 @@
+use crate::cases::Metric;
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -14,20 +15,13 @@ pub fn get_account_id(account_index: usize) -> String {
     format!("near_{}_{}", account_index, account_index)
 }
 
-/// Block sizes that we are going to try running with.
-fn block_sizes(config: &Config) -> Vec<usize> {
-    (config.smallest_block_size_pow2..=config.largest_block_size_pow2)
-        .map(|x| 2usize.pow(x))
-        .collect()
-}
-
 /// Total number of transactions that we need to prepare.
 fn total_transactions(config: &Config) -> usize {
-    block_sizes(config).iter().sum::<usize>() * config.iter_per_block
+    config.block_sizes.iter().sum::<usize>() * config.iter_per_block
 }
 
 fn warmup_total_transactions(config: &Config) -> usize {
-    block_sizes(config).iter().sum::<usize>() * config.warmup_iters_per_block
+    config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
 /// Configuration which we use to run measurements.
@@ -39,19 +33,15 @@ pub struct Config {
     pub iter_per_block: usize,
     /// Total active accounts.
     pub active_accounts: usize,
-    /// Smallest size of the block expressed as power of 2.
-    pub smallest_block_size_pow2: u32,
-    /// Largest size of the block expressed as power of 2.
-    pub largest_block_size_pow2: u32,
+    /// Number of the transactions in the block.
+    pub block_sizes: Vec<usize>,
     /// Where state dump is located in case we need to create a testbed.
     pub state_dump_path: String,
 }
 
 /// Measure the speed of transactions containing certain simple actions.
 pub fn measure_actions(
-    name: &'static str,
-    operation_repetitions: usize,
-    operation_load: Option<usize>,
+    metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
     testbed: Option<RuntimeTestbed>,
@@ -96,39 +86,30 @@ pub fn measure_actions(
             CryptoHash::default(),
         )
     };
-    measure_transactions(
-        name,
-        operation_repetitions,
-        operation_load,
-        measurements,
-        config,
-        testbed,
-        &mut f,
-    )
+    measure_transactions(metric, measurements, config, testbed, &mut f, false)
 }
 
 /// Measure the speed of the transactions, given a transactions-generator function.
 /// Returns testbed so that it can be reused.
 pub fn measure_transactions<F>(
-    name: &'static str,
-    operation_repetitions: usize,
-    operation_load: Option<usize>,
+    metric: Metric,
     measurements: &mut Measurements,
     config: &Config,
     testbed: Option<RuntimeTestbed>,
     f: &mut F,
+    allow_failures: bool,
 ) -> RuntimeTestbed
 where
     F: FnMut() -> SignedTransaction,
 {
     let mut testbed = match testbed {
         Some(x) => {
-            println!("{}. Reusing testbed.", name);
+            println!("{:?}. Reusing testbed.", metric);
             x
         }
         None => {
             let path = PathBuf::from(config.state_dump_path.as_str());
-            println!("{}. Preparing testbed. Loading state.", name);
+            println!("{:?}. Preparing testbed. Loading state.", metric);
             RuntimeTestbed::from_state_dump(&path)
         }
     };
@@ -137,10 +118,10 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Warm up {bar} {pos:>7}/{len:7} {msg}",
     ));
-    for block_size in block_sizes(config) {
+    for block_size in config.block_sizes.clone() {
         for _ in 0..config.warmup_iters_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
-            testbed.process_block(&block, false);
+            testbed.process_block(&block, allow_failures);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
@@ -151,23 +132,21 @@ where
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Measuring {bar} {pos:>7}/{len:7} {msg}",
     ));
-    for block_size in block_sizes(config) {
+    node_runtime::EXT_COSTS_COUNTER.with(|f| {
+        f.borrow_mut().clear();
+    });
+    for block_size in config.block_sizes.clone() {
         for _ in 0..config.iter_per_block {
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let start_time = Instant::now();
-            testbed.process_block(&block, false);
+            testbed.process_block(&block, allow_failures);
             let end_time = Instant::now();
-            measurements.record_measurement(
-                name,
-                block_size,
-                end_time - start_time,
-                operation_repetitions,
-                operation_load,
-            );
+            measurements.record_measurement(metric.clone(), block_size, end_time - start_time);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
         }
     }
+    testbed.process_blocks_until_no_receipts(allow_failures);
     bar.finish();
     measurements.print();
     testbed

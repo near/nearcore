@@ -242,7 +242,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         hash: self.client.chain.genesis().hash(),
                     },
                     height: head.height,
-                    total_weight: head.total_weight,
+                    weight_and_score: head.weight_and_score,
                     tracked_shards: self.client.config.tracked_shards.clone(),
                 },
                 Err(err) => {
@@ -739,8 +739,11 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
+            let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner.height);
 
-            self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
+            self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
         }
     }
@@ -917,23 +920,27 @@ impl ClientActor {
             };
 
         if is_syncing {
-            if full_peer_info.chain_info.total_weight <= head.total_weight {
-                info!(target: "client", "Sync: synced at {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+            if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
+                info!(target: "client", "Sync: synced at weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.total_weight.to_num()
-                > head.total_weight.to_num() + self.client.config.sync_weight_threshold
+            if full_peer_info
+                .chain_info
+                .weight_and_score
+                .beyond_threshold(&head.weight_and_score, self.client.config.sync_weight_threshold)
                 && full_peer_info.chain_info.height
                     > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
-                    "Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync",
+                    "Sync: height/weight/score: {}/{}/{}, peer height/weight/score: {}/{}/{}, enabling sync",
                     head.height,
-                    head.total_weight,
+                    head.weight_and_score.weight,
+                    head.weight_and_score.score,
                     full_peer_info.chain_info.height,
-                    full_peer_info.chain_info.total_weight
+                    full_peer_info.chain_info.weight_and_score.weight,
+                    full_peer_info.chain_info.weight_and_score.score,
                 );
                 is_syncing = true;
             }

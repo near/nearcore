@@ -145,7 +145,7 @@ fn create_invalid_proofs_chunk(
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
         0.into(),
-        CryptoHash::default(),
+        last_block.header.inner.prev_hash,
         CryptoHash::default(),
     );
     (chunk, merkle_paths, receipts, block)
@@ -207,6 +207,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
+    let prev_to_last_block =
+        env.clients[0].chain.get_block(&last_block.header.inner.prev_hash).unwrap().clone();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -255,8 +257,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         &signer,
         0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
+        last_block.header.inner.prev_hash,
+        prev_to_last_block.header.inner.prev_hash,
     );
 
     let challenge_body = {
@@ -274,6 +276,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             validity_period,
             epoch_length,
+            0,
         );
 
         chain_update
@@ -286,12 +289,22 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         assert_eq!(
-            vec![vec![
-                3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107, 71,
-                32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210, 44, 242,
-                167, 124, 2, 0, 0, 0, 0, 0,
-            ]],
-            challenge_body.partial_state
+            challenge_body.partial_state,
+            vec![
+                vec![
+                    1, 7, 0, 227, 6, 86, 139, 125, 37, 242, 104, 89, 182, 115, 113, 193, 120, 119,
+                    33, 26, 201, 6, 127, 176, 76, 7, 26, 49, 95, 52, 178, 159, 143, 117, 52, 30,
+                    175, 188, 91, 174, 142, 135, 98, 116, 150, 226, 129, 204, 53, 64, 77, 100, 76,
+                    30, 35, 91, 181, 116, 222, 89, 72, 223, 126, 155, 43, 85, 154, 123, 65, 104,
+                    88, 146, 81, 64, 114, 10, 155, 246, 47, 39, 58, 223, 4, 22, 25, 219, 175, 9,
+                    240, 3, 80, 88, 189, 162, 254, 21, 231, 234, 116, 125, 124, 2, 0, 0, 0, 0, 0
+                ],
+                vec![
+                    3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107,
+                    71, 32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210,
+                    44, 242, 167, 124, 2, 0, 0, 0, 0, 0
+                ]
+            ],
         );
     }
     let challenge =

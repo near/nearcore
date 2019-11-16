@@ -26,7 +26,7 @@ START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = {'local': True, 'near_root': '../target/debug/'}
-near_root, node_dirs = init_cluster(2, 1, 1, config, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
+near_root, node_dirs = init_cluster(2, 1, 1, config, [["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
 

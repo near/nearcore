@@ -23,11 +23,11 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
+    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
@@ -143,13 +143,9 @@ impl NightshadeRuntime {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_root_hashes: Vec<MerkleHash> =
+        let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         // TODO MOO read new_state_num_parts
-        let mut state_roots = vec![];
-        for hash in state_root_hashes {
-            state_roots.push(StateRoot { hash, num_parts: 1 /* TODO MOO */ })
-        }
         (store_update, state_roots)
     }
 
@@ -211,6 +207,7 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
@@ -278,6 +275,7 @@ impl NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit: Some(gas_limit),
         };
 
         let apply_result = self
@@ -366,7 +364,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else if has_records {
             self.genesis_state_from_records()
         } else {
-            panic!("Found neither records in the confign nor the state dump file. Either one should be present")
+            panic!("Found neither records in the config nor the state dump file. Either one should be present")
         }
     }
 
@@ -621,6 +619,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
     }
 
+    fn push_final_block_back_if_needed(
+        &self,
+        parent_hash: CryptoHash,
+        last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.push_final_block_back_if_needed(parent_hash, last_final_hash)?)
+    }
+
     fn validate_tx(
         &self,
         block_index: BlockIndex,
@@ -635,6 +642,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            // NOTE: verify transaction doesn't use gas limit
+            gas_limit: None,
         };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
@@ -653,6 +662,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
+        gas_limit: Gas,
         state_root: StateRoot,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
@@ -662,6 +672,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
+            gas_limit: Some(gas_limit),
         };
         transactions
             .into_iter()
@@ -678,6 +689,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
         block_index: BlockIndex,
+        last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         chunk_mask: Vec<bool>,
@@ -696,6 +708,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         let block_info = BlockInfo::new(
             block_index,
+            last_finalized_height,
             parent_hash,
             proposals,
             chunk_mask,
@@ -725,6 +738,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -744,6 +758,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         ) {
             Ok(result) => Ok(result),
@@ -769,6 +784,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        gas_limit: Gas,
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
@@ -783,6 +799,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             transactions,
             last_validator_proposals,
             gas_price,
+            gas_limit,
             challenges,
         )
     }
@@ -792,7 +809,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         height: BlockIndex,
         block_timestamp: u64,
-        block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
@@ -862,17 +879,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     })),
                 }
             }
-            "validators" => {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                match epoch_manager.get_validator_info(block_hash) {
-                    Ok(info) => Ok(QueryResponse::Validators(info)),
-                    Err(e) => {
-                        Ok(QueryResponse::Error(QueryError { error: e.to_string(), logs: vec![] }))
-                    }
-                }
-            }
             _ => Err(format!("Unknown path {}", path_parts[0]).into()),
         }
+    }
+
+    fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+        println!("get validator info");
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
     fn obtain_state_part(
@@ -1025,7 +1039,7 @@ mod test {
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::block::Weight;
+    use near_primitives::block::WeightAndScore;
     use near_primitives::challenge::ChallengesResult;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
@@ -1034,9 +1048,9 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
-    use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
+    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
@@ -1080,6 +1094,7 @@ mod test {
             transactions: &[SignedTransaction],
             last_proposals: &[ValidatorStake],
             gas_price: Balance,
+            gas_limit: Gas,
             challenges: &ChallengesResult,
         ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
@@ -1094,6 +1109,7 @@ mod test {
                     transactions,
                     last_proposals,
                     gas_price,
+                    gas_limit,
                     challenges,
                 )
                 .unwrap();
@@ -1152,6 +1168,7 @@ mod test {
                     CryptoHash::default(),
                     genesis_hash,
                     0,
+                    0,
                     vec![],
                     vec![],
                     vec![],
@@ -1167,7 +1184,7 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
-                    total_weight: Weight::default(),
+                    weight_and_score: WeightAndScore::from_ints(0, 0),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1200,6 +1217,7 @@ mod test {
                     &transactions[i as usize],
                     self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
                     self.runtime.genesis_config.gas_price,
+                    u64::max_value(),
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;
@@ -1217,6 +1235,7 @@ mod test {
                     self.head.last_block_hash,
                     new_hash,
                     self.head.height + 1,
+                    self.head.height.saturating_sub(1),
                     self.last_proposals.clone(),
                     challenges_result,
                     chunk_mask,
@@ -1232,7 +1251,10 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                total_weight: Weight::from(self.head.total_weight.to_num() + 1),
+                weight_and_score: WeightAndScore::from_ints(
+                    self.head.weight_and_score.weight.to_num() + 1,
+                    self.head.weight_and_score.score.to_num(),
+                ),
             };
         }
 
@@ -1644,6 +1666,7 @@ mod test {
                     prev_hash,
                     cur_hash,
                     i,
+                    i.saturating_sub(2),
                     new_env.last_proposals.clone(),
                     vec![],
                     vec![true],
@@ -1761,57 +1784,44 @@ mod test {
             .unwrap()
             .validators
             .clone();
-        let response = env
-            .runtime
-            .query(&env.state_roots[0], 2, 0, &env.head.last_block_hash, vec!["validators"], &[])
-            .unwrap();
-        match response {
-            QueryResponse::Validators(info) => assert_eq!(
-                info,
-                EpochValidatorInfo {
-                    current_validators: current_validators
-                        .clone()
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    next_validators: current_validators
-                        .clone()
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    current_proposals: vec![ValidatorStake {
-                        account_id: "test1".to_string(),
-                        public_key: block_producers[0].signer.public_key(),
-                        amount: 0
-                    }
-                    .into()]
+        let current_epoch_validator_info = current_validators
+            .clone()
+            .into_iter()
+            .map(|v| CurrentEpochValidatorInfo {
+                account_id: v.account_id,
+                is_slashed: false,
+                stake: v.amount,
+                num_missing_blocks: 0,
+            })
+            .collect::<Vec<_>>();
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        assert_eq!(
+            response,
+            EpochValidatorInfo {
+                current_validators: current_epoch_validator_info.clone(),
+                next_validators: current_validators.clone().into_iter().map(Into::into).collect(),
+                current_proposals: vec![ValidatorStake {
+                    account_id: "test1".to_string(),
+                    public_key: block_producers[0].signer.public_key(),
+                    amount: 0
                 }
-            ),
-            _ => panic!("wrong response"),
-        }
-        env.step_default(vec![]);
-        let response = env
-            .runtime
-            .query(&env.state_roots[0], 3, 0, &env.head.last_block_hash, vec!["validators"], &[])
-            .unwrap();
-        match response {
-            QueryResponse::Validators(info) => {
-                let v: Vec<ValidatorStake> =
-                    info.current_validators.clone().into_iter().map(Into::into).collect();
-                assert_eq!(v, current_validators);
-                assert_eq!(
-                    info.next_validators,
-                    vec![ValidatorStake {
-                        account_id: "test2".to_string(),
-                        public_key: block_producers[1].signer.public_key(),
-                        amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
-                    }
-                    .into()]
-                );
-                assert!(info.current_proposals.is_empty());
+                .into()]
             }
-            _ => panic!("wrong response"),
-        }
+        );
+        env.step_default(vec![]);
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+
+        assert_eq!(response.current_validators, current_epoch_validator_info);
+        assert_eq!(
+            response.next_validators,
+            vec![ValidatorStake {
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].signer.public_key(),
+                amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
+            }
+            .into()]
+        );
+        assert!(response.current_proposals.is_empty());
     }
 
     #[test]
@@ -1939,8 +1949,13 @@ mod test {
             10,
             CryptoHash::default(),
         );
-        let apply_state =
-            ApplyState { block_index: 1, epoch_length: 2, gas_price: 10, block_timestamp: 100 };
+        let apply_state = ApplyState {
+            block_index: 1,
+            epoch_length: 2,
+            gas_price: 10,
+            block_timestamp: 100,
+            gas_limit: None,
+        };
         let mut prefixes = HashSet::new();
         prefixes.insert(prefix);
         let apply_result = env

@@ -274,7 +274,7 @@ impl PeerManagerActor {
             .values()
             .map(|active_peers| {
                 (
-                    active_peers.full_peer_info.chain_info.total_weight,
+                    active_peers.full_peer_info.chain_info.weight_and_score,
                     active_peers.full_peer_info.chain_info.height,
                 )
             })
@@ -829,7 +829,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 let new_accounts = accounts
                     .into_iter()
                     .filter(|announce_account| {
-                        !self.routing_table.contains_account(announce_account.clone())
+                        !self.routing_table.contains_account(&announce_account)
                     })
                     .collect();
 

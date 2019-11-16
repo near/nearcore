@@ -285,6 +285,7 @@ mod tests {
                 &cur_h,
                 BlockInfo::new(
                     index,
+                    0,
                     prev_h,
                     proposals,
                     vec![],
