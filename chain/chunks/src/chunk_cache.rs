@@ -162,3 +162,48 @@ impl EncodedChunksCache {
         self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(|| vec![])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::chunk_cache::EncodedChunksCache;
+    use crate::ChunkRequestInfo;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+    use near_primitives::types::StateRoot;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_cache_removal() {
+        let mut cache = EncodedChunksCache::new();
+        let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
+        let partial_encoded_chunk = PartialEncodedChunk {
+            shard_id: 0,
+            chunk_hash: Default::default(),
+            header: Some(ShardChunkHeader::new(
+                CryptoHash::default(),
+                StateRoot { hash: Default::default(), num_parts: 0 },
+                CryptoHash::default(),
+                CryptoHash::default(),
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                CryptoHash::default(),
+                CryptoHash::default(),
+                vec![],
+                &signer,
+            )),
+            parts: vec![],
+            receipts: vec![],
+        };
+        assert!(cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk));
+        cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
+        assert!(cache.encoded_chunks.is_empty());
+        assert!(cache.height_map.is_empty());
+    }
+}
