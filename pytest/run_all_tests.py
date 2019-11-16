@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from rc import run, run_stream, STDOUT, STDERR
 from rc.test.util import Timer
 import glob
