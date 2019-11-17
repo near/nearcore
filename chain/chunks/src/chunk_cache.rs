@@ -9,7 +9,8 @@ use near_primitives::types::{BlockIndex, ShardId};
 
 const HEIGHT_HORIZON: u64 = 1024;
 const MAX_HEIGHTS_AHEAD: u64 = 5;
-const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 10;
+const CHUNK_HEADER_HEIGHT_HORIZON: u64 = 10;
+const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
@@ -140,8 +141,7 @@ impl EncodedChunksCache {
 
     pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
         let height = header.inner.height_created;
-        if height
-            >= self.largest_seen_height.saturating_sub(NUM_BLOCK_HASH_TO_CHUNK_HEADER as BlockIndex)
+        if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
             let mut block_hash_to_chunk_headers = self

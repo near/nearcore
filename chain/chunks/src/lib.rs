@@ -114,7 +114,7 @@ impl RequestPool {
             requests: HashMap::default(),
         }
     }
-    pub fn contains_key(&mut self, chunk_hash: &ChunkHash) -> bool {
+    pub fn contains_key(&self, chunk_hash: &ChunkHash) -> bool {
         self.requests.contains_key(chunk_hash)
     }
 
