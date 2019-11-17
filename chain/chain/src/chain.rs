@@ -48,7 +48,7 @@ use near_primitives::utils::to_timestamp;
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
 
-/// Maximum age of orhpan to store in the chain.
+/// Maximum age of orphan to store in the chain.
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
@@ -59,6 +59,9 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
+
+/// Number of orphan parents should be checked to request chunks.
+const NUM_ORPHAN_PARENTS_CHECK: u64 = 5;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
@@ -1057,6 +1060,82 @@ impl Chain {
                 block_misses_chunks,
                 on_challenge,
             );
+        }
+    }
+
+    /// Check if any orphan with missing chunks is ready to request chunks
+    pub fn check_orphans_with_missing_chunks<F>(
+        &mut self,
+        me: &Option<AccountId>,
+        mut block_misses_chunks: F,
+    ) where
+        F: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+    {
+        let mut orphan_hashes = vec![];
+        for (orphan_hash, orphan) in self.orphans.orphans.iter() {
+            let mut accepted_parent = false;
+            let mut all_parents_known = true;
+            let mut prev_hash = orphan.block.header.prev_hash;
+            for _ in 0..NUM_ORPHAN_PARENTS_CHECK {
+                // 1. Look into store
+                match self.store.get_block(&prev_hash) {
+                    Ok(block) => {
+                        accepted_parent = true;
+                        prev_hash = block.header.prev_hash;
+                        continue;
+                    }
+                    _ => {}
+                }
+                // 2. Look into missing chunks
+                if self.blocks_with_missing_chunks.orphans.contains_key(&prev_hash) {
+                    let prev_orphan =
+                        self.blocks_with_missing_chunks.orphans.get(&prev_hash).unwrap();
+                    prev_hash = prev_orphan.block.header.prev_hash;
+                    continue;
+                }
+                // 3. Look into orphans
+                if self.orphans.orphans.contains_key(&prev_hash) {
+                    let prev_orphan = self.orphans.orphans.get(&prev_hash).unwrap();
+                    prev_hash = prev_orphan.block.header.prev_hash;
+                    continue;
+                }
+                // Parent is not found
+                all_parents_known = false;
+                break;
+            }
+            // The following conditions should be fulfilled to request chunks:
+            // 1. At least one of the parents is accepted (is in store)
+            // 2. All of the parents_to_check should be known (in store, missing chunks or orphans)
+            if accepted_parent && all_parents_known {
+                orphan_hashes.push(orphan_hash);
+            }
+        }
+
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            &self.blocks_with_missing_chunks,
+            self.transaction_validity_period,
+            self.epoch_length,
+            self.gas_price_adjustment_rate,
+        );
+        for orphan_hash in orphan_hashes.into_iter() {
+            let orphan = self.orphans.orphans.get(&orphan_hash).unwrap();
+            match chain_update.ping_missing_chunks(me, orphan.block.header.prev_hash, &orphan.block)
+            {
+                Err(e) => match e.kind() {
+                    ErrorKind::ChunksMissing(missing) => {
+                        block_misses_chunks(missing.clone());
+                    }
+                    _ => {
+                        error!(target: "chain", "Cannot get missing chunks from orphan {:?}: {:?}", orphan.block.header, e);
+                    }
+                },
+                Ok(_) => {
+                    // No chunks to download
+                }
+            }
         }
     }
 

@@ -806,6 +806,9 @@ impl Client {
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
+        self.chain.check_orphans_with_missing_chunks(&me, |missing_chunks| {
+            blocks_missing_chunks.write().unwrap().push(missing_chunks)
+        });
         self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
