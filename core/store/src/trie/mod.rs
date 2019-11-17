@@ -12,12 +12,14 @@ use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::{
-    TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage,
+    TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
+    TrieStorage,
 };
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
@@ -66,9 +68,9 @@ enum TrieNode {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct TrieNodeWithSize {
+pub struct TrieNodeWithSize {
     node: TrieNode,
-    memory_usage: u64,
+    pub memory_usage: u64,
 }
 
 impl TrieNodeWithSize {
@@ -371,6 +373,7 @@ impl RcTrieNode {
 
 pub struct Trie {
     storage: Box<dyn TrieStorage>,
+    pub counter: TouchedNodesCounter,
 }
 
 ///
@@ -398,14 +401,14 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
     #[allow(dead_code)]
-    old_root: CryptoHash,
-    pub new_root: CryptoHash,
+    old_root: StateRoot,
+    pub new_root: StateRoot,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 impl TrieChanges {
-    pub fn empty(old_root: CryptoHash) -> Self {
+    pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
     pub fn insertions_into(
@@ -454,7 +457,7 @@ impl TrieChanges {
     pub fn into(
         self,
         trie: Arc<Trie>,
-    ) -> Result<(StoreUpdate, CryptoHash), Box<dyn std::error::Error>> {
+    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
         let mut store_update = StoreUpdate::new_with_trie(
             trie.storage
                 .as_caching_storage()
@@ -497,7 +500,10 @@ impl WrappedTrieChanges {
 
 impl Trie {
     pub fn new(store: Arc<Store>) -> Self {
-        Trie { storage: Box::new(TrieCachingStorage::new(store)) }
+        Trie {
+            storage: Box::new(TrieCachingStorage::new(store)),
+            counter: TouchedNodesCounter::default(),
+        }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -510,11 +516,11 @@ impl Trie {
             },
             recorded: Arc::new(Mutex::new(Default::default())),
         };
-        Trie { storage: Box::new(storage) }
+        Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
     }
 
-    pub fn empty_root() -> CryptoHash {
-        CryptoHash::default()
+    pub fn empty_root() -> StateRoot {
+        StateRoot::default()
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -522,17 +528,18 @@ impl Trie {
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
         let mut nodes: Vec<_> = guard.drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes })
+        Some(PartialStorage { nodes: PartialState(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
         let recorded_storage =
-            partial_storage.nodes.into_iter().map(|value| (hash(&value), value)).collect();
+            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
         Trie {
             storage: Box::new(TrieMemoryPartialStorage {
                 recorded_storage,
                 visited_nodes: Default::default(),
             }),
+            counter: TouchedNodesCounter::default(),
         }
     }
 
@@ -587,6 +594,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNodeWithSize::empty()))
         } else {
+            self.counter.increment();
             let bytes = self.storage.retrieve_raw_bytes(hash)?;
             match RawTrieNodeWithSize::decode(&bytes) {
                 Ok(value) => {
@@ -610,12 +618,34 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
+        self.counter.increment();
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
                 "Failed to decode node {}",
                 hash
+            ))),
+        }
+    }
+
+    pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
+        if *root == Trie::empty_root() {
+            return Err(StorageError::StorageInconsistentState(format!(
+                "Failed to retrieve root node {}",
+                root
+            )));
+        }
+        self.counter.increment();
+        let data = self.storage.retrieve_raw_bytes(root)?;
+        match RawTrieNodeWithSize::decode(&data) {
+            Ok(value) => {
+                let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
+                Ok(StateRootNode { data, memory_usage })
+            }
+            Err(_) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to decode node {}",
+                root
             ))),
         }
     }
@@ -631,6 +661,7 @@ impl Trie {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
+            self.counter.increment();
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
@@ -1040,8 +1071,8 @@ mod tests {
             if root1 != root2 {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
-                eprintln!("root1: {}", root1);
-                eprintln!("root2: {}", root2);
+                eprintln!("root1: {:?}", root1);
+                eprintln!("root2: {:?}", root2);
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?
@@ -1110,7 +1141,7 @@ mod tests {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             trie2.get(&root, b"doge").unwrap();
             // record extension, branch and one leaf, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 3);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 3);
         }
 
         {
@@ -1118,7 +1149,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(&root, updates.into_iter()).unwrap();
             // record extension, branch and both leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
         }
 
         {
@@ -1126,7 +1157,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(&root, updates.into_iter()).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
         }
     }
 

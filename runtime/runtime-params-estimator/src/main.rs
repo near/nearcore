@@ -2,6 +2,9 @@ use clap::{App, Arg};
 use near::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
 fn main() {
     let default_home = get_default_home();
@@ -37,38 +40,28 @@ fn main() {
                 .takes_value(true)
                 .help("How many accounts were generated with `genesis-populate`."),
         )
-        .arg(
-            Arg::with_name("smallest-block-size-pow2")
-                .long("smallest-block-size-pow2")
-                .default_value("4")
-                .required(true)
-                .takes_value(true)
-                .help("Smallest size of the block expressed as power of 2."),
-        )
-        .arg(
-            Arg::with_name("largest-block-size-pow2")
-                .long("largest-block-size-pow2")
-                .default_value("11")
-                .required(true)
-                .takes_value(true)
-                .help("Largest size of the block expressed as power of 2."),
-        )
         .get_matches();
 
     let state_dump_path = matches.value_of("home").unwrap().to_string();
     let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
     let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
     let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
-    let smallest_block_size_pow2 =
-        matches.value_of("smallest-block-size-pow2").unwrap().parse().unwrap();
-    let largest_block_size_pow2 =
-        matches.value_of("largest-block-size-pow2").unwrap().parse().unwrap();
-    run(Config {
+    let runtime_config = run(Config {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
-        smallest_block_size_pow2,
-        largest_block_size_pow2,
-        state_dump_path,
+        block_sizes: vec![],
+        state_dump_path: state_dump_path.clone(),
     });
+
+    println!("Generated RuntimeConfig:");
+    println!("{:#?}", runtime_config);
+
+    let str = serde_json::to_string_pretty(&runtime_config)
+        .expect("Failed serializing the runtime config");
+    let mut file = File::create(Path::new(&state_dump_path).join("runtime_config.json"))
+        .expect("Failed to create file");
+    if let Err(err) = file.write_all(str.as_bytes()) {
+        panic!("Failed to write runtime config to file {}", err);
+    }
 }

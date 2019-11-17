@@ -55,8 +55,11 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
+        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
+    let mut first_gas_burnt = 0;
+    let mut last_gas_burnt = 0;
     (0..50).rev().for_each(|i| {
         println!("deleteStrings #{}", i);
         let from = i * 10 as u64;
@@ -75,8 +78,18 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
+        if i == 0 {
+            first_gas_burnt = res.receipts[0].outcome.gas_burnt;
+        }
+        if i == 49 {
+            last_gas_burnt = res.receipts[0].outcome.gas_burnt;
+        }
+        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
+    // storage_remove also has to get previous value from trie which is expensive
+    // ExtCostsConfig.touching_trie_node should be high enough to be more noticeable than cpu costs
+    assert!(last_gas_burnt > first_gas_burnt * 15);
 }
 
 #[test]
@@ -98,7 +111,7 @@ fn test_evil_deep_recursion() {
                 0,
             )
             .unwrap();
-        if n <= 10000 {
+        if n <= 1000 {
             assert_eq!(
                 res.status,
                 FinalExecutionStatus::SuccessValue(to_base64(&n_bytes)),

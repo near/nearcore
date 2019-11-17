@@ -27,7 +27,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId, StateRoot};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -278,10 +278,27 @@ impl Client {
             }
         }
 
-        let quorums = self
-            .chain
-            .compute_quorums(prev_hash, next_height, approvals.clone(), total_block_producers)?
-            .clone();
+        // At this point, the previous epoch hash must be available
+        let epoch_id = self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .expect("Epoch hash should exist at this point");
+
+        // Here `total_block_producers` is the number of block producers in the epoch of the previous
+        // block. It would be more correct to pass the number of block producers in the current epoch.
+        // However, in the case when the epochs differ the `compute_quorums` will exit on the very
+        // first iteration without using `total_block_producers`, thus it doesn't affect the
+        // correctness of the computation.
+        let quorums = Chain::compute_quorums(
+            prev_hash,
+            epoch_id.clone(),
+            next_height,
+            approvals.clone(),
+            total_block_producers,
+            &*self.runtime_adapter,
+            self.chain.mut_store(),
+        )?
+        .clone();
 
         let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
@@ -294,8 +311,7 @@ impl Client {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        // TODO (#1675): this assert can currently trigger due to epoch switches not handled properly
-        //assert!(score >= prev_block.header.inner.score);
+        assert!(score >= prev_block.header.inner.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -304,12 +320,6 @@ impl Client {
         }
 
         let prev_header = &prev_block.header;
-
-        // At this point, the previous epoch hash must be available
-        let epoch_id = self
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .expect("Epoch hash should exist at this point");
 
         let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             let next_epoch_id =
@@ -418,6 +428,7 @@ impl Client {
             next_height,
             prev_block_timestamp,
             block_header.inner.gas_price,
+            chunk_extra.gas_limit,
             chunk_extra.state_root.clone(),
             transactions,
         );
@@ -973,69 +984,46 @@ impl Client {
         let header =
             unwrap_or_return!(self.chain.head_header(), NetworkClientResponses::NoResponse).clone();
         let path_parts: Vec<&str> = path.split('/').collect();
-        let state_root = {
-            if path_parts[0] == "validators" && path_parts.len() == 1 {
-                // for querying validators we don't need state root
-                StateRoot { hash: CryptoHash::default(), num_parts: 0 }
-            } else {
-                let account_id = AccountId::from(path_parts[1]);
-                let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-                match self.chain.get_chunk_extra(&header.hash, shard_id) {
-                    Ok(chunk_extra) => chunk_extra.state_root.clone(),
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
-                            let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-                            let validator = unwrap_or_return!(
-                                self.find_validator_for_forwarding(shard_id),
-                                {
-                                    warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
-                                    NetworkClientResponses::NoResponse
-                                }
-                            );
-                            // TODO: remove this duplicate code
-                            if let Some(account_id) = me {
-                                if account_id == &validator {
-                                    // this probably means that we are crossing epoch boundary and the current node
-                                    // does not have state for the next epoch. TODO: figure out what to do in this case
-                                    return NetworkClientResponses::NoResponse;
-                                }
-                            }
-                            self.query_requests.cache_set(id.clone(), ());
-                            self.network_adapter.send(NetworkRequests::Query {
-                                account_id: validator,
-                                path,
-                                data,
-                                id,
-                            });
-                            return NetworkClientResponses::RequestRouted;
-                        }
-                        _ => {
-                            warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    },
-                }
-            }
-        };
-
-        let response = unwrap_or_return!(
-            self.runtime_adapter
-                .query(
+        let account_id = AccountId::from(path_parts[1].clone());
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+        match self.chain.get_chunk_extra(&header.hash, shard_id) {
+            Ok(chunk_extra) => {
+                let state_root = chunk_extra.state_root.clone();
+                if let Ok(response) = self.runtime_adapter.query(
                     &state_root,
                     header.inner.height,
                     header.inner.timestamp,
                     &header.hash,
-                    path_parts,
+                    path_parts.clone(),
                     &data,
-                )
-                .map_err(|err| err.to_string()),
-            {
-                warn!(target: "client", "Query {} failed", path);
-                NetworkClientResponses::NoResponse
+                ) {
+                    return NetworkClientResponses::QueryResponse { response, id };
+                }
             }
-        );
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => {}
+                _ => {
+                    warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
+                    return NetworkClientResponses::NoResponse;
+                }
+            },
+        }
 
-        NetworkClientResponses::QueryResponse { response, id }
+        // route request
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let validator = unwrap_or_return!(self.find_validator_for_forwarding(shard_id), {
+            warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
+            NetworkClientResponses::NoResponse
+        });
+        self.query_requests.cache_set(id.clone(), ());
+        self.network_adapter.send(NetworkRequests::Query {
+            account_id: validator,
+            path: path.clone(),
+            data: data.clone(),
+            id: id.clone(),
+        });
+
+        NetworkClientResponses::RequestRouted
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.

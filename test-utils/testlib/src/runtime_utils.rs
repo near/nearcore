@@ -61,7 +61,7 @@ pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, StateRoot) {
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, trie, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = TrieUpdate::new(trie, root.hash);
+    let state_update = TrieUpdate::new(trie, root);
     (trie_viewer, state_update)
 }
 

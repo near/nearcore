@@ -14,17 +14,17 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::ShardStateSyncResponse;
-use near_chain::{Block, BlockHeader, Weight};
+use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
+use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId};
+use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
@@ -173,8 +173,8 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
-    /// Last known chain weight of the peer.
-    pub total_weight: Weight,
+    /// Last known chain weight/score of the peer.
+    pub weight_and_score: WeightAndScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
 }
@@ -307,7 +307,7 @@ pub enum RoutedMessageBody {
         response: QueryResponse,
         id: String,
     },
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -917,7 +917,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         hash: CryptoHash,
         need_header: bool,
-        parts_ranges: Vec<Range>,
+        parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
@@ -1066,7 +1066,7 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
@@ -1099,7 +1099,7 @@ pub enum NetworkClientResponses {
     ChainInfo {
         genesis_id: GenesisId,
         height: BlockIndex,
-        total_weight: Weight,
+        weight_and_score: WeightAndScore,
         tracked_shards: Vec<ShardId>,
     },
     /// Block response.

@@ -227,7 +227,7 @@ fn test_guest_panic() {
     assert_eq!(
         make_simple_contract_call(&guest_panic(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
+            Some(vm_outcome_with_gas(2)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
                 "explicit guest panic".to_string()
             ))))
@@ -252,7 +252,7 @@ fn test_stack_overflow() {
     assert_eq!(
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(32768)),
+            Some(vm_outcome_with_gas(16384)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
         )
     );

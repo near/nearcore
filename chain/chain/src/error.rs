@@ -100,6 +100,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid quorum_pre_vote or quorum_pre_commit
+    #[fail(display = "Invalid Finality Info")]
+    InvalidFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -109,6 +112,24 @@ pub enum ErrorKind {
     /// Invalid Approvals
     #[fail(display = "Invalid Approvals")]
     InvalidApprovals,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Limit")]
+    InvalidGasLimit,
+    /// Invalid Gas Limit
+    #[fail(display = "Invalid Gas Price")]
+    InvalidGasPrice,
+    /// Invalid Gas Used
+    #[fail(display = "Invalid Gas Used")]
+    InvalidGasUsed,
+    /// Invalid Rent Paid
+    #[fail(display = "Invalid Rent Paid")]
+    InvalidRent,
+    /// Invalid Validator Reward
+    #[fail(display = "Invalid Validator Reward")]
+    InvalidReward,
+    /// Invalid Balance Burnt
+    #[fail(display = "Invalid Balance Burnt")]
+    InvalidBalanceBurnt,
     /// Validator error.
     #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
@@ -199,9 +220,16 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
-            | ErrorKind::InvalidApprovals => true,
+            | ErrorKind::InvalidApprovals
+            | ErrorKind::InvalidGasLimit
+            | ErrorKind::InvalidGasPrice
+            | ErrorKind::InvalidGasUsed
+            | ErrorKind::InvalidReward
+            | ErrorKind::InvalidBalanceBurnt
+            | ErrorKind::InvalidRent => true,
         }
     }
 

@@ -110,6 +110,7 @@ mod tests {
                 true,
                 1200,
                 false,
+                false,
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
@@ -344,6 +345,7 @@ mod tests {
                 true,
                 1500,
                 false,
+                false,
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -552,6 +554,7 @@ mod tests {
                 validator_groups,
                 true,
                 400,
+                false,
                 false,
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {

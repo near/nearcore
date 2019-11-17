@@ -14,10 +14,10 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 cached = "0.9.0"
-wasmer-runtime = { version = "0.9.0", features = ["singlepass"] }
-wasmer-runtime-core = { version = "0.9.0"}
+wasmer-runtime = { version = "0.9.0", features = ["default-backend-singlepass"], default-features = false }
+wasmer-runtime-core = { version = "0.9.0", features = ["backend-singlepass"]}
 near-runtime-fees = { path="../near-runtime-fees", version = "0.4.0" }
-near-vm-logic = { path="../near-vm-logic", version = "0.4.0"}
+near-vm-logic = { path="../near-vm-logic", version = "0.4.0", default-features = false, features = []}
 near-vm-errors = { path = "../near-vm-errors", version = "0.4.0" }
 pwasm-utils = "0.12.0"
 parity-wasm = "0.41.0"
@@ -27,6 +27,12 @@ wasmparser = "0.39.2"
 assert_matches = "1.3.0"
 wabt = "0.9"
 bencher = "0.1.5"
+
+[features]
+default = []
+
+# Use this feature to enable counting of fees and costs applied.
+costs_counting = ["near-vm-logic/costs_counting"]
 
 [[bench]]
 name = "bench"
