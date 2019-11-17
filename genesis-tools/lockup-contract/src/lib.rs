@@ -1,155 +1,119 @@
-// The keys used to store the persistent state of the contract.
-// Prefixes 0, 1, 2 are reserved for the keys.
-/// The amount of locked tokens, `u128`, which should be at all times less or equal to the current
-/// balance of the account.
-const KEY_LOCK_AMOUNT: &[u8] = &[3u8];
-/// The block timestamp, `u64`, after which all locked tokens become unlocked.
-const KEY_LOCK_TIMESTAMP: &[u8] = &[4u8];
+//! A smart contract that allows lockup of a smart contract.
+use borsh::{BorshDeserialize, BorshSerialize};
+use key_management::{KeyType, PublicKey};
+use near_bindgen::{env, near_bindgen, Promise};
+use std::collections::{HashMap, HashSet};
 
-/// Stakes the provided amount of tokens.
-///
-/// Can be called with: regular keys, privileged keys, foundation keys.
-#[no_mangle]
-pub fn stake() {}
+mod key_management;
 
-/// Transfer the given amount.
-///
-/// Can be called with: regular keys, privileged keys, foundation keys.
-#[no_mangle]
-pub fn transfer() {}
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-/// Different types of keys can add/remove other types of keys. Here is the alignment matrix:
-/// <vertical> can be added/removed by <horizontal>:
-///              regular     privileged      foundation
-/// regular      -           +               +
-/// privileged   -           +               +
-/// foundation   -           -               +
-pub enum KeyType {
-    Regular,
-    Privileged,
-    Foundation,
+#[near_bindgen]
+#[derive(Default, BorshDeserialize, BorshSerialize)]
+pub struct LockupContract {
+    lockup_amount: u128,
+    lockup_timestamp: u64,
+    keys: HashMap<KeyType, HashSet<PublicKey>>,
+    /// Whether this account is disallowed to stake anymore.
+    permanently_unstaked: bool,
 }
 
-/// The maxium key length, including prefixes like `ed25519` and `secp256k1`.
-const MAX_KEY_LEN: u64 = 100;
-
-const REGULAR_KEY_METHODS: &[u8] = b"stake,transfer";
-const PRIVILEGED_KEY_METHODS: &[u8] = b"add_key,remove_key";
-
-/// The key type provided by the user is incorrect.
-const ERR_INCORRECT_KEY_TYPE: &[u8] = b"Incorrect key type";
-/// The key that was used to sign the transaction is not known.
-const ERR_KEY_WAS_NOT_FOUND: &[u8] = b"Key was not found";
-/// The key that was used to sign the transaction is not powerful enough to add or remove another key.
-const ERR_KEY_RIGHTS: &[u8] = b"Key does not have rights to add or remove another key";
-
-impl KeyType {
-    pub fn to_u8(&self) -> u8 {
-        match self {
-            KeyType::Regular => 0,
-            KeyType::Privileged => 1,
-            KeyType::Foundation => 2,
+#[near_bindgen(init => new)]
+impl LockupContract {
+    /// Initializes an account with the given lockup amount, lockup timestamp (when it
+    /// expires), and the keys that it needs to add
+    pub fn new(
+        lockup_amount: u128,
+        lockup_timestamp: u64,
+        initial_keys: Vec<(KeyType, PublicKey)>,
+    ) -> Self {
+        let mut res = Self { lockup_amount, lockup_timestamp, ..Default::default() };
+        for (key_type, key) in initial_keys {
+            res.add_key_no_check(key_type, key);
         }
+        res
     }
 
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            0 => KeyType::Regular,
-            1 => KeyType::Privileged,
-            2 => KeyType::Foundation,
-            _ => unsafe {
-                panic_utf8(
-                    ERR_INCORRECT_KEY_TYPE.len() as u64,
-                    ERR_INCORRECT_KEY_TYPE.as_ptr() as u64,
+    /// Get the key type of the key used to sign the transaction.
+    fn signer_key_type(&self) -> KeyType {
+        let signer_key = env::signer_account_pk();
+        for (key_type, keys) in &self.keys {
+            if keys.contains(&signer_key) {
+                return *key_type;
+            }
+        }
+        panic!("Key of the signer was not recorded.")
+    }
+
+    /// Get the key type of the given key.
+    fn get_key_type(&self, key: &PublicKey) -> Option<KeyType> {
+        self.keys
+            .iter()
+            .find_map(|(key_type, keys)| if keys.contains(key) { Some(*key_type) } else { None })
+    }
+
+    /// Adds the key both to the internal collection and through promise without
+    /// checking the permissions of the signer.
+    fn add_key_no_check(&mut self, key_type: KeyType, key: PublicKey) {
+        self.keys.entry(key_type).or_default().insert(key.clone());
+        match key_type {
+            KeyType::Full => {
+                let account_id = env::current_account_id();
+                Promise::new(account_id).add_full_access_key(key);
+            }
+            key_type @ _ => {
+                let account_id = env::current_account_id();
+                Promise::new(account_id.clone()).add_access_key(
+                    key,
+                    0,
+                    account_id,
+                    key_type.allowed_methods().to_vec(),
                 );
-                unreachable!()
-            },
-        }
-    }
-    pub fn signer_key_type() -> Self {
-        unsafe {
-            signer_account_pk(0);
-            let mut key = [0u8; MAX_KEY_LEN as usize];
-            read_register(0, key.as_ptr() as u64 + 1);
-            for prefix in 0u8..=2u8 {
-                key[0] = prefix;
-                if storage_read(key.len() as u64, key.as_ptr() as u64, 1) == 1 {
-                    return Self::from_u8(prefix);
-                }
-            }
-            unsafe {
-                panic_utf8(
-                    ERR_KEY_WAS_NOT_FOUND.len() as u64,
-                    ERR_KEY_WAS_NOT_FOUND.as_ptr() as u64,
-                );
-                unreachable!()
             }
         }
     }
 
-    /// Check whether this key can add or remove the other key.
-    pub fn check_can_add_remove(&self, other: &Self) {
-        let ok = match (self, other) {
-            (KeyType::Regular, _) => false,
-            (KeyType::Privileged, KeyType::Regular) => true,
-            (KeyType::Privileged, KeyType::Privileged) => true,
-            (KeyType::Privileged, KeyType::Foundation) => false,
-            (KeyType::Foundation, _) => true,
-        };
-        if !ok {
-            unsafe {
-                panic_utf8(ERR_KEY_RIGHTS.len() as u64, ERR_KEY_RIGHTS.as_ptr() as u64);
-            }
-        }
+    /// Add the new access key. The signer access key should have permission to do it.
+    pub fn add_key(&mut self, key_type: KeyType, key: PublicKey) {
+        self.signer_key_type().check_can_add_remove(&key_type);
+        self.add_key_no_check(key_type, key);
     }
-}
 
-/// Input interpreted as key and key type.
-struct InputKeyKeyType {
-    /// Key with key type.
-    pub data: [u8; MAX_KEY_LEN as usize],
-    /// Length of the key with key type.
-    pub key_len: u64,
-    key_type: KeyType,
-}
+    /// Remove a known access key. The signer access key should have enough permission to do it.
+    pub fn remove_key(&mut self, key: PublicKey) {
+        let key_type_to_remove = self.get_key_type(&key).expect("Cannot remove unknown key");
+        self.signer_key_type().check_can_add_remove(&key_type_to_remove);
+        Promise::new(env::current_account_id()).delete_key(key);
+    }
 
-impl InputKeyKeyType {
-    /// Read key type and key from the input.
-    pub fn from_input() -> Self {
-        unsafe {
-            let data = [0u8; MAX_KEY_LEN];
-            input(0);
-            let key_len = register_len(0);
-            read_register(0, data.as_ptr() as u64);
-            let key_type = KeyType::from_u8(data[0]);
-            Self { data, key_len, key_type }
+    /// Create a staking transaction on behalf of this account.
+    pub fn stake(&self, amount: u128, public_key: PublicKey) {
+        assert!(!self.permanently_unstaked, "The account was permanently unstaked.");
+        assert!(amount <= env::account_balance(), "Not enough balance to stake.");
+        Promise::new(env::current_account_id()).stake(amount, public_key);
+    }
+
+    /// Get the amount of liquid tokens that this account has.
+    fn get_liquid(&self) -> u128 {
+        if env::block_timestamp() < self.lockup_timestamp {
+            env::account_balance()
+        } else {
+            env::account_balance() - self.lockup_amount
         }
     }
 
-    pub fn check_signer(&self) {
-        let signer_key_type = KeyType::signer_key_type();
-        signer_key_type.check_can_add_remove(&self.key_type);
+    /// Transfer liquid amount to another account.
+    pub fn transfer(&self, amount: u128, account: String) {
+        assert!(amount <= self.get_liquid(), "Not enough liquid tokens to transfer.");
+        Promise::new(account).transfer(amount);
+    }
+
+    /// Permanently unstake this account disallowing it to stake. This is usually done
+    /// in preparation of terminating this account. Unfortunately, unstaking and termination
+    /// cannot be done atomically, because unstaking takes unknown amount of time.
+    pub fn permanently_unstake(&mut self, key: PublicKey) {
+        Promise::new(env::current_account_id()).stake(0, key);
+        self.permanently_unstaked = true;
     }
 }
-
-/// Represents empty value.
-const EMPTY_VALUE: &[u8] = &[];
-
-/// Adds this key to storage and issues a key creation transaction.
-#[no_mangle]
-pub fn add_key() {
-    let inp = InputKeyKeyType::from_input();
-    inp.check_signer();
-    unsafe {
-        storage_write(
-            inp.key_len,
-            inp.data.as_ptr() as u64,
-            EMPTY_VALUE.len() as u64,
-            EMPTY_VALUE.as_ptr() as u64,
-        );
-    }
-}
-
-/// Removes a key from this account.
-#[no_mangle]
-pub fn remove_key() {}
