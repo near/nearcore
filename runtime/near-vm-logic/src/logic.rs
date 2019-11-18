@@ -1561,7 +1561,7 @@ impl<'a> VMLogic<'a> {
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(format!("{}", message));
         Ok(())
     }
 
@@ -1584,7 +1584,7 @@ impl<'a> VMLogic<'a> {
             log_byte,
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(format!("{}", message));
         Ok(())
     }
 
