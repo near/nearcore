@@ -6,8 +6,7 @@ pub use error::{Error, ErrorKind};
 pub use finality::{FinalityGadget, FinalityGadgetQuorums};
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use types::{
-    Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
-    ValidTransaction, Weight,
+    Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip, Weight,
 };
 
 pub mod chain;

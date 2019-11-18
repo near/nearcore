@@ -20,7 +20,6 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain::Error),
-    Pool(near_pool::Error),
     Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
@@ -31,7 +30,6 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Pool(err) => write!(f, "Pool: {}", err),
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
@@ -52,12 +50,6 @@ impl From<near_chain::ErrorKind> for Error {
     fn from(e: near_chain::ErrorKind) -> Self {
         let error: near_chain::Error = e.into();
         Error::Chain(error)
-    }
-}
-
-impl From<near_pool::Error> for Error {
-    fn from(e: near_pool::Error) -> Self {
-        Error::Pool(e)
     }
 }
 

@@ -7,10 +7,19 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::{
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
+    Weight,
+};
+use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_pool::types::PoolIterator;
 use near_primitives::account::Account;
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
@@ -28,15 +37,6 @@ use near_store::test_utils::create_test_store;
 use near_store::{
     PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
 };
-
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
-    Weight,
-};
-use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::block::Approval;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -433,27 +433,33 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
-    fn filter_transactions(
-        &self,
-        _block_index: u64,
-        _block_timestamp: u64,
-        _gas_price: Balance,
-        _gas_limit: Gas,
-        _state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
-        transactions
-    }
-
     fn validate_tx(
         &self,
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
+        _state_update: StateRoot,
+        _transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error> {
+        Ok(None)
+    }
+
+    fn prepare_transactions(
+        &self,
+        _block_index: BlockIndex,
+        _block_timestamp: u64,
+        _gas_price: Balance,
+        _gas_limit: Gas,
         _state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
-        Ok(ValidTransaction { transaction })
+        _max_number_of_transactions: usize,
+        transactions: &mut dyn PoolIterator,
+        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        let mut res = vec![];
+        while let Some(iter) = transactions.next() {
+            res.push(iter.next().unwrap());
+        }
+        Ok(res)
     }
 
     fn add_validator_proposals(
