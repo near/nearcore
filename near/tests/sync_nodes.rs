@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +14,7 @@ use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockIndex, EpochId};
@@ -41,12 +41,15 @@ fn add_blocks(
             prev.header.inner.height + 1,
             blocks[0].chunks.clone(),
             epoch_id,
-            HashMap::default(),
+            vec![],
             0,
             Some(0),
             vec![],
             vec![],
             signer,
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
         );
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
@@ -184,7 +187,7 @@ fn sync_state_stake_change() {
 
         let mut genesis_config = GenesisConfig::test(vec!["test1"], 1);
         genesis_config.epoch_length = 5;
-        genesis_config.validator_kickout_threshold = 80;
+        genesis_config.block_producer_kickout_threshold = 80;
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);

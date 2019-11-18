@@ -98,7 +98,7 @@ impl RuntimeUser {
                 );
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
-            client.state_root = apply_result.state_root.hash;
+            client.state_root = apply_result.state_root;
             if apply_result.new_receipts.is_empty() {
                 return Ok(());
             }
@@ -117,6 +117,7 @@ impl RuntimeUser {
             block_timestamp: 0,
             epoch_length: client.epoch_length,
             gas_price: INITIAL_GAS_PRICE,
+            gas_limit: None,
         }
     }
 

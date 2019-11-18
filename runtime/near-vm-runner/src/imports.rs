@@ -43,6 +43,7 @@ wrapped_imports! {
     // #############
     read_register<[register_id: u64, ptr: u64] -> []>,
     register_len<[register_id: u64] -> [u64]>,
+    write_register<[register_id: u64, data_len: u64, data_ptr: u64] -> []>,
     // ###############
     // # Context API #
     // ###############

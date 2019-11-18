@@ -41,6 +41,7 @@ fn repro_1183() {
             true,
             200,
             false,
+            false,
             5,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {

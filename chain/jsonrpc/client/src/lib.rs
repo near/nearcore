@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use actix_web::client::Client;
+use actix_web::client::{Client, Connector};
 use futures::Future;
 use serde::Deserialize;
 use serde::Serialize;
@@ -8,7 +8,8 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, ChunkView, FinalExecutionOutcomeView, QueryResponse, StatusResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+    StatusResponse,
 };
 
 use crate::message::{from_slice, Message};
@@ -187,12 +188,24 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
+    pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
 });
+
+fn create_client() -> Client {
+    Client::build()
+        .timeout(CONNECT_TIMEOUT)
+        .connector(
+            Connector::new()
+                .conn_lifetime(Duration::from_secs(u64::max_value()))
+                .conn_keep_alive(Duration::from_secs(30))
+                .finish(),
+        )
+        .finish()
+}
 
 /// Create new JSON RPC client that connects to the given address.
 pub fn new_client(server_addr: &str) -> JsonRpcClient {
-    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
-    JsonRpcClient::new(server_addr, client)
+    JsonRpcClient::new(server_addr, create_client())
 }
 
 http_client!(pub struct HttpClient {
@@ -201,6 +214,5 @@ http_client!(pub struct HttpClient {
 
 /// Create new HTTP client that connects to the given address.
 pub fn new_http_client(server_addr: &str) -> HttpClient {
-    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
-    HttpClient::new(server_addr, client)
+    HttpClient::new(server_addr, create_client())
 }

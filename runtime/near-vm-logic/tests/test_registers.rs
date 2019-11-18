@@ -10,7 +10,7 @@ fn test_one_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
-    logic.write_register(0, &vec![0, 1, 2]).unwrap();
+    logic.wrapped_internal_write_register(0, &vec![0, 1, 2]).unwrap();
     assert_eq!(logic.register_len(0).unwrap(), 3u64);
     let buffer = [0u8; 3];
     logic.read_register(0, buffer.as_ptr() as u64).unwrap();
@@ -38,7 +38,7 @@ fn test_many_registers() {
 
     for i in 0..max_registers {
         let value = (i * 10).to_le_bytes();
-        logic.write_register(i, &value).unwrap();
+        logic.wrapped_internal_write_register(i, &value).unwrap();
 
         let buffer = [0u8; std::mem::size_of::<u64>()];
         logic.read_register(i, buffer.as_ptr() as u64).unwrap();
@@ -47,7 +47,7 @@ fn test_many_registers() {
 
     // One more register hits the boundary check.
     assert_eq!(
-        logic.write_register(max_registers, &[]),
+        logic.wrapped_internal_write_register(max_registers, &[]),
         Err(HostError::MemoryAccessViolation.into())
     )
 }
@@ -60,7 +60,10 @@ fn test_max_register_size() {
 
     let value = vec![0u8; (max_register_size + 1) as usize];
 
-    assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation.into()));
+    assert_eq!(
+        logic.wrapped_internal_write_register(0, &value),
+        Err(HostError::MemoryAccessViolation.into())
+    );
 }
 
 #[test]
@@ -74,11 +77,11 @@ fn test_max_register_memory_limit() {
 
     for i in 0..max_registers {
         let value = vec![1u8; config.max_register_size as usize];
-        logic.write_register(i, &value).expect("should be written successfully");
+        logic.wrapped_internal_write_register(i, &value).expect("should be written successfully");
     }
     let last = vec![1u8; config.max_register_size as usize];
     assert_eq!(
-        logic.write_register(max_registers, &last),
+        logic.wrapped_internal_write_register(max_registers, &last),
         Err(HostError::MemoryAccessViolation.into())
     );
 }

@@ -30,11 +30,15 @@ pub type Gas = u64;
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
-/// Hash used by to store state root and the number of parts the state is divided.
-#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
-pub struct StateRoot {
-    pub hash: CryptoHash,
-    pub num_parts: u64,
+/// Hash used by to store state root.
+pub type StateRoot = CryptoHash;
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateRootNode {
+    /// in Nightshade, data is the serialized TrieNodeWithSize
+    pub data: Vec<u8>,
+    /// in Nightshade, memory_usage is a field of TrieNodeWithSize
+    pub memory_usage: u64,
 }
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
@@ -48,9 +52,6 @@ impl AsRef<[u8]> for EpochId {
         self.0.as_ref()
     }
 }
-
-#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
-pub struct Range(pub u64, pub u64);
 
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]

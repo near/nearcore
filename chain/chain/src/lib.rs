@@ -3,14 +3,16 @@ extern crate lazy_static;
 
 pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
+pub use finality::{FinalityGadget, FinalityGadgetQuorums};
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use types::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
+    Block, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
     ValidTransaction, Weight,
 };
 
 pub mod chain;
 mod error;
+mod finality;
 mod metrics;
 mod store;
 pub mod test_utils;

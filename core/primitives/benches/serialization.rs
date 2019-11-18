@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate bencher;
 
-use std::collections::HashMap;
-
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -33,15 +31,10 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(
-        vec![StateRoot { hash: CryptoHash::default(), num_parts: 1 /* TODO MOO */ }],
-        1,
-        1_000,
-    );
+    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000);
     let genesis = Block::genesis(
         genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
         Utc::now(),
-        1_000,
         1_000,
         1_000,
     );
@@ -51,12 +44,15 @@ fn create_block() -> Block {
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
-        HashMap::default(),
+        vec![],
         0,
         Some(0),
         vec![],
         vec![],
         &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     )
 }
 

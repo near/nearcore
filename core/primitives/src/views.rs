@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader, BlockHeaderInner};
+use crate::block::{Approval, Block, BlockHeader, BlockHeaderInner};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
@@ -245,14 +245,12 @@ pub struct BlockHeaderView {
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
     pub timestamp: u64,
-    pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<Signature>,
     #[serde(with = "u128_dec_format")]
     pub total_weight: u128,
+    #[serde(with = "u128_dec_format")]
+    pub score: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    pub gas_used: Gas,
-    pub gas_limit: Gas,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     #[serde(with = "u128_dec_format")]
@@ -262,6 +260,9 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub challenges_result: ChallengesResult,
+    pub last_quorum_pre_vote: CryptoHash,
+    pub last_quorum_pre_commit: CryptoHash,
+    pub approvals: Vec<(AccountId, CryptoHash, CryptoHash, Signature)>,
     pub signature: Signature,
 }
 
@@ -279,9 +280,8 @@ impl From<BlockHeader> for BlockHeaderView {
             chunks_included: header.inner.chunks_included,
             outcome_root: header.inner.outcome_root,
             timestamp: header.inner.timestamp,
-            approval_mask: header.inner.approval_mask,
-            approval_sigs: header.inner.approval_sigs,
             total_weight: header.inner.total_weight.to_num(),
+            score: header.inner.score.to_num(),
             validator_proposals: header
                 .inner
                 .validator_proposals
@@ -289,13 +289,19 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|v| v.into())
                 .collect(),
             chunk_mask: header.inner.chunk_mask,
-            gas_used: header.inner.gas_used,
-            gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
             rent_paid: header.inner.rent_paid,
             validator_reward: header.inner.validator_reward,
             total_supply: header.inner.total_supply,
             challenges_result: header.inner.challenges_result,
+            last_quorum_pre_vote: header.inner.last_quorum_pre_vote,
+            last_quorum_pre_commit: header.inner.last_quorum_pre_commit,
+            approvals: header
+                .inner
+                .approvals
+                .into_iter()
+                .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
+                .collect(),
             signature: header.signature,
         }
     }
@@ -315,22 +321,31 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunks_included: view.chunks_included,
                 outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
-                approval_mask: view.approval_mask,
-                approval_sigs: view.approval_sigs,
                 total_weight: view.total_weight.into(),
+                score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals
                     .into_iter()
                     .map(|v| v.into())
                     .collect(),
                 chunk_mask: view.chunk_mask,
-                gas_limit: view.gas_limit,
                 gas_price: view.gas_price,
-                gas_used: view.gas_used,
                 total_supply: view.total_supply,
                 challenges_result: view.challenges_result,
                 rent_paid: view.rent_paid,
                 validator_reward: view.validator_reward,
+                last_quorum_pre_vote: view.last_quorum_pre_vote,
+                last_quorum_pre_commit: view.last_quorum_pre_commit,
+                approvals: view
+                    .approvals
+                    .into_iter()
+                    .map(|(account_id, parent_hash, reference_hash, signature)| Approval {
+                        account_id,
+                        parent_hash,
+                        reference_hash,
+                        signature,
+                    })
+                    .collect(),
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -345,8 +360,7 @@ pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub outcome_root: CryptoHash,
-    pub prev_state_root_hash: CryptoHash,
-    pub prev_state_num_parts: u64,
+    pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -372,8 +386,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: chunk.hash.0,
             prev_block_hash: chunk.inner.prev_block_hash,
             outcome_root: chunk.inner.outcome_root,
-            prev_state_root_hash: chunk.inner.prev_state_root.hash,
-            prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
+            prev_state_root: chunk.inner.prev_state_root,
             encoded_merkle_root: chunk.inner.encoded_merkle_root,
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -402,10 +415,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
         let mut header = ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash,
-                prev_state_root: StateRoot {
-                    hash: view.prev_state_root_hash,
-                    num_parts: view.prev_state_num_parts,
-                },
+                prev_state_root: view.prev_state_root,
                 outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
@@ -955,9 +965,18 @@ impl TryFrom<ReceiptView> for Receipt {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
-    pub current_validators: Vec<ValidatorStakeView>,
+    pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct CurrentEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub is_slashed: bool,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub num_missing_blocks: BlockIndex,
 }

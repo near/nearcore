@@ -18,7 +18,8 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetValidatorInfo, Status, TxStatus,
+    ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
@@ -111,6 +112,13 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
+fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
+    let (encoded,) = parse_params::<(String,)>(params)?;
+    from_base_or_parse_err(encoded).and_then(|bytes| {
+        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
+    })
+}
+
 fn jsonify_client_response(
     client_response: Result<NetworkClientResponses, MailboxError>,
 ) -> Result<Value, RpcError> {
@@ -161,6 +169,7 @@ impl JsonRpcHandler {
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "validators" => self.validators(request.params).await,
             "query" => self.query(request.params).await,
             "health" => self.health().await,
             "status" => self.status().await,
@@ -269,11 +278,19 @@ impl JsonRpcHandler {
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
-        Ok(Value::Null)
+        match self.client_addr.send(Status {}).compat().await {
+            Ok(Ok(_)) => Ok(Value::Null),
+            Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
+            Err(_) => Err(RpcError::server_error::<String>(None)),
+        }
     }
 
     pub async fn status(&self) -> Result<Value, RpcError> {
-        jsonify(self.client_addr.send(Status {}).compat().await)
+        match self.client_addr.send(Status {}).compat().await {
+            Ok(Ok(result)) => jsonify(Ok(Ok(result))),
+            Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
+            Err(_) => Err(RpcError::server_error::<String>(None)),
+        }
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -305,7 +322,6 @@ impl JsonRpcHandler {
                     .await;
                 match result {
                     Ok(NetworkClientResponses::QueryResponse { .. }) => {
-                        println!("here");
                         break jsonify_client_response(result);
                     }
                     Ok(NetworkClientResponses::RequestRouted)
@@ -386,6 +402,16 @@ impl JsonRpcHandler {
         encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
 
         String::from_utf8(buffer)
+    }
+
+    async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let block_hash = parse_hash(params)?;
+        jsonify(
+            self.view_client_addr
+                .send(GetValidatorInfo { last_block_hash: block_hash })
+                .compat()
+                .await,
+        )
     }
 }
 

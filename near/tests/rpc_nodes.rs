@@ -8,7 +8,7 @@ use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::{FinalExecutionStatus, QueryResponse};
@@ -234,13 +234,63 @@ fn test_rpc_routing() {
                         actix::spawn(
                             client
                                 .query("account/near.2".to_string(), "".to_string())
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| {
+                                    println!("Error retrieving account: {:?}", err);
+                                })
                                 .map(move |result| match result {
                                     QueryResponse::ViewAccount(account_view) => {
                                         assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
                                         System::current().stop();
                                     }
                                     _ => panic!("wrong query response"),
+                                }),
+                        );
+                    }
+                    futures::future::ok(())
+                }));
+            }),
+            100,
+            20000,
+        )
+        .start();
+
+        system.run().unwrap();
+    });
+}
+
+#[test]
+fn test_get_validator_info_rpc() {
+    init_integration_logger();
+    heavy_test(|| {
+        let system = System::new("NEAR");
+        let num_nodes = 1;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let (_, rpc_addrs, clients) = start_nodes(1, &dirs, 1, 0, 10);
+        let view_client = clients[0].1.clone();
+
+        WaitOrTimeout::new(
+            Box::new(move |_ctx| {
+                let rpc_addrs_copy = rpc_addrs.clone();
+                actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+                    let res = res.unwrap().unwrap();
+                    if res.header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                        let block_hash = res.header.hash;
+                        actix::spawn(
+                            client
+                                .validators(to_base(&block_hash))
+                                .map_err(|err| {
+                                    panic!(format!("error: {:?}", err));
+                                })
+                                .map(move |result| {
+                                    assert_eq!(result.current_validators.len(), 1);
+                                    assert!(result
+                                        .current_validators
+                                        .iter()
+                                        .any(|r| r.account_id == "near.0".to_string()));
+                                    System::current().stop();
                                 }),
                         );
                     }

@@ -56,7 +56,10 @@ pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
 pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
 /// Store hash of a block per each height, to detect double signs.
 pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
-const NUM_COLS: u32 = 21;
+pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
+pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
+pub const COL_STATE_PARTS: Option<u32> = Some(23);
+const NUM_COLS: u32 = 24;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -130,7 +133,6 @@ impl Store {
             let value_len = file.read_u32::<LittleEndian>()? as usize;
             let mut value = Vec::<u8>::with_capacity(value_len);
             Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
-            //            println!("{:?} {:?}", key, value);
             transaction.put(column, &key, &value);
         }
         self.storage.write(transaction)?;
