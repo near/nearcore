@@ -60,6 +60,9 @@ mod metrics;
 pub mod state_viewer;
 mod store;
 
+#[cfg(feature = "costs_counting")]
+pub use near_vm_runner::EXT_COSTS_COUNTER;
+
 const OVERFLOW_CHECKED_ERR: &str = "Overflow has already been checked.";
 
 #[derive(Debug)]
@@ -1056,8 +1059,9 @@ impl Runtime {
         let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
 
         let trie_changes = state_update.finalize()?;
+        let state_root = trie_changes.new_root;
         Ok(ApplyResult {
-            state_root: StateRoot { hash: trie_changes.new_root, num_parts: 9 }, /* TODO MOO */
+            state_root,
             trie_changes,
             validator_proposals,
             new_receipts,
@@ -1205,15 +1209,12 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
-        let state_update_state = state_update
+        let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
             .into(trie)
             .expect("Genesis state update failed");
-        (
-            state_update_state.0,
-            StateRoot { hash: state_update_state.1, num_parts: 9 /* TODO MOO */ },
-        )
+        (store_update, state_root)
     }
 }
 

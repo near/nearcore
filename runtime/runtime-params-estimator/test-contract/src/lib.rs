@@ -9,8 +9,6 @@ pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
     }
 }
 
-use core::mem::size_of;
-
 #[allow(unused)]
 extern "C" {
     // #############
@@ -18,6 +16,7 @@ extern "C" {
     // #############
     fn read_register(register_id: u64, ptr: u64);
     fn register_len(register_id: u64) -> u64;
+    fn write_register(register_id: u64, data_len: u64, data_ptr: u64);
     // ###############
     // # Context API #
     // ###############
@@ -146,8 +145,8 @@ extern "C" {
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
 }
 
-/// This function is not doing anything useful, it is just here to make sure the payload is getting
-/// compiled into Wasm.
+// This function is not doing anything useful, it is just here to make sure the payload is getting
+// compiled into Wasm.
 #[cfg(feature = "small_payload")]
 #[no_mangle]
 pub fn payload() {
@@ -175,437 +174,560 @@ pub fn payload() {
     }
 }
 
-/// Function that does not do anything at all.
+// Function that does not do anything at all.
 #[no_mangle]
 pub fn noop() {}
 
-/// Just a CPU-heavy function that we can use to correlate gas usage with processing time.
+// Function that we use to measure `base` cost by calling `block_index` many times.
 #[no_mangle]
-pub fn factorization() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    let mut largest_prime = 1u64;
-    for i in 2..n {
-        let mut is_prime = true;
-        for k in 2..i {
-            if (i / k) as u64 * k == i {
-                is_prime = false;
-                break;
-            }
-        }
-        if is_prime {
-            largest_prime = i;
-        }
-    }
-    let largest_prime = &largest_prime;
-    unsafe {
-        value_return(size_of::<u64>() as u64, largest_prime as *const u64 as u64);
+pub unsafe fn base_1M() {
+    for _ in 0..1_000_000 {
+        block_index();
     }
 }
 
-/// Returns:
-/// * `n: u64` -- how many times a certain operation should be repeated;
-/// * `blob: &mut [u8]` -- the blob that was also read into the buffer.
-#[inline]
-fn read_u64input(buffer: &mut [u8]) -> (u64, &mut [u8]) {
-    unsafe {
-        input(0);
-        let len = register_len(0);
-        read_register(0, buffer.as_ptr() as u64);
-        let mut data = [0u8; size_of::<u64>()];
-        data.copy_from_slice(&buffer[..size_of::<u64>()]);
-        (
-            u64::from_le_bytes(data),
-            buffer.split_at_mut(len as usize).0.split_at_mut(size_of::<u64>()).1,
-        )
-    }
-}
-
-#[inline]
-fn return_u64(value: u64) {
-    unsafe {
-        value_return(size_of::<u64>() as u64, &value as *const u64 as u64);
-    }
-}
-
-const BUFFER_SIZE: usize = 100_000;
-
-/// Call fixture 10 times.
+// Function to measure `read_memory_base` and `read_memory_byte` many times.
+// Reads 10b 10k times from memory.
 #[no_mangle]
-pub fn call_fixture10() {
-    for _ in 0..10 {
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let (n, _) = read_u64input(&mut buffer);
-        // Some useful stuff should be happening here.
-        return_u64(n);
+pub unsafe fn read_memory_10b_10k() {
+    let buffer = [0u8; 10];
+    for _ in 0..10_000 {
+        value_return(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
 }
 
-/// Call `input` `n` times.
+// Function to measure `read_memory_base` and `read_memory_byte` many times.
+// Reads 1Mib 10k times from memory.
 #[no_mangle]
-pub fn call_input() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            input(0);
-        }
+pub unsafe fn read_memory_1Mib_10k() {
+    let buffer = [0u8; 1024 * 1024];
+    for _ in 0..10_000 {
+        value_return(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
-/// Call `input`, `register_len` `n` times.
+// Function to measure `write_memory_base` and `write_memory_byte` many times.
+// Writes 10b 10k times into memory. Includes `read_register` costs.
 #[no_mangle]
-pub fn call_input_register_len() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            input(0);
-            register_len(0);
-        }
+pub unsafe fn write_memory_10b_10k() {
+    let buffer = [0u8; 10];
+    write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10_000 {
+        read_register(0, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
-/// Call `input`, `read_register` `n` times.
+// Function to measure `write_memory_base` and `write_memory_byte` many times.
+// Writes 1Mib 10k times into memory. Includes `read_register` costs.
 #[no_mangle]
-pub fn call_input_read_register() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            input(0);
-            read_register(0, buffer.as_ptr() as *const u64 as u64);
-        }
+pub unsafe fn write_memory_1Mib_10k() {
+    let buffer = [0u8; 1024 * 1024];
+    write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10_000 {
+        read_register(0, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
-macro_rules! call_func {
-    ($exp_name:ident, $call:expr) => {
-        #[no_mangle]
-        pub fn $exp_name() {
-            let mut buffer = [0u8; BUFFER_SIZE];
-            let (n, _) = read_u64input(&mut buffer);
-            for _ in 0..n {
-                unsafe {
-                    $call;
-                }
-            }
-            return_u64(n);
-        }
-    };
-}
-
-// ###############
-// # Context API #
-// ###############
-call_func!(call_current_account_id, current_account_id(0));
-call_func!(call_signer_account_id, signer_account_id(0));
-call_func!(call_signer_account_pk, signer_account_pk(0));
-call_func!(call_predecessor_account_id, predecessor_account_id(0));
-call_func!(call_block_index, block_index());
-call_func!(call_storage_usage, storage_usage());
-
-// #################
-// # Economics API #
-// #################
+// Function to measure `read_register_base` and `read_register_byte` many times.
+// Reads 10b 10k times from register.
 #[no_mangle]
-pub fn call_account_balance() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            account_balance(buffer.as_ptr() as *const u64 as u64);
-        }
+pub unsafe fn read_register_10b_10k() {
+    let buffer = [0u8; 10];
+    write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10_000 {
+        value_return(core::u64::MAX, 0);
     }
-    return_u64(n);
 }
 
+// Function to measure `read_register_base` and `read_register_byte` many times.
+// Reads 1Mib 10k times from register.
 #[no_mangle]
-pub fn call_attached_deposit() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, _) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            attached_deposit(buffer.as_ptr() as *const u64 as u64);
-        }
+pub unsafe fn read_register_1Mib_10k() {
+    let buffer = [0u8; 1024 * 1024];
+    write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10_000 {
+        value_return(core::u64::MAX, 0);
     }
-    return_u64(n);
-}
-call_func!(call_prepaid_gas, prepaid_gas());
-call_func!(call_used_gas, used_gas());
-
-// ############
-// # Math API #
-// ############
-call_func!(call_random_seed, random_seed(0));
-#[no_mangle]
-pub fn call_sha256() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe { sha256(blob.len() as _, blob.as_ptr() as _, 0) }
-    }
-    return_u64(n);
 }
 
-// #####################
-// # Miscellaneous API #
-// #####################
+// Function to measure `write_register_base` and `write_register_byte` many times.
+// Writes 10b 10k times to register.
 #[no_mangle]
-pub fn call_value_return() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe { value_return(blob.len() as _, blob.as_ptr() as _) }
+pub unsafe fn write_register_10b_10k() {
+    let buffer = [0u8; 10];
+    for _ in 0..10_000 {
+        write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
+// Function to measure `write_register_base` and `write_register_byte` many times.
+// Writes 1Mib 10k times to register.
 #[no_mangle]
-pub fn call_log_utf8() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
-        unsafe { log_utf8(blob.len() as _, blob.as_ptr() as _) }
+pub unsafe fn write_register_1Mib_10k() {
+    let buffer = [0u8; 1024 * 1024];
+    for _ in 0..10_000 {
+        write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
+// Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf8 10b 10k times into log.
 #[no_mangle]
-pub fn call_log_utf16() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        let blob = if blob.len() < 200 { &blob } else { &blob[..200] };
-        unsafe { log_utf16(blob.len() as _, blob.as_ptr() as _) }
+pub unsafe fn utf8_log_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        log_utf8(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
-// ################
-// # Promises API #
-// ################
-
-// Most of promises API is different in that it converts incoming blobs of data into Rust structures.
-// We don't need to write tests for all of them, and can just test one and extrapolate cost to
-// everything else.
+// Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf8 10kib 1k times into log.
 #[no_mangle]
-pub fn call_promise_batch_create() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-        }
+pub unsafe fn utf8_log_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        log_utf8(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
+// Nul-terminated versions.
+// Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf8 10b 10k times into log.
 #[no_mangle]
-pub fn call_promise_batch_create_promise_batch_then() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-            promise_batch_then(id, blob.len() as _, blob.as_ptr() as _);
-        }
+pub unsafe fn nul_utf8_log_10b_10k() {
+    let mut buffer = [65u8; 10];
+    buffer[buffer.len() - 1] = 0;
+    for _ in 0..10_000 {
+        log_utf8(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
+// Nul-terminated versions.
+// Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf8 10kib 1k times into log.
 #[no_mangle]
-pub fn call_promise_batch_create_promise_batch_action_create_account() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            if blob[0] > b'z' {
-                blob[0] = b'a';
-                blob[1] += 1;
-                if blob[1] > b'z' {
-                    blob[1] = b'a';
-                }
-            }
-            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
-            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
-            promise_batch_action_create_account(id);
-            blob[0] += 1;
-        }
+pub unsafe fn nul_utf8_log_10kib_10k() {
+    let mut buffer = [65u8; 10240];
+    buffer[buffer.len() - 1] = 0;
+    for _ in 0..10_000 {
+        log_utf8(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
+// Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf16 10b 10k times into log.
 #[no_mangle]
-pub fn call_promise_batch_create_promise_batch_action_create_account_batch_action_deploy_contract()
-{
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            if blob[0] > b'z' {
-                blob[0] = b'a';
-                blob[1] += 1;
-                if blob[1] > b'z' {
-                    blob[1] = b'a';
-                }
-            }
-            let acc_name = if blob.len() < 64 { &blob } else { &blob[..64] };
-            let id = promise_batch_create(acc_name.len() as _, acc_name.as_ptr() as _);
-            promise_batch_action_create_account(id);
-            promise_batch_action_deploy_contract(id, blob.len() as _, blob.as_ptr() as _);
-            blob[0] += 1;
-        }
+pub unsafe fn utf16_log_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        log_utf16(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
 }
 
-// #######################
-// # Promise API results #
-// #######################
-call_func!(call_promise_results_count, promise_results_count());
-
+// Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf16 10kib 1k times into log.
 #[no_mangle]
-pub fn call_promise_batch_create_promise_return() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for _ in 0..n {
-        unsafe {
-            let id = promise_batch_create(blob.len() as _, blob.as_ptr() as _);
-            promise_return(id);
-        }
+pub unsafe fn utf16_log_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        log_utf16(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     }
-    return_u64(n);
+}
+
+// Nul-terminated versions.
+// Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf16 10b 10k times into log.
+#[no_mangle]
+pub unsafe fn nul_utf16_log_10b_10k() {
+    let mut buffer = [65u8; 10];
+    buffer[buffer.len() - 2] = 0;
+    buffer[buffer.len() - 1] = 0;
+    for _ in 0..10_000 {
+        log_utf16(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+    }
+}
+
+// Nul-terminated versions.
+// Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
+// It actually measures them together with `read_memory_base` and `read_memory_byte`.
+// Write utf16 10kib 1k times into log.
+#[no_mangle]
+pub unsafe fn nul_utf16_log_10kib_10k() {
+    let mut buffer = [65u8; 10240];
+    buffer[buffer.len() - 2] = 0;
+    buffer[buffer.len() - 1] = 0;
+    for _ in 0..10_000 {
+        log_utf16(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+    }
+}
+
+// Function to measure `sha256_base` and `sha256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha256 on 10b 10k times.
+#[no_mangle]
+pub unsafe fn sha256_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        sha256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `sha256_base` and `sha256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha256 on 10kib 10k times.
+#[no_mangle]
+pub unsafe fn sha256_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        sha256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
 }
 
 // ###############
 // # Storage API #
 // ###############
 
-// We need to measure cost of operation for large&small blobs. Also, we need to measure the
-// cost of operation for different depths of the trie.
-#[no_mangle]
-pub fn call_storage_write() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we write different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_write(
-                blob.len() as _,
-                blob.as_ptr() as _,
-                blob.len() as _,
-                blob.as_ptr() as _,
-                0,
-            );
-        }
-    }
-    return_u64(n);
-}
+macro_rules! storage_bench {
+    ($key_buf:ident, $key_len:expr, $value_buf:ident, $value_len:expr, $loop_n:expr, $exp_name:ident,  $call:block) => {
+        #[no_mangle]
+        pub unsafe fn $exp_name() {
+            let mut $key_buf = [0u8; $key_len];
+            let mut $value_buf = [0u8; $value_len];
+            for i in 0..$loop_n {
+                // Modify blob so that we write different content.
+                $key_buf[0] = (i % 256) as u8;
+                $key_buf[1] = ((i / 256) % 256) as u8;
+                $key_buf[2] = ((i / 256 / 256) % 256) as u8;
 
-#[no_mangle]
-pub fn call_storage_read() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we read different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_read(blob.len() as _, blob.as_ptr() as _, 0);
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_remove() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we remove different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_remove(blob.len() as _, blob.as_ptr() as _, 0);
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_has_key() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            // Modify blob so that we remove different content.
-            blob[0] = (i % 256) as u8;
-            blob[1] = ((i / 256) % 256) as u8;
-            storage_has_key(blob.len() as _, blob.as_ptr() as _);
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_iter_prefix() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            storage_iter_prefix(blob.len() as _, blob.as_ptr() as _);
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_iter_range() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-    for i in 0..n {
-        unsafe {
-            storage_iter_range(
-                blob.len() as _,
-                blob.as_ptr() as _,
-                blob.len() as _,
-                blob.as_ptr() as _,
-            );
-        }
-    }
-    return_u64(n);
-}
-
-#[no_mangle]
-pub fn call_storage_iter_next() {
-    let mut buffer = [0u8; BUFFER_SIZE];
-    let (n, blob) = read_u64input(&mut buffer);
-
-    let end = [255u8, 255u8];
-    unsafe {
-        let mut id = storage_iter_range(
-            blob.len() as _,
-            blob.as_ptr() as _,
-            end.len() as _,
-            end.as_ptr() as _,
-        );
-        for i in 0..n {
-            if storage_iter_next(id, 1, 2) == 0 {
-                id = storage_iter_range(
-                    blob.len() as _,
-                    blob.as_ptr() as _,
-                    end.len() as _,
-                    end.as_ptr() as _,
-                );
+                $value_buf[0] = (i % 256) as u8;
+                $value_buf[1] = ((i / 256) % 256) as u8;
+                $value_buf[2] = ((i / 256 / 256) % 256) as u8;
+                $call
             }
         }
+    };
+}
+
+// Storage writing.
+
+// Function to measure `storage_write_base`.
+// Writes to storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_write_10b_key_10b_value_1k, {
+    storage_write(10, key.as_ptr() as _, 10, value.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_write_base + storage_write_key_byte`.
+// Writes to storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_write_10kib_key_10b_value_1k, {
+    storage_write(10240, key.as_ptr() as _, 10, value.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_write_base + storage_write_value_byte`.
+// Writes to storage with 10kib value 1000 times.
+storage_bench!(key, 10, value, 10240, 1000, storage_write_10b_key_10kib_value_1k, {
+    storage_write(10, key.as_ptr() as _, 10240, value.as_ptr() as _, 0);
+});
+
+// Storage reading.
+
+// Function to measure `storage_read_base`.
+// Writes to storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_read_10b_key_10b_value_1k, {
+    storage_read(10, key.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_read_base + storage_read_key_byte`.
+// Writes to storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_read_10kib_key_10b_value_1k, {
+    storage_read(10240, key.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_read_base + storage_read_value_byte`.
+// Writes to storage with 10kib value 1000 times.
+storage_bench!(key, 10, value, 10240, 1000, storage_read_10b_key_10kib_value_1k, {
+    storage_read(10, key.as_ptr() as _, 0);
+});
+
+// Storage removing.
+
+// Function to measure `storage_remove_base`.
+// Writes to storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_remove_10b_key_10b_value_1k, {
+    storage_remove(10, key.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_remove_base + storage_remove_key_byte`.
+// Writes to storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_remove_10kib_key_10b_value_1k, {
+    storage_remove(10240, key.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_remove_base + storage_remove_value_byte`.
+// Writes to storage with 10kib value 1000 times.
+storage_bench!(key, 10, value, 10240, 1000, storage_remove_10b_key_10kib_value_1k, {
+    storage_remove(10, key.as_ptr() as _, 0);
+});
+
+// Storage has key.
+
+// Function to measure `storage_has_key_base`.
+// Writes to storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_has_key_10b_key_10b_value_1k, {
+    storage_has_key(10, key.as_ptr() as _);
+});
+
+// Function to measure `storage_has_key_base + storage_has_key_key_byte`.
+// Writes to storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_10b_value_1k, {
+    storage_has_key(10240, key.as_ptr() as _);
+});
+
+// Function to measure `storage_has_key_base + storage_has_key_value_byte`.
+// Writes to storage with 10kib value 1000 times.
+storage_bench!(key, 10, value, 10240, 1000, storage_has_key_10b_key_10kib_value_1k, {
+    storage_has_key(10, key.as_ptr() as _);
+});
+
+macro_rules! storage_iter_bench {
+    ($from_buf:ident, $from_len:expr, $to_buf:ident, $to_len:expr, $loop_n:expr, $exp_name:ident, $call:block) => {
+        #[no_mangle]
+        pub unsafe fn $exp_name() {
+            let mut $from_buf = [0u8; $from_len];
+            let mut $to_buf = [0u8; $to_len];
+            for i in 0..$loop_n {
+                // Modify blob so that we write different content.
+                $from_buf[1] = (i % 256) as u8;
+                $from_buf[2] = ((i / 256) % 256) as u8;
+                $from_buf[3] = ((i / 256 / 256) % 256) as u8;
+
+                $to_buf[0] = 255;
+                $to_buf[1] = (i % 256) as u8;
+                $to_buf[2] = ((i / 256) % 256) as u8;
+                $to_buf[3] = ((i / 256 / 256) % 256) as u8;
+                $call
+            }
+        }
+    };
+}
+
+// Storage prefix.
+
+// Function to measure `storage_iter_create_prefix_base`.
+// Create prefix iterator 1k times.
+storage_iter_bench!(from, 10, to, 10, 1000, storage_iter_prefix_10b_1k, {
+    storage_iter_prefix(10, from.as_ptr() as _);
+});
+
+// Function to measure `storage_iter_create_prefix_base + storage_iter_create_prefix_byte`.
+// Create prefix iterator with 10kib prefix 1000 times.
+storage_iter_bench!(from, 10240, to, 10, 1000, storage_iter_prefix_10kib_1k, {
+    storage_iter_prefix(10240, from.as_ptr() as _);
+});
+
+// Storage range.
+
+// Function to measure `storage_iter_create_range_base`.
+// Create prefix iterator 1k times.
+storage_iter_bench!(from, 10, to, 10, 1000, storage_iter_range_10b_from_10b_to_1k, {
+    storage_iter_range(10, from.as_ptr() as _, 10, to.as_ptr() as _);
+});
+
+// Function to measure `storage_iter_create_range_base + storage_iter_create_from_byte`.
+// Create range iterator with 10kib from prefix 1000 times.
+storage_iter_bench!(from, 10240, to, 10, 1000, storage_iter_range_10kib_from_10b_to_1k, {
+    storage_iter_range(10240, from.as_ptr() as _, 10, to.as_ptr() as _);
+});
+
+// Function to measure `storage_iter_create_range_base + storage_iter_create_to_byte`.
+// Create range iterator with 10kib to prefix 1000 times.
+storage_iter_bench!(from, 10, to, 10240, 1000, storage_iter_range_10b_from_10kib_to_1k, {
+    storage_iter_range(10, from.as_ptr() as _, 10240, to.as_ptr() as _);
+});
+
+// Storage iter next.
+
+// Needs to be run after the corresponding write benchmarks.
+macro_rules! storage_next {
+    ($from_buf:ident, $from_len:expr, $to_buf:ident, $to_len:expr, $loop_n:expr, $exp_name:ident) => {
+        #[no_mangle]
+        pub unsafe fn $exp_name() {
+            let $from_buf = [0u8; $from_len];
+            let $to_buf = [255u8; $to_len];
+            let it = storage_iter_range(
+                $from_len,
+                $from_buf.as_ptr() as _,
+                $to_len,
+                $to_buf.as_ptr() as _,
+            );
+            for _ in 0..$loop_n {
+                storage_iter_next(it, 1, 2);
+            }
+        }
+    };
+}
+
+// Function to measure `storage_iter_next_base`, `storage_iter_next_key_byte`, `storage_iter_next_value_byte`.
+// Iterate 1k times.
+storage_next!(from, 10, to, 10, 1000, storage_next_10b_from_10b_to_1k);
+
+// Similar functions as above to check the hidden parameters.
+// Iterate 1k times.
+storage_next!(from, 10240, to, 10, 1000, storage_next_10kib_from_10b_to_1k);
+
+// Similar functions as above to check the hidden parameters.
+// Iterate 1k times.
+storage_next!(from, 10, to, 10240, 1000, storage_next_10b_from_10kib_to_1k);
+
+// Function to measure `promise_and_base`.
+#[no_mangle]
+pub unsafe fn promise_and_100k() {
+    let account = b"alice_near";
+    let id0 = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    let id1 = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    let ids = [id0, id1];
+    for _ in 0..100_000 {
+        promise_and(ids.as_ptr() as _, 2);
     }
-    return_u64(n);
+}
+
+// Function to measure `promise_and_per_promise`.
+#[no_mangle]
+pub unsafe fn promise_and_100k_on_1k_and() {
+    let account = b"alice_near";
+    let mut ids = [0u64; 1000];
+    for i in 0..1000 {
+        ids[i] = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    }
+    for _ in 0..100_000 {
+        promise_and(ids.as_ptr() as _, ids.len() as _);
+    }
+}
+
+// Function to measure `promise_return`.
+#[no_mangle]
+pub unsafe fn promise_return_100k() {
+    let account = b"alice_near";
+    let id = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    for _ in 0..100_000 {
+        promise_return(id);
+    }
+}
+
+// Measuring cost for data_receipt_creation_config.
+
+// Function that emits 10b of data.
+#[no_mangle]
+pub unsafe fn data_producer_10b() {
+    let data = [0u8; 10];
+    value_return(data.len() as _, data.as_ptr() as _);
+}
+
+// Function that emits 100kib of data.
+#[no_mangle]
+pub unsafe fn data_producer_100kib() {
+    let data = [0u8; 102400];
+    value_return(data.len() as _, data.as_ptr() as _);
+}
+
+// Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
+// Produces 1000 10b data receipts.
+#[no_mangle]
+pub unsafe fn data_receipt_10b_1000() {
+    let buf = [0u8; 1000];
+    current_account_id(0);
+    let buf_len = register_len(0);
+    read_register(0, buf.as_ptr() as _);
+
+    let method_name = b"data_producer_10b";
+    let args = b"";
+    let mut ids = [0u64; 1000];
+    let amount = 0u128;
+    let gas = prepaid_gas();
+    for i in 0..1000 {
+        ids[i] = promise_create(
+            buf_len,
+            buf.as_ptr() as _,
+            method_name.len() as _,
+            method_name.as_ptr() as _,
+            args.len() as _,
+            args.as_ptr() as _,
+            &amount as *const u128 as *const u64 as u64,
+            gas / 2000,
+        );
+    }
+    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
+    let method_name = b"noop";
+    promise_then(
+        id,
+        buf_len,
+        buf.as_ptr() as _,
+        method_name.len() as _,
+        method_name.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        &amount as *const u128 as *const u64 as u64,
+        gas / 3,
+    );
+}
+
+// Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
+// Produces 1000 10kib data receipts.
+#[no_mangle]
+pub unsafe fn data_receipt_100kib_1000() {
+    let buf = [0u8; 1000];
+    current_account_id(0);
+    let buf_len = register_len(0);
+    read_register(0, buf.as_ptr() as _);
+
+    let method_name = b"data_producer_100kib";
+    let args = b"";
+    let mut ids = [0u64; 1000];
+    let amount = 0u128;
+    let gas = prepaid_gas();
+    for i in 0..1000 {
+        ids[i] = promise_create(
+            buf_len,
+            buf.as_ptr() as _,
+            method_name.len() as _,
+            method_name.as_ptr() as _,
+            args.len() as _,
+            args.as_ptr() as _,
+            &amount as *const u128 as *const u64 as u64,
+            gas / 2000,
+        );
+    }
+    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
+    let method_name = b"noop";
+    promise_then(
+        id,
+        buf_len,
+        buf.as_ptr() as _,
+        method_name.len() as _,
+        method_name.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        &amount as *const u128 as *const u64 as u64,
+        gas / 3,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn cpu_ram_soak_test() {
+    let mut buf = [0u8; 100 * 1024];
+    let len = buf.len();
+    for i in 0..10_000_000 {
+        let j = (i * 7 + len / 2) % len;
+        let k = (i * 3) % len;
+        let tmp = buf[k];
+        buf[k] = buf[j];
+        buf[j] = tmp;
+    }
 }

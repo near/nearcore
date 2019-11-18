@@ -26,7 +26,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_store::{Store, COL_STATE_HEADERS};
+use near_store::{Store, COL_STATE_HEADERS, COL_STATE_PARTS};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
@@ -36,7 +36,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, ShardStateSyncResponsePart, StateHeaderKey, Tip,
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
     ValidatorSignatureVerificationResult,
 };
 use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
@@ -1134,6 +1134,9 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
+        let state_root_node =
+            self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
+
         Ok(ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
@@ -1141,6 +1144,7 @@ impl Chain {
             prev_chunk_proof,
             incoming_receipts_proofs,
             root_proofs,
+            state_root_node,
         })
     }
 
@@ -1148,8 +1152,9 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         part_id: u64,
+        num_parts: u64,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponsePart, Error> {
+    ) -> Result<Vec<u8>, Error> {
         let sync_block = self.get_block(&sync_hash)?;
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
@@ -1167,18 +1172,15 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
 
-        if part_id >= state_root.num_parts {
+        if part_id >= num_parts {
             return Err(ErrorKind::Other(
                 "get_state_response_part fail: part_id out of bound".to_string(),
             )
             .into());
         }
-        let (state_part, proof) = self
-            .runtime_adapter
-            .obtain_state_part(shard_id, part_id, &state_root)
-            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+        let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
-        Ok(ShardStateSyncResponsePart { state_part, proof })
+        Ok(state_part)
     }
 
     pub fn set_state_header(
@@ -1196,6 +1198,7 @@ impl Chain {
             prev_chunk_proof,
             incoming_receipts_proofs,
             root_proofs,
+            state_root_node,
         } = &shard_state_header;
 
         // 1-2. Checking chunk validity
@@ -1340,6 +1343,18 @@ impl Chain {
             .into());
         }
 
+        // 5. Checking that state_root_node is valid
+        if !self
+            .runtime_adapter
+            .validate_state_root_node(state_root_node, &chunk.header.inner.prev_state_root)
+        {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other(
+                "set_shard_state failed: state_root_node is invalid".into(),
+            )
+            .into());
+        }
+
         // Saving the header data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
@@ -1368,14 +1383,26 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part: ShardStateSyncResponsePart,
+        part_id: u64,
+        num_parts: u64,
+        data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
-        let state_root = &chunk.header.inner.prev_state_root;
-        self.runtime_adapter
-            .accept_state_part(state_root, &part.state_part, &part.proof)
-            .map_err(|_| ErrorKind::InvalidStatePayload)?;
+        let state_root = chunk.header.inner.prev_state_root;
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other(
+                "set_state_part failed: validate_state_part failed".into(),
+            )
+            .into());
+        }
+
+        // Saving the part data.
+        let mut store_update = self.store.owned_store().store_update();
+        let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
+        store_update.set_ser(COL_STATE_PARTS, &key, data)?;
+        store_update.commit()?;
         Ok(())
     }
 
@@ -1383,8 +1410,21 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
+        num_parts: u64,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let mut height = shard_state_header.chunk.header.height_included;
+        let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
+        let mut parts = vec![];
+        for i in 0..num_parts {
+            let key = StatePartKey(shard_id, i, state_root.clone()).try_to_vec()?;
+            parts.push(self.store.owned_store().get_ser(COL_STATE_PARTS, &key)?.unwrap());
+        }
+
+        // Confirm that state matches the parts we received
+        self.runtime_adapter.confirm_state(&state_root, &parts)?;
+
+        // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
             self.runtime_adapter.clone(),
@@ -1394,7 +1434,6 @@ impl Chain {
             self.epoch_length,
             self.gas_price_adjustment_rate,
         );
-        let mut height = shard_state_header.chunk.header.height_included;
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
@@ -1420,6 +1459,22 @@ impl Chain {
             }
         }
         Ok(())
+    }
+
+    pub fn clear_downloaded_parts(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        num_parts: u64,
+    ) -> Result<(), Error> {
+        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
+        let mut store_update = self.store.owned_store().store_update();
+        for part_id in 0..num_parts {
+            let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
+            store_update.delete(COL_STATE_PARTS, &key);
+        }
+        Ok(store_update.commit()?)
     }
 
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
@@ -2681,18 +2736,13 @@ impl<'a> ChainUpdate<'a> {
             prev_chunk_proof: _,
             incoming_receipts_proofs,
             root_proofs: _,
+            state_root_node: _,
         } = shard_state_header;
-        let state_root = &chunk.header.inner.prev_state_root;
 
         let block_header = self
             .chain_store_update
             .get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?
             .clone();
-
-        // Applying chunk starts here.
-
-        // Confirm that state matches the parts we received.
-        self.runtime_adapter.confirm_state(&state_root)?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];

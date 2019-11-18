@@ -90,176 +90,157 @@ impl VMConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    /// Pay for reading contract input base
-    pub input_base: Gas,
-    /// Pay for reading contract input per byte
-    pub input_per_byte: Gas,
-    /// Storage trie read key base cost
-    pub storage_read_base: Gas,
-    /// Storage trie read key per byte cost
-    pub storage_read_key_byte: Gas,
-    /// Storage trie read value cost per byte cost
-    pub storage_read_value_byte: Gas,
+    /// Base cost for calling a host function.
+    pub base: Gas,
+
+    /// Base cost for guest memory read
+    pub read_memory_base: Gas,
+    /// Cost for guest memory read
+    pub read_memory_byte: Gas,
+
+    /// Base cost for guest memory write
+    pub write_memory_base: Gas,
+    /// Cost for guest memory write per byte
+    pub write_memory_byte: Gas,
+
+    /// Base cost for reading from register
+    pub read_register_base: Gas,
+    /// Cost for reading byte from register
+    pub read_register_byte: Gas,
+
+    /// Base cost for writing into register
+    pub write_register_base: Gas,
+    /// Cost for writing byte into register
+    pub write_register_byte: Gas,
+
+    /// Base cost of decoding utf8.
+    pub utf8_decoding_base: Gas,
+    /// Cost per bye of decoding utf8.
+    pub utf8_decoding_byte: Gas,
+
+    /// Base cost of decoding utf16.
+    pub utf16_decoding_base: Gas,
+    /// Cost per bye of decoding utf16.
+    pub utf16_decoding_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub sha256_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub sha256_byte: Gas,
+
+    /// Cost for calling logging.
+    pub log_base: Gas,
+    /// Cost for logging per byte
+    pub log_byte: Gas,
+
+    // ###############
+    // # Storage API #
+    // ###############
     /// Storage trie write key base cost
     pub storage_write_base: Gas,
     /// Storage trie write key per byte cost
     pub storage_write_key_byte: Gas,
     /// Storage trie write value per byte cost
     pub storage_write_value_byte: Gas,
-    /// Storage trie check for key existence cost base
-    pub storage_has_key_base: Gas,
-    /// Storage trie check for key existence per key byte
-    pub storage_has_key_byte: Gas,
+    /// Storage trie write cost per byte of evicted value.
+    pub storage_write_evicted_byte: Gas,
+
+    /// Storage trie read key base cost
+    pub storage_read_base: Gas,
+    /// Storage trie read key per byte cost
+    pub storage_read_key_byte: Gas,
+    /// Storage trie read value cost per byte cost
+    pub storage_read_value_byte: Gas,
+
     /// Remove key from trie base cost
     pub storage_remove_base: Gas,
     /// Remove key from trie per byte cost
     pub storage_remove_key_byte: Gas,
     /// Remove key from trie ret value byte cost
     pub storage_remove_ret_value_byte: Gas,
+
+    /// Storage trie check for key existence cost base
+    pub storage_has_key_base: Gas,
+    /// Storage trie check for key existence per key byte
+    pub storage_has_key_byte: Gas,
+
     /// Create trie prefix iterator cost base
     pub storage_iter_create_prefix_base: Gas,
+    /// Create trie prefix iterator cost per byte.
+    pub storage_iter_create_prefix_byte: Gas,
+
     /// Create trie range iterator cost base
     pub storage_iter_create_range_base: Gas,
-    /// Create trie iterator per key byte cost
-    pub storage_iter_create_key_byte: Gas,
+    /// Create trie range iterator cost per byte of from key.
+    pub storage_iter_create_from_byte: Gas,
+    /// Create trie range iterator cost per byte of to key.
+    pub storage_iter_create_to_byte: Gas,
+
     /// Trie iterator per key base cost
     pub storage_iter_next_base: Gas,
     /// Trie iterator next key byte cost
     pub storage_iter_next_key_byte: Gas,
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
-    /// Base cost for reading from register
-    pub read_register_base: Gas,
-    /// Cost for reading byte from register
-    pub read_register_byte: Gas,
-    /// Base cost for writing into register
-    pub write_register_base: Gas,
-    /// Cost for writing byte into register
-    pub write_register_byte: Gas,
-    /// Base cost for guest memory read
-    pub read_memory_base: Gas,
-    /// Cost for guest memory read
-    pub read_memory_byte: Gas,
-    /// Base cost for guest memory write
-    pub write_memory_base: Gas,
-    /// Cost for guest memory write per byte
-    pub write_memory_byte: Gas,
-    /// Get account balance cost
-    pub account_balance: Gas,
-    /// Get prepaid gas cost
-    pub prepaid_gas: Gas,
-    /// Get used gas cost
-    pub used_gas: Gas,
-    /// Cost of getting random seed
-    pub random_seed_base: Gas,
-    /// Cost of getting random seed per byte
-    pub random_seed_per_byte: Gas,
-    /// Cost of getting sha256 base
-    pub sha256: Gas,
-    /// Cost of getting sha256 per byte
-    pub sha256_byte: Gas,
-    /// Get account attached_deposit base cost
-    pub attached_deposit: Gas,
-    /// Get storage usage cost
-    pub storage_usage: Gas,
-    /// Get a current block height base cost
-    pub block_index: Gas,
-    /// Get a current timestamp base cost
-    pub block_timestamp: Gas,
-    /// Cost for getting a current account base
-    pub current_account_id: Gas,
-    /// Cost for getting a current account per byte
-    pub current_account_id_byte: Gas,
-    /// Cost for getting a signer account id base
-    pub signer_account_id: Gas,
-    /// Cost for getting a signer account per byte
-    pub signer_account_id_byte: Gas,
-    /// Cost for getting a signer public key
-    pub signer_account_pk: Gas,
-    /// Cost for getting a signer public key per byte
-    pub signer_account_pk_byte: Gas,
-    /// Cost for getting a predecessor account
-    pub predecessor_account_id: Gas,
-    /// Cost for getting a predecessor account per byte
-    pub predecessor_account_id_byte: Gas,
+
+    /// Cost per touched trie node
+    pub touching_trie_node: Gas,
+
+    // ###############
+    // # Promise API #
+    // ###############
     /// Cost for calling promise_and
     pub promise_and_base: Gas,
     /// Cost for calling promise_and for each promise
     pub promise_and_per_promise: Gas,
-    /// Cost for calling promise_result
-    pub promise_result_base: Gas,
-    /// Cost for calling promise_result per result byte
-    pub promise_result_byte: Gas,
-    /// Cost for calling promise_results_count
-    pub promise_results_count: Gas,
     /// Cost for calling promise_return
     pub promise_return: Gas,
-    /// Cost for calling logging
-    pub log_base: Gas,
-    /// Cost for logging per byte
-    pub log_per_byte: Gas,
-    /// Cost per touched trie node
-    pub touching_trie_node: Gas,
 }
 
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
-            input_base: 1,
-            input_per_byte: 1,
-            storage_read_base: 1,
-            storage_read_key_byte: 1,
-            storage_read_value_byte: 1,
-            storage_write_base: 1,
-            storage_write_key_byte: 1,
-            storage_write_value_byte: 1,
-            storage_has_key_base: 1,
-            storage_has_key_byte: 1,
-            storage_remove_base: 1,
-            storage_remove_key_byte: 1,
-            storage_remove_ret_value_byte: 1,
-            storage_iter_create_prefix_base: 1,
-            storage_iter_create_range_base: 1,
-            storage_iter_create_key_byte: 1,
-            storage_iter_next_base: 1,
-            storage_iter_next_key_byte: 1,
-            storage_iter_next_value_byte: 1,
-            read_register_base: 1,
-            read_register_byte: 1,
-            write_register_base: 1,
-            write_register_byte: 1,
+            base: 1,
             read_memory_base: 1,
             read_memory_byte: 1,
             write_memory_base: 1,
             write_memory_byte: 1,
-            account_balance: 1,
-            prepaid_gas: 1,
-            used_gas: 1,
-            random_seed_base: 1,
-            random_seed_per_byte: 1,
-            sha256: 1,
+            read_register_base: 1,
+            read_register_byte: 1,
+            write_register_base: 1,
+            write_register_byte: 1,
+            utf8_decoding_base: 1,
+            utf8_decoding_byte: 1,
+            utf16_decoding_base: 1,
+            utf16_decoding_byte: 1,
+            sha256_base: 1,
             sha256_byte: 1,
-            attached_deposit: 1,
-            storage_usage: 1,
-            block_index: 1,
-            block_timestamp: 1,
-            current_account_id: 1,
-            current_account_id_byte: 1,
-            signer_account_id: 1,
-            signer_account_id_byte: 1,
-            signer_account_pk: 1,
-            signer_account_pk_byte: 1,
-            predecessor_account_id: 1,
-            predecessor_account_id_byte: 1,
+            log_base: 1,
+            log_byte: 1,
+            storage_write_base: 1,
+            storage_write_key_byte: 1,
+            storage_write_value_byte: 1,
+            storage_write_evicted_byte: 1,
+            storage_read_base: 1,
+            storage_read_key_byte: 1,
+            storage_read_value_byte: 1,
+            storage_remove_base: 1,
+            storage_remove_key_byte: 1,
+            storage_remove_ret_value_byte: 1,
+            storage_has_key_base: 1,
+            storage_has_key_byte: 1,
+            storage_iter_create_prefix_base: 1,
+            storage_iter_create_prefix_byte: 1,
+            storage_iter_create_range_base: 1,
+            storage_iter_create_from_byte: 1,
+            storage_iter_create_to_byte: 1,
+            storage_iter_next_base: 1,
+            storage_iter_next_key_byte: 1,
+            storage_iter_next_value_byte: 1,
+            touching_trie_node: 1,
             promise_and_base: 1,
             promise_and_per_promise: 1,
-            promise_result_base: 1,
-            promise_result_byte: 1,
-            promise_results_count: 1,
             promise_return: 1,
-            log_base: 1,
-            log_per_byte: 1,
-            touching_trie_node: 1,
         }
     }
 }
@@ -267,61 +248,143 @@ impl Default for ExtCostsConfig {
 impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
-            input_base: 0,
-            input_per_byte: 0,
-            storage_read_base: 0,
-            storage_read_key_byte: 0,
-            storage_read_value_byte: 0,
-            storage_write_base: 0,
-            storage_write_key_byte: 0,
-            storage_write_value_byte: 0,
-            storage_has_key_base: 0,
-            storage_has_key_byte: 0,
-            storage_remove_base: 0,
-            storage_remove_key_byte: 0,
-            storage_remove_ret_value_byte: 0,
-            storage_iter_create_prefix_base: 0,
-            storage_iter_create_range_base: 0,
-            storage_iter_create_key_byte: 0,
-            storage_iter_next_base: 0,
-            storage_iter_next_key_byte: 0,
-            storage_iter_next_value_byte: 0,
-            read_register_base: 0,
-            read_register_byte: 0,
-            write_register_base: 0,
-            write_register_byte: 0,
+            base: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
             write_memory_byte: 0,
-            account_balance: 0,
-            prepaid_gas: 0,
-            used_gas: 0,
-            random_seed_base: 0,
-            random_seed_per_byte: 0,
-            sha256: 0,
+            read_register_base: 0,
+            read_register_byte: 0,
+            write_register_base: 0,
+            write_register_byte: 0,
+            utf8_decoding_base: 0,
+            utf8_decoding_byte: 0,
+            utf16_decoding_base: 0,
+            utf16_decoding_byte: 0,
+            sha256_base: 0,
             sha256_byte: 0,
-            attached_deposit: 0,
-            storage_usage: 0,
-            block_index: 0,
-            block_timestamp: 0,
-            current_account_id: 0,
-            current_account_id_byte: 0,
-            signer_account_id: 0,
-            signer_account_id_byte: 0,
-            signer_account_pk: 0,
-            signer_account_pk_byte: 0,
-            predecessor_account_id: 0,
-            predecessor_account_id_byte: 0,
+            log_base: 0,
+            log_byte: 0,
+            storage_write_base: 0,
+            storage_write_key_byte: 0,
+            storage_write_value_byte: 0,
+            storage_write_evicted_byte: 0,
+            storage_read_base: 0,
+            storage_read_key_byte: 0,
+            storage_read_value_byte: 0,
+            storage_remove_base: 0,
+            storage_remove_key_byte: 0,
+            storage_remove_ret_value_byte: 0,
+            storage_has_key_base: 0,
+            storage_has_key_byte: 0,
+            storage_iter_create_prefix_base: 0,
+            storage_iter_create_prefix_byte: 0,
+            storage_iter_create_range_base: 0,
+            storage_iter_create_from_byte: 0,
+            storage_iter_create_to_byte: 0,
+            storage_iter_next_base: 0,
+            storage_iter_next_key_byte: 0,
+            storage_iter_next_value_byte: 0,
+            touching_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
-            promise_result_base: 0,
-            promise_result_byte: 0,
-            promise_results_count: 0,
             promise_return: 0,
-            log_base: 0,
-            log_per_byte: 0,
-            touching_trie_node: 0,
+        }
+    }
+}
+
+/// Strongly-typed representation of the fees for counting.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[allow(non_camel_case_types)]
+pub enum ExtCosts {
+    base,
+    read_memory_base,
+    read_memory_byte,
+    write_memory_base,
+    write_memory_byte,
+    read_register_base,
+    read_register_byte,
+    write_register_base,
+    write_register_byte,
+    utf8_decoding_base,
+    utf8_decoding_byte,
+    utf16_decoding_base,
+    utf16_decoding_byte,
+    sha256_base,
+    sha256_byte,
+    log_base,
+    log_byte,
+    storage_write_base,
+    storage_write_key_byte,
+    storage_write_value_byte,
+    storage_write_evicted_byte,
+    storage_read_base,
+    storage_read_key_byte,
+    storage_read_value_byte,
+    storage_remove_base,
+    storage_remove_key_byte,
+    storage_remove_ret_value_byte,
+    storage_has_key_base,
+    storage_has_key_byte,
+    storage_iter_create_prefix_base,
+    storage_iter_create_prefix_byte,
+    storage_iter_create_range_base,
+    storage_iter_create_from_byte,
+    storage_iter_create_to_byte,
+    storage_iter_next_base,
+    storage_iter_next_key_byte,
+    storage_iter_next_value_byte,
+    touching_trie_node,
+    promise_and_base,
+    promise_and_per_promise,
+    promise_return,
+}
+
+impl ExtCosts {
+    pub fn value(&self, config: &ExtCostsConfig) -> Gas {
+        use ExtCosts::*;
+        match self {
+            base => config.base,
+            read_memory_base => config.read_memory_base,
+            read_memory_byte => config.read_memory_byte,
+            write_memory_base => config.write_memory_base,
+            write_memory_byte => config.write_memory_byte,
+            read_register_base => config.read_register_base,
+            read_register_byte => config.read_register_byte,
+            write_register_base => config.write_register_base,
+            write_register_byte => config.write_register_byte,
+            utf8_decoding_base => config.utf8_decoding_base,
+            utf8_decoding_byte => config.utf8_decoding_byte,
+            utf16_decoding_base => config.utf16_decoding_base,
+            utf16_decoding_byte => config.utf16_decoding_byte,
+            sha256_base => config.sha256_base,
+            sha256_byte => config.sha256_byte,
+            log_base => config.log_base,
+            log_byte => config.log_byte,
+            storage_write_base => config.storage_write_base,
+            storage_write_key_byte => config.storage_write_key_byte,
+            storage_write_value_byte => config.storage_write_value_byte,
+            storage_write_evicted_byte => config.storage_write_evicted_byte,
+            storage_read_base => config.storage_read_base,
+            storage_read_key_byte => config.storage_read_key_byte,
+            storage_read_value_byte => config.storage_read_value_byte,
+            storage_remove_base => config.storage_remove_base,
+            storage_remove_key_byte => config.storage_remove_key_byte,
+            storage_remove_ret_value_byte => config.storage_remove_ret_value_byte,
+            storage_has_key_base => config.storage_has_key_base,
+            storage_has_key_byte => config.storage_has_key_byte,
+            storage_iter_create_prefix_base => config.storage_iter_create_prefix_base,
+            storage_iter_create_prefix_byte => config.storage_iter_create_prefix_byte,
+            storage_iter_create_range_base => config.storage_iter_create_range_base,
+            storage_iter_create_from_byte => config.storage_iter_create_from_byte,
+            storage_iter_create_to_byte => config.storage_iter_create_to_byte,
+            storage_iter_next_base => config.storage_iter_next_base,
+            storage_iter_next_key_byte => config.storage_iter_next_key_byte,
+            storage_iter_next_value_byte => config.storage_iter_next_value_byte,
+            touching_trie_node => config.touching_trie_node,
+            promise_and_base => config.promise_and_base,
+            promise_and_per_promise => config.promise_and_per_promise,
+            promise_return => config.promise_return,
         }
     }
 }

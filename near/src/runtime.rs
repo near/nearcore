@@ -1,18 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use kvdb::DBValue;
 use log::debug;
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
+use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
@@ -21,13 +20,14 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::{InvalidTxError, RuntimeError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -143,13 +143,8 @@ impl NightshadeRuntime {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_root_hashes: Vec<MerkleHash> =
+        let state_roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        // TODO MOO read new_state_num_parts
-        let mut state_roots = vec![];
-        for hash in state_root_hashes {
-            state_roots.push(StateRoot { hash, num_parts: 1 /* TODO MOO */ })
-        }
         (store_update, state_roots)
     }
 
@@ -640,7 +635,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -676,7 +671,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root.hash);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
             epoch_length: self.genesis_config.epoch_length,
@@ -795,7 +790,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         };
         match self.process_state_update(
             trie,
-            state_root.hash,
+            *state_root,
             shard_id,
             block_index,
             block_timestamp,
@@ -836,7 +831,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
         self.process_state_update(
             trie.clone(),
-            state_root.hash,
+            *state_root,
             shard_id,
             block_index,
             block_timestamp,
@@ -863,16 +858,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             return Err("Path must contain at least single token".into());
         }
         match path_parts[0] {
-            "account" => {
-                match self.view_account(state_root.hash, &AccountId::from(path_parts[1])) {
-                    Ok(r) => Ok(QueryResponse::ViewAccount(r.into())),
-                    Err(e) => Err(e),
-                }
-            }
+            "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
+                Ok(r) => Ok(QueryResponse::ViewAccount(r.into())),
+                Err(e) => Err(e),
+            },
             "call" => {
                 let mut logs = vec![];
                 match self.call_function(
-                    state_root.hash,
+                    *state_root,
                     height,
                     block_timestamp,
                     &AccountId::from(path_parts[1]),
@@ -887,7 +880,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             "contract" => {
-                match self.view_state(state_root.hash, &AccountId::from(path_parts[1]), data) {
+                match self.view_state(*state_root, &AccountId::from(path_parts[1]), data) {
                     Ok(result) => Ok(QueryResponse::ViewState(result)),
                     Err(err) => Ok(QueryResponse::Error(QueryError {
                         error: err.to_string(),
@@ -897,21 +890,19 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             "access_key" => {
                 let result = if path_parts.len() == 2 {
-                    self.view_access_keys(state_root.hash, &AccountId::from(path_parts[1])).map(
-                        |r| {
-                            QueryResponse::AccessKeyList(
-                                r.into_iter()
-                                    .map(|(public_key, access_key)| AccessKeyInfoView {
-                                        public_key,
-                                        access_key: access_key.into(),
-                                    })
-                                    .collect(),
-                            )
-                        },
-                    )
+                    self.view_access_keys(*state_root, &AccountId::from(path_parts[1])).map(|r| {
+                        QueryResponse::AccessKeyList(
+                            r.into_iter()
+                                .map(|(public_key, access_key)| AccessKeyInfoView {
+                                    public_key,
+                                    access_key: access_key.into(),
+                                })
+                                .collect(),
+                        )
+                    })
                 } else {
                     self.view_access_key(
-                        state_root.hash,
+                        *state_root,
                         &AccountId::from(path_parts[1]),
                         &PublicKey::try_from(path_parts[2])?,
                     )
@@ -935,68 +926,79 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
 
-    fn obtain_state_part(
+    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+        assert!(part_id < num_parts);
+        self.trie
+            .get_trie_nodes_for_part(part_id, num_parts, state_root)
+            .expect("storage should not fail")
+            .try_to_vec()
+            .expect("serializer should not fail")
+    }
+
+    fn validate_state_part(
         &self,
-        shard_id: ShardId,
+        state_root: &StateRoot,
         part_id: u64,
-        state_root: &StateRoot,
-    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
-        if part_id > 0 {
-            /* TODO MOO */
-            return Ok((StatePart { shard_id, part_id, data: vec![] }, vec![]));
+        num_parts: u64,
+        data: &Vec<u8>,
+    ) -> bool {
+        assert!(part_id < num_parts);
+        match BorshDeserialize::try_from_slice(data) {
+            Ok(trie_nodes) => match Trie::validate_trie_nodes_for_part(
+                state_root,
+                part_id,
+                num_parts,
+                &trie_nodes,
+            ) {
+                Ok(_) => true,
+                // Storage error should not happen
+                Err(_) => false,
+            },
+            // Deserialization error means we've got the data from malicious peer
+            Err(_) => false,
         }
-        // TODO(1052): make sure state_root is present in the trie.
-        // create snapshot.
-        let mut result = vec![];
-        let mut cursor = Cursor::new(&mut result);
-        for item in self.trie.iter(&state_root.hash)? {
-            let (key, value) = item?;
-            cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-            cursor.write_all(&key)?;
-            cursor.write_u32::<LittleEndian>(value.len() as u32)?;
-            cursor.write_all(value.as_ref())?;
-        }
-        // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root.hash, result.len());
-        // TODO add proof in Nightshade Runtime
-        Ok((StatePart { shard_id, part_id, data: result }, vec![]))
     }
 
-    fn accept_state_part(
+    fn confirm_state(&self, state_root: &StateRoot, data: &Vec<Vec<u8>>) -> Result<(), Error> {
+        let mut parts = vec![];
+        for part in data {
+            parts.push(
+                BorshDeserialize::try_from_slice(part)
+                    .expect("Part was already validated earlier, so could never fail here"),
+            );
+        }
+        let trie_changes = Trie::combine_state_parts(&state_root, &parts)
+            .expect("combine_state_parts is guaranteed to succeed when each part is valid");
+        // TODO clean old states
+        let trie = self.trie.clone();
+        let (store_update, _) = trie_changes.into(trie).expect("TrieChanges::into never fails");
+        Ok(store_update.commit()?)
+    }
+
+    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
+        self.trie.retrieve_root_node(state_root).expect("Failed to get root node")
+    }
+
+    fn validate_state_root_node(
         &self,
+        state_root_node: &StateRootNode,
         state_root: &StateRoot,
-        part: &StatePart,
-        _proof: &Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if part.part_id > 0 {
-            /* TODO MOO */
-            return Ok(());
+    ) -> bool {
+        if hash(&state_root_node.data) != *state_root {
+            false
+        } else {
+            match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
+                Ok(memory_usage) => {
+                    if memory_usage != state_root_node.memory_usage {
+                        // Invalid value of memory_usage
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Err(_) => false, // Invalid state_root_node
+            }
         }
-        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root.hash, part.data.len());
-        // TODO prove that the part is valid
-        let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
-        let state_part_len = part.data.len();
-        let mut cursor = Cursor::new(part.data.clone());
-        while cursor.position() < state_part_len as u64 {
-            let key_len = cursor.read_u32::<LittleEndian>()? as usize;
-            let mut key = vec![0; key_len];
-            cursor.read_exact(&mut key)?;
-            let value_len = cursor.read_u32::<LittleEndian>()? as usize;
-            let mut value = vec![0; value_len];
-            cursor.read_exact(&mut value)?;
-            state_update.set(key, DBValue::from_slice(&value));
-        }
-        let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
-        if root != state_root.hash {
-            return Err("Invalid state root".into());
-        }
-        store_update.commit()?;
-        Ok(())
-    }
-
-    fn confirm_state(&self, _state_root: &StateRoot) -> Result<bool, Error> {
-        // TODO(1457): approve that all parts are here
-        Ok(true)
     }
 }
 
@@ -1312,7 +1314,7 @@ mod test {
         pub fn view_account(&self, account_id: &str) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
             self.runtime
-                .view_account(self.state_roots[shard_id as usize].hash, &account_id.to_string())
+                .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
                 .unwrap()
                 .into()
         }
@@ -1691,7 +1693,8 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let (state_part, proof) = env.runtime.obtain_state_part(0, 0, &env.state_roots[0]).unwrap();
+        let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
+        let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1726,7 +1729,15 @@ mod test {
             new_env.head.prev_block_hash = prev_hash;
             new_env.last_proposals = proposals;
         }
-        new_env.runtime.accept_state_part(&env.state_roots[0], &state_part, &proof).unwrap();
+        assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
+        let mut root_node_wrong = root_node.clone();
+        root_node_wrong.memory_usage += 1;
+        assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
+        root_node_wrong.data = vec![123];
+        assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
+        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
+        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
+        new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
@@ -2009,7 +2020,7 @@ mod test {
             .runtime
             .apply(
                 env.runtime.trie.clone(),
-                env.state_roots[0].hash,
+                env.state_roots[0],
                 &None,
                 &apply_state,
                 &[],
