@@ -593,7 +593,10 @@ impl Runtime {
             // If the refund fails, instead of just burning tokens, we report the total number of
             // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
             if result.result.is_err() {
-                stats.total_balance_burnt += total_deposit(&action_receipt.actions)?;
+                stats.total_balance_burnt = safe_add_balance(
+                    stats.total_balance_burnt,
+                    total_deposit(&action_receipt.actions)?,
+                )?
             }
         } else {
             // Calculating and generating refunds
