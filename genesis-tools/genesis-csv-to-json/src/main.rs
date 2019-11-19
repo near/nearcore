@@ -20,7 +20,12 @@ fn main() {
                 .takes_value(true),
         )
         .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true))
-        .arg(Arg::with_name("tracked-shards").long("tracked-shards").takes_value(true))
+        .arg(
+            Arg::with_name("tracked-shards")
+                .long("tracked-shards")
+                .takes_value(true)
+                .help("Set of shards that this node wants to track (default empty)"),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
