@@ -1,7 +1,7 @@
 use near_metrics::{try_create_int_counter, IntCounter};
 
 lazy_static! {
-    pub static ref ACTION_CREAT_ACCOUNT_TOTAL: near_metrics::Result<IntCounter> =
+    pub static ref ACTION_CREATE_ACCOUNT_TOTAL: near_metrics::Result<IntCounter> =
         try_create_int_counter(
             "action_create_account_total",
             "The number of CreateAccount actions called since starting this node"
