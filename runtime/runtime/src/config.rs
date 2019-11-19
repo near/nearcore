@@ -147,7 +147,8 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
 }
-
+/// Returns a total amount of gas which was being burnt and total_cost
+/// which is used during incoming transaction verification
 pub fn tx_cost(
     config: &RuntimeFeesConfig,
     transaction: &Transaction,
@@ -190,9 +191,5 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 
 /// Get the total sum of prepaid gas for given actions.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
-    let mut total_gas: Gas = 0;
-    for action in actions {
-        total_gas = safe_add_gas(total_gas, action.get_prepaid_gas())?;
-    }
-    Ok(total_gas)
+    actions.iter().try_fold(0, |acc, action| safe_add_gas(acc, action.get_prepaid_gas()))
 }
