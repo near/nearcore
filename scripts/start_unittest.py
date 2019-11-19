@@ -24,4 +24,5 @@ if __name__ == "__main__":
                   init_flags=['--chain-id=', '--test-seed=alice.near', '--account-id=test.near', '--fast'],
                   boot_nodes='',
                   telemetry_url='',
-                  verbose=args.verbose)
+                  verbose=args.verbose,
+                  no_gas_price=True)

@@ -17,7 +17,7 @@ use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::block::{Approval, BlockHeader};
+use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -420,7 +420,7 @@ fn client_sync_headers() {
                         chain_info: PeerChainInfo {
                             genesis_id: Default::default(),
                             height: 5,
-                            total_weight: 100.into(),
+                            weight_and_score: WeightAndScore::from_ints(100, 100),
                             tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
@@ -432,7 +432,7 @@ fn client_sync_headers() {
                         chain_info: PeerChainInfo {
                             genesis_id: Default::default(),
                             height: 5,
-                            total_weight: 100.into(),
+                            weight_and_score: WeightAndScore::from_ints(100, 100),
                             tracked_shards: vec![],
                         },
                         edge_info: EdgeInfo::default(),
@@ -597,6 +597,39 @@ fn test_no_double_sign() {
     let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
+}
+
+#[test]
+fn test_invalid_gas_price() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client = setup_client(
+        store,
+        vec![vec!["test1"]],
+        1,
+        1,
+        Some("test1"),
+        network_adapter,
+        chain_genesis,
+    );
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    b1.header.inner.gas_price = 0;
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+
+    let (_, result) = client.process_block(b1, Provenance::NONE);
+    match result {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidGasPrice => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => assert!(false, "succeeded, tip: {:?}", result),
+    }
 }
 
 #[test]

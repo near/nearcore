@@ -30,6 +30,8 @@ pub mod col {
     pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
     pub const PENDING_DATA_COUNT: &[u8] = &[5];
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
+    pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
+    pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
@@ -97,6 +99,12 @@ pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash
     let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
     key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
     key.extend_from_slice(receipt_id.as_ref());
+    key
+}
+
+pub fn key_for_delayed_receipt(index: u64) -> Vec<u8> {
+    let mut key = col::DELAYED_RECEIPT.to_vec();
+    key.extend_from_slice(&index.to_le_bytes());
     key
 }
 

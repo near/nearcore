@@ -13,14 +13,14 @@ TIMEOUT = 150
 BLOCKS = 50
 
 # Local:
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {})
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 # Remote:
 # nodes = start_cluster(4, 0, 4, {'local': False, 'near_root': '../target/debug/',
 #     'remote': {
 #         'instance_name': 'near-pytest',
 #     }
-# }, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {})
+# }, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 

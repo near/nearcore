@@ -28,7 +28,7 @@ use near_network::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, EpochId, Range};
+use near_primitives::types::{BlockIndex, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -43,6 +43,9 @@ use crate::types::{
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+
+/// Multiplier on `max_block_time` to wait until deciding that chain stalled.
+const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -239,7 +242,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         hash: self.client.chain.genesis().hash(),
                     },
                     height: head.height,
-                    total_weight: head.total_weight,
+                    weight_and_score: head.weight_and_score,
                     tracked_shards: self.client.config.tracked_shards.clone(),
                 },
                 Err(err) => {
@@ -266,21 +269,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(
-                shard_id,
-                hash,
-                need_header,
-                parts_ranges,
-                route_back,
-            ) => {
-                let mut parts = vec![];
-                for Range(from, to) in parts_ranges {
-                    for part_id in from..to {
-                        if let Ok(part) =
-                            self.client.chain.get_state_response_part(shard_id, part_id, hash)
-                        {
-                            parts.push(part);
-                        } else {
+            NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
+                let mut data = vec![];
+                for part_id in parts.ids.iter() {
+                    match self.client.chain.get_state_response_part(
+                        shard_id,
+                        *part_id,
+                        parts.num_parts,
+                        hash,
+                    ) {
+                        Ok(part) => data.push(part),
+                        Err(e) => {
+                            error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -294,13 +294,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     hash,
                                     shard_state: ShardStateSyncResponse {
                                         header: Some(header),
-                                        parts,
+                                        part_ids: parts.ids,
+                                        data,
                                     },
                                 },
                                 route_back,
                             );
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -309,7 +311,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         StateResponseInfo {
                             shard_id,
                             hash,
-                            shard_state: ShardStateSyncResponse { header: None, parts },
+                            shard_state: ShardStateSyncResponse {
+                                header: None,
+                                part_ids: parts.ids,
+                                data,
+                            },
                         },
                         route_back,
                     );
@@ -379,17 +385,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            for part in shard_state.parts.iter() {
-                                let part_id = part.state_part.part_id as usize;
-                                if part_id >= shard_sync_download.downloads.len() {
-                                    // TODO ???
+                            let num_parts = shard_sync_download.downloads.len();
+                            for (i, part_id) in shard_state.part_ids.iter().enumerate() {
+                                let part_id = *part_id as usize;
+                                if part_id >= num_parts {
+                                    // This may happen only if we somehow have accepted wrong header
                                     continue;
                                 }
                                 if !shard_sync_download.downloads[part_id].done {
                                     match self.client.chain.set_state_part(
                                         shard_id,
                                         hash,
-                                        part.clone(),
+                                        part_id as u64,
+                                        num_parts as u64,
+                                        &shard_state.data[i],
                                     ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id].done = true;
@@ -470,6 +479,15 @@ impl Handler<Status> for ClientActor {
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
         let latest_block_time = prev_header.inner.timestamp.clone();
+        let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
+        if elapsed
+            > Duration::from_millis(
+                self.client.config.max_block_production_delay.as_millis() as u64
+                    * STATUS_WAIT_TIME_MULTIPLIER,
+            )
+        {
+            return Err(format!("No blocks for {:?}.", elapsed));
+        }
         let validators = self
             .client
             .runtime_adapter
@@ -727,8 +745,11 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
+            let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner.height);
 
-            self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
+            self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
         }
     }
@@ -905,23 +926,27 @@ impl ClientActor {
             };
 
         if is_syncing {
-            if full_peer_info.chain_info.total_weight <= head.total_weight {
-                info!(target: "client", "Sync: synced at {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+            if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
+                info!(target: "client", "Sync: synced at weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.total_weight.to_num()
-                > head.total_weight.to_num() + self.client.config.sync_weight_threshold
+            if full_peer_info
+                .chain_info
+                .weight_and_score
+                .beyond_threshold(&head.weight_and_score, self.client.config.sync_weight_threshold)
                 && full_peer_info.chain_info.height
                     > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
-                    "Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync",
+                    "Sync: height/weight/score: {}/{}/{}, peer height/weight/score: {}/{}/{}, enabling sync",
                     head.height,
-                    head.total_weight,
+                    head.weight_and_score.weight,
+                    head.weight_and_score.score,
                     full_peer_info.chain_info.height,
-                    full_peer_info.chain_info.total_weight
+                    full_peer_info.chain_info.weight_and_score.weight,
+                    full_peer_info.chain_info.weight_and_score.score,
                 );
                 is_syncing = true;
             }

@@ -23,7 +23,7 @@ fn iter_prefix_check(
     use_register: bool,
 ) -> u64 {
     let iter_id = if use_register {
-        logic.write_register(3, prefix).unwrap();
+        logic.wrapped_internal_write_register(3, prefix).unwrap();
         logic.storage_iter_prefix(std::u64::MAX, 3)
     } else {
         logic.storage_iter_prefix(prefix.len() as _, prefix.as_ptr() as _)
@@ -56,8 +56,8 @@ fn iter_range_check(
     use_register: bool,
 ) -> u64 {
     let iter_id = if use_register {
-        logic.write_register(3, start).unwrap();
-        logic.write_register(4, end).unwrap();
+        logic.wrapped_internal_write_register(3, start).unwrap();
+        logic.wrapped_internal_write_register(4, end).unwrap();
         logic.storage_iter_range(std::u64::MAX, 0, std::u64::MAX, 1)
     } else {
         logic.storage_iter_range(

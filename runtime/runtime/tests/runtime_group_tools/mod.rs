@@ -51,9 +51,10 @@ impl StandaloneRuntime {
             epoch_length: 4,
             gas_price: 100,
             block_timestamp: 0,
+            gas_limit: None,
         };
 
-        Self { apply_state, runtime, trie, signer, root: root.hash }
+        Self { apply_state, runtime, trie, signer, root: root }
     }
 
     pub fn process_block(

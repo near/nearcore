@@ -1,6 +1,7 @@
 use near_vm_errors::HostErrorOrStorageError;
 use near_vm_logic::types::Gas;
-use near_vm_logic::VMLogic;
+use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
+use std::collections::HashMap;
 
 type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
@@ -64,4 +65,36 @@ pub fn promise_batch_action_add_key_with_function_call(
         method_names.len() as _,
         method_names.as_ptr() as _,
     )
+}
+
+#[macro_export]
+macro_rules! map(
+    { $($key:path: $value:expr,)+ } => {
+        {
+            let mut m = ::std::collections::HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+     };
+);
+
+#[allow(dead_code)]
+pub fn print_costs() {
+    EXT_COSTS_COUNTER.with(|f| {
+        println!("{:#?}", f.borrow().iter().collect::<std::collections::BTreeMap<_, _>>())
+    });
+    reset_costs_counter();
+}
+
+pub fn reset_costs_counter() {
+    EXT_COSTS_COUNTER.with(|f| f.borrow_mut().clear());
+}
+
+pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
+    EXT_COSTS_COUNTER.with(|f| {
+        assert_eq!(f.borrow().clone(), expected);
+    });
+    reset_costs_counter();
 }

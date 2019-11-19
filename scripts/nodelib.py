@@ -58,7 +58,7 @@ def compile_package(package_name, is_release):
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
-def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
+def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_price=False):
     if nodocker:
         compile_package('near', is_release)
 
@@ -93,6 +93,11 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
         nodocker_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
+    if no_gas_price:
+        filename = os.path.join(home_dir, 'genesis.json')
+        genesis_config = json.load(open(filename))
+        genesis_config['gas_price'] = 0
+        json.dump(genesis_config, open(filename, 'w'))
 
 
 def print_staking_key(home_dir):
@@ -167,7 +172,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
         print("\nStopping NEARCore.")
 
 
-def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, telemetry_url, verbose=False):
+def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, telemetry_url, verbose=False, no_gas_price=False):
     if nodocker:
         install_cargo()
     else:
@@ -178,7 +183,7 @@ def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes,
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
 
-    check_and_setup(nodocker, is_release, image, home_dir, init_flags)
+    check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_price)
 
     print_staking_key(home_dir)
 
