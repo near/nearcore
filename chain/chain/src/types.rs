@@ -35,7 +35,7 @@ pub struct RootProof(pub CryptoHash, pub MerklePath);
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePartKey(pub ShardId, pub u64 /* PartId */, pub StateRoot);
+pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
