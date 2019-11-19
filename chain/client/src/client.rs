@@ -1119,10 +1119,6 @@ impl Client {
                 } else {
                     self.forward_tx(tx)
                 }
-                Err(RuntimeError::UnexpectedIntegerOverflow) => {
-                    // TODO: check if we are validator checking proof.
-                    panic!("UnexpectedIntegerOverflow in validate_tx")
-                }
             }
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
