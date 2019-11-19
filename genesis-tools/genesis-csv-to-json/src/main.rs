@@ -31,7 +31,13 @@ fn main() {
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let chain_id = matches.value_of("chain-id").expect("Chain id is requried");
     let tracked_shards: HashSet<ShardId> = match matches.value_of("tracked-shards") {
-        Some(s) => s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect(),
+        Some(s) => {
+            if s.is_empty() {
+                HashSet::default()
+            } else {
+                s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect()
+            }
+        }
         None => HashSet::default(),
     };
     csv_to_json_configs::csv_to_json_configs(
