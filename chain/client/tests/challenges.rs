@@ -223,7 +223,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             0,
             vec![],
-            vec![],
+            &vec![],
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),

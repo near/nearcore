@@ -21,12 +21,13 @@ use near_network::types::{PeerId, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -405,21 +406,38 @@ impl Client {
             .clone();
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
-
-        let transactions = self.prepare_transactions(
+        let transaction_validity_period = self.chain.transaction_validity_period;
+        let transactions: Vec<_> = self
+            .shards_mgr
+            .prepare_transactions(shard_id, self.config.block_expected_weight)?
+            .into_iter()
+            .filter(|t| {
+                self.chain
+                    .mut_store()
+                    .check_blocks_on_same_chain(
+                        &prev_block_header,
+                        &t.transaction.block_hash,
+                        transaction_validity_period,
+                    )
+                    .is_ok()
+            })
+            .collect();
+        let block_header = self.chain.get_block_header(&prev_block_hash)?;
+        let transactions_len = transactions.len();
+        let filtered_transactions = self.runtime_adapter.filter_transactions(
             next_height,
             prev_block_timestamp,
-            shard_id,
-            &chunk_extra,
-            &prev_block_header,
+            block_header.inner.gas_price,
+            chunk_extra.gas_limit,
+            chunk_extra.state_root.clone(),
+            transactions,
         );
-
-        let num_filtered_transactions = transactions.len();
-
-        let (tx_root, _) = merklize(&transactions);
+        let (tx_root, _) = merklize(&filtered_transactions);
         debug!(
-            "Creating a chunk with {} filtered transactions for shard {}",
-            num_filtered_transactions, shard_id
+            "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
+            filtered_transactions.len(),
+            transactions_len,
+            shard_id
         );
 
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
@@ -456,7 +474,7 @@ impl Client {
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
-            transactions,
+            &filtered_transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
@@ -468,7 +486,7 @@ impl Client {
             "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
             next_height,
             shard_id,
-            num_filtered_transactions,
+            filtered_transactions.len(),
             outgoing_receipts.len(),
             block_producer.account_id,
             encoded_chunk.chunk_hash().0,
@@ -476,44 +494,6 @@ impl Client {
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
-    }
-
-    /// Prepares an ordered list of valid transactions from the pool up the limits.
-    fn prepare_transactions(
-        &mut self,
-        next_height: u64,
-        prev_block_timestamp: u64,
-        shard_id: u64,
-        chunk_extra: &ChunkExtra,
-        prev_block_header: &BlockHeader,
-    ) -> Vec<SignedTransaction> {
-        let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
-        if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
-            let transaction_validity_period = chain.transaction_validity_period;
-            runtime_adapter
-                .prepare_transactions(
-                    next_height,
-                    prev_block_timestamp,
-                    prev_block_header.inner.gas_price,
-                    chunk_extra.gas_limit,
-                    chunk_extra.state_root.clone(),
-                    config.block_expected_weight as usize,
-                    &mut iter,
-                    &mut |tx: &SignedTransaction| -> bool {
-                        chain
-                            .mut_store()
-                            .check_blocks_on_same_chain(
-                                &prev_block_header,
-                                &tx.transaction.block_hash,
-                                transaction_validity_period,
-                            )
-                            .is_ok()
-                    },
-                )
-                .expect("no StorageError please")
-        } else {
-            vec![]
-        }
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
@@ -1083,37 +1063,40 @@ impl Client {
                     return self.forward_tx(tx);
                 }
             };
-            if let Some(err) = self
-                .runtime_adapter
-                .validate_tx(
-                    head.height + 1,
-                    cur_block_header.inner.timestamp,
-                    gas_price,
-                    state_root,
-                    &tx,
-                )
-                .expect("no storage errors")
-            {
-                debug!(target: "client", "Invalid tx: {:?}", err);
-                NetworkClientResponses::InvalidTx(err)
-            } else {
-                let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
-                    warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-                    NetworkClientResponses::NoResponse
-                });
+            match self.runtime_adapter.validate_tx(
+                head.height + 1,
+                cur_block_header.inner.timestamp,
+                gas_price,
+                state_root,
+                tx,
+            ) {
+                Ok(valid_transaction) => {
+                    let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
+                        warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, valid_transaction);
+                        NetworkClientResponses::NoResponse
+                    });
 
-                // If I'm not an active validator I should forward tx to next validators.
-                if active_validator {
-                    debug!(
-                        target: "client",
-                        "Recording a transaction. I'm {:?}, {}",
-                        me,
-                        shard_id
-                    );
-                    self.shards_mgr.insert_transaction(shard_id, tx);
-                    NetworkClientResponses::ValidTx
-                } else {
-                    self.forward_tx(tx)
+                    // If I'm not an active validator I should forward tx to next validators.
+                    if active_validator {
+                        debug!(
+                            target: "client",
+                            "Recording a transaction. I'm {:?}, {}",
+                            me,
+                            shard_id
+                        );
+                        self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                        NetworkClientResponses::ValidTx
+                    } else {
+                        self.forward_tx(valid_transaction.transaction)
+                    }
+                }
+                Err(RuntimeError::InvalidTxError(err)) => {
+                    debug!(target: "client", "Invalid tx: {:?}", err);
+                    NetworkClientResponses::InvalidTx(err)
+                }
+                Err(RuntimeError::StorageError(err)) => panic!("{}", err),
+                Err(RuntimeError::BalanceMismatch(err)) => {
+                    unreachable!("Unexpected BalanceMismatch error in validate_tx: {}", err)
                 }
             }
         } else {
