@@ -23,8 +23,8 @@ impl DBTransaction {
 }
 
 pub struct RocksDB {
-    db: DB,
-    columns: Vec<ColumnFamily>,
+    db: RwLock<DB>,
+    columns: RwLock<Vec<ColumnFamily>>,
     read_options: ReadOptions,
 }
 
@@ -33,8 +33,8 @@ pub struct TestDB {
     dbs: RwLock<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
-pub trait Database {
-    fn transaction() -> DBTransaction {
+pub trait Database: Sync+Send {
+    fn transaction(&self) -> DBTransaction {
         DBTransaction{ops:Vec::new()}
     }
     fn get<K: AsRef<[u8]>>(&self, col: Option<u32>, key: K) -> Result<Option<Vec<u8>>, io::Error>;
@@ -48,8 +48,8 @@ pub trait Database {
 impl Database for RocksDB {
     fn get<K: AsRef<[u8]>>(&self, col: Option<u32>, key: K) -> Result<Option<Vec<u8>>, io::Error> {
         match col {
-            Some(col) => Ok(self.db.get_cf_opt(self.columns[col], key, &self.read_options)?),
-            None => Ok(self.db.get_opt(key, &self.opts)?),
+            Some(col) => Ok(self.db.read().get_cf_opt(self.columns.read()[col], key, &self.read_options)?),
+            None => Ok(self.db.read().get_opt(key, &self.opts)?),
         }
     }
 
@@ -59,9 +59,9 @@ impl Database for RocksDB {
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         match column {
             Some(col) => {
-                self.db.iterator_cf_opt(self.columns[col], &self.read_options,IteratorMode::Start)
+                self.db.read().iterator_cf_opt(self.columns.read()[col], &self.read_options,IteratorMode::Start)
             }
-            None => self.db.iterator_opt(IteratorMode::End, &self.read_options),
+            None => self.db.read().iterator_opt(IteratorMode::End, &self.read_options),
         }
     }
 
@@ -70,16 +70,16 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => match col {
-                    Some(col) => batch.put_cf(self.columns[col], key, value)?,
+                    Some(col) => batch.put_cf(self.columns.read()[col], key, value)?,
                     None => batch.put(key, value),
                 },
                 DBOp::Delete { col, key } => match col {
-                    Some(col) => batch.delete_cf(self.columns[col], key)?,
+                    Some(col) => batch.delete_cf(self.columns.read()[col], key)?,
                     None => batch.delete(key),
                 },
             }
         }
-        Ok(self.db.write(batch)?)
+        Ok(self.db.write().write(batch)?)
     }
 }
 
@@ -142,9 +142,11 @@ fn rocksdb_options() -> Options {
 
 pub fn open_rocksdb<P: AsRef<std::path::Path>>(path: P, cols: u32) -> Result<RocksDB, rocksdb::Error> {
     let options = rocksdb_options();
-    let cfs =
-        (0..cols).map(|col| ColumnFamilyDescriptor::new(format!("col{}", col), options));
-    DB::open_cf_descriptors(&options, path, cfs)
+    let cf_names = (0..cols).map(|col|format!("col{}", col)).collect();
+    let cf_descriptors = cf_names.map(|cf_name| ColumnFamilyDescriptor::new(cf_name, options));
+    let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+    let cfs = cf_names.iter().map(|n| db.cf_handle(n).unwrap()).collect();
+    Ok(RocksDB{db: RwLock::new(db), columns: RwLock::new(cfs), read_options: ReadOptions::default()})
 }
 
 pub fn open_testdb(cols: u32) -> TestDB {
