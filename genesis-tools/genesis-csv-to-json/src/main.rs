@@ -1,5 +1,7 @@
 use clap::{App, Arg};
 use near::get_default_home;
+use near_primitives::types::ShardId;
+use std::collections::HashSet;
 use std::path::Path;
 
 pub mod csv_parser;
@@ -18,9 +20,18 @@ fn main() {
                 .takes_value(true),
         )
         .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true))
+        .arg(Arg::with_name("tracked-shards").long("tracked-shards").takes_value(true))
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let chain_id = matches.value_of("chain-id").expect("Chain id is requried");
-    csv_to_json_configs::csv_to_json_configs(home_dir, chain_id.to_string());
+    let tracked_shards: HashSet<ShardId> = match matches.value_of("tracked-shards") {
+        Some(s) => s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect(),
+        None => HashSet::default(),
+    };
+    csv_to_json_configs::csv_to_json_configs(
+        home_dir,
+        chain_id.to_string(),
+        tracked_shards.into_iter().collect(),
+    );
 }

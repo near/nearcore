@@ -921,7 +921,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
-        println!("get validator info");
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
