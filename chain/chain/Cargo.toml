@@ -9,7 +9,7 @@ chrono = { version = "0.4.4", features = ["serde"] }
 log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
-kvdb = "0.1"
+rocksdb = "0.13"
 rand = "0.7"
 serde = "1.0"
 serde_derive = "1.0"

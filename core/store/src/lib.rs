@@ -4,12 +4,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
+use crate::db::{open_rocksdb, DBOp, DBTransaction, Database};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
-pub use kvdb::DBValue;
-use kvdb::{DBOp, DBTransaction, KeyValueDB};
-use kvdb_rocksdb::{Database, DatabaseConfig};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -29,6 +27,7 @@ pub use crate::trie::{
     update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
 };
 
+mod db;
 pub mod test_utils;
 mod trie;
 
@@ -62,16 +61,16 @@ pub const COL_STATE_PARTS: Option<u32> = Some(23);
 const NUM_COLS: u32 = 24;
 
 pub struct Store {
-    storage: Arc<dyn KeyValueDB>,
+    storage: Arc<dyn Database>,
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn KeyValueDB>) -> Store {
+    pub fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
     pub fn get(&self, column: Option<u32>, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
-        self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
+        self.storage.get(column, key)
     }
 
     pub fn get_ser<T: BorshDeserialize>(
@@ -142,19 +141,19 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn KeyValueDB>,
+    storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     trie: Option<Arc<Trie>>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn KeyValueDB>) -> Self {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn KeyValueDB>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<Trie>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
@@ -237,8 +236,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db_config = DatabaseConfig::with_columns(Some(NUM_COLS));
-    let db = Arc::new(Database::open(&db_config, path).expect("Failed to open the database"));
+    let db = Arc::new(open_rocksdb(path, NUM_COLS).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 
@@ -265,11 +263,7 @@ pub fn get<T: BorshDeserialize>(
 
 /// Writes an object into Trie.
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value
-        .try_to_vec()
-        .ok()
-        .map(|data| state_update.set(key, DBValue::from_vec(data)))
-        .or_else(|| None);
+    value.try_to_vec().ok().map(|data| state_update.set(key, data)).or_else(|| None);
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
@@ -343,7 +337,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update.set(key_for_code(account_id), DBValue::from_vec(code.code.clone()));
+    state_update.set(key_for_code(account_id), code.code.clone());
 }
 
 pub fn get_code(

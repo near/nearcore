@@ -9,7 +9,7 @@ ansi_term = "0.12"
 actix = "0.8.1"
 futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
-kvdb = "0.1"
+rocksdb = "0.13"
 log = "0.4"
 rand = "0.7"
 serde = { version = "1.0", features = ["derive"] }

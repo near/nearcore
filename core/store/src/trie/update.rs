@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use kvdb::DBValue;
 use log::debug;
 
 use near_primitives::hash::CryptoHash;
@@ -28,13 +27,13 @@ impl TrieUpdate {
     pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
-    pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, StorageError> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
+            Ok(value.as_ref().map(|val| Vec::from_slice(val)))
         } else if let Some(value) = self.committed.get(key) {
-            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
+            Ok(value.as_ref().map(|val| Vec::from_slice(val)))
         } else {
-            self.trie.get(&self.root, key).map(|x| x.map(DBValue::from_vec))
+            self.trie.get(&self.root, key)
         }
     }
 
@@ -62,7 +61,7 @@ impl TrieUpdate {
         Ok(res)
     }
 
-    pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
+    pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.prospective.insert(key, Some(value.into_vec()));
     }
     pub fn remove(&mut self, key: &[u8]) {

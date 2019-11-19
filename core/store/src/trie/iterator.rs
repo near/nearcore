@@ -1,5 +1,3 @@
-use kvdb::DBValue;
-
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
@@ -41,7 +39,7 @@ pub struct TrieIterator<'a> {
     root: CryptoHash,
 }
 
-pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), StorageError>;
+pub type TrieItem<'a> = Result<(Vec<u8>, Vec<u8>), StorageError>;
 
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
@@ -173,13 +171,13 @@ impl<'a> Iterator for TrieIterator<'a> {
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, value)) => {
                         if let Some(value) = value {
-                            return Some(Ok((self.key(), DBValue::from_slice(value))));
+                            return Some(Ok((self.key(), Vec::from_slice(value))));
                         } else {
                             IterStep::Continue
                         }
                     }
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
-                        return Some(Ok((self.key(), DBValue::from_slice(value))));
+                        return Some(Ok((self.key(), Vec::from_slice(value))));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {
