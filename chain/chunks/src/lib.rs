@@ -11,12 +11,12 @@ use rand::seq::SliceRandom;
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
-    RuntimeAdapter,
+    RuntimeAdapter, ValidTransaction,
 };
 use near_crypto::Signer;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::NetworkRequests;
-use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -190,8 +190,16 @@ impl ShardsManager {
         );
     }
 
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper> {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
+    pub fn prepare_transactions(
+        &mut self,
+        shard_id: ShardId,
+        expected_weight: u32,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        if let Some(tx_pool) = self.tx_pools.get_mut(&shard_id) {
+            tx_pool.prepare_transactions(expected_weight).map_err(|err| err.into())
+        } else {
+            Ok(vec![])
+        }
     }
 
     pub fn cares_about_shard_this_or_next_epoch(
@@ -416,7 +424,7 @@ impl ShardsManager {
         self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
@@ -441,7 +449,7 @@ impl ShardsManager {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
-            .reintroduce_transactions(transactions.clone());
+            .reintroduce_transactions(transactions);
     }
 
     pub fn receipts_recipient_filter(
@@ -826,7 +834,7 @@ impl ShardsManager {
         validator_reward: Balance,
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
+        transactions: &Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,

@@ -11,6 +11,7 @@ pub enum Error {
     KnownPart,
     ChainError(near_chain::Error),
     IOError(std::io::Error),
+    PoolError(near_pool::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -28,5 +29,11 @@ impl From<std::io::Error> for Error {
 impl From<near_chain::Error> for Error {
     fn from(err: near_chain::Error) -> Self {
         Error::ChainError(err)
+    }
+}
+
+impl From<near_pool::Error> for Error {
+    fn from(err: near_pool::Error) -> Self {
+        Error::PoolError(err)
     }
 }
