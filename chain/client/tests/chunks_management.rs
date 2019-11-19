@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
 use futures::{future, Future};
+use log::info;
 
 use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
@@ -40,7 +41,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 2000);
+        chunks_produced_and_distributed_common(2, true, 1500);
     });
 }
 
@@ -177,11 +178,11 @@ fn chunks_produced_and_distributed_common(
                         request: _,
                     } => {
                         if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test1" {
-                            println!("Dropping Partial Encoded Chunk Request from test4 to test1");
+                            info!("Dropping Partial Encoded Chunk Request from test4 to test1");
                             return (NetworkResponses::NoResponse, false);
                         }
                         if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test2" {
-                            println!("Observed Partial Encoded Chunk Request from test4 to test1");
+                            info!("Observed Partial Encoded Chunk Request from test4 to test2");
                         }
                         partial_chunk_request_msgs += 1;
                     }

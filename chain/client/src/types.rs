@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -171,7 +172,10 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(min_block_prod_time / 2),
-            chunk_request_retry_period: Duration::from_millis(min_block_prod_time / 5),
+            chunk_request_retry_period: min(
+                Duration::from_millis(100),
+                Duration::from_millis(min_block_prod_time / 5),
+            ),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
