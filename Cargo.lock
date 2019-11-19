@@ -1912,6 +1912,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
+ "near-pool 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2104,11 +2105,6 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "failure_derive 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-chain 0.1.0",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2283,7 +2279,7 @@ dependencies = [
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.4",
+ "near 0.4.5",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
  "near-primitives 0.1.0",
