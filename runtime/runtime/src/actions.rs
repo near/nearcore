@@ -183,6 +183,7 @@ pub(crate) fn action_function_call(
         // TODO
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
+            result.gas_burnt_for_function_call += outcome.burnt_gas;
             result.logs.extend(outcome.logs.into_iter());
         }
         return Ok(());
@@ -192,6 +193,7 @@ pub(crate) fn action_function_call(
     account.amount = outcome.balance;
     account.storage_usage = outcome.storage_usage;
     result.gas_burnt += outcome.burnt_gas;
+    result.gas_burnt_for_function_call += outcome.burnt_gas;
     result.gas_used += outcome.used_gas;
     result.result = Ok(outcome.return_data);
     result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));

@@ -263,11 +263,10 @@ pub fn test_send_money(node: impl Node) {
             TESTING_INIT_STAKE
         )
     );
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let AccountView { amount, locked, .. } = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
         (amount, locked),
-        (TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE + reward, TESTING_INIT_STAKE,)
+        (TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE, TESTING_INIT_STAKE,)
     );
 }
 
@@ -288,7 +287,9 @@ pub fn test_smart_contract_reward(node: impl Node) {
     assert_ne!(root, new_root);
 
     let bob = node_user.view_account(&bob_account()).unwrap();
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let gas_burnt_for_function_call = transaction_result.receipts[0].outcome.gas_burnt
+        - function_call_exec_gas(b"run_test".len() as u64);
+    let reward = gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
 
@@ -374,9 +375,8 @@ pub fn test_create_account(node: impl Node) {
         )
     );
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&eve_dot_alice_account()).unwrap();
-    assert_eq!((result2.amount, result2.locked), (money_used + reward, 0));
+    assert_eq!((result2.amount, result2.locked), (money_used, 0));
 }
 
 pub fn test_create_account_again(node: impl Node) {
@@ -402,9 +402,8 @@ pub fn test_create_account_again(node: impl Node) {
     assert_eq!((result1.amount, result1.locked), (new_expected_balance, TESTING_INIT_STAKE));
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&eve_dot_alice_account()).unwrap();
-    assert_eq!((result2.amount, result2.locked), (money_used + reward, 0));
+    assert_eq!((result2.amount, result2.locked), (money_used, 0));
 
     let transaction_result = node_user
         .create_account(
@@ -488,11 +487,10 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - create_account_cost, TESTING_INIT_STAKE)
     );
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
         (result2.amount, result2.locked),
-        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward, TESTING_INIT_STAKE)
+        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
     );
 }
 
@@ -763,11 +761,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
             AccessKey {
                 nonce: 1,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(
-                        FUNCTION_CALL_AMOUNT
-                            - function_call_cost
-                            - gas_burnt_to_reward(transaction_result.transaction.outcome.gas_burnt)
-                    ),
+                    allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost),
                     receiver_id: bob_account(),
                     method_names: vec![],
                 }),
