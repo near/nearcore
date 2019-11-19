@@ -29,8 +29,6 @@ ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    echo "$PATH" && \
-    ls /usr/local/cargo && \
     cargo build -p near --release && \
     cargo build -p keypair-generator --release && \
     cargo build -p genesis-csv-to-json --release && \
