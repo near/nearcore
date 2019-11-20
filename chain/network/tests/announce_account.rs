@@ -180,7 +180,9 @@ pub fn make_peer_manager(
                 if !accounts.is_empty() {
                     counter1.fetch_add(1, Ordering::SeqCst);
                 }
-                Box::new(Some(NetworkClientResponses::AnnounceAccount(accounts.clone())))
+                Box::new(Some(NetworkClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
             }
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
@@ -357,7 +359,7 @@ fn test_infinite_loop() {
             sync_data: SyncData::account(AnnounceAccount {
                 account_id: "near".to_string(),
                 peer_id: peer_id2.clone(),
-                epoch_id: EpochId(hash(&[1])),
+                epoch_id: Default::default(),
                 signature: Default::default(),
             }),
         };
