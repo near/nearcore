@@ -130,6 +130,7 @@ pub struct DelayedReceiptIndices {
 #[derive(Debug)]
 pub struct ActionResult {
     pub gas_burnt: Gas,
+    pub gas_burnt_for_function_call: Gas,
     pub gas_used: Gas,
     pub result: Result<ReturnData, ActionError>,
     pub logs: Vec<LogEntry>,
@@ -139,13 +140,18 @@ pub struct ActionResult {
 
 impl ActionResult {
     pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
+        assert!(next_result.gas_burnt_for_function_call <= next_result.gas_burnt);
         assert!(
             next_result.gas_burnt <= next_result.gas_used,
-            "Gas burnt {} > Gas used {}",
+            "Gas burnt {} <= Gas used {}",
             next_result.gas_burnt,
             next_result.gas_used
         );
         self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
+        self.gas_burnt_for_function_call = safe_add_gas(
+            self.gas_burnt_for_function_call,
+            next_result.gas_burnt_for_function_call,
+        )?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
@@ -168,6 +174,7 @@ impl Default for ActionResult {
     fn default() -> Self {
         Self {
             gas_burnt: 0,
+            gas_burnt_for_function_call: 0,
             gas_used: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -323,22 +330,10 @@ impl Runtime {
         };
 
         set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
-
-        // Account reward for gas burnt.
-        let burnt_gas_reward = safe_gas_to_balance(
-            apply_state.gas_price,
-            gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
-                / self.config.transaction_costs.burnt_gas_reward.denominator,
-        )
-        .map_err(|_| InvalidTxError::CostOverflow)?;
-        signer.amount = safe_add_balance(signer.amount, burnt_gas_reward)
-            .map_err(|_| InvalidTxError::CostOverflow)?;
-
         set_account(state_update, &signer_id, &signer);
 
         let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
-            .map_err(|_| InvalidTxError::CostOverflow)?
-            - burnt_gas_reward;
+            .map_err(|_| InvalidTxError::CostOverflow)?;
 
         Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
     }
@@ -623,8 +618,8 @@ impl Runtime {
             }
         };
 
-        // Adding burnt gas reward if the account exists.
-        let receiver_gas_reward = result.gas_burnt
+        // Adding burnt gas reward for function calls if the account exists.
+        let receiver_gas_reward = result.gas_burnt_for_function_call
             * self.config.transaction_costs.burnt_gas_reward.numerator
             / self.config.transaction_costs.burnt_gas_reward.denominator;
         let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
@@ -1247,7 +1242,6 @@ mod tests {
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 100;
@@ -1359,12 +1353,6 @@ mod tests {
         let n = 10;
         let receipts = generate_receipts(small_transfer, n);
 
-        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
-        let reward_per_receipt = fee_helper.gas_burnt_to_reward(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
-        );
-
         // Checking n receipts delayed by 1 + 3 extra
         for i in 1..=n + 3 {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
@@ -1380,7 +1368,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
             );
         }
@@ -1403,9 +1391,6 @@ mod tests {
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
 
-        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
-        let reward_per_receipt = fee_helper.gas_burnt_to_reward(receipt_gas_cost);
-
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
@@ -1421,7 +1406,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
             );
         }
@@ -1442,9 +1427,6 @@ mod tests {
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
-
-        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
-        let reward_per_receipt = fee_helper.gas_burnt_to_reward(receipt_gas_cost);
 
         let mut num_receipts_given = 0;
         let mut num_receipts_processed = 0;
@@ -1471,7 +1453,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(num_receipts_processed)
+                    + small_transfer * Balance::from(num_receipts_processed)
                     + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
             );
             println!(

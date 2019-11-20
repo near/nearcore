@@ -183,6 +183,7 @@ pub(crate) fn action_function_call(
         result.result = Err(ActionError::FunctionCallError(err.to_string()));
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
+            result.gas_burnt_for_function_call += outcome.burnt_gas;
             // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
             // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
             // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` for
@@ -197,6 +198,7 @@ pub(crate) fn action_function_call(
     account.amount = outcome.balance;
     account.storage_usage = outcome.storage_usage;
     result.gas_burnt += outcome.burnt_gas;
+    result.gas_burnt_for_function_call += outcome.burnt_gas;
     result.gas_used += outcome.used_gas;
     result.result = Ok(outcome.return_data);
     result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
