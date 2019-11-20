@@ -403,7 +403,7 @@ def doit(s, n, N, k, monkeys, timeout):
         # make all the observers track all the shards
         local_config_changes[i] = {"tracked_shards": list(range(s))}
 
-    near_root, node_dirs = init_cluster(N, s, k + 1, config, [["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 75]], local_config_changes)
+    near_root, node_dirs = init_cluster(N, s, k + 1, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 75]], local_config_changes)
 
     started = time.time()
 

@@ -2122,7 +2122,8 @@ impl<'a> ChainUpdate<'a> {
                         prev_chunk_header,
                         chunk_header,
                     )
-                    .map_err(|_| {
+                    .map_err(|e| {
+                        debug!(target: "chain", "Failed to validate chunk extra: {:?}", e);
                         byzantine_assert!(false);
                         match self.create_chunk_state_challenge(&prev_block, &block, chunk_header) {
                             Ok(chunk_state) => {
