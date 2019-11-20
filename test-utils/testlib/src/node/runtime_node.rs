@@ -86,24 +86,21 @@ mod tests {
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
-        let fee_helper = FeeHelper::new(
-            node.genesis_config().runtime_config.transaction_costs.clone(),
-            node.genesis_config().gas_price,
-        );
-        let transaction_result = node_user.send_money(alice_account(), bob_account(), 1).unwrap();
-        let transfer_cost = fee_helper.transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
         node_user.send_money(alice_account(), bob_account(), 1).unwrap();
+        let fee_helper = FeeHelper::new(
+            node.genesis_config().runtime_config.transaction_costs.clone(),
+            node.genesis_config().gas_price,
+        );
+        let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
         assert_eq!(alice2, alice1 - 1 - transfer_cost);
-        let reward =
-            fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
-        assert_eq!(bob2, bob1 + 1 + reward);
+        assert_eq!(bob2, bob1 + 1);
     }
 }
