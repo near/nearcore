@@ -1400,7 +1400,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
+        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         store_update.set_ser(COL_STATE_PARTS, &key, data)?;
         store_update.commit()?;
         Ok(())
@@ -1416,8 +1416,8 @@ impl Chain {
         let mut height = shard_state_header.chunk.header.height_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
-        for i in 0..num_parts {
-            let key = StatePartKey(shard_id, i, state_root.clone()).try_to_vec()?;
+        for part_id in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
             parts.push(self.store.owned_store().get_ser(COL_STATE_PARTS, &key)?.unwrap());
         }
 
@@ -1467,11 +1467,9 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut store_update = self.store.owned_store().store_update();
         for part_id in 0..num_parts {
-            let key = StatePartKey(shard_id, part_id, state_root).try_to_vec()?;
+            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
             store_update.delete(COL_STATE_PARTS, &key);
         }
         Ok(store_update.commit()?)
@@ -2679,17 +2677,7 @@ impl<'a> ChainUpdate<'a> {
     /// Check if this block is in the store already.
     fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
         match self.chain_store_update.block_exists(&header.hash()) {
-            Ok(true) => {
-                let head = self.chain_store_update.head()?;
-                if head.height > 50 && header.inner.height < head.height - 50 {
-                    // We flag this as an "abusive peer" but only in the case
-                    // where we have the full block in our store.
-                    // So this is not a particularly exhaustive check.
-                    Err(ErrorKind::OldBlock.into())
-                } else {
-                    Err(ErrorKind::Unfit("already known in store".to_string()).into())
-                }
-            }
+            Ok(true) => Err(ErrorKind::Unfit("already known in store".to_string()).into()),
             Ok(false) => {
                 // Not yet processed this block, we can proceed.
                 Ok(())

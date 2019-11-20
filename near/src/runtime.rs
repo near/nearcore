@@ -291,6 +291,10 @@ impl NightshadeRuntime {
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
                 RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                // TODO: process gracefully
+                RuntimeError::UnexpectedIntegerOverflow => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                }
                 RuntimeError::StorageError(_) => ErrorKind::StorageError,
             })?;
 
@@ -921,7 +925,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
-        println!("get validator info");
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
@@ -984,6 +987,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool {
+        if state_root == &CryptoHash::default() {
+            return state_root_node == &StateRootNode::empty();
+        }
         if hash(&state_root_node.data) != *state_root {
             false
         } else {
