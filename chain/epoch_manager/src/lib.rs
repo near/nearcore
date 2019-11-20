@@ -655,7 +655,7 @@ impl EpochManager {
     }
 
     /// Compare two epoch ids based on their start height. This works because finality gadget
-    /// guarantees that we cannot two different epochs on two forks
+    /// guarantees that we cannot have two different epochs on two forks
     pub fn compare_epoch_id(
         &mut self,
         epoch_id: &EpochId,
