@@ -657,15 +657,11 @@ impl ClientActor {
             // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
             if elapsed
                 < std::cmp::max(
-                    self.client
-                        .config
-                        .max_block_wait_delay
-                        .checked_sub(
-                            self.client.config.reduce_wait_for_missing_block
-                                * num_blocks_missing as u32,
-                        )
-                        .unwrap_or(self.client.config.min_block_production_delay),
-                    self.client.config.min_block_production_delay,
+                    self.client.config.max_block_wait_delay.saturating_sub(
+                        self.client.config.reduce_wait_for_missing_block
+                            * num_blocks_missing as u32,
+                    ),
+                    self.client.config.max_block_production_delay,
                 )
             {
                 // Next block producer is not this client, so just go for another loop iteration.
