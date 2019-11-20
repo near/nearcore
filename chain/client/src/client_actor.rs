@@ -438,7 +438,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
 
-                for announce_account in announce_accounts.into_iter() {
+                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                    // TODO(Marx): Skip announcement if epoch is older than last_epoch
+
                     match self.check_signature_account_announce(&announce_account) {
                         AccountAnnounceVerificationResult::Invalid(ban_reason) => {
                             return NetworkClientResponses::Ban { ban_reason };

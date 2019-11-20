@@ -339,22 +339,21 @@ impl RoutingTable {
     }
 
     /// Add (account id, peer id) to routing table.
-    /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
-    pub fn add_account(&mut self, announce_account: AnnounceAccount) -> bool {
-        if !self.contains_account(&announce_account) {
-            let account_id = announce_account.account_id.clone();
-            self.account_peers.insert(account_id, announce_account);
-            near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
-            true
-        } else {
-            false
-        }
+    pub fn add_account(&mut self, announce_account: AnnounceAccount) {
+        let account_id = announce_account.account_id.clone();
+        self.account_peers.insert(account_id, announce_account);
+        near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
     }
 
     // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
     pub fn contains_account(&self, announce_account: &AnnounceAccount) -> bool {
-        self.account_peers.contains_key(&announce_account.account_id)
+        self.account_peers.get(&announce_account.account_id).map_or(
+            false,
+            |current_announce_account| {
+                current_announce_account.epoch_id == announce_account.epoch_id
+            },
+        )
     }
 
     /// Add this edge to the current view of the network.
