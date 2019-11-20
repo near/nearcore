@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--image', default='nearprotocol/nearcore:stakewars',
         help='Image to run in docker (default: nearprotocol/nearcore:stakewars)')
+    parser.add_argument('--tracked-shards', default='', help='The shards that this node wants to track')
     args = parser.parse_args()
 
     TELEMETRY_URL = 'https://explorer.tatooine.nearprotocol.com/api/nodes'
@@ -34,4 +35,4 @@ if __name__ == "__main__":
         print("****************************************************")
         print("* Running NEAR validator node for Stake Wars *")
         print("****************************************************")
-        start_stakewars(args.home, not args.debug, nodocker, args.image, telemetry_url=TELEMETRY_URL, verbose=args.verbose)
+        start_stakewars(args.home, not args.debug, nodocker, args.image, telemetry_url=TELEMETRY_URL, verbose=args.verbose, tracked_shards=args.tracked_shards)
