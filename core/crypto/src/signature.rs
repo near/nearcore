@@ -9,6 +9,7 @@ use rand::SeedableRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
+use std::hash::{Hash, Hasher};
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -117,6 +118,21 @@ impl PublicKey {
         match self {
             PublicKey::ED25519(_) => KeyType::ED25519,
             PublicKey::SECP256K1(_) => KeyType::SECP256K1,
+        }
+    }
+}
+
+impl Hash for PublicKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PublicKey::ED25519(public_key) => {
+                state.write_u8(0u8);
+                state.write(&public_key.0);
+            }
+            PublicKey::SECP256K1(public_key) => {
+                state.write_u8(1u8);
+                state.write(&public_key.0);
+            }
         }
     }
 }
