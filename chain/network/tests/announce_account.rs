@@ -18,9 +18,7 @@ use near_network::{
     NetworkResponses, PeerManagerActor,
 };
 use near_primitives::block::{GenesisId, WeightAndScore};
-use near_primitives::hash::hash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::EpochId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use testlib::test_helpers::heavy_test;
