@@ -3,22 +3,29 @@ use std::sync::Arc;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
 
-use crate::fees_utils::*;
+use crate::fees_utils::FeeHelper;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
-use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
 
 use assert_matches::assert_matches;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
+
+fn fee_helper(node: &impl Node) -> FeeHelper {
+    FeeHelper::new(
+        node.genesis_config().runtime_config.transaction_costs.clone(),
+        node.genesis_config().gas_price,
+    )
+}
 
 /// Adds given access key to the given account_id using signer2.
 fn add_access_key(
@@ -246,7 +253,8 @@ pub fn test_send_money(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = 10000;
-    let transfer_cost = transfer_cost();
+    let fee_helper = fee_helper(&node);
+    let transfer_cost = fee_helper.transfer_cost();
     let transaction_result =
         node_user.send_money(account_id.clone(), bob_account(), money_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
@@ -263,7 +271,7 @@ pub fn test_send_money(node: impl Node) {
             TESTING_INIT_STAKE
         )
     );
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let reward = fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let AccountView { amount, locked, .. } = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
         (amount, locked),
@@ -288,7 +296,8 @@ pub fn test_smart_contract_reward(node: impl Node) {
     assert_ne!(root, new_root);
 
     let bob = node_user.view_account(&bob_account()).unwrap();
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let fee_helper = fee_helper(&node);
+    let reward = fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
 
@@ -320,7 +329,8 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let root = node_user.get_state_root();
     let money_used = 10;
     // Successful atomic transfer has the same cost as failed atomic transfer.
-    let transfer_cost = transfer_cost();
+    let fee_helper = fee_helper(&node);
+    let transfer_cost = fee_helper.transfer_cost();
     let transaction_result =
         node_user.send_money(account_id.clone(), eve_dot_alice_account(), money_used).unwrap();
     assert_eq!(
@@ -357,7 +367,8 @@ pub fn test_create_account(node: impl Node) {
         )
         .unwrap();
 
-    let create_account_cost = create_account_transfer_full_key_cost();
+    let fee_helper = fee_helper(&node);
+    let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -374,7 +385,7 @@ pub fn test_create_account(node: impl Node) {
         )
     );
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let reward = fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&eve_dot_alice_account()).unwrap();
     assert_eq!((result2.amount, result2.locked), (money_used + reward, 0));
 }
@@ -394,7 +405,8 @@ pub fn test_create_account_again(node: impl Node) {
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
-    let create_account_cost = create_account_transfer_full_key_cost();
+    let fee_helper = fee_helper(&node);
+    let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
     let result1 = node_user.view_account(account_id).unwrap();
     let new_expected_balance =
@@ -402,7 +414,7 @@ pub fn test_create_account_again(node: impl Node) {
     assert_eq!((result1.amount, result1.locked), (new_expected_balance, TESTING_INIT_STAKE));
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let reward = fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&eve_dot_alice_account()).unwrap();
     assert_eq!((result2.amount, result2.locked), (money_used + reward, 0));
 
@@ -428,7 +440,7 @@ pub fn test_create_account_again(node: impl Node) {
 
     // Additional cost for trying to create an account with repeated name. Will fail after
     // the first action.
-    let additional_cost = create_account_transfer_full_key_cost_fail_on_create_account();
+    let additional_cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
@@ -472,7 +484,9 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let transaction_result = node_user
         .create_account(account_id.clone(), bob_account(), node.signer().public_key(), money_used)
         .unwrap();
-    let create_account_cost = create_account_transfer_full_key_cost_fail_on_create_account();
+    let fee_helper = fee_helper(&node);
+    let create_account_cost =
+        fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(ActionError::AccountAlreadyExists(bob_account()).into())
@@ -488,7 +502,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - create_account_cost, TESTING_INIT_STAKE)
     );
 
-    let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
+    let reward = fee_helper.gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
     let result2 = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
         (result2.amount, result2.locked),
@@ -681,7 +695,8 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
-    let add_access_key_cost = add_key_cost(0);
+    let fee_helper = fee_helper(&node);
+    let add_access_key_cost = fee_helper.add_key_cost(0);
     println!("{}", add_access_key_cost);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
@@ -707,11 +722,12 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
-    let add_access_key_cost = add_key_cost(0);
+    let fee_helper = fee_helper(&node);
+    let add_access_key_cost = fee_helper.add_key_cost(0);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let root = node_user.get_state_root();
-    let delete_access_key_cost = delete_key_cost();
+    let delete_access_key_cost = fee_helper.delete_key_cost();
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
@@ -743,7 +759,9 @@ pub fn test_access_key_smart_contract(node: impl Node) {
 
     let method_name = "run_test";
     let gas = 1000000;
-    let function_call_cost = function_call_cost(method_name.as_bytes().len() as u64, gas);
+    let fee_helper = fee_helper(&node);
+    let function_call_cost =
+        fee_helper.function_call_cost(method_name.as_bytes().len() as u64, gas);
     let root = node_user.get_state_root();
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), method_name, vec![], gas, 0)
@@ -766,7 +784,9 @@ pub fn test_access_key_smart_contract(node: impl Node) {
                     allowance: Some(
                         FUNCTION_CALL_AMOUNT
                             - function_call_cost
-                            - gas_burnt_to_reward(transaction_result.transaction.outcome.gas_burnt)
+                            - fee_helper.gas_burnt_to_reward(
+                                transaction_result.transaction.outcome.gas_burnt
+                            )
                     ),
                     receiver_id: bob_account(),
                     method_names: vec![],
@@ -864,7 +884,8 @@ pub fn test_increase_stake(node: impl Node) {
     let root = node_user.get_state_root();
     let account_id = &node.account_id().unwrap();
     let amount_staked = TESTING_INIT_STAKE + 1;
-    let stake_cost = stake_cost();
+    let fee_helper = fee_helper(&node);
+    let stake_cost = fee_helper.stake_cost();
     let transaction_result = node_user
         .stake(account_id.clone(), node.block_signer().public_key(), amount_staked)
         .unwrap();
@@ -887,7 +908,8 @@ pub fn test_decrease_stake(node: impl Node) {
     let transaction_result = node_user
         .stake(account_id.clone(), node.block_signer().public_key(), amount_staked)
         .unwrap();
-    let stake_cost = stake_cost();
+    let fee_helper = fee_helper(&node);
+    let stake_cost = fee_helper.stake_cost();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
     let new_root = node_user.get_state_root();
@@ -961,7 +983,8 @@ pub fn test_delete_account_low_balance(node: impl Node) {
     assert!(node_user.view_state(&bob_account(), b"").unwrap().values.len() > 0);
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
-    let delete_account_cost = delete_account_cost();
+    let fee_helper = fee_helper(&node);
+    let delete_account_cost = fee_helper.delete_account_cost();
     let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -978,7 +1001,8 @@ pub fn test_delete_account_low_balance(node: impl Node) {
 pub fn test_delete_account_fail(node: impl Node) {
     let node_user = node.user();
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
-    let delete_account_cost = delete_account_cost();
+    let fee_helper = fee_helper(&node);
+    let delete_account_cost = fee_helper.delete_account_cost();
     let transaction_result = node_user.delete_account(alice_account(), bob_account()).unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1015,7 +1039,8 @@ pub fn test_delete_account_while_staking(node: impl Node) {
         node.signer().public_key(),
         money_used,
     );
-    let stake_fee = stake_cost();
+    let fee_helper = fee_helper(&node);
+    let stake_fee = fee_helper.stake_cost();
     let transaction_result = node_user
         .stake(eve_dot_alice_account(), node.block_signer().public_key(), money_used - stake_fee)
         .unwrap();
