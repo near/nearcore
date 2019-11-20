@@ -2279,7 +2279,6 @@ dependencies = [
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
  "near-primitives 0.1.0",
