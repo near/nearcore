@@ -72,7 +72,7 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::fees_utils::{gas_burnt_to_reward, transfer_cost};
+    use crate::fees_utils::transfer_cost;
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
     use crate::runtime_utils::{alice_account, bob_account};
@@ -81,7 +81,7 @@ mod tests {
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
-        let transaction_result = node_user.send_money(alice_account(), bob_account(), 1).unwrap();
+        node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let transfer_cost = transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
