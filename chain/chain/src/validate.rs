@@ -7,12 +7,15 @@ use near_primitives::challenge::{
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
-use near_primitives::types::{AccountId, ChunkExtra, EpochId};
+use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
 use crate::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
+use near_crypto::PublicKey;
+use near_primitives::transaction::SignedTransaction;
+use std::collections::HashMap;
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -53,6 +56,39 @@ pub fn validate_chunk_proofs(
         }
     }
     Ok(true)
+}
+
+/// Validates that the given transactions are in proper valid order.
+/// See https://nomicon.io/BlockchainLayer/Transactions.html#order-validation
+pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> Result<(), Error> {
+    let mut nonces: HashMap<(&AccountId, &PublicKey), Nonce> = HashMap::new();
+    let mut batches: HashMap<(&AccountId, &PublicKey), usize> = HashMap::new();
+    let mut current_batch = 1;
+
+    for tx in transactions {
+        let key = (&tx.transaction.signer_id, &tx.transaction.public_key);
+
+        // Verifying nonce
+        let nonce = tx.transaction.nonce;
+        if let Some(last_nonce) = nonces.get(&key) {
+            if nonce <= *last_nonce {
+                // Nonces should increase.
+                return Err(ErrorKind::InvalidTransactionsOrder.into());
+            }
+        }
+        nonces.insert(key, nonce);
+
+        // Verifying batch
+        let last_batch = *batches.get(&key).unwrap_or(&0);
+        if last_batch == current_batch {
+            current_batch += 1;
+        } else if last_batch < current_batch - 1 {
+            // The key was skipped in the previous batch
+            return Err(ErrorKind::InvalidTransactionsOrder.into());
+        }
+        batches.insert(key, current_batch);
+    }
+    Ok(())
 }
 
 /// Validate that all next chunk information matches previous chunk extra.
@@ -313,5 +349,91 @@ pub fn validate_challenge(
         ChallengeBody::ChunkState(chunk_state) => {
             validate_chunk_state_challenge(runtime_adapter, chunk_state)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use near_crypto::{InMemorySigner, KeyType};
+
+    fn make_tx(account_id: &str, seed: &str, nonce: Nonce) -> SignedTransaction {
+        let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, seed);
+        SignedTransaction::send_money(
+            nonce,
+            account_id.to_string(),
+            "bob".to_string(),
+            &signer,
+            10,
+            CryptoHash::default(),
+        )
+    }
+
+    #[test]
+    pub fn test_transaction_order_empty() {
+        let transactions = vec![];
+        validate_transactions_order(&transactions).unwrap();
+    }
+
+    #[test]
+    pub fn test_transaction_order_one_tx() {
+        let transactions = vec![make_tx("A", "a", 1)];
+        validate_transactions_order(&transactions).unwrap();
+    }
+
+    #[test]
+    pub fn test_transaction_order_simple() {
+        let transactions = vec![
+            make_tx("A", "a", 1),
+            make_tx("B", "a", 3),
+            make_tx("A", "b", 4),
+            make_tx("C", "a", 2),
+            make_tx("B", "a", 6), // 2nd batch
+            make_tx("C", "a", 5),
+            make_tx("C", "a", 6), // 3rd batch
+        ];
+        validate_transactions_order(&transactions).unwrap();
+    }
+
+    #[test]
+    pub fn test_transaction_order_bad_nonce() {
+        let transactions = vec![
+            make_tx("A", "a", 2),
+            make_tx("B", "a", 3),
+            make_tx("C", "a", 2),
+            make_tx("A", "a", 1), // 2nd batch, nonce 1 < 2
+            make_tx("C", "a", 6),
+        ];
+        validate_transactions_order(&transactions).unwrap_err();
+    }
+
+    #[test]
+    pub fn test_transaction_order_same_tx() {
+        let transactions = vec![make_tx("A", "a", 1), make_tx("A", "a", 1)];
+        validate_transactions_order(&transactions).unwrap_err();
+    }
+
+    #[test]
+    pub fn test_transaction_order_skipped_in_first_batch() {
+        let transactions = vec![
+            make_tx("A", "a", 2),
+            make_tx("C", "a", 2),
+            make_tx("A", "a", 4), // 2nd batch starts
+            make_tx("B", "a", 6), // Missing in the first batch
+        ];
+        validate_transactions_order(&transactions).unwrap_err();
+    }
+
+    #[test]
+    pub fn test_transaction_order_skipped_in_2nd_batch() {
+        let transactions = vec![
+            make_tx("A", "a", 2),
+            make_tx("C", "a", 2),
+            make_tx("A", "a", 4),
+            make_tx("A", "a", 6),
+            make_tx("C", "a", 6),
+        ];
+        validate_transactions_order(&transactions).unwrap_err();
     }
 }

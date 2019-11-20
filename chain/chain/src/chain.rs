@@ -39,7 +39,10 @@ use crate::types::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
     ValidatorSignatureVerificationResult,
 };
-use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
+};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2145,6 +2148,8 @@ impl<'a> ChainUpdate<'a> {
                     let chunk =
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
+                    validate_transactions_order(&chunk.transactions)?;
+
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
                         self.chain_store_update
                             .get_chain_store()
@@ -2159,6 +2164,7 @@ impl<'a> ChainUpdate<'a> {
                         debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
                         return Err(ErrorKind::InvalidTransactions.into());
                     }
+
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply transactions and receipts.

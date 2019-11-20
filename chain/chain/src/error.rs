@@ -73,6 +73,9 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
+    /// Invalid transactions order in the block.
+    #[fail(display = "Invalid Transactions Order")]
+    InvalidTransactionsOrder,
     /// Invalid challenge (wrong signature or format).
     #[fail(display = "Invalid Challenge")]
     InvalidChallenge,
@@ -216,6 +219,7 @@ impl Error {
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
+            | ErrorKind::InvalidTransactionsOrder
             | ErrorKind::InvalidChallenge
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
