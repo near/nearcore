@@ -9,13 +9,14 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
-use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO};
+use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO, COL_EPOCH_START};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
+use crate::types::EpochError::EpochOutOfBounds;
 use crate::types::EpochSummary;
 pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
-use std::cmp::max;
+use std::cmp::{max, Ordering};
 
 mod proposals;
 mod reward_calculator;
@@ -38,6 +39,8 @@ pub struct EpochManager {
     epochs_info: SizedCache<EpochId, EpochInfo>,
     /// Cache of block information.
     blocks_info: SizedCache<CryptoHash, BlockInfo>,
+    /// Cache of epoch id to epoch start height
+    epoch_id_to_start: SizedCache<EpochId, BlockIndex>,
 }
 
 impl EpochManager {
@@ -56,6 +59,7 @@ impl EpochManager {
             reward_calculator,
             epochs_info: SizedCache::with_size(EPOCH_CACHE_SIZE),
             blocks_info: SizedCache::with_size(BLOCK_CACHE_SIZE),
+            epoch_id_to_start: SizedCache::with_size(EPOCH_CACHE_SIZE),
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
@@ -378,6 +382,11 @@ impl EpochManager {
                 );
                 if is_epoch_start {
                     block_info.all_proposals = block_info.proposals.clone();
+                    self.save_epoch_start(
+                        &mut store_update,
+                        &block_info.epoch_id,
+                        block_info.index,
+                    )?;
                 } else {
                     all_proposals.extend(block_info.proposals.clone());
                     block_info.all_proposals = all_proposals;
@@ -644,6 +653,27 @@ impl EpochManager {
     pub fn get_epoch_inflation(&mut self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
         Ok(self.get_epoch_info(epoch_id)?.inflation)
     }
+
+    /// Compare two epoch ids based on their start height. This works because finality gadget
+    /// guarantees that we cannot have two different epochs on two forks
+    pub fn compare_epoch_id(
+        &mut self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, EpochError> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (
+            self.get_epoch_start_from_epoch_id(epoch_id),
+            self.get_epoch_start_from_epoch_id(other_epoch_id),
+        ) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
+            (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
+            (Err(_), Err(_)) => Err(EpochOutOfBounds),
+        }
+    }
 }
 
 /// Private utilities for EpochManager.
@@ -830,6 +860,34 @@ impl EpochManager {
         self.blocks_info.cache_set(*block_hash, block_info);
         Ok(())
     }
+
+    fn save_epoch_start(
+        &mut self,
+        store_update: &mut StoreUpdate,
+        epoch_id: &EpochId,
+        epoch_start: BlockIndex,
+    ) -> Result<(), EpochError> {
+        store_update
+            .set_ser(COL_EPOCH_START, epoch_id.as_ref(), &epoch_start)
+            .map_err(EpochError::from)?;
+        self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
+        Ok(())
+    }
+
+    fn get_epoch_start_from_epoch_id(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<BlockIndex, EpochError> {
+        if self.epoch_id_to_start.cache_get(epoch_id).is_none() {
+            let epoch_start = self
+                .store
+                .get_ser(COL_EPOCH_START, epoch_id.as_ref())
+                .map_err(EpochError::from)
+                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
+            self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
+        }
+        Ok(*self.epoch_id_to_start.cache_get(epoch_id).unwrap())
+    }
 }
 
 #[cfg(test)]
@@ -843,6 +901,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::hash::hash;
 
     #[test]
     fn test_stake_validator() {
@@ -1745,5 +1804,35 @@ mod tests {
                 0
             )
         );
+    }
+
+    #[test]
+    fn test_compare_epoch_id() {
+        let store = create_test_store();
+        let config = epoch_config(2, 1, 2, 0, 90, 60);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(8);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![stake("test1", amount_staked)]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        let epoch_id0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
+        let epoch_id1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
+        let epoch_id2 = epoch_manager.get_next_epoch_id(&h[1]).unwrap();
+        let epoch_id3 = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
+        assert_eq!(epoch_manager.compare_epoch_id(&epoch_id0, &epoch_id1), Ok(Ordering::Equal));
+        assert_eq!(epoch_manager.compare_epoch_id(&epoch_id2, &epoch_id3), Ok(Ordering::Less));
+        assert_eq!(epoch_manager.compare_epoch_id(&epoch_id3, &epoch_id1), Ok(Ordering::Greater));
+        let random_epoch_id = EpochId(hash(&[100]));
+        assert!(epoch_manager.compare_epoch_id(&epoch_id3, &random_epoch_id).is_err());
     }
 }
