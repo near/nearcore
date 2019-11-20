@@ -1242,14 +1242,15 @@ impl Runtime {
 mod tests {
     use super::*;
 
-    use near::config::INITIAL_GAS_PRICE;
     use near_crypto::KeyType;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::fees_utils::gas_burnt_to_reward;
+    use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    const GAS_PRICE: Balance = 100;
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1303,7 +1304,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
-            gas_price: INITIAL_GAS_PRICE,
+            gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
         };
@@ -1358,7 +1359,8 @@ mod tests {
         let n = 10;
         let receipts = generate_receipts(small_transfer, n);
 
-        let reward_per_receipt = gas_burnt_to_reward(
+        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
+        let reward_per_receipt = fee_helper.gas_burnt_to_reward(
             runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
                 + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
         );
@@ -1401,7 +1403,8 @@ mod tests {
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
 
-        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
+        let reward_per_receipt = fee_helper.gas_burnt_to_reward(receipt_gas_cost);
 
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
@@ -1440,7 +1443,8 @@ mod tests {
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
 
-        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
+        let fee_helper = FeeHelper::new(runtime.config.transaction_costs.clone(), GAS_PRICE);
+        let reward_per_receipt = fee_helper.gas_burnt_to_reward(receipt_gas_cost);
 
         let mut num_receipts_given = 0;
         let mut num_receipts_processed = 0;
