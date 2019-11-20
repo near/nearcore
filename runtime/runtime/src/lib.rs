@@ -139,6 +139,12 @@ pub struct ActionResult {
 
 impl ActionResult {
     pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
+        assert!(
+            next_result.gas_burnt <= next_result.gas_used,
+            "Gas burnt {} > Gas used {}",
+            next_result.gas_burnt,
+            next_result.gas_used
+        );
         self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
         self.result = next_result.result;
