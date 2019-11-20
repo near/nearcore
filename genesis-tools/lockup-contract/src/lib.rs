@@ -10,7 +10,7 @@ mod key_management;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[near_bindgen]
-#[derive(Default, BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize)]
 pub struct LockupContract {
     lockup_amount: u128,
     lockup_timestamp: u64,
@@ -54,7 +54,12 @@ impl LockupContract {
         lockup_timestamp: u64,
         initial_keys: Vec<(KeyType, PublicKey)>,
     ) -> Self {
-        let mut res = Self { lockup_amount, lockup_timestamp, ..Default::default() };
+        let mut res = Self {
+            lockup_amount,
+            lockup_timestamp,
+            keys: Default::default(),
+            permanently_unstaked: false,
+        };
         Self::check_timestamps_future(&[lockup_timestamp]);
         for (key_type, key) in initial_keys {
             res.add_key_no_check(key_type, key);
@@ -78,7 +83,8 @@ impl LockupContract {
             vesting_start_timestamp,
             vesting_cliff_timestamp,
             vesting_end_timestamp,
-            ..Default::default()
+            keys: Default::default(),
+            permanently_unstaked: false,
         };
         Self::check_timestamps_future(&[
             lockup_timestamp,

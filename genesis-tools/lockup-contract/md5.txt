@@ -1,2 +1,2 @@
-fdbc2c286a0987c4c215297be2fdff77  ./lockup_contract.wasm
+953428951685f9274cd891531ce1c1ed  ./lockup_contract.wasm
 953428951685f9274cd891531ce1c1ed  ./lockup_vesting_contract.wasm
