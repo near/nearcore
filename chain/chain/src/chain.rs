@@ -2677,17 +2677,7 @@ impl<'a> ChainUpdate<'a> {
     /// Check if this block is in the store already.
     fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
         match self.chain_store_update.block_exists(&header.hash()) {
-            Ok(true) => {
-                let head = self.chain_store_update.head()?;
-                if head.height > 50 && header.inner.height < head.height - 50 {
-                    // We flag this as an "abusive peer" but only in the case
-                    // where we have the full block in our store.
-                    // So this is not a particularly exhaustive check.
-                    Err(ErrorKind::OldBlock.into())
-                } else {
-                    Err(ErrorKind::Unfit("already known in store".to_string()).into())
-                }
-            }
+            Ok(true) => Err(ErrorKind::Unfit("already known in store".to_string()).into()),
             Ok(false) => {
                 // Not yet processed this block, we can proceed.
                 Ok(())
