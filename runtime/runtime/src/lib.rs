@@ -141,8 +141,12 @@ pub struct ActionResult {
 impl ActionResult {
     pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
         assert!(next_result.gas_burnt_for_function_call <= next_result.gas_burnt);
-        // TODO(#1733): Investigate why gas_burnt > gas_used in test test_smart_contract_panic_runtime
-        // assert!(next_result.gas_burnt <= next_result.gas_used);
+        assert!(
+            next_result.gas_burnt <= next_result.gas_used,
+            "Gas burnt {} <= Gas used {}",
+            next_result.gas_burnt,
+            next_result.gas_used
+        );
         self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
         self.gas_burnt_for_function_call = safe_add_gas(
             self.gas_burnt_for_function_call,
