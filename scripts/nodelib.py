@@ -257,7 +257,7 @@ def initialize_keys(home, is_release, nodocker, image, account_id, generate_sign
     if account_id:
         generate_validator_key(home, is_release, nodocker, image, account_id)
 
-def create_genesis(home, is_release, nodocker, image, chain_id):
+def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
     if os.path.exists(os.path.join(home, 'genesis.json')):
         print("Genesis already exists")
         return
@@ -268,15 +268,17 @@ def create_genesis(home, is_release, nodocker, image, chain_id):
         cmd = ['./target/%s/genesis-csv-to-json' % ('release' if is_release else 'debug')]
         cmd.extend(['--home', home])
         cmd.extend(['--chain-id', chain_id])
+        if len(tracked_shards) > 0:
+            cmd.extend(['--tracked-shards', tracked_shards])
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id])
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id, '--tracked-shards=%s' % tracked_shards])
     print("Genesis created")
 
-def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
+def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose, tracked_shards):
     if nodocker:
         install_cargo()
         compile_package('genesis-csv-to-json', is_release)
@@ -287,7 +289,7 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
         except subprocess.CalledProcessError as exc:
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
-    create_genesis(home, is_release, nodocker, image, 'stakewars')
+    create_genesis(home, is_release, nodocker, image, 'stakewars', tracked_shards)
     if nodocker:
         run_nodocker(home, is_release, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)
     else:

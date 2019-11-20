@@ -25,9 +25,6 @@ pub enum ErrorKind {
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
-    /// Peer abusively sending us an old block we already have
-    #[fail(display = "Old Block")]
-    OldBlock,
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -199,7 +196,6 @@ impl Error {
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
-            | ErrorKind::OldBlock
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight

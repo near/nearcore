@@ -6,7 +6,6 @@ use near_crypto::Signature;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -20,6 +19,8 @@ use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_pool::types::PoolIterator;
+use near_primitives::errors::InvalidTxError;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -34,7 +35,7 @@ pub struct RootProof(pub CryptoHash, pub MerklePath);
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePartKey(pub ShardId, pub u64 /* PartId */, pub StateRoot);
+pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -74,12 +75,6 @@ pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,
     pub provenance: Provenance,
-}
-
-/// Information about valid transaction that was processed by chain + runtime.
-#[derive(Debug)]
-pub struct ValidTransaction {
-    pub transaction: SignedTransaction,
 }
 
 /// Map of shard to list of receipts to send to it.
@@ -139,27 +134,38 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    /// Validates a given signed transaction on top of the given state root.
+    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
+    /// a validation error, or `None` in case the transaction succeeded.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError>;
+        transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error>;
 
-    /// Filter transactions by verifying each one by one in the given order. Every successful
-    /// verification stores the updated account balances to be used by next transactions.
-    fn filter_transactions(
+    /// Returns an ordered list of valid transactions from the pool up the given limits.
+    /// Pulls transactions from the given pool iterators one by one. Validates each transaction
+    /// against the given `chain_validate` closure and runtime's transaction verifier.
+    /// If the transaction is valid for both, it's added to the result and the temporary state
+    /// update is preserved for validation of next transactions.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction>;
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn PoolIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.

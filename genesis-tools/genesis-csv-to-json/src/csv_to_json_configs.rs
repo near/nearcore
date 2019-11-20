@@ -6,7 +6,7 @@ use near::config::{
     CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
     GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE, MAX_INFLATION_RATE,
     NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
-    TRANSACTION_VALIDITY_PERIOD, VALIDATOR_KEY_FILE,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
@@ -29,13 +29,17 @@ fn verify_total_supply(total_supply: Balance, chain_id: &String) {
 
 /// Generates `config.json` and `genesis.config` from csv files.
 /// Verifies that `validator_key.json`, and `node_key.json` are present.
-pub fn csv_to_json_configs(home: &Path, chain_id: String) {
+pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<ShardId>) {
     // Verify that key files exist.
-    assert!(home.join(VALIDATOR_KEY_FILE).as_path().exists(), "Validator key file should exist");
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
+
+    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS as ShardId) {
+        panic!("Trying to track a shard that does not exist");
+    }
 
     // Construct `config.json`.
     let mut config = Config::default();
+    config.tracked_shards = tracked_shards;
     config.telemetry.endpoints.push(near::config::DEFAULT_TELEMETRY_URL.to_string());
 
     // Construct genesis config.

@@ -58,7 +58,7 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 
 /// Reduce wait time for every missing block in ms.
-const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
+const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
