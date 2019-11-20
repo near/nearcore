@@ -15,6 +15,8 @@ digest = "0.8"
 curve25519-dalek = "2"
 rand_core = "0.5"
 subtle = "2.2"
+generic-array = "0.12"
+typenum = "1.10"
 
 bs58 = "0.3"
 borsh = "0.2.10"

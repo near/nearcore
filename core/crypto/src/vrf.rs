@@ -1,4 +1,4 @@
-use blake2::{Blake2b, VarBlake2b};
+use crate::hash::{Blake2b256, Blake2b512, ToScalar};
 use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
@@ -6,7 +6,7 @@ use curve25519_dalek::constants::{
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
-use digest::{Input, VariableOutput};
+use digest::Input;
 use rand_core::{CryptoRng, RngCore};
 use serde::de::{Error as _, Unexpected};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -26,27 +26,6 @@ pub struct Proof(pub [u8; 64]);
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Error;
 
-struct Hash(VarBlake2b);
-
-impl Hash {
-    fn new() -> Self {
-        Hash(VarBlake2b::new(32).unwrap())
-    }
-    fn chain(self, data: &[u8]) -> Self {
-        Hash(self.0.chain(data))
-    }
-    fn result(self) -> [u8; 32] {
-        let mut r = [0; 32];
-        self.0.variable_result(|s| {
-            r = *array_ref!(s, 0, 32);
-        });
-        r
-    }
-    fn result_scalar(self) -> Scalar {
-        Scalar::from_bytes_mod_order(self.result())
-    }
-}
-
 fn bvmul2(s1: Scalar, p1: &RistrettoPoint, s2: Scalar, p2: &RistrettoPoint) -> [u8; 32] {
     RistrettoPoint::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
         .compress()
@@ -59,7 +38,7 @@ impl PublicKey {
     }
 
     fn offset(&self, input: &[u8]) -> Scalar {
-        Hash::new().chain(&self.0).chain(input).result_scalar()
+        Blake2b256::default().chain(&self.0).chain(input).result_scalar()
     }
 
     pub fn check_vrf(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
@@ -80,7 +59,7 @@ impl PublicKey {
             Some(c) => c,
             None => return false,
         };
-        Hash::new()
+        Blake2b256::default()
             .chain(&self.0)
             .chain(&value.0)
             .chain(&bvmul2(r + c * self.offset(input), &G, c, &self.1))
@@ -136,8 +115,8 @@ impl SecretKey {
         let x = self.0 + self.1.offset(input);
         let inv = safe_invert(x);
         let val = bbmul(inv);
-        let k = Scalar::from_hash(Blake2b::default().chain(x.as_bytes()));
-        let c = Hash::new()
+        let k = Blake2b512::default().chain(x.as_bytes()).result_scalar();
+        let c = Blake2b256::default()
             .chain(&(self.1).0)
             .chain(&val)
             .chain(&bbmul(k))
