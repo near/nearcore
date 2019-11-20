@@ -13,7 +13,7 @@ TIMEOUT = 150
 BLOCKS1 = 20
 BLOCKS2 = 40
 
-nodes = start_cluster(2, 0, 2, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {})
+nodes = start_cluster(2, 0, 2, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 

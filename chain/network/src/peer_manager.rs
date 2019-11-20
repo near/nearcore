@@ -274,7 +274,7 @@ impl PeerManagerActor {
             .values()
             .map(|active_peers| {
                 (
-                    active_peers.full_peer_info.chain_info.total_weight,
+                    active_peers.full_peer_info.chain_info.weight_and_score,
                     active_peers.full_peer_info.chain_info.height,
                 )
             })
@@ -729,12 +729,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, need_header, parts_ranges, target } => {
+            NetworkRequests::StateRequest { shard_id, hash, need_header, parts, target } => {
                 match target {
                     AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
                         ctx,
                         &account_id,
-                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
+                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts),
                     ),
                     peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
                     | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
@@ -745,7 +745,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 shard_id,
                                 hash,
                                 need_header,
-                                parts_ranges,
+                                parts,
                             ),
                         },
                     ),

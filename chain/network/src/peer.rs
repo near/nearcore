@@ -227,13 +227,18 @@ impl Peer {
                 Ok(NetworkClientResponses::ChainInfo {
                     genesis_id,
                     height,
-                    total_weight,
+                    weight_and_score,
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, height, total_weight, tracked_shards },
+                        PeerChainInfo {
+                            genesis_id,
+                            height,
+                            weight_and_score: weight_and_score,
+                            tracked_shards,
+                        },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -272,16 +277,16 @@ impl Peer {
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
-                self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, block.header.inner.total_weight);
+                self.chain_info.weight_and_score =
+                    max(self.chain_info.weight_and_score, block.header.inner.weight_and_score());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
                 let block_hash = header.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, header.inner.height);
-                self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, header.inner.total_weight);
+                self.chain_info.weight_and_score =
+                    max(self.chain_info.weight_and_score, header.inner.weight_and_score());
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
@@ -318,12 +323,12 @@ impl Peer {
                     RoutedMessageBody::QueryResponse { response, id } => {
                         NetworkClientMessages::QueryResponse { response, id }
                     }
-                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges) => {
+                    RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts) => {
                         NetworkClientMessages::StateRequest(
                             shard_id,
                             hash,
                             need_header,
-                            parts_ranges,
+                            parts,
                             msg_hash.clone().unwrap(),
                         )
                     }

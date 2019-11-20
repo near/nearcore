@@ -104,7 +104,7 @@ impl Display for InvalidTxError {
                 write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
-                write!(f, "Transaction gas or balance cost is too high") 
+                write!(f, "Transaction gas or balance cost is too high")
             }
             InvalidTxError::InvalidChain => {
                 write!(f, "Transaction parent block hash doesn't belong to the current chain")
@@ -173,10 +173,12 @@ pub struct BalanceMismatchError {
     pub incoming_validator_rewards: Balance,
     pub initial_accounts_balance: Balance,
     pub incoming_receipts_balance: Balance,
+    pub processed_delayed_receipts_balance: Balance,
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
     pub final_accounts_balance: Balance,
     pub outgoing_receipts_balance: Balance,
+    pub new_delayed_receipts_balance: Balance,
     pub final_postponed_receipts_balance: Balance,
     pub total_rent_paid: Balance,
     pub total_validator_reward: Balance,
@@ -191,10 +193,12 @@ impl Display for BalanceMismatchError {
             .incoming_validator_rewards
             .saturating_add(self.initial_accounts_balance)
             .saturating_add(self.incoming_receipts_balance)
+            .saturating_add(self.processed_delayed_receipts_balance)
             .saturating_add(self.initial_postponed_receipts_balance);
         let final_balance = self
             .final_accounts_balance
             .saturating_add(self.outgoing_receipts_balance)
+            .saturating_add(self.new_delayed_receipts_balance)
             .saturating_add(self.final_postponed_receipts_balance)
             .saturating_add(self.total_rent_paid)
             .saturating_add(self.total_validator_reward)
@@ -207,10 +211,12 @@ impl Display for BalanceMismatchError {
              \tIncoming validator rewards sum: {}\n\
              \tInitial accounts balance sum: {}\n\
              \tIncoming receipts balance sum: {}\n\
+             \tProcessed delayed receipts balance sum: {}\n\
              \tInitial postponed receipts balance sum: {}\n\
              Outputs:\n\
              \tFinal accounts balance sum: {}\n\
              \tOutgoing receipts balance sum: {}\n\
+             \tNew delayed receipts balance sum: {}\n\
              \tFinal postponed receipts balance sum: {}\n\
              \tTotal rent paid: {}\n\
              \tTotal validators reward: {}\n\
@@ -221,9 +227,11 @@ impl Display for BalanceMismatchError {
             self.incoming_validator_rewards,
             self.initial_accounts_balance,
             self.incoming_receipts_balance,
+            self.processed_delayed_receipts_balance,
             self.initial_postponed_receipts_balance,
             self.final_accounts_balance,
             self.outgoing_receipts_balance,
+            self.new_delayed_receipts_balance,
             self.final_postponed_receipts_balance,
             self.total_rent_paid,
             self.total_validator_reward,
@@ -233,12 +241,28 @@ impl Display for BalanceMismatchError {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct IntegerOverflowError;
+
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
+    UnexpectedIntegerOverflow,
     InvalidTxError(InvalidTxError),
     StorageError(StorageError),
     BalanceMismatch(BalanceMismatchError),
+}
+
+impl From<IntegerOverflowError> for InvalidTxError {
+    fn from(_: IntegerOverflowError) -> Self {
+        InvalidTxError::CostOverflow
+    }
+}
+
+impl From<IntegerOverflowError> for RuntimeError {
+    fn from(_: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow
+    }
 }
 
 impl From<StorageError> for RuntimeError {
@@ -253,12 +277,9 @@ impl From<BalanceMismatchError> for RuntimeError {
     }
 }
 
-impl<T> From<T> for RuntimeError
-where
-    T: Into<InvalidTxError>,
-{
-    fn from(e: T) -> Self {
-        RuntimeError::InvalidTxError(e.into())
+impl From<InvalidTxError> for RuntimeError {
+    fn from(e: InvalidTxError) -> Self {
+        RuntimeError::InvalidTxError(e)
     }
 }
 

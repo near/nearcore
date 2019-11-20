@@ -54,7 +54,7 @@ def compile_package(package_name, is_release):
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
-def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
+def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_price=False):
     if nodocker:
         compile_package('near', is_release)
 
@@ -89,6 +89,11 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
         nodocker_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
+    if no_gas_price:
+        filename = os.path.join(home_dir, 'genesis.json')
+        genesis_config = json.load(open(filename))
+        genesis_config['gas_price'] = 0
+        json.dump(genesis_config, open(filename, 'w'))
 
 
 def print_staking_key(home_dir):
@@ -162,7 +167,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
         print("\nStopping NEARCore.")
 
 
-def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, telemetry_url, verbose=False):
+def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, telemetry_url, verbose=False, no_gas_price=False):
     if nodocker:
         install_cargo()
     else:
@@ -173,7 +178,7 @@ def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes,
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
 
-    check_and_setup(nodocker, is_release, image, home_dir, init_flags)
+    check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_price)
 
     print_staking_key(home_dir)
 
@@ -252,7 +257,7 @@ def initialize_keys(home, is_release, nodocker, image, account_id, generate_sign
     if account_id:
         generate_validator_key(home, is_release, nodocker, image, account_id)
 
-def create_genesis(home, is_release, nodocker, image, chain_id):
+def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
     if os.path.exists(os.path.join(home, 'genesis.json')):
         print("Genesis already exists")
         return
@@ -263,15 +268,17 @@ def create_genesis(home, is_release, nodocker, image, chain_id):
         cmd = ['./target/%s/genesis-csv-to-json' % ('release' if is_release else 'debug')]
         cmd.extend(['--home', home])
         cmd.extend(['--chain-id', chain_id])
+        if len(tracked_shards) > 0:
+            cmd.extend(['--tracked-shards', tracked_shards])
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id])
+        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id, '--tracked-shards=%s' % tracked_shards])
     print("Genesis created")
 
-def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
+def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose, tracked_shards):
     if nodocker:
         install_cargo()
         compile_package('genesis-csv-to-json', is_release)
@@ -282,7 +289,7 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose):
         except subprocess.CalledProcessError as exc:
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
-    create_genesis(home, is_release, nodocker, image, 'stakewars')
+    create_genesis(home, is_release, nodocker, image, 'stakewars', tracked_shards)
     if nodocker:
         run_nodocker(home, is_release, boot_nodes='', telemetry_url=telemetry_url, verbose=verbose)
     else:

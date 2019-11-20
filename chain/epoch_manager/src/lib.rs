@@ -8,7 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
-use near_primitives::views::EpochValidatorInfo;
+use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO};
 
 use crate::proposals::proposals_to_epoch_info;
@@ -178,22 +178,22 @@ impl EpochManager {
             let info = self.get_block_info(&hash)?.clone();
             if hash == *last_block_hash {
                 block_validator_tracker = info.block_tracker;
+                for proposal in info.all_proposals.into_iter().rev() {
+                    if !slashed_validators.contains(&proposal.account_id) {
+                        if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
+                            validator_kickout.insert(proposal.account_id.clone());
+                        }
+                        // This code relies on the fact that within a block the proposals are ordered
+                        // in the order they are added. So we only take the last proposal for any given
+                        // account in this manner.
+                        proposals.entry(proposal.account_id.clone()).or_insert(proposal);
+                    }
+                }
             }
             if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
                 break;
             }
 
-            for proposal in info.proposals.into_iter().rev() {
-                if !slashed_validators.contains(&proposal.account_id) {
-                    if proposal.amount == 0 && !proposals.contains_key(&proposal.account_id) {
-                        validator_kickout.insert(proposal.account_id.clone());
-                    }
-                    // This code relies on the fact that within a block the proposals are ordered
-                    // in the order they are added. So we only take the last proposal for any given
-                    // account in this manner.
-                    proposals.entry(proposal.account_id.clone()).or_insert(proposal);
-                }
-            }
             produced_block_indices.insert(info.index);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
                 let chunk_validator_id =
@@ -368,12 +368,20 @@ impl EpochManager {
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
 
+                let BlockInfo { block_tracker, mut all_proposals, .. } = prev_block_info;
+
                 // Update block produced/expected tracker.
                 block_info.update_block_tracker(
                     &epoch_info,
                     prev_block_info.index,
-                    if is_epoch_start { HashMap::default() } else { prev_block_info.block_tracker },
+                    if is_epoch_start { HashMap::default() } else { block_tracker },
                 );
+                if is_epoch_start {
+                    block_info.all_proposals = block_info.proposals.clone();
+                } else {
+                    all_proposals.extend(block_info.proposals.clone());
+                    block_info.all_proposals = all_proposals;
+                }
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
@@ -606,14 +614,30 @@ impl EpochManager {
         block_hash: &CryptoHash,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = self.get_epoch_id(block_hash)?;
-        let current_validators = self.get_epoch_info(&epoch_id)?.validators.clone();
+        let slashed = self.get_slashed_validators(block_hash)?.clone();
+        let current_validators = self
+            .get_epoch_info(&epoch_id)?
+            .validators
+            .clone()
+            .into_iter()
+            .map(|info| {
+                let num_missing_blocks =
+                    self.get_num_missing_blocks(&epoch_id, &block_hash, &info.account_id)?;
+                Ok(CurrentEpochValidatorInfo {
+                    is_slashed: slashed.contains(&info.account_id),
+                    account_id: info.account_id,
+                    stake: info.amount,
+                    num_missing_blocks,
+                })
+            })
+            .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
-        let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
+        let current_proposals = self.get_block_info(block_hash)?.all_proposals.clone();
         Ok(EpochValidatorInfo {
-            current_validators: current_validators.into_iter().map(Into::into).collect(),
+            current_validators,
             next_validators: next_validators.into_iter().map(Into::into).collect(),
-            current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
+            current_proposals: current_proposals.into_iter().map(Into::into).collect(),
         })
     }
 
@@ -687,11 +711,49 @@ impl EpochManager {
             [(index % (epoch_info.chunk_producers[shard_id as usize].len() as BlockIndex)) as usize]
     }
 
-    /// Returns true, if given current block info, next block suppose to be in the next epoch.
+    /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
+    /// beyond that height in the current epoch to get final, otherwise the safety of the finality
+    /// gadget can get violated.
+    pub fn push_final_block_back_if_needed(
+        &mut self,
+        parent_hash: CryptoHash,
+        mut last_final_hash: CryptoHash,
+    ) -> Result<CryptoHash, EpochError> {
+        if last_final_hash == CryptoHash::default() {
+            return Ok(last_final_hash);
+        }
+
+        let block_info = self.get_block_info(&parent_hash)?;
+        let epoch_first_block = block_info.epoch_first_block;
+        let estimated_next_epoch_start =
+            self.get_block_info(&epoch_first_block)?.index + self.config.epoch_length;
+
+        loop {
+            let block_info = self.get_block_info(&last_final_hash)?;
+            let prev_hash = block_info.prev_hash;
+            let prev_block_info = self.get_block_info(&prev_hash)?;
+            // See `is_next_block_in_next_epoch` for details on ` + 3`
+            if prev_block_info.index + 3 >= estimated_next_epoch_start {
+                last_final_hash = prev_hash;
+            } else {
+                return Ok(last_final_hash);
+            }
+        }
+    }
+
+    /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        Ok(block_info.index + 1
-            >= self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length)
+        let estimated_next_epoch_start =
+            self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length;
+        // Say the epoch length is 10, and say all the blocks have all the approvals.
+        // Say the first block of a particular epoch has height 111. We want the block 121 to be
+        //     the first block of the next epoch. For 121 to be the next block, the current block
+        //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
+        // 121 - 118 = 3, hence the `last_finalized_height + 3`
+        Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
+            || self.config.num_block_producers < 4)
+            && block_info.index + 1 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -1101,7 +1163,7 @@ mod tests {
         epoch_manager
             .record_block_info(
                 &h[1],
-                BlockInfo::new(1, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
+                BlockInfo::new(1, 0, h[0], vec![], vec![], slashed, 0, 0, DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )
             .unwrap()
@@ -1203,6 +1265,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1213,6 +1276,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1222,6 +1286,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1232,6 +1297,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1241,6 +1307,7 @@ mod tests {
                 &h[2],
                 BlockInfo {
                     index: 2,
+                    last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1251,6 +1318,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1308,6 +1376,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1318,6 +1387,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1327,6 +1397,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1337,6 +1408,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1346,6 +1418,7 @@ mod tests {
                 &h[2],
                 BlockInfo {
                     index: 2,
+                    last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1356,6 +1429,7 @@ mod tests {
                     validator_reward: 10,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1441,6 +1515,7 @@ mod tests {
                 &h[0],
                 BlockInfo {
                     index: 0,
+                    last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
                     epoch_id: Default::default(),
@@ -1451,6 +1526,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1460,6 +1536,7 @@ mod tests {
                 &h[1],
                 BlockInfo {
                     index: 1,
+                    last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
                     epoch_id: Default::default(),
@@ -1470,6 +1547,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1479,6 +1557,7 @@ mod tests {
                 &h[3],
                 BlockInfo {
                     index: 3,
+                    last_finalized_height: 3,
                     prev_hash: h[1],
                     epoch_first_block: h[2],
                     epoch_id: Default::default(),
@@ -1489,6 +1568,7 @@ mod tests {
                     validator_reward: 0,
                     total_supply,
                     block_tracker: Default::default(),
+                    all_proposals: vec![],
                 },
                 rng_seed,
             )
@@ -1597,6 +1677,7 @@ mod tests {
             &h[1],
             BlockInfo {
                 index: 1,
+                last_finalized_height: 1,
                 prev_hash: h[0],
                 epoch_first_block: h[1],
                 epoch_id: Default::default(),
@@ -1607,6 +1688,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )
@@ -1615,6 +1697,7 @@ mod tests {
             &h[2],
             BlockInfo {
                 index: 2,
+                last_finalized_height: 2,
                 prev_hash: h[1],
                 epoch_first_block: h[1],
                 epoch_id: Default::default(),
@@ -1625,6 +1708,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )
@@ -1633,6 +1717,7 @@ mod tests {
             &h[3],
             BlockInfo {
                 index: 3,
+                last_finalized_height: 3,
                 prev_hash: h[2],
                 epoch_first_block: h[3],
                 epoch_id: Default::default(),
@@ -1643,6 +1728,7 @@ mod tests {
                 validator_reward: 0,
                 total_supply,
                 block_tracker: Default::default(),
+                all_proposals: vec![],
             },
             rng_seed,
         )

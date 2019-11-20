@@ -17,7 +17,7 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerManagerActor,
 };
-use near_primitives::block::{GenesisId, Weight};
+use near_primitives::block::{GenesisId, WeightAndScore};
 use near_primitives::hash::hash;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::EpochId;
@@ -63,7 +63,7 @@ pub fn setup_network_node(
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
-            ClientConfig::test(false, 100, num_validators),
+            ClientConfig::test(false, 100, 200, num_validators),
             store.clone(),
             chain_genesis,
             runtime,
@@ -186,7 +186,7 @@ pub fn make_peer_manager(
                 Box::new(Some(NetworkClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
                     height: 1,
-                    total_weight: Weight::default(),
+                    weight_and_score: WeightAndScore::from_ints(0, 0),
                     tracked_shards: vec![],
                 }))
             }

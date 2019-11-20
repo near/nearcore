@@ -7,12 +7,20 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::{
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
+    Weight,
+};
+use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_pool::types::PoolIterator;
 use near_primitives::account::Account;
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
@@ -21,24 +29,14 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
+    ValidatorStake,
 };
-use near_primitives::views::QueryResponse;
+use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::test_utils::create_test_store;
 use near_store::{
     PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
 };
-
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, StatePart, StatePartKey,
-    ValidatorSignatureVerificationResult, Weight,
-};
-use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::block::Approval;
-
-pub const DEFAULT_STATE_NUM_PARTS: u64 = 17; /* TODO MOO */
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -61,9 +59,8 @@ pub struct KeyValueRuntime {
     epoch_length: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
-    state: RwLock<HashMap<MerkleHash, KVState>>,
-    state_parts: RwLock<HashMap<CryptoHash, StatePart>>,
-    state_proofs: RwLock<HashMap<CryptoHash, MerklePath>>,
+    state: RwLock<HashMap<StateRoot, KVState>>,
+    state_size: RwLock<HashMap<StateRoot, u64>>,
 
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
@@ -114,17 +111,18 @@ impl KeyValueRuntime {
         map_with_default_hash3.insert(EpochId::default(), 0);
 
         let mut state = HashMap::new();
-        state.insert(
-            MerkleHash::default(),
-            KVState {
-                amounts: initial_amounts,
-                receipt_nonces: HashSet::default(),
-                tx_nonces: HashSet::default(),
-            },
-        );
-        // TODO MOO initializing for StateRoot::default()?
-        let state_parts = HashMap::new();
-        let state_proofs = HashMap::new();
+        let kv_state = KVState {
+            amounts: initial_amounts,
+            receipt_nonces: HashSet::default(),
+            tx_nonces: HashSet::default(),
+        };
+        let mut state_size = HashMap::new();
+        let data = kv_state.try_to_vec().unwrap();
+        let data_len = data.len() as u64;
+        // StateRoot is actually faked here.
+        // We cannot do any reasonable validations of it in test_utils.
+        state.insert(StateRoot::default(), kv_state);
+        state_size.insert(StateRoot::default(), data_len);
         KeyValueRuntime {
             store,
             trie,
@@ -147,8 +145,7 @@ impl KeyValueRuntime {
             num_shards,
             epoch_length,
             state: RwLock::new(state),
-            state_parts: RwLock::new(state_parts),
-            state_proofs: RwLock::new(state_proofs),
+            state_size: RwLock::new(state_size),
             headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
@@ -158,7 +155,7 @@ impl KeyValueRuntime {
     }
 
     pub fn get_root(&self) -> CryptoHash {
-        self.root.hash
+        self.root
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -261,12 +258,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>) {
         (
             self.store.store_update(),
-            ((0..self.num_shards())
-                .map(|_| StateRoot {
-                    hash: CryptoHash::default(),
-                    num_parts: DEFAULT_STATE_NUM_PARTS, /* TODO MOO */
-                })
-                .collect()),
+            ((0..self.num_shards()).map(|_| StateRoot::default()).collect()),
         )
     }
 
@@ -441,26 +433,33 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
-    fn filter_transactions(
-        &self,
-        _block_index: u64,
-        _block_timestamp: u64,
-        _gas_price: u128,
-        _state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
-        transactions
-    }
-
     fn validate_tx(
         &self,
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
+        _state_update: StateRoot,
+        _transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error> {
+        Ok(None)
+    }
+
+    fn prepare_transactions(
+        &self,
+        _block_index: BlockIndex,
+        _block_timestamp: u64,
+        _gas_price: Balance,
+        _gas_limit: Gas,
         _state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
-        Ok(ValidTransaction { transaction })
+        _max_number_of_transactions: usize,
+        transactions: &mut dyn PoolIterator,
+        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
+        let mut res = vec![];
+        while let Some(iter) = transactions.next() {
+            res.push(iter.next().unwrap());
+        }
+        Ok(res)
     }
 
     fn add_validator_proposals(
@@ -468,6 +467,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
         _block_index: u64,
+        _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
@@ -490,13 +490,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(&state_root.hash).cloned().unwrap();
+        let mut state = self.state.read().unwrap().get(&state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -629,34 +630,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         let data = state.try_to_vec()?;
-        let state_num_parts = DEFAULT_STATE_NUM_PARTS as usize;
-        let mut parts = vec![];
-        for i in 0..state_num_parts {
-            let begin = data.len() / state_num_parts * i;
-            let mut end = data.len() / state_num_parts * (i + 1);
-            if i + 1 == state_num_parts {
-                end = data.len();
-            }
-            let part = StatePart { shard_id, part_id: i as u64, data: data[begin..end].to_vec() };
-            parts.push(part);
-        }
-        let (state_hash, proofs) = merklize(&parts);
-        let new_state_root = StateRoot { hash: state_hash, num_parts: state_num_parts as u64 };
-
-        self.state.write().unwrap().insert(new_state_root.hash, state);
-        for i in 0..state_num_parts {
-            let key = hash(&StatePartKey(i as u64, new_state_root.clone()).try_to_vec().unwrap());
-            assert!(verify_path(new_state_root.hash, &proofs[i], &parts[i]));
-            self.state_parts.write().unwrap().insert(key, parts[i].clone());
-            self.state_proofs.write().unwrap().insert(key, proofs[i].clone());
-        }
+        let state_size = data.len() as u64;
+        let state_root = hash(&data);
+        self.state.write().unwrap().insert(state_root.clone(), state);
+        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
 
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
-                TrieChanges::empty(state_root.hash),
+                TrieChanges::empty(state_root),
             ),
-            new_root: new_state_root,
+            new_root: state_root,
             outcomes: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
@@ -681,6 +665,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
         _gas_price: Balance,
+        _gas_limit: Gas,
         _challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
@@ -703,7 +688,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     .state
                     .read()
                     .unwrap()
-                    .get(&state_root.hash)
+                    .get(&state_root)
                     .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
                 locked: 0,
                 code_hash: CryptoHash::default(),
@@ -714,60 +699,67 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn obtain_state_part(
+    fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
+        assert!(part_id < num_parts);
+        let state = self.state.read().unwrap().get(&state_root).unwrap().clone();
+        let data = state.try_to_vec().expect("should never fall");
+        let state_size = data.len() as u64;
+        let begin = state_size / num_parts * part_id;
+        let mut end = state_size / num_parts * (part_id + 1);
+        if part_id + 1 == num_parts {
+            end = state_size;
+        }
+        data[begin as usize..end as usize].to_vec()
+    }
+
+    fn validate_state_part(
         &self,
-        shard_id: ShardId,
+        _state_root: &StateRoot,
         part_id: u64,
-        state_root: &StateRoot,
-    ) -> Result<(StatePart, Vec<u8>), Box<dyn std::error::Error>> {
-        if part_id >= state_root.num_parts {
-            return Err("Invalid part_id in obtain_state_part".to_string().into());
-        }
-        if shard_id >= self.num_shards() {
-            return Err("Invalid shard_id in obtain_state_part".to_string().into());
-        }
-        let key = hash(&StatePartKey(part_id, state_root.clone()).try_to_vec().unwrap());
-        let part = self.state_parts.read().unwrap().get(&key).unwrap().clone();
-        let proof = self.state_proofs.read().unwrap().get(&key).unwrap().clone();
-        assert!(verify_path(state_root.hash, &proof, &part));
-        Ok((part, proof.try_to_vec()?))
+        num_parts: u64,
+        _data: &Vec<u8>,
+    ) -> bool {
+        assert!(part_id < num_parts);
+        // We do not care about deeper validation in test_utils
+        true
     }
 
-    fn accept_state_part(
-        &self,
-        state_root: &StateRoot,
-        part: &StatePart,
-        proof: &Vec<u8>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let merkle_proof = MerklePath::try_from_slice(&proof)?;
-        if !verify_path(state_root.hash, &merkle_proof, part) {
-            return Err("set_shard_state failed: invalid StatePart".into());
-        }
-        let key = hash(&StatePartKey(part.part_id, state_root.clone()).try_to_vec().unwrap());
-        self.state_parts.write().unwrap().insert(key, part.clone());
-        self.state_proofs.write().unwrap().insert(key, merkle_proof);
-        Ok(())
-    }
-
-    fn confirm_state(&self, state_root: &StateRoot) -> Result<bool, Error> {
+    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error> {
         let mut data = vec![];
-        for i in 0..state_root.num_parts as usize {
-            let key = hash(&StatePartKey(i as u64, state_root.clone()).try_to_vec().unwrap());
-            match self.state_parts.read().unwrap().get(&key) {
-                Some(part) => {
-                    data.push(part.data.clone());
-                }
-                None => {
-                    return Err(format!("Invalid accept_state, no part {:?}", i)
-                        .to_string()
-                        .into());
-                }
-            }
+        for part in parts {
+            data.push(part.clone());
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
-        self.state.write().unwrap().insert(state_root.hash, state);
-        Ok(true)
+        self.state.write().unwrap().insert(state_root.clone(), state.clone());
+        let data = state.try_to_vec()?;
+        let state_size = data.len() as u64;
+        self.state_size.write().unwrap().insert(state_root.clone(), state_size);
+        Ok(())
+    }
+
+    fn get_state_root_node(&self, state_root: &StateRoot) -> StateRootNode {
+        StateRootNode {
+            data: self
+                .state
+                .read()
+                .unwrap()
+                .get(&state_root)
+                .unwrap()
+                .clone()
+                .try_to_vec()
+                .expect("should never fall"),
+            memory_usage: self.state_size.read().unwrap().get(&state_root).unwrap().clone(),
+        }
+    }
+
+    fn validate_state_root_node(
+        &self,
+        _state_root_node: &StateRootNode,
+        _state_root: &StateRoot,
+    ) -> bool {
+        // We do not care about deeper validation in test_utils
+        true
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
@@ -806,6 +798,22 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
         Ok(0)
+    }
+
+    fn get_validator_info(&self, _block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
+        Ok(EpochValidatorInfo {
+            current_validators: vec![],
+            next_validators: vec![],
+            current_proposals: vec![],
+        })
+    }
+
+    fn push_final_block_back_if_needed(
+        &self,
+        _prev_block: CryptoHash,
+        last_final: CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        Ok(last_final)
     }
 }
 

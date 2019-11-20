@@ -32,6 +32,7 @@ fn test_keyvalue_runtime_balances() {
             true,
             100,
             false,
+            false,
             5,
             Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
@@ -117,7 +118,8 @@ mod tests {
                 )))
                 .then(move |x| {
                     match x.unwrap() {
-                        NetworkClientResponses::NoResponse => {
+                        NetworkClientResponses::NoResponse
+                        | NetworkClientResponses::RequestRouted => {
                             assert_eq!(num_validators, 24);
                             send_tx(
                                 num_validators,
@@ -136,7 +138,13 @@ mod tests {
                                 connector_ordinal
                             );
                         }
-                        _ => assert!(false),
+                        other @ _ => {
+                            println!(
+                                "Transaction was rejected with an unexpected outcome: {:?}",
+                                other
+                            );
+                            assert!(false)
+                        }
                     }
                     future::result(Ok(()))
                 }),
@@ -388,8 +396,9 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if drop_chunks || rotate_validators { 300 } else { 200 },
+                if drop_chunks || rotate_validators { 150 } else { 75 },
                 drop_chunks,
+                true,
                 20,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)

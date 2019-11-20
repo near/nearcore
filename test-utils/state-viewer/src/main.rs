@@ -233,6 +233,7 @@ fn replay_chain(
                     header.inner.prev_hash,
                     header.hash(),
                     header.inner.height,
+                    chain_store.get_block_height(&header.inner.last_quorum_pre_commit).unwrap(),
                     header.inner.validator_proposals,
                     vec![],
                     header.inner.chunk_mask,
@@ -322,7 +323,7 @@ fn main() {
             let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, height);
             for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     print_state_entry(key, value);
@@ -340,7 +341,7 @@ fn main() {
             );
             near_config.genesis_config.records = vec![];
             for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root.hash).unwrap();
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(sr) = kv_to_state_record(key, value) {

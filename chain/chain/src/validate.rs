@@ -14,6 +14,9 @@ use crate::byzantine_assert;
 use crate::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 
+/// Gas limit cannot be adjusted for more than 0.1% at a time.
+const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
+
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
@@ -73,6 +76,26 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(ErrorKind::InvalidValidatorProposals.into());
     }
 
+    if prev_chunk_extra.gas_limit != chunk_header.inner.gas_limit {
+        return Err(ErrorKind::InvalidGasLimit.into());
+    }
+
+    if prev_chunk_extra.gas_used != chunk_header.inner.gas_used {
+        return Err(ErrorKind::InvalidGasUsed.into());
+    }
+
+    if prev_chunk_extra.rent_paid != chunk_header.inner.rent_paid {
+        return Err(ErrorKind::InvalidRent.into());
+    }
+
+    if prev_chunk_extra.validator_reward != chunk_header.inner.validator_reward {
+        return Err(ErrorKind::InvalidReward.into());
+    }
+
+    if prev_chunk_extra.balance_burnt != chunk_header.inner.balance_burnt {
+        return Err(ErrorKind::InvalidBalanceBurnt.into());
+    }
+
     let receipt_response = chain_store.get_outgoing_receipts_for_shard(
         *prev_block_hash,
         chunk_header.inner.shard_id,
@@ -83,6 +106,14 @@ pub fn validate_chunk_with_chunk_extra(
 
     if outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root {
         return Err(ErrorKind::InvalidReceiptsProof.into());
+    }
+
+    let prev_gas_limit = prev_chunk_extra.gas_limit;
+    if chunk_header.inner.gas_limit < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+        || chunk_header.inner.gas_limit
+            > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    {
+        return Err(ErrorKind::InvalidGasLimit.into());
     }
 
     Ok(())
@@ -233,7 +264,8 @@ fn validate_chunk_state_challenge(
             &chunk_state.prev_chunk.receipts,
             &chunk_state.prev_chunk.transactions,
             &[],
-            0,
+            prev_block_header.inner.gas_price,
+            chunk_state.prev_chunk.header.inner.gas_limit,
             &ChallengesResult::default(),
         )
         .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
