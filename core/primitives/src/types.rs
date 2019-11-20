@@ -41,6 +41,12 @@ pub struct StateRootNode {
     pub memory_usage: u64,
 }
 
+impl StateRootNode {
+    pub fn empty() -> Self {
+        StateRootNode { data: vec![], memory_usage: 0 }
+    }
+}
+
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 #[derive(
     Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,

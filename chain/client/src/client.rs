@@ -488,7 +488,7 @@ impl Client {
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
         let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
-        if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
+        let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter
                 .prepare_transactions(
@@ -513,7 +513,11 @@ impl Client {
                 .expect("no StorageError please")
         } else {
             vec![]
-        }
+        };
+        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
+        // included into the block.
+        shards_mgr.reintroduce_transactions(shard_id, &transactions);
+        transactions
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
