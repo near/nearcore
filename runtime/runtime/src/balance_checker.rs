@@ -1,9 +1,13 @@
+use crate::safe_add_balance_apply;
+
 use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas,
 };
-use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate, OVERFLOW_CHECKED_ERR};
-use near_primitives::errors::{BalanceMismatchError, InvalidTxError, RuntimeError, StorageError};
+use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
+use near_primitives::errors::{
+    BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
+};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -73,24 +77,30 @@ pub(crate) fn check_balance(
             if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
                 all_accounts_ids.insert(account_id.clone());
             }
-            validator_accounts_update.validator_rewards.values().sum::<Balance>()
+            validator_accounts_update
+                .validator_rewards
+                .values()
+                .try_fold(0u128, |res, balance| safe_add_balance(res, *balance))?
         } else {
             0
         };
-    let total_accounts_balance = |state| -> Result<Balance, StorageError> {
+    let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
         Ok(all_accounts_ids
             .iter()
-            .map(
-                |account_id| Ok(get_account(state, account_id)?.map_or(0, |a| a.amount + a.locked)),
-            )
-            .collect::<Result<Vec<Balance>, StorageError>>()?
+            .map(|account_id| {
+                get_account(state, account_id)?.map_or(Ok(0), |a| {
+                    safe_add_balance(a.amount, a.locked)
+                        .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+                })
+            })
+            .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .sum::<Balance>())
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
     };
     let initial_accounts_balance = total_accounts_balance(&initial_state)?;
     let final_accounts_balance = total_accounts_balance(&final_state)?;
     // Receipts
-    let receipt_cost = |receipt: &Receipt| -> Result<Balance, InvalidTxError> {
+    let receipt_cost = |receipt: &Receipt| -> Result<Balance, IntegerOverflowError> {
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
@@ -109,19 +119,18 @@ pub(crate) fn check_balance(
             ReceiptEnum::Data(_) => 0,
         })
     };
-    let receipts_cost = |receipts: &[Receipt]| {
+    let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
         receipts
             .iter()
             .map(receipt_cost)
-            .collect::<Result<Vec<u128>, InvalidTxError>>()
-            .expect(OVERFLOW_CHECKED_ERR)
+            .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
             .into_iter()
-            .sum::<Balance>()
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
     };
-    let incoming_receipts_balance = receipts_cost(prev_receipts);
-    let outgoing_receipts_balance = receipts_cost(new_receipts);
-    let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts);
-    let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts);
+    let incoming_receipts_balance = receipts_cost(prev_receipts)?;
+    let outgoing_receipts_balance = receipts_cost(new_receipts)?;
+    let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
+    let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
@@ -161,24 +170,29 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Balance>, RuntimeError>>()?
             .into_iter()
-            .sum::<Balance>())
+            .try_fold(0u128, |res, balance| safe_add_balance(res, balance))?)
     };
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
     // Sum it up
-    let initial_balance = incoming_validator_rewards
-        + initial_accounts_balance
-        + incoming_receipts_balance
-        + processed_delayed_receipts_balance
-        + initial_postponed_receipts_balance;
-    let final_balance = final_accounts_balance
-        + outgoing_receipts_balance
-        + new_delayed_receipts_balance
-        + final_postponed_receipts_balance
-        + stats.total_rent_paid
-        + stats.total_validator_reward
-        + stats.total_balance_burnt
-        + stats.total_balance_slashed;
+
+    let initial_balance = safe_add_balance_apply!(
+        incoming_validator_rewards,
+        initial_accounts_balance,
+        incoming_receipts_balance,
+        processed_delayed_receipts_balance,
+        initial_postponed_receipts_balance
+    );
+    let final_balance = safe_add_balance_apply!(
+        final_accounts_balance,
+        outgoing_receipts_balance,
+        new_delayed_receipts_balance,
+        final_postponed_receipts_balance,
+        stats.total_rent_paid,
+        stats.total_validator_reward,
+        stats.total_balance_burnt,
+        stats.total_balance_slashed
+    );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
             // Inputs
@@ -366,5 +380,63 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_total_balance_overflow_returns_unexpected_overflow() {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+        let alice_id = alice_account();
+        let bob_id = bob_account();
+        let gas_price = 100;
+        let deposit = 1000;
+
+        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let alice = Account::new(std::u128::MAX, hash(&[]), 0);
+        let bob = Account::new(1u128, hash(&[]), 0);
+
+        set_account(&mut initial_state, &alice_id, &alice);
+        set_account(&mut initial_state, &bob_id, &bob);
+        initial_state.commit();
+
+        let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
+
+        let tx = SignedTransaction::send_money(
+            0,
+            alice_id.clone(),
+            bob_id.clone(),
+            &signer,
+            1,
+            CryptoHash::default(),
+        );
+
+        let receipt = Receipt {
+            predecessor_id: tx.transaction.signer_id.clone(),
+            receiver_id: tx.transaction.receiver_id.clone(),
+            receipt_id: Default::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx.transaction.signer_id.clone(),
+                signer_public_key: tx.transaction.public_key.clone(),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit })],
+            }),
+        };
+
+        let transaction_costs = RuntimeFeesConfig::default();
+        assert_eq!(
+            check_balance(
+                &transaction_costs,
+                &initial_state,
+                &initial_state,
+                &None,
+                &[receipt],
+                &[tx],
+                &[],
+                &ApplyStats::default(),
+            ),
+            Err(RuntimeError::UnexpectedIntegerOverflow)
+        );
     }
 }

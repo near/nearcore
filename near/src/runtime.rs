@@ -9,13 +9,17 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
+use crate::config::GenesisConfig;
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
+use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
@@ -36,10 +40,6 @@ use near_store::{
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
-
-use crate::config::GenesisConfig;
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::block::Approval;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -291,6 +291,10 @@ impl NightshadeRuntime {
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
                 RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                // TODO: process gracefully
+                RuntimeError::UnexpectedIntegerOverflow => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                }
                 RuntimeError::StorageError(_) => ErrorKind::StorageError,
             })?;
 
@@ -633,8 +637,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
+        transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
@@ -645,26 +649,32 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit: None,
         };
 
-        if let Err(err) = self.runtime.verify_and_charge_transaction(
+        match self.runtime.verify_and_charge_transaction(
             &mut state_update,
             &apply_state,
             &transaction,
         ) {
-            debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-            return Err(err);
+            Ok(_) => Ok(None),
+            Err(RuntimeError::InvalidTxError(err)) => {
+                debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                Ok(Some(err))
+            }
+            Err(RuntimeError::StorageError(_err)) => Err(Error::from(ErrorKind::StorageError)),
+            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
         }
-        Ok(ValidTransaction { transaction })
     }
 
-    fn filter_transactions(
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn PoolIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
@@ -673,14 +683,50 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             gas_limit: Some(gas_limit),
         };
-        transactions
-            .into_iter()
-            .filter(|transaction| {
-                self.runtime
-                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
-                    .is_ok()
-            })
-            .collect()
+
+        // Total amount of gas burnt for converting transactions towards receipts.
+        let mut total_gas_burnt = 0;
+        // TODO: Update gas limit for transactions
+        let transactions_gas_limit = gas_limit / 2;
+        let mut transactions = vec![];
+        let mut num_checked_transactions = 0;
+
+        while transactions.len() < max_number_of_transactions
+            && total_gas_burnt < transactions_gas_limit
+        {
+            if let Some(iter) = pool_iterator.next() {
+                while let Some(tx) = iter.next() {
+                    num_checked_transactions += 1;
+                    // Verifying the transaction is on the same chain and hasn't expired yet.
+                    if chain_validate(&tx) {
+                        // Verifying the validity of the transaction based on the current state.
+                        match self.runtime.verify_and_charge_transaction(
+                            &mut state_update,
+                            &apply_state,
+                            &tx,
+                        ) {
+                            Ok(verification_result) => {
+                                state_update.commit();
+                                transactions.push(tx);
+                                total_gas_burnt += verification_result.gas_burnt;
+                                break;
+                            }
+                            Err(RuntimeError::InvalidTxError(_err)) => {
+                                state_update.rollback();
+                            }
+                            Err(RuntimeError::StorageError(_err)) => {
+                                return Err(Error::from(ErrorKind::StorageError))
+                            }
+                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        Ok(transactions)
     }
 
     fn add_validator_proposals(
@@ -879,7 +925,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
-        println!("get validator info");
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
@@ -942,6 +987,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool {
+        if state_root == &CryptoHash::default() {
+            return state_root_node == &StateRootNode::empty();
+        }
         if hash(&state_root_node.data) != *state_root {
             false
         } else {

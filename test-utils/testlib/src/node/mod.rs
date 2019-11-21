@@ -45,6 +45,8 @@ pub enum NodeConfig {
 }
 
 pub trait Node: Send + Sync {
+    fn genesis_config(&self) -> &GenesisConfig;
+
     fn account_id(&self) -> Option<AccountId>;
 
     fn start(&mut self);

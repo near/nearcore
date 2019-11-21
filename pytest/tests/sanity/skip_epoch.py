@@ -15,7 +15,7 @@ TIMEOUT = 300
 TWENTY_FIVE = 25
 
 config = {'local': True, 'near_root': '../target/debug/'}
-near_root, node_dirs = init_cluster(2, 1, 2, config, [["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
+near_root, node_dirs = init_cluster(2, 1, 2, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
 
 started = time.time()
 
