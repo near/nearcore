@@ -9,10 +9,7 @@ use log::debug;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
-    Weight,
-};
+use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
 use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
@@ -283,15 +280,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         _account_id: &AccountId,
         _data: &[u8],
         _signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult {
-        ValidatorSignatureVerificationResult::Valid
+    ) -> Result<bool, Error> {
+        Ok(true)
     }
 
-    fn verify_header_signature(
-        &self,
-        _header: &BlockHeader,
-    ) -> ValidatorSignatureVerificationResult {
-        ValidatorSignatureVerificationResult::Valid
+    fn verify_header_signature(&self, _header: &BlockHeader) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {

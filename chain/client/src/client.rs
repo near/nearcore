@@ -10,9 +10,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::types::{
-    AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
-};
+use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter, Tip,
 };
@@ -893,16 +891,15 @@ impl Client {
             }
         };
         // Check signature is correct for given validator.
-        if let ValidatorSignatureVerificationResult::Invalid =
-            self.runtime_adapter.verify_validator_signature(
-                &header.inner.epoch_id,
-                &header.inner.prev_hash,
-                account_id,
-                Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
-                signature,
-            )
-        {
-            return false;
+        match self.runtime_adapter.verify_validator_signature(
+            &header.inner.epoch_id,
+            &header.inner.prev_hash,
+            account_id,
+            Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
+            signature,
+        ) {
+            Ok(true) => {}
+            _ => return false,
         }
         if let Err(e) = self.chain.verify_approval_conditions(&approval) {
             debug!(target: "client", "Rejecting approval {:?}: {:?}", approval, e);
@@ -1220,17 +1217,13 @@ impl Client {
         }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
-        if self
-            .runtime_adapter
-            .verify_validator_signature(
-                &head.epoch_id,
-                &head.prev_block_hash,
-                &challenge.account_id,
-                challenge.hash.as_ref(),
-                &challenge.signature,
-            )
-            .valid()
-        {
+        if self.runtime_adapter.verify_validator_signature(
+            &head.epoch_id,
+            &head.prev_block_hash,
+            &challenge.account_id,
+            challenge.hash.as_ref(),
+            &challenge.signature,
+        )? {
             // If challenge is not double sign, we should process it right away to invalidate the chain.
             match challenge.body {
                 ChallengeBody::BlockDoubleSign(_) => {}

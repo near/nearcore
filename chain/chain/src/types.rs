@@ -80,19 +80,6 @@ pub struct AcceptedBlock {
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
-#[derive(Eq, PartialEq, Debug)]
-pub enum ValidatorSignatureVerificationResult {
-    Valid,
-    Invalid,
-    UnknownEpoch,
-}
-
-impl ValidatorSignatureVerificationResult {
-    pub fn valid(&self) -> bool {
-        *self == ValidatorSignatureVerificationResult::Valid
-    }
-}
-
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -176,11 +163,10 @@ pub trait RuntimeAdapter: Send + Sync {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult;
+    ) -> Result<bool, Error>;
 
     /// Verify header signature.
-    fn verify_header_signature(&self, header: &BlockHeader)
-        -> ValidatorSignatureVerificationResult;
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
