@@ -459,10 +459,12 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
+            println!("\nTEST here\n");
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
+                println!("OOOO");
                 self.query_active_peers_for_more_peers(ctx);
             }
         }
