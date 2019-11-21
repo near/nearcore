@@ -78,17 +78,18 @@ def run_test(outdir, test):
     handle = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, env=env)
     try:
         ret = handle.wait(timeout)
-        if ret == 0 and test[0] == 'expensive':
-            with open(os.path.join(dir_name, 'stdout')) as f:
-                lines = f.readlines()
-                while len(lines) and lines[-1].strip() == '':
-                    lines.pop()
-                ignored = False
-                if len(lines) == 0:
-                    ignored = True
-                else:
-                    if '0 passed' in lines[-1]:
+        if ret == 0:
+            ignored = False
+            if test[0] == 'expensive':
+                with open(os.path.join(dir_name, 'stdout')) as f:
+                    lines = f.readlines()
+                    while len(lines) and lines[-1].strip() == '':
+                        lines.pop()
+                    if len(lines) == 0:
                         ignored = True
+                    else:
+                        if '0 passed' in lines[-1]:
+                            ignored = True
 
             outcome = "PASSED" if not ignored else "IGNORED"
         else:
