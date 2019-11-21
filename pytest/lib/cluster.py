@@ -87,6 +87,8 @@ class BaseNode(object):
     def get_account(self, acc):
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
+    def get_block(self, block_hash):
+        return self.json_rpc('block', [block_hash])
 
 class LocalNode(BaseNode):
     def __init__(self, port, rpc_port, near_root, node_dir):
@@ -178,7 +180,7 @@ class GCloudNode(BaseNode):
 
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
-    
+
     def exec(self, command):
         return ssh(self.zone, self.instance_name, command)
 
@@ -192,7 +194,7 @@ class GCloudNode(BaseNode):
         """
         assert self.machine_status() == 'RUNNING'
         assert self.exec("ls /opt/nearcore/target/debug/near")
-    
+
     def turn_on_machine(self):
         """
         Turn on gcloud instance, wait until it's on.
@@ -200,13 +202,13 @@ class GCloudNode(BaseNode):
         compute().instances().start(project='near-core', zone=self.zone, instance=self.instance_name)
         retry.retry(lambda: self.machine_status() == 'RUNNING', 60)
         self.exec("tmux new -s node -d")
-    
+
     def turn_off_machine(self):
         """
         Turn off gcloud instance, wait until it's off.
         """
         compute().instances().stop(project='near-core', zone=self.zone, instance=self.instance_name)
-        retry.retry(lambda: self.machine_status() == 'STOPPED', 60) 
+        retry.retry(lambda: self.machine_status() == 'STOPPED', 60)
 
     def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
         self.exec("""tmux send-keys -t node "{cmd}" C-m
@@ -226,7 +228,7 @@ class GCloudNode(BaseNode):
         self.exec("tmux send-keys -t node 'git fetch' C-m")
         self.exec("tmux send-keys -t node 'git checkout {}' C-m".format(commit))
         self.exec("tmux send-keys -t node 'cargo build -p near' C-m")
-    
+
     def kill(self):
         self.exec("tmux send-keys -t node C-c")
 

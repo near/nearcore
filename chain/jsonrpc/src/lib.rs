@@ -278,7 +278,7 @@ impl JsonRpcHandler {
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status {}).compat().await {
+        match self.client_addr.send(Status { is_health_check: true }).compat().await {
             Ok(Ok(_)) => Ok(Value::Null),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<String>(None)),
@@ -286,7 +286,7 @@ impl JsonRpcHandler {
     }
 
     pub async fn status(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status {}).compat().await {
+        match self.client_addr.send(Status { is_health_check: false }).compat().await {
             Ok(Ok(result)) => jsonify(Ok(Ok(result))),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<String>(None)),

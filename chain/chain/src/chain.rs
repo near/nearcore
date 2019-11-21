@@ -508,9 +508,8 @@ impl Chain {
         // Sort headers by heights if they are out of order.
         headers.sort_by(|left, right| left.inner.height.cmp(&right.inner.height));
 
-        let _first_header = if let Some(header) = headers.first() {
+        if let Some(header) = headers.first() {
             debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.inner.height);
-            header
         } else {
             return Ok(());
         };

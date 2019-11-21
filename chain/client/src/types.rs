@@ -274,7 +274,9 @@ impl Message for Query {
     type Result = Result<QueryResponse, String>;
 }
 
-pub struct Status {}
+pub struct Status {
+    pub is_health_check: bool,
+}
 
 impl Message for Status {
     type Result = Result<StatusResponse, String>;
