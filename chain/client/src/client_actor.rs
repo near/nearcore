@@ -471,7 +471,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
-    fn handle(&mut self, _: Status, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
         let prev_header = self
             .client
@@ -479,14 +479,16 @@ impl Handler<Status> for ClientActor {
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
         let latest_block_time = prev_header.inner.timestamp.clone();
-        let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
-        if elapsed
-            > Duration::from_millis(
-                self.client.config.max_block_production_delay.as_millis() as u64
-                    * STATUS_WAIT_TIME_MULTIPLIER,
-            )
-        {
-            return Err(format!("No blocks for {:?}.", elapsed));
+        if msg.is_health_check {
+            let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
+            if elapsed
+                > Duration::from_millis(
+                    self.client.config.max_block_production_delay.as_millis() as u64
+                        * STATUS_WAIT_TIME_MULTIPLIER,
+                )
+            {
+                return Err(format!("No blocks for {:?}.", elapsed));
+            }
         }
         let validators = self
             .client
