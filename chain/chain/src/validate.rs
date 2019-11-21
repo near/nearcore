@@ -430,9 +430,9 @@ mod tests {
         let transactions = vec![
             make_tx("A", "a", 2),
             make_tx("C", "a", 2),
-            make_tx("A", "a", 4),
-            make_tx("A", "a", 6),
-            make_tx("C", "a", 6),
+            make_tx("A", "a", 4), // 2nd batch starts
+            make_tx("A", "a", 6), // 3rd batch starts
+            make_tx("C", "a", 6), // Not in the 2nd batch
         ];
         validate_transactions_order(&transactions).unwrap_err();
     }
