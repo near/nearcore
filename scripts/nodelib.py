@@ -161,7 +161,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
-        cmd.append('--verbose')
+        cmd += ['--verbose', '']
     cmd.append('run')
     cmd.append('--telemetry-url=%s' % telemetry_url)
     if boot_nodes:
