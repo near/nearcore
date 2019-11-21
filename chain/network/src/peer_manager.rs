@@ -1257,7 +1257,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
     type Result = bool;
 
     fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
-        let RoutedMessageFrom { msg, from } = msg;
+        let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
             self.routing_table.add_route_back(msg.hash(), from.clone());
@@ -1274,8 +1274,11 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
 
             false
         } else {
-            // Otherwise route it to its corresponding destination.
-            self.send_signed_message_to_peer(ctx, msg);
+            if msg.decrease_ttl() {
+                self.send_signed_message_to_peer(ctx, msg);
+            } else {
+                warn!(target: "network", "Message dropped because TTL reached 0. Message: {:?} From: {:?}", msg, from);
+            }
             false
         }
     }

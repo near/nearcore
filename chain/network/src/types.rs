@@ -36,6 +36,10 @@ use std::sync::RwLock;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
+/// Number of hops a message is allowed to travel before being dropped.
+/// This is used to avoid infinite loop because of inconsistent view of the network
+/// by different nodes.
+pub const ROUTED_MESSAGE_TTL: u8 = 100;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -357,7 +361,7 @@ impl RawRoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, body: self.body }
+        RoutedMessage { target, author, signature, ttl: ROUTED_MESSAGE_TTL, body: self.body }
     }
 }
 
@@ -368,7 +372,6 @@ pub struct RoutedMessageNoSignature {
     body: RoutedMessageBody,
 }
 
-// TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -386,6 +389,9 @@ pub struct RoutedMessage {
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
+    /// Time to live for this message. After passing through some hop this number should be
+    /// decreased by 1. If this number is 0, drop this message.
+    pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -417,6 +423,12 @@ impl RoutedMessage {
             | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
             _ => false,
         }
+    }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        self.ttl = self.ttl.saturating_sub(1);
+        self.ttl > 0
     }
 }
 

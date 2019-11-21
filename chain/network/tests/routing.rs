@@ -426,8 +426,6 @@ impl Runner {
         let mut flag = Arc::new(AtomicBool::new(true));
         let mut state_machine = self.state_machine.take().unwrap();
 
-        // TODO(MarX, #1312): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
-        //  instead of using fixed `check_interval_ms`.
         WaitOrTimeout::new(
             Box::new(move |ctx| {
                 if flag.load(Ordering::Relaxed) {
