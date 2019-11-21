@@ -546,7 +546,7 @@ fn churn_attack() {
         runner.push(Action::Stop(1));
         runner.push(Action::Stop(3));
         runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
-        //        runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
 
         runner.run();
     })

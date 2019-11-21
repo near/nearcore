@@ -141,6 +141,7 @@ impl PeerStore {
     /// Return healthy known peers up to given amount.
     pub fn healthy_peers(&self, max_count: u32) -> Vec<PeerInfo> {
         // TODO: better healthy peer definition here.
+        //  Discussion: wdyt about using reachable peers in the current routing table?
         self.find_peers(
             |p| match p.status {
                 KnownPeerStatus::Banned(_, _) => false,

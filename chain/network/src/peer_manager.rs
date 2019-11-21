@@ -141,16 +141,18 @@ impl PeerManagerActor {
             "Failed to save peer data"
         );
 
+        let target_peer_id = full_peer_info.peer_info.id.clone();
+
         let new_edge = Edge::new(
-            self.peer_id.clone(),                // source
-            full_peer_info.peer_info.id.clone(), // target
+            self.peer_id.clone(),   // source
+            target_peer_id.clone(), // target
             edge_info.nonce,
             edge_info.signature,
             full_peer_info.edge_info.signature.clone(),
         );
 
         self.active_peers.insert(
-            full_peer_info.peer_info.id.clone(),
+            target_peer_id.clone(),
             ActivePeer {
                 addr: addr.clone(),
                 full_peer_info,
@@ -177,6 +179,12 @@ impl PeerManagerActor {
                     accounts: known_accounts,
                 }),
             });
+
+            // Ask for peers list on connection.
+            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+            if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
+                active_peer.last_time_peer_requested = Utc::now();
+            }
 
             if peer_type == PeerType::Outbound {
                 // Only broadcast new message from the outbound endpoint.
@@ -459,12 +467,10 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            println!("\nTEST here\n");
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
                 self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
-                println!("OOOO");
                 self.query_active_peers_for_more_peers(ctx);
             }
         }
