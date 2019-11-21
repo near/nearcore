@@ -519,8 +519,6 @@ impl PeerManagerActor {
                 .and_then(|_, _, _| actix::fut::ok(()))
                 .spawn(ctx);
         } else {
-            // TODO(MarX): This should be unreachable! Probably it is reaching this point because
-            //  the peer is added to the routing table before being added to the set of active peers.
             debug!(target: "network",
                    "Sending message to: {} (which is not an active peer) Active Peers: {:?}\n{:?}",
                    peer_id,
