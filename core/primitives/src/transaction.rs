@@ -16,17 +16,23 @@ pub type LogEntry = String;
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
+    /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
+    /// An access key which was used to sign an account. That access key must have
     pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
-    /// The hash of the block in the blockchain on top of which the given transaction is valid.
+    /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
-
+    /// A list of actions to be applied
     pub actions: Vec<Action>,
 }
 
 impl Transaction {
+    /// Computes a hash of the transaction for signing
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
@@ -35,7 +41,10 @@ impl Transaction {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
+    /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
+    /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
     CreateAccount(CreateAccountAction),
+    /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(FunctionCallAction),
     Transfer(TransferAction),
@@ -61,11 +70,14 @@ impl Action {
     }
 }
 
+/// Create account action
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
+/// Deploy contract action
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
+    /// WebAssembly binary
     pub code: Vec<u8>,
 }
 
