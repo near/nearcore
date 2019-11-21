@@ -14,7 +14,6 @@ pytest sanity/state_sync.py onetx 50
 pytest --timeout=600 sanity/state_sync.py onetx 250
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/skip_epoch.py
-pytest sanity/skip_epoch.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
