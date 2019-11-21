@@ -43,6 +43,7 @@ use crate::types::{
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use std::cmp::Ordering;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -438,7 +439,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
 
-                for announce_account in announce_accounts.into_iter() {
+                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                    if let Some(last_epoch) = last_epoch {
+                        match self
+                            .client
+                            .runtime_adapter
+                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                        {
+                            Ok(Ordering::Less) => {}
+                            _ => continue,
+                        }
+                    }
+
                     match self.check_signature_account_announce(&announce_account) {
                         AccountAnnounceVerificationResult::Invalid(ban_reason) => {
                             return NetworkClientResponses::Ban { ban_reason };

@@ -815,6 +815,20 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<CryptoHash, Error> {
         Ok(last_final)
     }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+        }
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {

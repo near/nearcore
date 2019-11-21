@@ -21,6 +21,7 @@ use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 use crate::error::Error;
 use near_pool::types::PoolIterator;
 use near_primitives::errors::InvalidTxError;
+use std::cmp::Ordering;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -410,6 +411,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool;
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
