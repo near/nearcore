@@ -269,8 +269,7 @@ mod tests {
                                     seen_heights_with_receipts.contains(&height)
                                 );
                                 if !sync_hold {
-                                    // If we don't hold the state, all heights should contain of the same receipts
-                                    // TODO MOO Alex, please check the sentence above
+                                    // If we don't delay the state, all heights should contain the same receipts
                                     assert!(seen_heights_with_receipts.contains(&height));
                                 }
                             }
