@@ -15,6 +15,7 @@
 #
 
 import sys, os, subprocess, shutil, time, psutil
+from stat import ST_CTIME
 from multiprocessing import Process
 import tornado.ioloop
 import tornado.web
@@ -77,7 +78,7 @@ def run_test(outdir, test):
     handle = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, env=env)
     try:
         ret = handle.wait(timeout)
-        if ret == 0:
+        if ret == 0 and test[0] == 'expensive':
             with open(os.path.join(dir_name, 'stdout')) as f:
                 lines = f.readlines()
                 while len(lines) and lines[-1].strip() == '':
@@ -185,6 +186,8 @@ class ShowRunsListHandler(tornado.web.RequestHandler):
     def get(self):
         ret = ''
         subfolders = [f.path for f in os.scandir('.') if f.is_dir()]
+        subfolders = reversed(sorted([(os.stat(x), x) for x in subfolders]))
+        subfolders = [x[1] for x in subfolders]
         for subfolder in subfolders:
             name = os.path.split(subfolder)[-1]
             if '.' not in name:
