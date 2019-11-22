@@ -36,7 +36,7 @@ const BLOCK_SOME_RECEIVED_TIMEOUT: i64 = 1;
 const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 
 /// Sync state download timeout in seconds.
-const STATE_SYNC_TIMEOUT: i64 = 10;
+pub const STATE_SYNC_TIMEOUT: i64 = 10;
 
 /// Get random peer from the most weighted peers.
 pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
@@ -211,8 +211,8 @@ impl HeaderSync {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
                 if let Ok(header) = chain.get_header_by_height(h) {
-                    if header.inner.height != last_loc.0 {
-                        locator.push((header.inner.height, header.hash()));
+                    if header.inner_lite.height != last_loc.0 {
+                        locator.push((header.inner_lite.height, header.hash()));
                     }
                 }
             }
@@ -436,7 +436,7 @@ impl StateSync {
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash.clone();
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
@@ -613,9 +613,7 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
-                .inner
-                .prev_hash;
+            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download)).prev_hash;
         let epoch_hash = unwrap_or_return!(
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)

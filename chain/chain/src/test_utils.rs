@@ -180,7 +180,7 @@ impl KeyValueRuntime {
         let prev_block_header = self
             .get_block_header(prev_hash)?
             .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
-        Ok(prev_block_header.inner.height)
+        Ok(prev_block_header.inner_lite.height)
     }
 
     fn get_epoch_and_valset(
@@ -199,7 +199,7 @@ impl KeyValueRuntime {
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
-        let prev_prev_hash = prev_block_header.inner.prev_hash;
+        let prev_prev_hash = prev_block_header.prev_hash;
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
@@ -210,7 +210,7 @@ impl KeyValueRuntime {
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner.height - prev_epoch_start >= self.epoch_length;
+            || prev_block_header.inner_lite.height - prev_epoch_start >= self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -221,7 +221,7 @@ impl KeyValueRuntime {
                 prev_next_epoch.clone(),
                 EpochId(prev_hash),
                 new_valset,
-                prev_block_header.inner.height,
+                prev_block_header.inner_lite.height,
             )
         } else {
             (
@@ -268,12 +268,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let validators = &self.validators
-            [self.get_epoch_and_valset(header.inner.prev_hash).map_err(|err| err.to_string())?.1];
-        let validator = &validators[(header.inner.height as usize) % validators.len()];
+            [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.inner_lite.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
+        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
     }
 
     fn verify_validator_signature(
@@ -772,7 +772,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 parent_hash
             )))
         })?;
-        let prev_prev_hash = prev_block_header.inner.prev_hash;
+        let prev_prev_hash = prev_block_header.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
@@ -791,7 +791,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
         match self.get_block_header(&epoch_id.0)? {
-            Some(block_header) => Ok(block_header.inner.height),
+            Some(block_header) => Ok(block_header.inner_lite.height),
             None => Ok(0),
         }
     }
@@ -814,6 +814,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         last_final: CryptoHash,
     ) -> Result<CryptoHash, Error> {
         Ok(last_final)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+        }
     }
 }
 
@@ -858,35 +872,33 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
             .clone();
-        if !tail || header.inner.height + 10 > head.height {
+        if !tail || header.inner_lite.height + 10 > head.height {
             headers.push(header);
         }
     }
     headers.sort_by(|h_left, h_right| {
-        if h_left.inner.height > h_right.inner.height {
+        if h_left.inner_lite.height > h_right.inner_lite.height {
             Ordering::Greater
         } else {
             Ordering::Less
         }
     });
     for header in headers {
-        if header.inner.prev_hash == CryptoHash::default() {
+        if header.prev_hash == CryptoHash::default() {
             // Genesis block.
-            debug!("{: >3} {}", header.inner.height, format_hash(header.hash()));
+            debug!("{: >3} {}", header.inner_lite.height, format_hash(header.hash()));
         } else {
-            let parent_header =
-                chain_store.get_block_header(&header.inner.prev_hash).unwrap().clone();
+            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
-            let epoch_id =
-                runtime_adapter.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
+            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
             let block_producer =
-                runtime_adapter.get_block_producer(&epoch_id, header.inner.height).unwrap();
+                runtime_adapter.get_block_producer(&epoch_id, header.inner_lite.height).unwrap();
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
-                header.inner.height,
+                header.inner_lite.height,
                 format_hash(header.hash()),
                 block_producer,
-                parent_header.inner.height,
+                parent_header.inner_lite.height,
                 format_hash(parent_header.hash()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks.len())

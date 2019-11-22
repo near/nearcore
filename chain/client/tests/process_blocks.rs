@@ -237,7 +237,7 @@ fn produce_block_with_approvals() {
                             "{:?}",
                             block
                                 .header
-                                .inner
+                                .inner_rest
                                 .approvals
                                 .iter()
                                 .map(|x| x.account_id.clone())
@@ -297,9 +297,9 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
-                        assert_eq!(header.inner.height, 1);
+                        assert_eq!(header.inner_lite.height, 1);
                         assert_eq!(
-                            header.inner.prev_state_root,
+                            header.inner_lite.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
                         assert_eq!(*approval_message, None);
@@ -329,7 +329,7 @@ fn invalid_blocks() {
                 CryptoHash::default(),
                 CryptoHash::default(),
             );
-            block.header.inner.prev_state_root = hash(&[1]);
+            block.header.inner_lite.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -338,7 +338,7 @@ fn invalid_blocks() {
             // Send block that builds on invalid one.
             let block2 = Block::produce(
                 &block.header.clone().into(),
-                block.header.inner.height + 1,
+                block.header.inner_lite.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
                 vec![],
@@ -389,7 +389,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.inner.height > 3 {
+                        if block.header.inner_lite.height > 3 {
                             System::current().stop();
                         }
                     }
@@ -535,8 +535,9 @@ fn test_time_attack() {
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
-    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.inner_lite.timestamp =
+        to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
+    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
     let _ = client.process_block(b1, Provenance::NONE);
@@ -565,7 +566,7 @@ fn test_invalid_approvals() {
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner.approvals = (0..100)
+    b1.header.inner_rest.approvals = (0..100)
         .map(|i| Approval {
             account_id: format!("test{}", i).to_string(),
             reference_hash: genesis.hash(),
@@ -578,7 +579,7 @@ fn test_invalid_approvals() {
             .sign(Approval::get_data_for_sig(&genesis.hash(), &genesis.hash()).as_ref()),
         })
         .collect();
-    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
     let (_, tip) = client.process_block(b1, Provenance::NONE);
@@ -617,8 +618,8 @@ fn test_invalid_gas_price() {
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
-    b1.header.inner.gas_price = 0;
-    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.inner_rest.gas_price = 0;
+    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
     b1.header.signature = signer.sign(hash.as_ref());
 
