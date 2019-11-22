@@ -5,7 +5,8 @@ if [[ -z "${GITLAB_CI}" ]]; then
   exit 1
 fi
 
- for file in `find target/debug/deps/ \  ! -name 'near' \
+ for file in `find target/debug/deps/ \  
+  ! -name 'near' \
   ! -name 'near-*' \
   ! -name '*.so' \
   ! -name 'loadtester-*' \
