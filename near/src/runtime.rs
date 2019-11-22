@@ -379,12 +379,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let validator =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)?;
+        let validator = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
+        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
     }
 
     fn verify_validator_signature(
@@ -420,10 +420,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> ValidatorSignatureVerificationResult {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(block_producer) =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)
+        if let Ok(block_producer) = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)
         {
-            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_hash) {
+            let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
                 Ok(slashed) => slashed,
                 Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
             };

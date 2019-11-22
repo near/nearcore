@@ -211,8 +211,8 @@ impl HeaderSync {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
                 if let Ok(header) = chain.get_header_by_height(h) {
-                    if header.inner.height != last_loc.0 {
-                        locator.push((header.inner.height, header.hash()));
+                    if header.inner_lite.height != last_loc.0 {
+                        locator.push((header.inner_lite.height, header.hash()));
                     }
                 }
             }
@@ -436,7 +436,7 @@ impl StateSync {
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash.clone();
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
@@ -513,7 +513,6 @@ impl StateSync {
                             ],
                             status: ShardSyncStatus::StateDownloadParts,
                         };
-                        update_sync_status = true;
                         need_shard = true;
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
@@ -523,7 +522,6 @@ impl StateSync {
                             shard_sync_download.downloads[0].run_me = true;
                             shard_sync_download.downloads[0].error = false;
                             shard_sync_download.downloads[0].prev_update_time = now;
-                            update_sync_status = true;
                             need_shard = true;
                         }
                     }
@@ -540,7 +538,6 @@ impl StateSync {
                                 part_download.run_me = true;
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
-                                update_sync_status = true;
                                 need_shard = true;
                             }
                         }
@@ -586,6 +583,7 @@ impl StateSync {
             all_done &= this_done;
             // Execute syncing for shard `shard_id`
             if need_shard {
+                update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     shard_id,
                     chain,
@@ -615,9 +613,7 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download))
-                .inner
-                .prev_hash;
+            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download)).prev_hash;
         let epoch_hash = unwrap_or_return!(
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
