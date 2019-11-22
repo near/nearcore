@@ -21,6 +21,7 @@ use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 use crate::error::Error;
 use near_pool::types::PoolIterator;
 use near_primitives::errors::InvalidTxError;
+use std::cmp::Ordering;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -411,6 +412,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
+
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
         let mut receipts_hashes = vec![];
@@ -459,11 +466,11 @@ impl Tip {
     /// Creates a new tip based on provided header.
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
-            height: header.inner.height,
+            height: header.inner_lite.height,
             last_block_hash: header.hash(),
-            prev_block_hash: header.inner.prev_hash,
-            weight_and_score: header.inner.weight_and_score(),
-            epoch_id: header.inner.epoch_id.clone(),
+            prev_block_hash: header.prev_hash,
+            weight_and_score: header.inner_rest.weight_and_score(),
+            epoch_id: header.inner_lite.epoch_id.clone(),
         }
     }
 }
@@ -514,7 +521,7 @@ mod tests {
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.inner.total_weight.to_num(), 1);
+        assert_eq!(b1.header.inner_rest.total_weight.to_num(), 1);
         let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
         let approvals = vec![
             (Approval {
@@ -528,11 +535,11 @@ mod tests {
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
-            b1.header.inner.epoch_id.clone(),
+            b1.header.inner_lite.epoch_id.clone(),
             approvals,
             &signer,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.inner.total_weight.to_num(), 3);
+        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
     }
 }

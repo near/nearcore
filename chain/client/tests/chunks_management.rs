@@ -106,49 +106,49 @@ fn chunks_produced_and_distributed_common(
             Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(block.hash(), block.header.inner.height);
-                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
+                        check_height(block.hash(), block.header.inner_lite.height);
+                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
 
                         let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(block.header.inner.height, block.hash());
+                        height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
                             "BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
                             block.hash(),
-                            block.header.inner.height,
+                            block.header.inner_lite.height,
                             block.chunks[0].inner.height_created,
                             block.chunks[1].inner.height_created,
                             block.chunks[2].inner.height_created,
                             block.chunks[3].inner.height_created,
-                            block.header.inner.last_quorum_pre_vote,
-                            block.header.inner.last_quorum_pre_commit,
+                            block.header.inner_rest.last_quorum_pre_vote,
+                            block.header.inner_rest.last_quorum_pre_commit,
                         );
 
                         // Make sure blocks are finalized. 6 is the epoch boundary.
-                        let h = block.header.inner.height;
+                        let h = block.header.inner_lite.height;
                         if h > 1 && h != 6 {
-                            assert_eq!(block.header.inner.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
                         }
                         if h > 2 && (h != 6 && h != 7) {
-                            assert_eq!(block.header.inner.last_quorum_pre_commit, *height_to_hash.get(&(h - 2)).unwrap());
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_commit, *height_to_hash.get(&(h - 2)).unwrap());
                         }
 
-                        if block.header.inner.height > 1 {
+                        if block.header.inner_lite.height > 1 {
                             for shard_id in 0..4 {
                                 // If messages from 1 to 4 are dropped, 4 at their heights will
                                 //    receive the block significantly later than the chunks, and
                                 //    thus would discard the chunks
-                                if !drop_from_1_to_4 || block.header.inner.height % 4 != 3 {
+                                if !drop_from_1_to_4 || block.header.inner_lite.height % 4 != 3 {
                                     assert_eq!(
-                                        block.header.inner.height,
+                                        block.header.inner_lite.height,
                                         block.chunks[shard_id].inner.height_created
                                     );
                                 }
                             }
                         }
 
-                        if block.header.inner.height >= 8 {
-                            println!("PREV BLOCK HASH: {}", block.header.inner.prev_hash);
+                        if block.header.inner_lite.height >= 8 {
+                            println!("PREV BLOCK HASH: {}", block.header.prev_hash);
                             println!(
                                 "STATS: responses: {} requests: {}",
                                 partial_chunk_msgs, partial_chunk_request_msgs

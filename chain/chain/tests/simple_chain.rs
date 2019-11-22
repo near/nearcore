@@ -41,7 +41,7 @@ fn build_chain_with_orhpans() {
         &last_block.header,
         10,
         last_block.chunks.clone(),
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
         vec![],
         0,
         Some(0),
@@ -128,7 +128,7 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
+    assert_eq!(chain.get_header_by_height(5).unwrap().inner_lite.height, 5);
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
@@ -152,7 +152,7 @@ fn blocks_at_height() {
     let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
 
     let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    e_2.header.inner.total_weight = (10 * e_2.header.inner.total_weight.to_num()).into();
+    e_2.header.inner_rest.total_weight = (10 * e_2.header.inner_rest.total_weight.to_num()).into();
     e_2.header.init();
     e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
 

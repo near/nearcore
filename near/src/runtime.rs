@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fs::File;
@@ -9,8 +10,6 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
-use crate::config::GenesisConfig;
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
@@ -40,6 +39,9 @@ use near_store::{
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
+
+use crate::config::GenesisConfig;
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -377,12 +379,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let validator =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)?;
+        let validator = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
+        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
     }
 
     fn verify_validator_signature(
@@ -418,10 +420,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> ValidatorSignatureVerificationResult {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(block_producer) =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)
+        if let Ok(block_producer) = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)
         {
-            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_hash) {
+            let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
                 Ok(slashed) => slashed,
                 Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
             };
@@ -1006,6 +1008,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
     }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1104,16 +1115,16 @@ mod test {
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
+    use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
+    use node_runtime::ApplyState;
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_primitives::utils::key_for_account;
-    use node_runtime::ApplyState;
 
     fn stake(
         nonce: Nonce,

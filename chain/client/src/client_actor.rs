@@ -43,6 +43,7 @@ use crate::types::{
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use std::cmp::Ordering;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -211,7 +212,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                     if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
-                        if block.hash() == header.inner.prev_hash {
+                        if block.hash() == header.prev_hash {
                             if let Err(_) = self.client.chain.save_block(&block) {
                                 error!(target: "client", "Failed to save a block during state sync");
                             }
@@ -438,7 +439,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
 
-                for announce_account in announce_accounts.into_iter() {
+                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                    if let Some(last_epoch) = last_epoch {
+                        match self
+                            .client
+                            .runtime_adapter
+                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                        {
+                            Ok(Ordering::Less) => {}
+                            _ => continue,
+                        }
+                    }
+
                     match self.check_signature_account_announce(&announce_account) {
                         AccountAnnounceVerificationResult::Invalid(ban_reason) => {
                             return NetworkClientResponses::Ban { ban_reason };
@@ -478,7 +490,7 @@ impl Handler<Status> for ClientActor {
             .chain
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.inner.timestamp.clone();
+        let latest_block_time = prev_header.inner_lite.timestamp.clone();
         if msg.is_health_check {
             let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
             if elapsed
@@ -506,7 +518,7 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: prev_header.inner.prev_state_root.clone().into(),
+                latest_state_root: prev_header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
@@ -748,8 +760,8 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner.height);
-            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner.height);
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
 
             self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
@@ -779,8 +791,8 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
-        let prev_hash = block.header.inner.prev_hash;
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
+        let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance) {
@@ -827,7 +839,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner.height, peer_info);
+        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner_lite.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.client.process_block_header(&header);
@@ -901,7 +913,7 @@ impl ClientActor {
         let mut headers = vec![];
         let max_height = self.client.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.inner.height + 1..=max_height {
+        for h in header.inner_lite.height + 1..=max_height {
             if let Ok(header) = self.client.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -975,7 +987,7 @@ impl ClientActor {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = self.client.chain.get_block_header(&sync_hash)?.inner.prev_hash;
+            sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash;
         }
         Ok(sync_hash)
     }
@@ -1108,7 +1120,7 @@ impl ClientActor {
                         {
                             if fetch_block {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                                    let prev_hash = header.inner.prev_hash;
+                                    let prev_hash = header.prev_hash;
                                     self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
                                 }
                             }
