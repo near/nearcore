@@ -277,7 +277,7 @@ impl RoutingTable {
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id) {
             // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-            // nonce by one. Additionally if the difference between the highest and nonce and the lowest
+            // nonce by one. Additionally if the difference between the highest nonce and the lowest
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
