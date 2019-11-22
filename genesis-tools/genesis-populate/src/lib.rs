@@ -201,7 +201,7 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
-                genesis.header.inner.height,
+                genesis.header.inner_lite.height,
                 0,
                 vec![],
                 vec![],
