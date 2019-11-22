@@ -1,13 +1,18 @@
 use std::collections::{HashMap, HashSet};
+use std::mem::size_of;
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, AsyncContext, Context, System};
+use byteorder::{ByteOrder, LittleEndian};
 use futures::future;
 use futures::future::Future;
+use rand::{thread_rng, RngCore};
 use tokio::timer::Delay;
 
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::hash::hash;
+use near_primitives::types::EpochId;
 
 use crate::types::{NetworkConfig, PeerId, PeerInfo};
 
@@ -145,6 +150,12 @@ pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     sk.public_key().into()
+}
+
+pub fn random_epoch_id() -> EpochId {
+    let mut buffer = [0u8; size_of::<u64>()];
+    LittleEndian::write_u64(&mut buffer, thread_rng().next_u64());
+    EpochId(hash(buffer.as_ref()))
 }
 
 pub fn expected_routing_tables(
