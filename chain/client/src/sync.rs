@@ -513,7 +513,6 @@ impl StateSync {
                             ],
                             status: ShardSyncStatus::StateDownloadParts,
                         };
-                        update_sync_status = true;
                         need_shard = true;
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
@@ -523,7 +522,6 @@ impl StateSync {
                             shard_sync_download.downloads[0].run_me = true;
                             shard_sync_download.downloads[0].error = false;
                             shard_sync_download.downloads[0].prev_update_time = now;
-                            update_sync_status = true;
                             need_shard = true;
                         }
                     }
@@ -540,7 +538,6 @@ impl StateSync {
                                 part_download.run_me = true;
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
-                                update_sync_status = true;
                                 need_shard = true;
                             }
                         }
@@ -586,6 +583,7 @@ impl StateSync {
             all_done &= this_done;
             // Execute syncing for shard `shard_id`
             if need_shard {
+                update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     shard_id,
                     chain,
