@@ -299,7 +299,7 @@ fn invalid_blocks() {
                     NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
                         assert_eq!(header.inner_lite.height, 1);
                         assert_eq!(
-                            header.inner_rest.prev_state_root,
+                            header.inner_lite.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
                         assert_eq!(*approval_message, None);
@@ -329,7 +329,7 @@ fn invalid_blocks() {
                 CryptoHash::default(),
                 CryptoHash::default(),
             );
-            block.header.inner_rest.prev_state_root = hash(&[1]);
+            block.header.inner_lite.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
