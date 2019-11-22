@@ -5,14 +5,13 @@ if [[ -z "${GITLAB_CI}" ]]; then
   exit 1
 fi
 
-for file in `find target/debug -mindepth 1 -maxdepth 1 -type f \
-  ! -name 'near' \
+ for file in `find target/debug/deps/ \  ! -name 'near' \
   ! -name 'near-*' \
   ! -name '*.so' \
   ! -name 'loadtester-*' \
   `
 do
-  if [ -x $file ]; then
+  if [ -f $file ] && [ -x $file ]; then
     # codecov script cannot follow symlinks, so place here and mv it to target
     mkdir -p "target2/cov/$(basename $file)"
     kcov --include-pattern=nearcore --verify "target2/cov/$(basename $file)" "$file"
