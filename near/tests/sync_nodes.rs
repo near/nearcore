@@ -30,7 +30,7 @@ fn add_blocks(
 ) -> Vec<Block> {
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
-        let epoch_id = match prev.header.inner.height + 1 {
+        let epoch_id = match prev.header.inner_lite.height + 1 {
             height if height <= epoch_length => EpochId::default(),
             height => {
                 EpochId(blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
@@ -38,7 +38,7 @@ fn add_blocks(
         };
         let block = Block::produce(
             &prev.header,
-            prev.header.inner.height + 1,
+            prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
             epoch_id,
             vec![],

@@ -22,7 +22,7 @@ fn challenges_new_head_prev() {
 
     // The block to be added below after we invalidated fourth block.
     let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
-    assert_eq!(last_block.header.inner.height, 5);
+    assert_eq!(last_block.header.inner_lite.height, 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
     let challenger_block = Block::empty(&prev, &*signer);
@@ -33,7 +33,7 @@ fn challenges_new_head_prev() {
         .unwrap();
 
     // At this point the challenger block is not on canonical chain
-    assert_eq!(chain.head_header().unwrap().inner.height, 5);
+    assert_eq!(chain.head_header().unwrap().inner_lite.height, 5);
 
     // Challenge fourth block. The third block and the challenger block have the same weight, the
     //   current logic will choose the third block.

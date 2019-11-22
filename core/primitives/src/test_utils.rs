@@ -139,11 +139,11 @@ impl Block {
     }
 
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
-        Self::empty_with_epoch(prev, height, prev.header.inner.epoch_id.clone(), signer)
+        Self::empty_with_epoch(prev, height, prev.header.inner_lite.epoch_id.clone(), signer)
     }
 
     pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
-        Self::empty_with_height(prev, prev.header.inner.height + 1, signer)
+        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.

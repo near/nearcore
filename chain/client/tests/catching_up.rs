@@ -156,7 +156,7 @@ mod tests {
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height <= send);
+                                assert!(block.header.inner_lite.height <= send);
                                 // This tx is rather fragile, specifically it's important that
                                 //   1. the `from` and `to` account are not in the same shard;
                                 //   2. ideally the producer of the chunk at height 3 for the shard
@@ -166,7 +166,7 @@ mod tests {
                                 //      for height 1, because such block producer will produce
                                 //      the chunk for height 2 right away, before we manage to send
                                 //      the transaction.
-                                if block.header.inner.height == send {
+                                if block.header.inner_lite.height == send {
                                     println!(
                                         "From shard: {}, to shard: {}",
                                         source_shard_id, destination_shard_id,
@@ -178,7 +178,7 @@ mod tests {
                                             account_to.clone(),
                                             111,
                                             1,
-                                            block.header.inner.prev_hash,
+                                            block.header.prev_hash,
                                         );
                                     }
                                     *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
@@ -188,8 +188,8 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForSecondBlock => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height <= send + 1);
-                                if block.header.inner.height == send + 1 {
+                                assert!(block.header.inner_lite.height <= send + 1);
+                                if block.header.inner_lite.height == send + 1 {
                                     *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
@@ -197,9 +197,9 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= send + 1);
-                                assert!(block.header.inner.height <= wait_till);
-                                if block.header.inner.height == wait_till {
+                                assert!(block.header.inner_lite.height >= send + 1);
+                                assert!(block.header.inner_lite.height <= wait_till);
+                                if block.header.inner_lite.height == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -278,12 +278,12 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForValidate => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= wait_till);
-                                assert!(block.header.inner.height <= wait_till + 20);
-                                if block.header.inner.height == wait_till + 20 {
+                                assert!(block.header.inner_lite.height >= wait_till);
+                                assert!(block.header.inner_lite.height <= wait_till + 20);
+                                if block.header.inner_lite.height == wait_till + 20 {
                                     System::current().stop();
                                 }
-                                if block.header.inner.height == wait_till + 10 {
+                                if block.header.inner_lite.height == wait_till + 10 {
                                     for i in 0..16 {
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
@@ -423,16 +423,16 @@ mod tests {
                     match *phase {
                         RandomSinglePartPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.inner.height, 1);
+                                assert_eq!(block.header.inner_lite.height, 1);
                                 *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
                             }
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 2);
-                                assert!(block.header.inner.height <= height);
+                                assert!(block.header.inner_lite.height >= 2);
+                                assert!(block.header.inner_lite.height <= height);
                                 let mut tx_count = 0;
-                                if block.header.inner.height == height {
+                                if block.header.inner_lite.height == height {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             let mut amount =
@@ -457,7 +457,7 @@ mod tests {
                                                     validator2.to_string(),
                                                     amount,
                                                     (12345 + tx_count) as u64,
-                                                    block.header.inner.prev_hash,
+                                                    block.header.prev_hash,
                                                 );
                                             }
                                             tx_count += 1;
@@ -470,10 +470,10 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForSixEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= height);
-                                assert!(block.header.inner.height <= 32);
-                                if block.header.inner.height >= 26 {
-                                    println!("BLOCK HEIGHT {:?}", block.header.inner.height);
+                                assert!(block.header.inner_lite.height >= height);
+                                assert!(block.header.inner_lite.height <= 32);
+                                if block.header.inner_lite.height >= 26 {
+                                    println!("BLOCK HEIGHT {:?}", block.header.inner_lite.height);
                                     for i in 0..16 {
                                         for j in 0..16 {
                                             let amounts1 = amounts.clone();
@@ -507,7 +507,7 @@ mod tests {
                                         }
                                     }
                                 }
-                                if block.header.inner.height == 32 {
+                                if block.header.inner_lite.height == 32 {
                                     println!(
                                         "SEEN HEIGHTS SAME BLOCK {:?}",
                                         seen_heights_same_block.len()
@@ -629,10 +629,10 @@ mod tests {
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
-                        check_height(block.hash(), block.header.inner.height);
-                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
+                        check_height(block.hash(), block.header.inner_lite.height);
+                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
 
-                        if block.header.inner.height >= 25 {
+                        if block.header.inner_lite.height >= 25 {
                             System::current().stop();
                         }
                     }
