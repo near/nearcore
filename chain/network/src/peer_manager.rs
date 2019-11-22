@@ -98,7 +98,7 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let peer_store = PeerStore::new(store, &config.boot_nodes)?;
+        let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
 
         let me = config.public_key.clone().into();
@@ -109,7 +109,7 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(me),
+            routing_table: RoutingTable::new(me, store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
         })
@@ -165,7 +165,7 @@ impl PeerManagerActor {
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.
         let known_edges = self.routing_table.get_edges();
-        let known_accounts = self.routing_table.get_accounts();
+        let known_accounts = self.routing_table.get_announce_accounts();
         let wait_for_sync = 1;
 
         // Start syncing network point of view. Wait until both parties are connected before start
@@ -574,11 +574,11 @@ impl PeerManagerActor {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 near_metrics::inc_counter(&metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT);
                 debug!(target: "network", "{:?} Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
-                      self.config.account_id,
-                      account_id,
-                      find_route_error,
-                      self.routing_table.account_peers.keys(),
-                      msg,
+                       self.config.account_id,
+                       account_id,
+                       find_route_error,
+                       self.routing_table.get_accounts_keys(),
+                       msg,
                 );
                 return;
             }
@@ -679,9 +679,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::FetchInfo => {
                 let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
 
-                let known_producers =
-                    self.routing_table.account_peers.keys().cloned().collect::<Vec<_>>();
-
                 NetworkResponses::Info(NetworkInfo {
                     active_peers: self
                         .active_peers
@@ -693,7 +690,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     most_weight_peers: self.most_weight_peers(),
                     sent_bytes_per_sec,
                     received_bytes_per_sec,
-                    known_producers,
+                    known_producers: self.routing_table.get_accounts_keys(),
                 })
             }
             NetworkRequests::Block { block } => {
@@ -831,7 +828,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     .into_iter()
                     .filter_map(|announce_account| {
                         if let Some(current_announce_account) =
-                            self.routing_table.account_peers.get(&announce_account.account_id)
+                            self.routing_table.get_announce(&announce_account.account_id)
                         {
                             if announce_account.epoch_id == current_announce_account.epoch_id {
                                 None
