@@ -80,7 +80,7 @@ while cur_height < TIMEOUT:
         exit(0)
     time.sleep(0.5)
 
-assert(False, "timed out waiting for forks to resolve")
+assert False, "timed out waiting for forks to resolve"
 
 
 
