@@ -1,4 +1,4 @@
-a smart contract written in AssemblyScript that can be used to make
+A smart contract written in AssemblyScript that can be used to make
 sure near runtime is compatible with AssemblyScript smart contracts.
 
 # Pre-requisites
