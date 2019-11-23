@@ -37,7 +37,6 @@ use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
-    ValidatorSignatureVerificationResult,
 };
 use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
 
@@ -2446,14 +2445,8 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // First I/O cost, delay as much as possible.
-        match self.runtime_adapter.verify_header_signature(header) {
-            ValidatorSignatureVerificationResult::Valid => {}
-            ValidatorSignatureVerificationResult::Invalid => {
-                return Err(ErrorKind::InvalidSignature.into());
-            }
-            ValidatorSignatureVerificationResult::UnknownEpoch => {
-                return Err(ErrorKind::EpochOutOfBounds.into());
-            }
+        if !self.runtime_adapter.verify_header_signature(header)? {
+            return Err(ErrorKind::InvalidSignature.into());
         }
 
         // Check we don't know a block with given height already.
