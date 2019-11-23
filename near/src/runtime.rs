@@ -10,8 +10,6 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
-use crate::config::GenesisConfig;
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
@@ -416,7 +414,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let block_producer = epoch_manager
             .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
-        let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_hash) {
+        let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
             Ok(slashed) => slashed,
             Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
         };
