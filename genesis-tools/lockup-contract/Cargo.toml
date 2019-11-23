@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { git = "https://github.com/nearprotocol/json", rev = "1f5779f3b0bd3d2a4b0b975abc46f3d3fe873331", features = ["no_floats"] }
-near-bindgen = "0.3.5"
+near-bindgen = "0.3.7"
 borsh = "0.2.9"
 wee_alloc = "0.4.5"
 

@@ -1,10 +1,15 @@
 //! A smart contract that allows lockup of a smart contract.
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use key_management::{KeyType, PublicKey};
+use near_bindgen::collections::Map;
 use near_bindgen::{env, near_bindgen, Promise};
-use std::collections::{HashMap, HashSet};
 
 mod key_management;
+#[cfg(not(feature = "vesting"))]
+mod lockup_transfer_rules;
+#[cfg(feature = "vesting")]
+mod lockup_vesting_transfer_rules;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -14,7 +19,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 pub struct LockupContract {
     lockup_amount: u128,
     lockup_timestamp: u64,
-    keys: HashMap<KeyType, HashSet<PublicKey>>,
+    keys: Map<PublicKey, KeyType>,
     /// Whether this account is disallowed to stake anymore.
     permanently_unstaked: bool,
     #[cfg(feature = "vesting")]
@@ -52,7 +57,7 @@ impl LockupContract {
     pub fn new(
         lockup_amount: u128,
         lockup_timestamp: u64,
-        initial_keys: Vec<(KeyType, PublicKey)>,
+        initial_keys: Vec<(PublicKey, KeyType)>,
     ) -> Self {
         let mut res = Self {
             lockup_amount,
@@ -60,9 +65,10 @@ impl LockupContract {
             keys: Default::default(),
             permanently_unstaked: false,
         };
+        // It does not make sense to have a lockup contract if the unlocking is in the past.
         Self::check_timestamps_future(&[lockup_timestamp]);
-        for (key_type, key) in initial_keys {
-            res.add_key_no_check(key_type, key);
+        for (key, key_type) in initial_keys {
+            res.add_key_no_check(key, key_type);
         }
         res
     }
@@ -75,7 +81,7 @@ impl LockupContract {
         vesting_start_timestamp: u64,
         vesting_cliff_timestamp: u64,
         vesting_end_timestamp: u64,
-        initial_keys: Vec<(KeyType, PublicKey)>,
+        initial_keys: Vec<(PublicKey, KeyType)>,
     ) -> Self {
         let mut res = Self {
             lockup_amount,
@@ -86,12 +92,9 @@ impl LockupContract {
             keys: Default::default(),
             permanently_unstaked: false,
         };
-        Self::check_timestamps_future(&[
-            lockup_timestamp,
-            vesting_start_timestamp,
-            vesting_cliff_timestamp,
-            vesting_end_timestamp,
-        ]);
+        // It is okay for vesting start and vesting cliff to be in the past, but it does not
+        // makes sense to have lockup or vesting end in the future.
+        Self::check_timestamps_future(&[lockup_timestamp, vesting_end_timestamp]);
         // The cliff should be between start and end of the vesting, potentially inclusive.
         Self::check_timestamp_ordering(&[
             vesting_start_timestamp,
@@ -100,8 +103,8 @@ impl LockupContract {
         ]);
         // The lockup should be after start of the vesting, potentially inclusive.
         Self::check_timestamp_ordering(&[vesting_start_timestamp, lockup_timestamp]);
-        for (key_type, key) in initial_keys {
-            res.add_key_no_check(key_type, key);
+        for (key, key_type) in initial_keys {
+            res.add_key_no_check(key, key_type);
         }
         res
     }
@@ -109,46 +112,31 @@ impl LockupContract {
     /// Get the key type of the key used to sign the transaction.
     fn signer_key_type(&self) -> KeyType {
         let signer_key = env::signer_account_pk();
-        for (key_type, keys) in &self.keys {
-            if keys.contains(&signer_key) {
-                return *key_type;
-            }
-        }
-        panic!("Key of the signer was not recorded.")
+        self.get_key_type(&signer_key).expect("Key of the signer was not recorded.")
     }
 
     /// Get the key type of the given key.
     fn get_key_type(&self, key: &PublicKey) -> Option<KeyType> {
-        self.keys
-            .iter()
-            .find_map(|(key_type, keys)| if keys.contains(key) { Some(*key_type) } else { None })
+        self.keys.get(key)
     }
 
     /// Adds the key both to the internal collection and through promise without
     /// checking the permissions of the signer.
-    fn add_key_no_check(&mut self, key_type: KeyType, key: PublicKey) {
-        self.keys.entry(key_type).or_default().insert(key.clone());
-        match key_type {
-            KeyType::Full => {
-                let account_id = env::current_account_id();
-                Promise::new(account_id).add_full_access_key(key);
-            }
-            key_type @ _ => {
-                let account_id = env::current_account_id();
-                Promise::new(account_id.clone()).add_access_key(
-                    key,
-                    0,
-                    account_id,
-                    key_type.allowed_methods().to_vec(),
-                );
-            }
-        }
+    fn add_key_no_check(&mut self, key: PublicKey, key_type: KeyType) {
+        self.keys.insert(&key, &key_type);
+        let account_id = env::current_account_id();
+        Promise::new(account_id.clone()).add_access_key(
+            key,
+            0,
+            account_id,
+            key_type.allowed_methods().to_vec(),
+        );
     }
 
     /// Add the new access key. The signer access key should have permission to do it.
-    pub fn add_key(&mut self, key_type: KeyType, key: PublicKey) {
+    pub fn add_key(&mut self, key: PublicKey, key_type: KeyType) {
         self.signer_key_type().check_can_add_remove(&key_type);
-        self.add_key_no_check(key_type, key);
+        self.add_key_no_check(key, key_type);
     }
 
     /// Remove a known access key. The signer access key should have enough permission to do it.
@@ -161,48 +149,44 @@ impl LockupContract {
     /// Create a staking transaction on behalf of this account.
     pub fn stake(&self, amount: u128, public_key: PublicKey) {
         assert!(!self.permanently_unstaked, "The account was permanently unstaked.");
-        assert!(amount <= env::account_balance(), "Not enough balance to stake.");
+        assert!(
+            amount <= env::account_balance() + env::account_locked_balance(),
+            "Not enough balance to stake."
+        );
         Promise::new(env::current_account_id()).stake(amount, public_key);
     }
 
-    /// Get the amount of liquid tokens that this account has.
+    /// Get the amount of tokens that can be transferred.
     #[cfg(not(feature = "vesting"))]
-    pub fn get_liquid(&self) -> u128 {
-        if env::block_timestamp() >= self.lockup_timestamp {
-            env::account_balance()
-        } else {
-            env::account_balance() - self.lockup_amount
-        }
+    pub fn get_transferrable(&self) -> u128 {
+        lockup_transfer_rules::get_transferrable_amount(self.lockup_amount, self.lockup_timestamp)
     }
 
     /// Get the amount of tokens that were vested.
     #[cfg(feature = "vesting")]
-    pub fn get_vested(&self) -> u128 {
-        let block_timestamp = env::block_timestamp();
-        if block_timestamp <= self.vesting_cliff_timestamp {
-            0
-        } else if block_timestamp >= self.vesting_end_timestamp {
-            self.lockup_amount
-        } else {
-            (block_timestamp - self.vesting_start_timestamp) as u128 * self.lockup_amount
-                / (self.vesting_end_timestamp - self.vesting_start_timestamp) as u128
-        }
+    pub fn get_unvested(&self) -> u128 {
+        lockup_vesting_transfer_rules::get_unvested_amount(
+            self.vesting_start_timestamp,
+            self.vesting_cliff_timestamp,
+            self.vesting_end_timestamp,
+            self.lockup_amount,
+        )
     }
 
-    /// Get the amount of liquid tokens that this account has. Takes vesting into account.
+    /// Get the amount of transferrable tokens that this account has. Takes vesting into account.
     #[cfg(feature = "vesting")]
-    pub fn get_liquid(&self) -> u128 {
-        let vested_tokens = self.get_vested();
-        if env::block_timestamp() >= self.lockup_timestamp {
-            env::account_balance() - self.lockup_amount + vested_tokens
-        } else {
-            env::account_balance() - self.lockup_amount
-        }
+    pub fn get_transferrable(&self) -> u128 {
+        let unvested = self.get_unvested();
+        lockup_vesting_transfer_rules::get_transferrable_amount(
+            self.lockup_amount,
+            self.lockup_timestamp,
+            unvested,
+        )
     }
 
-    /// Transfer liquid amount to another account.
+    /// Transfer amount to another account.
     pub fn transfer(&self, amount: u128, account: String) {
-        assert!(amount <= self.get_liquid(), "Not enough liquid tokens to transfer.");
+        assert!(amount <= self.get_transferrable(), "Not enough transferrable tokens to transfer.");
         Promise::new(account).transfer(amount);
     }
 
@@ -217,9 +201,8 @@ impl LockupContract {
     /// Stop vesting and transfer all unvested tokens to a beneficiary.
     #[cfg(feature = "vesting")]
     pub fn terminate(&mut self, beneficiary_id: String) {
-        let vested = self.get_vested();
-        let unvested = self.lockup_amount - vested;
-        self.lockup_amount = vested;
+        let unvested = self.get_unvested();
+        self.lockup_amount -= unvested;
         self.vesting_end_timestamp = env::block_timestamp();
         Promise::new(beneficiary_id).transfer(unvested);
     }
