@@ -331,6 +331,8 @@ fn invalid_blocks() {
                 CryptoHash::default(),
             );
             block.header.inner_lite.prev_state_root = hash(&[1]);
+            block.header.init();
+            block.header.signature = signer.sign(block.header.hash.as_ref());
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
