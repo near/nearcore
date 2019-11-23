@@ -10,10 +10,10 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
-use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
+use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
+use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
@@ -394,50 +394,34 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult {
+    ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
-        {
+        if let Some(validator) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
             let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
                 Ok(slashed) => slashed,
-                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
+                Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
             };
             if slashed.contains(&validator.account_id) {
-                return ValidatorSignatureVerificationResult::Invalid;
+                return Ok(false);
             }
-            if signature.verify(data, &validator.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
+            Ok(signature.verify(data, &validator.public_key))
         } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
+            Err(EpochError::EpochOutOfBounds.into())
         }
     }
 
-    fn verify_header_signature(
-        &self,
-        header: &BlockHeader,
-    ) -> ValidatorSignatureVerificationResult {
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(block_producer) = epoch_manager
-            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)
-        {
-            let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
-                Ok(slashed) => slashed,
-                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
-            };
-            if slashed.contains(&block_producer.account_id) {
-                return ValidatorSignatureVerificationResult::Invalid;
-            }
-            if header.signature.verify(header.hash.as_ref(), &block_producer.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
-        } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
+        let block_producer = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
+        let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
+            Ok(slashed) => slashed,
+            Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
+        };
+        if slashed.contains(&block_producer.account_id) {
+            return Ok(false);
         }
+        Ok(header.signature.verify(header.hash.as_ref(), &block_producer.public_key))
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -1100,7 +1084,6 @@ mod test {
 
     use tempdir::TempDir;
 
-    use near_chain::types::ValidatorSignatureVerificationResult;
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -1683,16 +1666,16 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
-        assert_eq!(
-            ValidatorSignatureVerificationResult::Valid,
-            env.runtime.verify_validator_signature(
+        assert!(env
+            .runtime
+            .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
                 &validators[0],
                 &data,
                 &signature
             )
-        );
+            .unwrap());
     }
 
     #[test]
@@ -1990,16 +1973,16 @@ mod test {
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
-        assert_eq!(
-            env.runtime.verify_validator_signature(
+        assert!(!env
+            .runtime
+            .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
                 &"test2".to_string(),
                 &msg,
                 &signature,
-            ),
-            ValidatorSignatureVerificationResult::Invalid
-        );
+            )
+            .unwrap());
         // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);

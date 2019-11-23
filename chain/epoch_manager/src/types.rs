@@ -4,6 +4,7 @@ use std::fmt;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
@@ -203,6 +204,7 @@ impl From<EpochError> for near_chain::Error {
     fn from(error: EpochError) -> Self {
         match error {
             EpochError::EpochOutOfBounds => near_chain::ErrorKind::EpochOutOfBounds,
+            EpochError::MissingBlock(h) => near_chain::ErrorKind::DBNotFoundErr(to_base(&h)),
             err => near_chain::ErrorKind::ValidatorError(err.to_string()),
         }
         .into()

@@ -13,9 +13,7 @@ use cached::Cached;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{
-    AcceptedBlock, ShardStateSyncResponse, ValidatorSignatureVerificationResult,
-};
+use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
@@ -47,12 +45,6 @@ use std::cmp::Ordering;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
-
-enum AccountAnnounceVerificationResult {
-    Valid,
-    UnknownEpoch,
-    Invalid(ReasonForBan),
-}
 
 pub struct ClientActor {
     client: Client,
@@ -130,28 +122,20 @@ impl ClientActor {
     fn check_signature_account_announce(
         &self,
         announce_account: &AnnounceAccount,
-    ) -> AccountAnnounceVerificationResult {
+    ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = unwrap_or_return!(
-            self.client.chain.head(),
-            AccountAnnounceVerificationResult::UnknownEpoch
-        );
+        let head = self.client.chain.head()?;
 
-        match self.client.runtime_adapter.verify_validator_signature(
-            &announce_account.epoch_id,
-            &head.last_block_hash,
-            &announce_account.account_id,
-            announce_hash.as_ref(),
-            &announce_account.signature,
-        ) {
-            ValidatorSignatureVerificationResult::Valid => AccountAnnounceVerificationResult::Valid,
-            ValidatorSignatureVerificationResult::Invalid => {
-                AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature)
-            }
-            ValidatorSignatureVerificationResult::UnknownEpoch => {
-                AccountAnnounceVerificationResult::UnknownEpoch
-            }
-        }
+        self.client
+            .runtime_adapter
+            .verify_validator_signature(
+                &announce_account.epoch_id,
+                &head.last_block_hash,
+                &announce_account.account_id,
+                announce_hash.as_ref(),
+                &announce_account.signature,
+            )
+            .map_err(|e| e.into())
     }
 }
 
@@ -452,15 +436,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
 
                     match self.check_signature_account_announce(&announce_account) {
-                        AccountAnnounceVerificationResult::Invalid(ban_reason) => {
-                            return NetworkClientResponses::Ban { ban_reason };
-                        }
-                        AccountAnnounceVerificationResult::Valid => {
+                        Ok(true) => {
                             filtered_announce_accounts.push(announce_account);
                         }
+                        Ok(false) => {
+                            return NetworkClientResponses::Ban {
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            };
+                        }
                         // Filter this account
-                        AccountAnnounceVerificationResult::UnknownEpoch => {
-                            info!(target: "client", "{:?} failed to validate account announce signature: unknown epoch in {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), announce_account);
+                        Err(e) => {
+                            info!(target: "client", "{:?} failed to validate account announce signature: {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), e);
                         }
                     }
                 }
