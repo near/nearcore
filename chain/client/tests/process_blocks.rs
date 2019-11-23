@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
+use chrono::Utc;
 use futures::{future, Future};
 
 use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
@@ -647,5 +648,48 @@ fn test_invalid_block_height() {
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
+    }
+}
+
+#[test]
+fn test_block_time_in_the_future() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let mut b1 = env.clients[0].produce_block(1, Duration::from_millis(100)).unwrap().unwrap();
+    b1.header.inner_lite.timestamp = to_timestamp(Utc::now() + chrono::Duration::seconds(121));
+
+    let (_, result) = env.clients[0].process_block(b1.clone(), Provenance::NONE);
+    match result {
+        Err(e) => match e.kind() {
+            ErrorKind::Orphan => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => panic!("Block should be orphaned"),
+    }
+
+    std::thread::sleep(Duration::from_secs(2));
+    let tip = env.clients[0]
+        .chain
+        .check_orphans(&Some("test0".to_string()), genesis_block.hash(), |_| {}, |_| {}, |_| {})
+        .unwrap();
+    assert_eq!(tip.height, 1);
+}
+
+#[test]
+fn test_invalid_block_timestamp_in_the_past() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let b1 = env.clients[0].produce_block(1, Duration::from_millis(100)).unwrap().unwrap();
+    let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
+
+    let mut b2 = env.clients[0].produce_block(2, Duration::from_millis(100)).unwrap().unwrap();
+    b2.header.inner_lite.timestamp = b1.header.inner_lite.timestamp;
+
+    let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
+    match result {
+        Err(e) => match e.kind() {
+            ErrorKind::InvalidBlockPastTime(_, _) => {}
+            _ => assert!(false, "wrong error: {}", e),
+        },
+        _ => panic!("Invalid block is successfully processed"),
     }
 }

@@ -7,7 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, error, info};
 
-use near_primitives::block::{genesis_chunks, Approval};
+use near_primitives::block::{genesis_chunks, Approval, ACCEPTABLE_TIME_FROM_LAST_TIMESTAMP};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
 };
@@ -48,7 +48,7 @@ pub const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
-const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
+const ACCEPTABLE_FUTURE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 enum ApplyChunksMode {
     ThisEpoch,
@@ -2441,8 +2441,8 @@ impl<'a> ChainUpdate<'a> {
         F: FnMut(ChallengeBody) -> (),
     {
         // Refuse blocks from the too distant future.
-        if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
-            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
+        if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_FUTURE_TIME_DIFFERENCE) {
+            return Err(ErrorKind::Orphan.into());
         }
 
         // First I/O cost, delay as much as possible.
@@ -2492,7 +2492,10 @@ impl<'a> ChainUpdate<'a> {
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
-        if header.inner_lite.timestamp <= prev_header.inner_lite.timestamp {
+        if header.timestamp()
+            < prev_header.timestamp()
+                + chrono::Duration::milliseconds(ACCEPTABLE_TIME_FROM_LAST_TIMESTAMP)
+        {
             return Err(ErrorKind::InvalidBlockPastTime(
                 prev_header.timestamp(),
                 header.timestamp(),

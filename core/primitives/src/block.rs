@@ -13,6 +13,9 @@ use crate::types::{
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::Ordering;
 
+/// Refuse blocks less than this many milliseconds from last block timestamp.
+pub const ACCEPTABLE_TIME_FROM_LAST_TIMESTAMP: i64 = 300;
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block since the genesis block (height 0).
@@ -433,9 +436,12 @@ impl Block {
 
         let num_approvals: u128 = approvals.len() as u128;
         let total_weight = prev.inner_rest.total_weight.next(num_approvals);
+        let least_acceptable_timestamp = to_timestamp(
+            from_timestamp(prev.inner_lite.timestamp)
+                + chrono::Duration::milliseconds(ACCEPTABLE_TIME_FROM_LAST_TIMESTAMP),
+        );
         let now = to_timestamp(Utc::now());
-        let time =
-            if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
+        let time = if now < least_acceptable_timestamp { least_acceptable_timestamp } else { now };
 
         Block {
             header: BlockHeader::new(

@@ -28,9 +28,6 @@ pub enum ErrorKind {
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
-    /// Block time is from too much in the future.
-    #[fail(display = "Invalid Block Time: Too far in the future: {}", _0)]
-    InvalidBlockFutureTime(DateTime<Utc>),
     /// Block height is invalid (not previous + 1).
     #[fail(display = "Invalid Block Height")]
     InvalidBlockHeight,
@@ -194,7 +191,6 @@ impl Error {
             | ErrorKind::StorageError
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
-            | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
