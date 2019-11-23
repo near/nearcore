@@ -134,10 +134,10 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner.height == chunk_header.height_included {
+            if block.header.inner_lite.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.inner.prev_hash,
+                    &block.header.prev_hash,
                     shard_id,
                     true,
                 ) {
@@ -157,10 +157,10 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner.height == chunk_header.height_included {
+            if block.header.inner_lite.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.inner.prev_hash,
+                    &block.header.prev_hash,
                     shard_id,
                     false,
                 ) {
@@ -210,7 +210,7 @@ impl Client {
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
-        let prev_prev_hash = prev.inner.prev_hash;
+        let prev_prev_hash = prev.prev_hash;
 
         debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
@@ -238,10 +238,10 @@ impl Client {
         let total_approvals =
             total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
+        let num_chunks = self.shards_mgr.num_chunks_for_block(prev_hash);
         if head.height > 0
             && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
-            && (new_chunks.len() as ShardId) < self.runtime_adapter.num_shards()
+            && num_chunks < self.runtime_adapter.num_shards()
             && elapsed_since_last_block < self.config.max_block_production_delay
         {
             // Will retry after a `block_production_tracking_delay`.
@@ -249,6 +249,7 @@ impl Client {
             return Ok(None);
         }
 
+        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -300,7 +301,7 @@ impl Client {
         let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
         } else {
-            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner.total_weight
+            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
         };
 
         // Get block extra from previous block.
@@ -308,7 +309,7 @@ impl Client {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        assert!(score >= prev_block.header.inner.score);
+        assert!(score >= prev_block.header.inner_rest.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -377,7 +378,7 @@ impl Client {
         }
 
         if self.runtime_adapter.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.inner.prev_hash;
+            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.prev_hash;
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
                 debug!(target: "client", "Produce chunk: prev block is not caught up");
@@ -492,7 +493,7 @@ impl Client {
                 .prepare_transactions(
                     next_height,
                     prev_block_timestamp,
-                    prev_block_header.inner.gas_price,
+                    prev_block_header.inner_rest.gas_price,
                     chunk_extra.gas_limit,
                     chunk_extra.state_root.clone(),
                     config.block_expected_weight as usize,
@@ -670,7 +671,7 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_largest_seen_height(block.header.inner.height);
+            self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
         }
 
         if let Some(bp) = self.block_producer.clone() {
@@ -698,22 +699,22 @@ impl Client {
                     let mut to_reintroduce = vec![];
 
                     while remove_head.hash() != reintroduce_head.hash() {
-                        while remove_head.inner.height > reintroduce_head.inner.height {
+                        while remove_head.inner_lite.height > reintroduce_head.inner_lite.height {
                             to_remove.push(remove_head.hash());
                             remove_head = self
                                 .chain
-                                .get_block_header(&remove_head.inner.prev_hash)
+                                .get_block_header(&remove_head.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
-                        while reintroduce_head.inner.height > remove_head.inner.height
-                            || reintroduce_head.inner.height == remove_head.inner.height
+                        while reintroduce_head.inner_lite.height > remove_head.inner_lite.height
+                            || reintroduce_head.inner_lite.height == remove_head.inner_lite.height
                                 && reintroduce_head.hash() != remove_head.hash()
                         {
                             to_reintroduce.push(reintroduce_head.hash());
                             reintroduce_head = self
                                 .chain
-                                .get_block_header(&reintroduce_head.inner.prev_hash)
+                                .get_block_header(&reintroduce_head.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
@@ -744,7 +745,7 @@ impl Client {
                         .unwrap();
                     let chunk_proposer = self
                         .runtime_adapter
-                        .get_chunk_producer(&epoch_id, block.header.inner.height + 1, shard_id)
+                        .get_chunk_producer(&epoch_id, block.header.inner_lite.height + 1, shard_id)
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
@@ -752,8 +753,8 @@ impl Client {
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
-                            block.header.inner.height + 1,
-                            block.header.inner.timestamp,
+                            block.header.inner_lite.height + 1,
+                            block.header.inner_lite.timestamp,
                             shard_id,
                         ) {
                             Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
@@ -804,13 +805,13 @@ impl Client {
         let epoch_id =
             self.runtime_adapter.get_epoch_id_from_prev_block(&block_header.hash()).ok()?;
         let next_block_producer_account =
-            self.runtime_adapter.get_block_producer(&epoch_id, block_header.inner.height + 1);
+            self.runtime_adapter.get_block_producer(&epoch_id, block_header.inner_lite.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if let Ok(validators) = self
                 .runtime_adapter
-                .get_epoch_block_producers(&block_header.inner.epoch_id, &block_header.hash())
+                .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
             {
                 if let Some((_, is_slashed)) =
                     validators.into_iter().find(|v| v.0 == block_producer.account_id)
@@ -871,7 +872,7 @@ impl Client {
         // If given account is not current block proposer.
         let position = match self
             .runtime_adapter
-            .get_epoch_block_producers(&header.inner.epoch_id, &parent_hash)
+            .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
                 let position = validators.iter().position(|x| &(x.0) == account_id);
@@ -892,8 +893,8 @@ impl Client {
         };
         // Check signature is correct for given validator.
         match self.runtime_adapter.verify_validator_signature(
-            &header.inner.epoch_id,
-            &header.inner.prev_hash,
+            &header.inner_lite.epoch_id,
+            &header.prev_hash,
             account_id,
             Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
             signature,
@@ -1012,8 +1013,8 @@ impl Client {
                 let state_root = chunk_extra.state_root.clone();
                 if let Ok(response) = self.runtime_adapter.query(
                     &state_root,
-                    header.inner.height,
-                    header.inner.timestamp,
+                    header.inner_lite.height,
+                    header.inner_lite.timestamp,
                     &header.hash,
                     path_parts.clone(),
                     &data,
@@ -1074,7 +1075,7 @@ impl Client {
                 self.chain.get_block_header(&head.last_block_hash),
                 NetworkClientResponses::NoResponse
             )
-            .inner
+            .inner_rest
             .gas_price;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
                 Ok(chunk_extra) => chunk_extra.state_root.clone(),
@@ -1088,7 +1089,7 @@ impl Client {
                 .runtime_adapter
                 .validate_tx(
                     head.height + 1,
-                    cur_block_header.inner.timestamp,
+                    cur_block_header.inner_lite.timestamp,
                     gas_price,
                     state_root,
                     &tx,

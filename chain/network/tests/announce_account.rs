@@ -18,9 +18,7 @@ use near_network::{
     NetworkResponses, PeerManagerActor,
 };
 use near_primitives::block::{GenesisId, WeightAndScore};
-use near_primitives::hash::hash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::EpochId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use testlib::test_helpers::heavy_test;
@@ -180,7 +178,9 @@ pub fn make_peer_manager(
                 if !accounts.is_empty() {
                     counter1.fetch_add(1, Ordering::SeqCst);
                 }
-                Box::new(Some(NetworkClientResponses::AnnounceAccount(accounts.clone())))
+                Box::new(Some(NetworkClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
             }
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
@@ -339,25 +339,25 @@ fn test_infinite_loop() {
     System::run(|| {
         let (port1, port2) = (open_port(), open_port());
         let (pm1, peer_id1, counter1) = make_peer_manager("test1", port1, vec![], 10);
-        let (pm2, _, counter2) = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
+        let (pm2, peer_id2, counter2) =
+            make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         let pm1 = pm1.start();
         let pm2 = pm2.start();
-        let peer_id = peer_id1.clone();
         let request1 = NetworkRequests::Sync {
-            peer_id: peer_id.clone(),
+            peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
                 account_id: "near".to_string(),
-                peer_id: peer_id.clone(),
+                peer_id: peer_id1.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),
             }),
         };
         let request2 = NetworkRequests::Sync {
-            peer_id: peer_id.clone(),
+            peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
                 account_id: "near".to_string(),
-                peer_id: peer_id.clone(),
-                epoch_id: EpochId(hash(&[1])),
+                peer_id: peer_id2.clone(),
+                epoch_id: Default::default(),
                 signature: Default::default(),
             }),
         };

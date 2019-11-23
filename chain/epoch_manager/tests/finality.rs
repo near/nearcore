@@ -30,16 +30,16 @@ mod tests {
             // unnecessarily complex. Using last `pre_commit` is sufficient to ensure that the `epoch_id`
             // of the next epoch will be the same for as long as the last committed block in the prev
             // epoch was the same.
-            EpochId(prev.header.inner.last_quorum_pre_commit)
+            EpochId(prev.header.inner_rest.last_quorum_pre_commit)
         } else {
-            prev.header.inner.epoch_id.clone()
+            prev.header.inner_lite.epoch_id.clone()
         };
 
         let mut block = Block::empty(prev, signer);
-        block.header.inner.approvals = approvals.clone();
-        block.header.inner.height = height;
-        block.header.inner.total_weight = (height as u128).into();
-        block.header.inner.epoch_id = epoch_id.clone();
+        block.header.inner_rest.approvals = approvals.clone();
+        block.header.inner_lite.height = height;
+        block.header.inner_rest.total_weight = (height as u128).into();
+        block.header.inner_lite.epoch_id = epoch_id.clone();
 
         let quorums = FinalityGadget::compute_quorums(
             prev.hash(),
@@ -52,15 +52,19 @@ mod tests {
         .unwrap()
         .clone();
 
-        block.header.inner.last_quorum_pre_vote = quorums.last_quorum_pre_vote;
-        block.header.inner.last_quorum_pre_commit = em
+        block.header.inner_rest.last_quorum_pre_vote = quorums.last_quorum_pre_vote;
+        block.header.inner_rest.last_quorum_pre_commit = em
             .push_final_block_back_if_needed(prev.hash(), quorums.last_quorum_pre_commit)
             .unwrap();
 
-        block.header.inner.score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
+        block.header.inner_rest.score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
         } else {
-            chain_store.get_block_header(&quorums.last_quorum_pre_vote).unwrap().inner.total_weight
+            chain_store
+                .get_block_header(&quorums.last_quorum_pre_vote)
+                .unwrap()
+                .inner_rest
+                .total_weight
         };
 
         block.header.init();
@@ -71,9 +75,9 @@ mod tests {
 
         record_block(
             em,
-            block.header.inner.prev_hash,
+            block.header.prev_hash,
             block.hash(),
-            block.header.inner.height,
+            block.header.inner_lite.height,
             vec![],
         );
 
@@ -89,14 +93,14 @@ mod tests {
             let header = chain.get_block_header(&hash).unwrap();
             println!(
                 "    {}: {} (epoch: {}, qv: {}, qc: {}), approvals: {:?}",
-                header.inner.height,
+                header.inner_lite.height,
                 header.hash(),
-                header.inner.epoch_id.0,
-                header.inner.last_quorum_pre_vote,
-                header.inner.last_quorum_pre_commit,
-                header.inner.approvals
+                header.inner_lite.epoch_id.0,
+                header.inner_rest.last_quorum_pre_vote,
+                header.inner_rest.last_quorum_pre_commit,
+                header.inner_rest.approvals
             );
-            hash = header.inner.prev_hash;
+            hash = header.prev_hash;
         }
     }
 
@@ -210,17 +214,20 @@ mod tests {
                     let mut all_blocks = vec![genesis_block.clone()];
                     record_block(
                         &mut em,
-                        genesis_block.header.inner.prev_hash,
+                        genesis_block.header.prev_hash,
                         genesis_block.hash(),
-                        genesis_block.header.inner.height,
+                        genesis_block.header.inner_lite.height,
                         vec![],
                     );
                     for _i in 0..complexity {
-                        let max_score =
-                            all_blocks.iter().map(|block| block.header.inner.score).max().unwrap();
+                        let max_score = all_blocks
+                            .iter()
+                            .map(|block| block.header.inner_rest.score)
+                            .max()
+                            .unwrap();
                         let random_max_score_block = all_blocks
                             .iter()
-                            .filter(|block| block.header.inner.score == max_score)
+                            .filter(|block| block.header.inner_rest.score == max_score)
                             .collect::<Vec<_>>()
                             .choose(&mut rand::thread_rng())
                             .unwrap()
@@ -242,7 +249,7 @@ mod tests {
                         let mut approvals = vec![];
 
                         let block_producers = epoch_to_bps
-                            .entry(prev_block.header.inner.epoch_id.0)
+                            .entry(prev_block.header.inner_lite.epoch_id.0)
                             .or_insert_with(|| {
                                 vec![block_producers1.clone(), block_producers2.clone()]
                                     .choose(&mut rand::thread_rng())
@@ -277,7 +284,6 @@ mod tests {
                                             .mut_store()
                                             .get_block_header(&prev_block_hash)
                                             .unwrap()
-                                            .inner
                                             .prev_hash;
                                     }
                                 }
@@ -311,26 +317,26 @@ mod tests {
                             last_approvals_entry.insert(block_producer.clone(), approval);
                             largest_weight.insert(
                                 block_producer.clone(),
-                                prev_block.header.inner.total_weight,
+                                prev_block.header.inner_rest.total_weight,
                             );
                             largest_score
-                                .insert(block_producer.clone(), prev_block.header.inner.score);
+                                .insert(block_producer.clone(), prev_block.header.inner_rest.score);
                         }
 
                         let new_block = create_block(
                             &mut em,
                             &prev_block,
-                            prev_block.header.inner.height + 1,
+                            prev_block.header.inner_lite.height + 1,
                             chain.mut_store(),
                             &*signer,
                             approvals,
                             total_block_producers,
                         );
 
-                        let final_block = new_block.header.inner.last_quorum_pre_commit;
+                        let final_block = new_block.header.inner_rest.last_quorum_pre_commit;
                         if final_block != CryptoHash::default() {
                             let new_final_block_height =
-                                chain.get_block_header(&final_block).unwrap().inner.height;
+                                chain.get_block_header(&final_block).unwrap().inner_lite.height;
                             if last_final_block_height != 0 {
                                 if new_final_block_height > last_final_block_height {
                                     check_safety(
@@ -363,8 +369,8 @@ mod tests {
                             }
                         }
 
-                        if new_block.header.inner.height > largest_height {
-                            largest_height = new_block.header.inner.height;
+                        if new_block.header.inner_lite.height > largest_height {
+                            largest_height = new_block.header.inner_lite.height;
                         }
 
                         last_approvals.insert(new_block.hash().clone(), last_approvals_entry);
