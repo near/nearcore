@@ -662,11 +662,8 @@ fn test_block_time_in_the_future() {
 
     let (_, result) = env.clients[0].process_block(b1.clone(), Provenance::NONE);
     match result {
-        Err(e) => match e.kind() {
-            ErrorKind::Orphan => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => panic!("Block should be orphaned"),
+        Err(e) if e.kind() == ErrorKind::Orphan => {}
+        _ => assert!(false, "wrong result: {:?}", result),
     }
 
     std::thread::sleep(Duration::from_secs(2));
