@@ -13,6 +13,8 @@ use crate::transaction::{
     TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockIndex, EpochId, Nonce};
+use crate::utils::to_timestamp;
+use chrono::{DateTime, Utc};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -144,6 +146,32 @@ impl Block {
 
     pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
+    }
+
+    pub fn empty_with_timestamp(
+        prev: &Block,
+        signer: &dyn Signer,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
+        Self::empty_with_height_and_timestamp(
+            prev,
+            prev.header.inner_lite.height + 1,
+            signer,
+            timestamp,
+        )
+    }
+
+    pub fn empty_with_height_and_timestamp(
+        prev: &Block,
+        height: BlockIndex,
+        signer: &dyn Signer,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
+        let mut block = Self::empty_with_height(prev, height, signer);
+        block.header.inner_lite.timestamp = to_timestamp(timestamp);
+        block.header.init();
+        block.header.signature = signer.sign(block.header.hash.as_ref());
+        block
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.

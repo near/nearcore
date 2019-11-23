@@ -1,3 +1,4 @@
+use chrono::Utc;
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
 use near_crypto::Signer;
@@ -138,20 +139,61 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(genesis, 1, &*signer);
-    let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    let b_1 = Block::empty_with_timestamp(
+        genesis,
+        &*signer,
+        Utc::now() + chrono::Duration::milliseconds(500),
+    );
+    let b_2 =
+        Block::empty_with_timestamp(&b_1, &*signer, Utc::now() + chrono::Duration::seconds(1));
+    let b_3 =
+        Block::empty_with_timestamp(&b_2, &*signer, Utc::now() + chrono::Duration::seconds(2));
 
-    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
-    let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
-    let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
-    let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
+    let c_1 = Block::empty(&genesis, &*signer);
+    let c_3 = Block::empty_with_height_and_timestamp(
+        &c_1,
+        3,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(1),
+    );
+    let c_4 = Block::empty_with_height_and_timestamp(
+        &c_3,
+        4,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(2),
+    );
+    let c_5 = Block::empty_with_height_and_timestamp(
+        &c_4,
+        5,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(3),
+    );
 
-    let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
-    let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
-    let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
+    let d_3 = Block::empty_with_height_and_timestamp(
+        &b_2,
+        3,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(3),
+    );
+    let d_4 = Block::empty_with_height_and_timestamp(
+        &d_3,
+        4,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(4),
+    );
+    let d_5 = Block::empty_with_height_and_timestamp(
+        &d_4,
+        5,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(5),
+    );
 
-    let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
+    let mut e_2 = Block::empty_with_height_and_timestamp(
+        &b_1,
+        2,
+        &*signer,
+        Utc::now() + chrono::Duration::seconds(1),
+    );
     e_2.header.inner_rest.total_weight = (10 * e_2.header.inner_rest.total_weight.to_num()).into();
     e_2.header.init();
     e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
