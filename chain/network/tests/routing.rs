@@ -151,7 +151,6 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    println!("\nASD: {:?}\n", routing_table.peer_forwarding);
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,
