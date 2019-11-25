@@ -1,20 +1,24 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
+use log::warn;
 use log::{debug, trace};
 
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
+use near_store::{Store, COL_ACCOUNT_ANNOUNCEMENTS};
 
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
 
+const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10000;
 const ROUTE_BACK_CACHE_SIZE: usize = 10000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 
@@ -225,13 +229,15 @@ impl Edge {
 pub struct RoutingTable {
     // TODO(MarX, #1363): Use cache and file storing to keep this information.
     /// PeerId associated for every known account id.
-    pub account_peers: HashMap<AccountId, AnnounceAccount>,
+    account_peers: SizedCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Store last update for known edges.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: SizedCache<CryptoHash, PeerId>,
+    /// Access to store on disk
+    store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
@@ -257,12 +263,13 @@ pub enum FindRouteError {
 }
 
 impl RoutingTable {
-    pub fn new(peer_id: PeerId) -> Self {
+    pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
         Self {
-            account_peers: HashMap::new(),
+            account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
             route_back: SizedCache::with_size(ROUTE_BACK_CACHE_SIZE),
+            store,
             raw_graph: Graph::new(peer_id),
             route_nonce: HashMap::new(),
             recalculation_scheduled: None,
@@ -277,7 +284,7 @@ impl RoutingTable {
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         if let Some(routes) = self.peer_forwarding.get(&peer_id) {
             // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-            // nonce by one. Additionally if the difference between the highest and nonce and the lowest
+            // nonce by one. Additionally if the difference between the highest nonce and the lowest
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
@@ -331,9 +338,8 @@ impl RoutingTable {
     }
 
     /// Find peer that owns this AccountId.
-    pub fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.account_peers
-            .get(account_id)
+    pub fn account_owner(&mut self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        self.get_announce(account_id)
             .map(|announce_account| announce_account.peer_id.clone())
             .ok_or_else(|| FindRouteError::AccountNotFound)
     }
@@ -342,18 +348,23 @@ impl RoutingTable {
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, announce_account: AnnounceAccount) {
         let account_id = announce_account.account_id.clone();
-        self.account_peers.insert(account_id, announce_account);
-        near_metrics::inc_counter(&metrics::ACCOUNT_KNOWN);
+        self.account_peers.cache_set(account_id.clone(), announce_account.clone());
+
+        // Add account to store
+        let mut update = self.store.store_update();
+        if let Err(e) = update
+            .set_ser(COL_ACCOUNT_ANNOUNCEMENTS, account_id.as_bytes(), &announce_account)
+            .and_then(|_| update.commit())
+        {
+            warn!(target: "network", "Error saving announce account to store: {:?}", e);
+        }
     }
 
     // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
-    pub fn contains_account(&self, announce_account: &AnnounceAccount) -> bool {
-        self.account_peers.get(&announce_account.account_id).map_or(
-            false,
-            |current_announce_account| {
-                current_announce_account.epoch_id == announce_account.epoch_id
-            },
-        )
+    pub fn contains_account(&mut self, announce_account: &AnnounceAccount) -> bool {
+        self.get_announce(&announce_account.account_id).map_or(false, |current_announce_account| {
+            current_announce_account.epoch_id == announce_account.epoch_id
+        })
     }
 
     /// Add this edge to the current view of the network.
@@ -423,10 +434,6 @@ impl RoutingTable {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
-    pub fn get_accounts(&self) -> Vec<AnnounceAccount> {
-        self.account_peers.iter().map(|(_key, value)| value.clone()).collect()
-    }
-
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
         self.route_back.cache_set(hash, peer_id);
     }
@@ -466,13 +473,12 @@ impl RoutingTable {
         (pings, pongs)
     }
 
-    pub fn info(&self) -> RoutingTableInfo {
+    pub fn info(&mut self) -> RoutingTableInfo {
         let account_peers = self
-            .account_peers
-            .iter()
-            .map(|(key, value)| (key.clone(), value.peer_id.clone()))
+            .get_announce_accounts()
+            .into_iter()
+            .map(|announce_account| (announce_account.account_id, announce_account.peer_id))
             .collect();
-
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
@@ -493,6 +499,40 @@ impl RoutingTable {
             duration as i64,
         );
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+    }
+
+    /// Public interface for `account_peers`
+    ///
+    /// Get keys currently on cache.
+    pub fn get_accounts_keys(&mut self) -> Vec<AccountId> {
+        self.account_peers.key_order().cloned().collect()
+    }
+
+    /// Get announce accounts on cache.
+    pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
+        self.account_peers.value_order().cloned().collect()
+    }
+
+    /// Get account announce from
+    pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
+        if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
+            Some(announce_account.clone())
+        } else {
+            self.store
+                .get_ser(COL_ACCOUNT_ANNOUNCEMENTS, account_id.as_bytes())
+                .and_then(|res: Option<AnnounceAccount>| {
+                    if let Some(announce_account) = res {
+                        self.add_account(announce_account.clone());
+                        Ok(Some(announce_account))
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .unwrap_or_else(|e| {
+                    warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                    None
+                })
+        }
     }
 }
 
