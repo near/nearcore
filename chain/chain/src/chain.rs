@@ -10,6 +10,7 @@ use log::{debug, error, info};
 use near_primitives::block::{genesis_chunks, Approval};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+    MaybeEncodedShardChunk,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
@@ -40,8 +41,8 @@ use crate::types::{
     ValidatorSignatureVerificationResult,
 };
 use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
+    validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
+    validate_chunk_with_chunk_extra,
 };
 
 /// Maximum number of orphans chain can store.
@@ -1207,7 +1208,7 @@ impl Chain {
         } = &shard_state_header;
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -1940,7 +1941,7 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_proof = ChunkProofs {
                     block_header: block.header.try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: encoded_chunk.clone(),
+                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
                 };
                 return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
             }
@@ -2147,21 +2148,19 @@ impl<'a> ChainUpdate<'a> {
                     let chunk =
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
-                    validate_transactions_order(&chunk.transactions)?;
-
-                    let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        self.chain_store_update
-                            .get_chain_store()
-                            .check_blocks_on_same_chain(
-                                &block.header,
-                                &t.transaction.block_hash,
-                                self.transaction_validity_period,
-                            )
-                            .is_err()
-                    });
-                    if any_transaction_is_invalid {
-                        debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
-                        return Err(ErrorKind::InvalidTransactions.into());
+                    if !validate_chunk_transactions(
+                        self.chain_store_update.get_chain_store(),
+                        &chunk.transactions,
+                        &block.header,
+                        self.transaction_validity_period,
+                    ) {
+                        let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+                        let chunk_proof = ChunkProofs {
+                            block_header: block.header.try_to_vec().expect("Failed to serialize"),
+                            merkle_proof: merkle_paths[shard_id as usize].clone(),
+                            chunk: MaybeEncodedShardChunk::Decoded(chunk),
+                        };
+                        return Err(Error::from(ErrorKind::InvalidChunkProofs(chunk_proof)));
                     }
 
                     let gas_limit = chunk.header.inner.gas_limit;
@@ -2865,8 +2864,14 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
-            {
+            match validate_challenge(
+                self.chain_store_update.get_chain_store(),
+                &*self.runtime_adapter,
+                &epoch_id,
+                &prev_block_hash,
+                challenge,
+                self.transaction_validity_period,
+            ) {
                 Ok((hash, account_ids)) => {
                     match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.

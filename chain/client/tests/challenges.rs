@@ -12,7 +12,9 @@ use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::NetworkRequests;
-use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs};
+use near_primitives::challenge::{
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -57,12 +59,16 @@ fn test_verify_block_double_sign_challenge() {
         signer.account_id.clone(),
         &signer,
     );
+    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
+    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
         validate_challenge(
-            &*env.clients[1].chain.runtime_adapter,
+            env.clients[0].chain.mut_store(),
+            &*runtime_adapter,
             &epoch_id,
             &genesis.hash(),
-            &valid_challenge
+            &valid_challenge,
+            transaction_validity_period,
         )
         .unwrap()
         .0,
@@ -76,11 +82,15 @@ fn test_verify_block_double_sign_challenge() {
         signer.account_id.clone(),
         &signer,
     );
+    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
+    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert!(validate_challenge(
-        &*env.clients[1].chain.runtime_adapter,
+        env.clients[0].chain.mut_store(),
+        &*runtime_adapter,
         &epoch_id,
         &genesis.hash(),
-        &invalid_challenge
+        &invalid_challenge,
+        transaction_validity_period,
     )
     .is_err());
     let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
@@ -92,11 +102,15 @@ fn test_verify_block_double_sign_challenge() {
         signer.account_id.clone(),
         &signer,
     );
+    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
+    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert!(validate_challenge(
-        &*env.clients[1].chain.runtime_adapter,
+        env.clients[0].chain.mut_store(),
+        &*runtime_adapter,
         &epoch_id,
         &genesis.hash(),
-        &invalid_challenge
+        &invalid_challenge,
+        transaction_validity_period,
     )
     .is_err());
 
@@ -161,18 +175,22 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header.try_to_vec().unwrap(),
-            chunk: chunk.clone(),
+            chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
             merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
         }),
         env.clients[0].block_producer.as_ref().unwrap().account_id.clone(),
         &*env.clients[0].block_producer.as_ref().unwrap().signer,
     );
+    let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
+    let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     assert_eq!(
         validate_challenge(
-            &*env.clients[0].chain.runtime_adapter,
+            env.clients[0].chain.mut_store(),
+            &*runtime_adapter,
             &block.header.inner_lite.epoch_id,
             &block.header.prev_hash,
-            &valid_challenge
+            &valid_challenge,
+            transaction_validity_period,
         )
         .unwrap(),
         (block.hash(), vec!["test0".to_string()])
@@ -309,12 +327,16 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), "test0".to_string(), &signer);
+    let transaction_validity_period = client.chain.transaction_validity_period;
+    let runtime_adapter = client.chain.runtime_adapter.clone();
     assert_eq!(
         validate_challenge(
-            &*client.chain.runtime_adapter,
+            client.chain.mut_store(),
+            &*runtime_adapter,
             &block.header.inner_lite.epoch_id,
             &block.header.prev_hash,
-            &challenge
+            &challenge,
+            transaction_validity_period,
         )
         .unwrap(),
         (block.hash(), vec!["test0".to_string()])
@@ -357,7 +379,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts).unwrap();
+    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
@@ -383,7 +405,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         ..
     }) = last_message.clone()
     {
-        assert_eq!(chunk_proofs.chunk, chunk);
+        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk));
     } else {
         assert!(false);
     }
@@ -420,7 +442,7 @@ fn test_block_challenge() {
     let challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header.try_to_vec().unwrap(),
-            chunk: chunk.clone(),
+            chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
             merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
         }),
         env.clients[0].block_producer.as_ref().unwrap().account_id.clone(),

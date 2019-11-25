@@ -5,12 +5,13 @@ use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+    MaybeEncodedShardChunk,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, Nonce};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
@@ -21,46 +22,69 @@ use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 
 /// Verifies that chunk's proofs in the header match the body.
-pub fn validate_chunk_proofs(
-    chunk: &ShardChunk,
-    runtime_adapter: &dyn RuntimeAdapter,
-) -> Result<bool, Error> {
+pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAdapter) -> bool {
     // 1. Checking chunk.header.hash
-    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap())) {
         byzantine_assert!(false);
-        return Ok(false);
+        return false;
     }
 
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
     if chunk.chunk_hash != chunk.header.hash {
         byzantine_assert!(false);
-        return Ok(false);
+        return false;
     }
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(&chunk.transactions);
     if tx_root != chunk.header.inner.tx_root {
         byzantine_assert!(false);
-        return Ok(false);
+        return false;
     }
     // 2c. Checking that chunk receipts are valid
     if chunk.header.inner.height_created == 0 {
-        return Ok(chunk.receipts.len() == 0
-            && chunk.header.inner.outgoing_receipts_root == CryptoHash::default());
+        return chunk.receipts.len() == 0
+            && chunk.header.inner.outgoing_receipts_root == CryptoHash::default();
     } else {
-        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
         if receipts_root != chunk.header.inner.outgoing_receipts_root {
             byzantine_assert!(false);
-            return Ok(false);
+            return false;
         }
     }
-    Ok(true)
+    true
+}
+
+/// Validates transactions in the given chunk. Checks that the given transactions are in proper
+/// order and also checks that every transaction are in the same chain as the given block header.
+/// Returns true if chunk transactions are valid.
+pub fn validate_chunk_transactions(
+    chain_store: &mut ChainStore,
+    transactions: &[SignedTransaction],
+    block_header: &BlockHeader,
+    transaction_validity_period: BlockIndex,
+) -> bool {
+    if !validate_transactions_order(transactions) {
+        return false;
+    }
+
+    // Verifying transactions are on the same chain as the block header.
+    let all_transactions_are_valid = transactions.iter().all(|t| {
+        chain_store
+            .check_blocks_on_same_chain(
+                block_header,
+                &t.transaction.block_hash,
+                transaction_validity_period,
+            )
+            .is_ok()
+    });
+    all_transactions_are_valid
 }
 
 /// Validates that the given transactions are in proper valid order.
 /// See https://nomicon.io/BlockchainLayer/Transactions.html#order-validation
-pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> Result<(), Error> {
+pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
     let mut nonces: HashMap<(&AccountId, &PublicKey), Nonce> = HashMap::new();
     let mut batches: HashMap<(&AccountId, &PublicKey), usize> = HashMap::new();
     let mut current_batch = 1;
@@ -73,7 +97,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> Result
         if let Some(last_nonce) = nonces.get(&key) {
             if nonce <= *last_nonce {
                 // Nonces should increase.
-                return Err(ErrorKind::InvalidTransactionsOrder.into());
+                return false;
             }
         }
         nonces.insert(key, nonce);
@@ -84,11 +108,11 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> Result
             current_batch += 1;
         } else if last_batch < current_batch - 1 {
             // The key was skipped in the previous batch
-            return Err(ErrorKind::InvalidTransactionsOrder.into());
+            return false;
         }
         batches.insert(key, current_batch);
     }
-    Ok(())
+    true
 }
 
 /// Validate that all next chunk information matches previous chunk extra.
@@ -137,7 +161,7 @@ pub fn validate_chunk_with_chunk_extra(
         chunk_header.inner.shard_id,
         prev_chunk_header.height_included,
     )?;
-    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&receipt_response.1)?;
+    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&receipt_response.1);
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     if outgoing_receipts_root != chunk_header.inner.outgoing_receipts_root {
@@ -233,30 +257,62 @@ fn validate_chunk_authorship(
 }
 
 fn validate_chunk_proofs_challenge(
+    chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_proofs: &ChunkProofs,
+    transaction_validity_period: BlockIndex,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_proofs.chunk.header)?;
+    let chunk_header = match &chunk_proofs.chunk {
+        MaybeEncodedShardChunk::Encoded(encoded_chunk) => &encoded_chunk.header,
+        MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
+    };
+    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
     if !Block::validate_chunk_header_proof(
-        &chunk_proofs.chunk.header,
+        &chunk_header,
         &block_header.inner_rest.chunk_headers_root,
         &chunk_proofs.merkle_proof,
     ) {
+        // Merkle proof is invalid. It's a malicious challenge.
         return Err(ErrorKind::MaliciousChallenge.into());
     }
-    match chunk_proofs
-        .chunk
-        .decode_chunk(
-            runtime_adapter.num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
-        )
-        .map_err(|err| err.into())
-        .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
-    {
-        Ok(true) => Err(ErrorKind::MaliciousChallenge.into()),
-        Ok(false) | Err(_) => Ok((block_header.hash(), vec![chunk_producer])),
+    let tmp_chunk;
+    let chunk = match &chunk_proofs.chunk {
+        MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
+            match encoded_chunk
+                .decode_chunk(runtime_adapter.num_data_parts(&chunk_header.inner.prev_block_hash))
+            {
+                Ok(chunk) => {
+                    tmp_chunk = Some(chunk);
+                    tmp_chunk.as_ref().unwrap()
+                }
+                Err(_) => {
+                    // Chunk can't be decoded. Good challenge.
+                    return Ok((block_header.hash(), vec![chunk_producer]));
+                }
+            }
+        }
+        MaybeEncodedShardChunk::Decoded(chunk) => chunk,
+    };
+
+    if !validate_chunk_proofs(&chunk, &*runtime_adapter) {
+        // Chunk proofs are invalid. Good challenge.
+        return Ok((block_header.hash(), vec![chunk_producer]));
     }
+
+    if !validate_chunk_transactions(
+        chain_store,
+        &chunk.transactions,
+        &block_header,
+        transaction_validity_period,
+    ) {
+        // Chunk transactions are invalid. Good challenge.
+        return Ok((block_header.hash(), vec![chunk_producer]));
+    }
+
+    // Everything is fine. It's a malicious challenge.
+    return Err(ErrorKind::MaliciousChallenge.into());
 }
 
 fn validate_chunk_state_challenge(
@@ -323,10 +379,12 @@ fn validate_chunk_state_challenge(
 
 /// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
+    chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
     last_block_hash: &CryptoHash,
     challenge: &Challenge,
+    transaction_validity_period: BlockIndex,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
     if !runtime_adapter
@@ -345,9 +403,12 @@ pub fn validate_challenge(
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
             validate_double_sign(runtime_adapter, block_double_sign)
         }
-        ChallengeBody::ChunkProofs(chunk_proofs) => {
-            validate_chunk_proofs_challenge(runtime_adapter, chunk_proofs)
-        }
+        ChallengeBody::ChunkProofs(chunk_proofs) => validate_chunk_proofs_challenge(
+            chain_store,
+            runtime_adapter,
+            chunk_proofs,
+            transaction_validity_period,
+        ),
         ChallengeBody::ChunkState(chunk_state) => {
             validate_chunk_state_challenge(runtime_adapter, chunk_state)
         }
@@ -375,13 +436,13 @@ mod tests {
     #[test]
     pub fn test_transaction_order_empty() {
         let transactions = vec![];
-        validate_transactions_order(&transactions).unwrap();
+        assert!(validate_transactions_order(&transactions));
     }
 
     #[test]
     pub fn test_transaction_order_one_tx() {
         let transactions = vec![make_tx("A", "a", 1)];
-        validate_transactions_order(&transactions).unwrap();
+        assert!(validate_transactions_order(&transactions));
     }
 
     #[test]
@@ -395,7 +456,7 @@ mod tests {
             make_tx("C", "a", 5),
             make_tx("C", "a", 6), // 3rd batch
         ];
-        validate_transactions_order(&transactions).unwrap();
+        assert!(validate_transactions_order(&transactions));
     }
 
     #[test]
@@ -407,13 +468,13 @@ mod tests {
             make_tx("A", "a", 1), // 2nd batch, nonce 1 < 2
             make_tx("C", "a", 6),
         ];
-        validate_transactions_order(&transactions).unwrap_err();
+        assert!(!validate_transactions_order(&transactions));
     }
 
     #[test]
     pub fn test_transaction_order_same_tx() {
         let transactions = vec![make_tx("A", "a", 1), make_tx("A", "a", 1)];
-        validate_transactions_order(&transactions).unwrap_err();
+        assert!(!validate_transactions_order(&transactions));
     }
 
     #[test]
@@ -424,7 +485,7 @@ mod tests {
             make_tx("A", "a", 4), // 2nd batch starts
             make_tx("B", "a", 6), // Missing in the first batch
         ];
-        validate_transactions_order(&transactions).unwrap_err();
+        assert!(!validate_transactions_order(&transactions));
     }
 
     #[test]
@@ -436,6 +497,6 @@ mod tests {
             make_tx("A", "a", 6), // 3rd batch starts
             make_tx("C", "a", 6), // Not in the 2nd batch
         ];
-        validate_transactions_order(&transactions).unwrap_err();
+        assert!(!validate_transactions_order(&transactions));
     }
 }

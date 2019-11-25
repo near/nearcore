@@ -33,8 +33,15 @@ pub struct ChunkProofs {
     pub block_header: Vec<u8>,
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
-    /// Invalid chunk in encoded form.
-    pub chunk: EncodedShardChunk,
+    /// Invalid chunk in encoded form or in decoded form.
+    pub chunk: MaybeEncodedShardChunk,
+}
+
+/// Either `EncodedShardChunk` or `ShardChunk`. Used for `ChunkProofs`.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum MaybeEncodedShardChunk {
+    Encoded(EncodedShardChunk),
+    Decoded(ShardChunk),
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.

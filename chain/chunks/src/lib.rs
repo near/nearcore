@@ -674,7 +674,7 @@ impl ShardsManager {
 
         // Checking partial_encoded_chunk's receipts validity here
         let receipts = collect_receipts(&partial_encoded_chunk.receipts);
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
+        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts);
 
         for proof in partial_encoded_chunk.receipts.iter() {
             let shard_id = proof.1.to_shard_id;
@@ -913,7 +913,7 @@ impl ShardsManager {
             )
             .map_err(|err| Error::from(err))
             .and_then(|shard_chunk| {
-                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter)? {
+                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter) {
                     return Err(Error::InvalidChunk);
                 }
                 Ok(shard_chunk)
@@ -955,7 +955,7 @@ impl ShardsManager {
     ) {
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(outgoing_receipts).unwrap();
+            self.runtime_adapter.build_receipts_hashes(outgoing_receipts);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
@@ -1006,7 +1006,7 @@ impl ShardsManager {
         let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let shard_id = encoded_chunk.header.inner.shard_id;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts).unwrap();
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);

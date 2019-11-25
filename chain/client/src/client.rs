@@ -441,7 +441,7 @@ impl Client {
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
