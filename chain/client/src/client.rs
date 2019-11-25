@@ -920,10 +920,7 @@ impl Client {
         shard_id: ShardId,
     ) -> Result<AccountId, near_chain::Error> {
         let head = self.chain.head()?;
-        // TODO(MarX, #1366): Forward tx even if I am a validator.
-        //  How many validators ahead of current time should we forward tx?
         let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-
         self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
     }
 
