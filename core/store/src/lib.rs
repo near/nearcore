@@ -61,7 +61,7 @@ pub const COL_STATE_PARTS: usize = 23;
 pub const COL_EPOCH_START: usize = 24;
 // Map account_id to announce_account
 pub const COL_ACCOUNT_ANNOUNCEMENTS: usize = 25;
-const NUM_COLS: u32 = 26;
+const NUM_COLS: usize = 26;
 
 pub struct Store {
     storage: Arc<dyn Database>,
