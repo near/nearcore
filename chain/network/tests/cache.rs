@@ -40,7 +40,7 @@ fn announcement_same_epoch() {
 }
 
 #[test]
-fn build_from_store() {
+fn dont_load_on_build() {
     let store = create_test_store();
 
     let peer_id0 = random_peer_id();
@@ -74,9 +74,7 @@ fn build_from_store() {
     assert_eq!(routing_table.get_announce_accounts().len(), 2);
 
     let mut routing_table1 = RoutingTable::new(peer_id0, store);
-    let accounts = routing_table1.get_announce_accounts();
-    assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(announce) }));
-    assert_eq!(routing_table.get_announce_accounts().len(), 2);
+    assert!(routing_table1.get_announce_accounts().is_empty());
 }
 
 #[test]

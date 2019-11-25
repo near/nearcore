@@ -264,26 +264,8 @@ pub enum FindRouteError {
 
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
-        // Load account peers
-        let mut account_peers = SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE);
-        for (account_id, announce_account) in store
-            .iter(COL_ACCOUNT_ANNOUNCEMENTS)
-            .filter_map(|(account_id, announce_account)| {
-                match AnnounceAccount::try_from_slice(announce_account.as_ref()) {
-                    Ok(announce_account) => {
-                        let account_id = String::from_utf8_lossy(account_id.as_ref()).to_string();
-                        Some((account_id, announce_account))
-                    }
-                    Err(_) => None,
-                }
-            })
-            .take(ANNOUNCE_ACCOUNT_CACHE_SIZE)
-        {
-            account_peers.cache_set(account_id, announce_account);
-        }
-
         Self {
-            account_peers,
+            account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             peer_forwarding: HashMap::new(),
             edges_info: HashMap::new(),
             route_back: SizedCache::with_size(ROUTE_BACK_CACHE_SIZE),
