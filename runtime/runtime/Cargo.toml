@@ -17,7 +17,7 @@ sodiumoxide = "0.2.5"
 lazy_static = "1.4"
 
 borsh = "0.2.9"
-cached = "0.9.0"
+cached = "0.11.0"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
