@@ -474,18 +474,11 @@ impl RoutingTable {
     }
 
     pub fn info(&mut self) -> RoutingTableInfo {
-        // TODO(MarX): Fix: Allow SizedCache to iterate through values.
-        //  Iterate in reverse order to leave cache in the same state.
-        let accounts_id: Vec<_> = self.account_peers.key_order().cloned().collect();
-        let account_peers = accounts_id
+        let account_peers = self
+            .get_announce_accounts()
             .into_iter()
-            .rev()
-            .map(|account_id| {
-                let peer_id = self.account_peers.cache_get(&account_id).unwrap().peer_id.clone();
-                (account_id, peer_id)
-            })
+            .map(|announce_account| (announce_account.account_id, announce_account.peer_id))
             .collect();
-
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
@@ -517,14 +510,7 @@ impl RoutingTable {
 
     /// Get announce accounts on cache.
     pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
-        // TODO(MarX): Fix: Allow SizedCache to iterate through values.
-        //  Iterate in reverse order to leave cache in the same state.
-        let accounts_id: Vec<_> = self.account_peers.key_order().cloned().collect();
-        accounts_id
-            .into_iter()
-            .rev()
-            .map(|account_id| self.account_peers.cache_get(&account_id).unwrap().clone())
-            .collect()
+        self.account_peers.value_order().cloned().collect()
     }
 
     /// Get account announce from
