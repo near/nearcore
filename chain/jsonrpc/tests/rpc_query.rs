@@ -164,7 +164,7 @@ fn test_status_fail() {
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
             Box::new(move |_| {
-                actix::spawn(client.status().then(|res| {
+                actix::spawn(client.health().then(|res| {
                     if res.is_err() {
                         System::current().stop();
                     }

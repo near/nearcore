@@ -137,7 +137,7 @@ fn test_expired_tx() {
                     let height = block_height.lock().unwrap().clone();
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
-                            if header.inner.height - height >= 2 {
+                            if header.inner_lite.height - height >= 2 {
                                 let signer =
                                     InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
                                 let tx = SignedTransaction::send_money(
@@ -161,7 +161,7 @@ fn test_expired_tx() {
                         }
                     } else {
                         *block_hash.lock().unwrap() = Some(header.hash);
-                        *block_height.lock().unwrap() = Some(header.inner.height);
+                        *block_height.lock().unwrap() = Some(header.inner_lite.height);
                     };
                     future::ok(())
                 }));

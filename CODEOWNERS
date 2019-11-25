@@ -1,7 +1,10 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
-/chain/ @ilblackdragon @SkidanovAlex
+/chain/ @SkidanovAlex @bowenwang1996 
 
 /runtime/ @nearmax @evgenykuzyakov
 
 /genesis-tools/ @nearmax
+
+/core/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996
+/near/ @nearmax @evgenykuzyakov @SkidanovAlex @bowenwang1996

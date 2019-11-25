@@ -321,14 +321,15 @@ pub fn setup_mock_all_validators(
 
                             let my_height_weight = &mut last_height_weight1[my_ord];
 
-                            my_height_weight.0 = max(my_height_weight.0, block.header.inner.height);
+                            my_height_weight.0 =
+                                max(my_height_weight.0, block.header.inner_lite.height);
                             my_height_weight.1 =
-                                max(my_height_weight.1, block.header.inner.weight_and_score());
+                                max(my_height_weight.1, block.header.inner_rest.weight_and_score());
 
-                            hash_to_score1
-                                .write()
-                                .unwrap()
-                                .insert(block.header.hash(), block.header.inner.weight_and_score());
+                            hash_to_score1.write().unwrap().insert(
+                                block.header.hash(),
+                                block.header.inner_rest.weight_and_score(),
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -498,9 +499,10 @@ pub fn setup_mock_all_validators(
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (client, _) in connectors1.read().unwrap().iter() {
-                                    client.do_send(NetworkClientMessages::AnnounceAccount(vec![
+                                    client.do_send(NetworkClientMessages::AnnounceAccount(vec![(
                                         announce_account.clone(),
-                                    ]))
+                                        None,
+                                    )]))
                                 }
                             }
                         }
@@ -508,7 +510,7 @@ pub fn setup_mock_all_validators(
                             header,
                             approval_message: Some(approval_message),
                         } => {
-                            let height_mod = header.inner.height % 300;
+                            let height_mod = header.inner_lite.height % 300;
 
                             let do_propagate = if tamper_with_fg {
                                 if height_mod < 100 {

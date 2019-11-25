@@ -37,7 +37,7 @@ fn test_verify_block_double_sign_challenge() {
         &genesis.header,
         2,
         genesis.chunks.clone(),
-        b1.header.inner.epoch_id.clone(),
+        b1.header.inner_lite.epoch_id.clone(),
         vec![],
         0,
         None,
@@ -48,7 +48,7 @@ fn test_verify_block_double_sign_challenge() {
         CryptoHash::default(),
         CryptoHash::default(),
     );
-    let epoch_id = b1.header.inner.epoch_id.clone();
+    let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: b2.header.try_to_vec().unwrap(),
@@ -119,7 +119,7 @@ fn create_invalid_proofs_chunk(
     let (mut chunk, merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
-            &last_block.header.inner.epoch_id,
+            &last_block.header.inner_lite.epoch_id,
             last_block.chunks[0].clone(),
             2,
             0,
@@ -137,7 +137,7 @@ fn create_invalid_proofs_chunk(
         &last_block.header,
         2,
         vec![chunk.header.clone()],
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
         vec![],
         0,
         None,
@@ -145,7 +145,7 @@ fn create_invalid_proofs_chunk(
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
         0.into(),
-        last_block.header.inner.prev_hash,
+        last_block.header.prev_hash,
         CryptoHash::default(),
     );
     (chunk, merkle_paths, receipts, block)
@@ -170,8 +170,8 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     assert_eq!(
         validate_challenge(
             &*env.clients[0].chain.runtime_adapter,
-            &block.header.inner.epoch_id,
-            &block.header.inner.prev_hash,
+            &block.header.inner_lite.epoch_id,
+            &block.header.prev_hash,
             &valid_challenge
         )
         .unwrap(),
@@ -208,14 +208,14 @@ fn test_verify_chunk_invalid_state_challenge() {
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
-        env.clients[0].chain.get_block(&last_block.header.inner.prev_hash).unwrap().clone();
+        env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
             last_block.hash(),
             StateRoot::default(),
             CryptoHash::default(),
-            last_block.header.inner.height + 1,
+            last_block.header.inner_lite.height + 1,
             0,
             0,
             1_000,
@@ -223,7 +223,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             0,
             vec![],
-            &vec![],
+            vec![],
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
@@ -244,12 +244,12 @@ fn test_verify_chunk_invalid_state_challenge() {
         )
         .unwrap();
 
-    invalid_chunk.header.height_included = last_block.header.inner.height + 1;
+    invalid_chunk.header.height_included = last_block.header.inner_lite.height + 1;
     let block = Block::produce(
         &last_block.header,
-        last_block.header.inner.height + 1,
+        last_block.header.inner_lite.height + 1,
         vec![invalid_chunk.header.clone()],
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
         vec![],
         0,
         None,
@@ -257,8 +257,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         &signer,
         0.into(),
-        last_block.header.inner.prev_hash,
-        prev_to_last_block.header.inner.prev_hash,
+        last_block.header.prev_hash,
+        prev_to_last_block.header.prev_hash,
     );
 
     let challenge_body = {
@@ -312,8 +312,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     assert_eq!(
         validate_challenge(
             &*client.chain.runtime_adapter,
-            &block.header.inner.epoch_id,
-            &block.header.inner.prev_hash,
+            &block.header.inner_lite.epoch_id,
+            &block.header.prev_hash,
             &challenge
         )
         .unwrap(),
@@ -478,7 +478,7 @@ fn test_challenge_in_different_epoch() {
     let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
-        let height = block.header.inner.height;
+        let height = block.header.inner_lite.height;
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
         match env.clients[0].run_catchup(&vec![]) {
             Ok(accepted_blocks) => {

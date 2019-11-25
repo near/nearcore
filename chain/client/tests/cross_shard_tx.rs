@@ -396,7 +396,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if drop_chunks || rotate_validators { 150 } else { 75 },
+                if drop_chunks || rotate_validators { 150 } else { 100 },
                 drop_chunks,
                 true,
                 20,

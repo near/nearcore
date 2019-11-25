@@ -13,7 +13,7 @@ mod client;
 mod client_actor;
 mod info;
 mod metrics;
-mod sync;
+pub mod sync;
 pub mod test_utils;
 mod types;
 mod view_client;
