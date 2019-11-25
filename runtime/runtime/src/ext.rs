@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
 
-use kvdb::DBValue;
-
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -100,20 +98,20 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
         let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
-        self.trie_update.set(storage_key, DBValue::from_slice(value));
+            self.trie_update.get(&storage_key).map_err(wrap_error)?;
+        self.trie_update.set(storage_key, Vec::from(value));
         Ok(evicted)
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get(&storage_key).map_err(wrap_error).map(|opt| opt.map(DBValue::into_vec))
+        self.trie_update.get(&storage_key).map_err(wrap_error)
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
         let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
+            self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.remove(&storage_key);
         Ok(evicted)
     }
@@ -164,8 +162,7 @@ impl<'a> External for RuntimeExt<'a> {
                 self.trie_update
                     .get(&key)
                     .expect("error cannot happen")
-                    .expect("key is guaranteed to be there")
-                    .into_vec(),
+                    .expect("key is guaranteed to be there"),
             )
         }))
     }

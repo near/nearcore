@@ -29,9 +29,9 @@ impl TrieUpdate {
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Ok(value.as_ref().map(|val| Vec::from_slice(val)))
+            Ok(value.as_ref().map(|val| val.clone()))
         } else if let Some(value) = self.committed.get(key) {
-            Ok(value.as_ref().map(|val| Vec::from_slice(val)))
+            Ok(value.as_ref().map(|val| val.clone()))
         } else {
             self.trie.get(&self.root, key)
         }
@@ -62,7 +62,7 @@ impl TrieUpdate {
     }
 
     pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        self.prospective.insert(key, Some(value.into_vec()));
+        self.prospective.insert(key, Some(value));
     }
     pub fn remove(&mut self, key: &[u8]) {
         self.prospective.insert(key.to_vec(), None);
@@ -301,13 +301,13 @@ mod tests {
         let trie = create_trie();
         let root = CryptoHash::default();
         let mut trie_update = TrieUpdate::new(trie.clone(), root);
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
-        trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
-        trie_update.set(b"xxx".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
+        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
+        trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
-        assert_eq!(trie_update2.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
+        assert_eq!(trie_update2.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         let mut values = vec![];
         trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
@@ -326,7 +326,7 @@ mod tests {
 
         // Add and right away delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
@@ -334,7 +334,7 @@ mod tests {
 
         // Add, apply changes and then delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
@@ -349,14 +349,14 @@ mod tests {
     fn trie_iter() {
         let trie = create_trie();
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
-        trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
-        trie_update.set(b"aaa".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
+        trie_update.set(b"aaa".to_vec(), b"puppy".to_vec());
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
-        trie_update.set(b"xxx".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
+        trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
 
         let values: Vec<Vec<u8>> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(values.len(), 0);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.commit();
         trie_update.remove(b"dog2");
 
@@ -381,9 +381,9 @@ mod tests {
         assert_eq!(values, vec![b"dog".to_vec()]);
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
-        trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.commit();
-        trie_update.set(b"dog3".to_vec(), DBValue::from_slice(b"puppy"));
+        trie_update.set(b"dog3".to_vec(), b"puppy".to_vec());
 
         let values: Vec<Vec<u8>> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);

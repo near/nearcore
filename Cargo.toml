@@ -82,3 +82,6 @@ opt-level = 3 # bs58 library is too slow to use in debug
 expensive_tests = []
 regression_tests = []
 old_tests = []
+
+[patch.crates-io]
+rocksdb = {path = "./core/store/rust-rocksdb"}

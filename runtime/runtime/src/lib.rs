@@ -11,7 +11,6 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use kvdb::DBValue;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1133,7 +1132,7 @@ impl Runtime {
                 StateRecord::Data { key, value } => {
                     state_update.set(
                         from_base64(&key).expect("Failed to decode key"),
-                        DBValue::from_vec(from_base64(&value).expect("Failed to decode value")),
+                        from_base64(&value).expect("Failed to decode value"),
                     );
                 }
                 StateRecord::Contract { account_id, code } => {

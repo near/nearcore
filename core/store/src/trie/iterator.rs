@@ -171,13 +171,13 @@ impl<'a> Iterator for TrieIterator<'a> {
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, value)) => {
                         if let Some(value) = value {
-                            return Some(Ok((self.key(), Vec::from_slice(value))));
+                            return Some(Ok((self.key(), value.clone())));
                         } else {
                             IterStep::Continue
                         }
                     }
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
-                        return Some(Ok((self.key(), Vec::from_slice(value))));
+                        return Some(Ok((self.key(), value.clone())));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {

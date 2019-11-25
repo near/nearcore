@@ -31,34 +31,34 @@ mod db;
 pub mod test_utils;
 mod trie;
 
-pub const COL_BLOCK_MISC: Option<u32> = Some(0);
-pub const COL_BLOCK: Option<u32> = Some(1);
-pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
-pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
-pub const COL_STATE: Option<u32> = Some(4);
-pub const COL_CHUNK_EXTRA: Option<u32> = Some(5);
-pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
-pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
-pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
-pub const COL_PEERS: Option<u32> = Some(9);
-pub const COL_EPOCH_INFO: Option<u32> = Some(10);
-pub const COL_BLOCK_INFO: Option<u32> = Some(11);
-pub const COL_CHUNKS: Option<u32> = Some(12);
-pub const COL_PARTIAL_CHUNKS: Option<u32> = Some(13);
+pub const COL_BLOCK_MISC: usize = 0;
+pub const COL_BLOCK: usize = 1;
+pub const COL_BLOCK_HEADER: usize = 2;
+pub const COL_BLOCK_INDEX: usize = 3;
+pub const COL_STATE: usize = 4;
+pub const COL_CHUNK_EXTRA: usize = 5;
+pub const COL_TRANSACTION_RESULT: usize = 6;
+pub const COL_OUTGOING_RECEIPTS: usize = 7;
+pub const COL_INCOMING_RECEIPTS: usize = 8;
+pub const COL_PEERS: usize = 9;
+pub const COL_EPOCH_INFO: usize = 10;
+pub const COL_BLOCK_INFO: usize = 11;
+pub const COL_CHUNKS: usize = 12;
+pub const COL_PARTIAL_CHUNKS: usize = 13;
 /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
+pub const COL_BLOCKS_TO_CATCHUP: usize = 14;
 /// Blocks for which the state is being downloaded
-pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
-pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
-pub const COL_STATE_HEADERS: Option<u32> = Some(17);
-pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
-pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
+pub const COL_STATE_DL_INFOS: usize = 15;
+pub const COL_CHALLENGED_BLOCKS: usize = 16;
+pub const COL_STATE_HEADERS: usize = 17;
+pub const COL_INVALID_CHUNKS: usize = 18;
+pub const COL_BLOCK_EXTRA: usize = 19;
 /// Store hash of a block per each height, to detect double signs.
-pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
-pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
-pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
-pub const COL_STATE_PARTS: Option<u32> = Some(23);
-const NUM_COLS: u32 = 24;
+pub const COL_BLOCK_PER_HEIGHT: usize = 20;
+pub const COL_LAST_APPROVALS_PER_ACCOUNT: usize = 21;
+pub const COL_MY_LAST_APPROVALS_PER_CHAIN: usize = 22;
+pub const COL_STATE_PARTS: usize = 23;
+const NUM_COLS: usize = 24;
 
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -69,13 +69,13 @@ impl Store {
         Store { storage }
     }
 
-    pub fn get(&self, column: Option<u32>, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+    pub fn get(&self, column: usize, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
         self.storage.get(column, key)
     }
 
     pub fn get_ser<T: BorshDeserialize>(
         &self,
-        column: Option<u32>,
+        column: usize,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
@@ -88,7 +88,7 @@ impl Store {
         }
     }
 
-    pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, io::Error> {
+    pub fn exists(&self, column: usize, key: &[u8]) -> Result<bool, io::Error> {
         self.storage.get(column, key).map(|value| value.is_some())
     }
 
@@ -98,12 +98,12 @@ impl Store {
 
     pub fn iter<'a>(
         &'a self,
-        column: Option<u32>,
+        column: usize,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
     }
 
-    pub fn save_to_file(&self, column: Option<u32>, filename: &Path) -> Result<(), std::io::Error> {
+    pub fn save_to_file(&self, column: usize, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
         for (key, value) in self.storage.iter(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -114,11 +114,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn load_from_file(
-        &self,
-        column: Option<u32>,
-        filename: &Path,
-    ) -> Result<(), std::io::Error> {
+    pub fn load_from_file(&self, column: usize, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::open(filename)?;
         let mut transaction = self.storage.transaction();
         loop {
@@ -158,13 +154,13 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
 
-    pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
+    pub fn set(&mut self, column: usize, key: &[u8], value: &[u8]) {
         self.transaction.put(column, key, value)
     }
 
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
-        column: Option<u32>,
+        column: usize,
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
@@ -173,7 +169,7 @@ impl StoreUpdate {
         Ok(())
     }
 
-    pub fn delete(&mut self, column: Option<u32>, key: &[u8]) {
+    pub fn delete(&mut self, column: usize, key: &[u8]) {
         self.transaction.delete(column, key);
     }
 
@@ -220,7 +216,7 @@ impl fmt::Debug for StoreUpdate {
 
 pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
-    col: Option<u32>,
+    col: usize,
     cache: &'a mut SizedCache<Vec<u8>, T>,
     key: &[u8],
 ) -> io::Result<Option<&'a T>> {
