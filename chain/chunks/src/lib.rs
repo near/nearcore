@@ -409,6 +409,13 @@ impl ShardsManager {
         Ok(())
     }
 
+    pub fn num_chunks_for_block(&mut self, prev_block_hash: CryptoHash) -> ShardId {
+        self.block_hash_to_chunk_headers
+            .get(&prev_block_hash)
+            .map(|x| x.len() as ShardId)
+            .unwrap_or_else(|| 0)
+    }
+
     pub fn prepare_chunks(
         &mut self,
         prev_block_hash: CryptoHash,
