@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::trie::Trie;
 use crate::db::open_testdb;
+use crate::trie::Trie;
 use crate::{Store, NUM_COLS};
 
 /// Creates an in-memory database.

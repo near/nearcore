@@ -1,7 +1,10 @@
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, IteratorMode, Options, ReadOptions, WriteBatch, DB, DBIterator};
+use parking_lot::RwLock;
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, DBIterator, IteratorMode, Options,
+    ReadOptions, WriteBatch, DB,
+};
 use std::collections::HashMap;
 use std::io;
-use parking_lot::{RwLock};
 
 fn other_io_err<E>(e: E) -> io::Error
 where
@@ -58,16 +61,13 @@ pub trait Database: Sync + Send {
 impl RocksDB {
     fn iterate(&self, col: usize) -> Option<DBIterator<'_>> {
         match *self.db.read() {
-            Some(ref db) => {
-                unsafe {
-                    let cf_handle = &*self.cfs[col];
-                    let iterator = db
-                        .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
-                        .unwrap();
-                    Some(iterator)
-                }
+            Some(ref db) => unsafe {
+                let cf_handle = &*self.cfs[col];
+                let iterator =
+                    db.iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start).unwrap();
+                Some(iterator)
             },
-            _ => None
+            _ => None,
         }
     }
 }
@@ -76,11 +76,9 @@ impl Database for RocksDB {
     fn get(&self, col: usize, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
         match *self.db.read() {
             Some(ref db) => unsafe {
-                Ok(db
-                    .get_cf_opt(&*self.cfs[col], key, &self.read_options)
-                    .map_err(other_io_err)?)
+                Ok(db.get_cf_opt(&*self.cfs[col], key, &self.read_options).map_err(other_io_err)?)
             },
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -102,7 +100,7 @@ impl Database for RocksDB {
         }
         match *self.db.write() {
             Some(ref db) => Ok(db.write(batch).map_err(other_io_err)?),
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
@@ -116,14 +114,13 @@ impl Database for TestDB {
     }
 
     fn iter<'a>(&'a self, col: usize) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        Box::new(
-            match *self.db.read() {
-                Some(ref db) => db[col].clone()
-                    .into_iter()
-                    .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice())),
-                _ => panic!()
-            }
-        )
+        Box::new(match *self.db.read() {
+            Some(ref db) => db[col]
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice())),
+            _ => panic!(),
+        })
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
@@ -136,8 +133,8 @@ impl Database for TestDB {
                     };
                 }
                 Ok(())
-            },
-            _ => panic!()
+            }
+            _ => panic!(),
         }
     }
 }

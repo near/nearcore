@@ -84,4 +84,4 @@ regression_tests = []
 old_tests = []
 
 [patch.crates-io]
-rocksdb = {path = "./core/store/rust-rocksdb"}
+rocksdb = { git = "https://github.com/nearprotocol/rust-rocksdb", branch = "lifetime" }

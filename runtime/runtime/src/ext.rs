@@ -97,8 +97,7 @@ type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?;
+        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.set(storage_key, Vec::from(value));
         Ok(evicted)
     }
@@ -110,8 +109,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?;
+        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.remove(&storage_key);
         Ok(evicted)
     }
