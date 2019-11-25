@@ -269,8 +269,9 @@ fn validate_chunk_proofs_challenge(
         // Merkle proof is invalid. It's a malicious challenge.
         return Err(ErrorKind::MaliciousChallenge.into());
     }
+    // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
     let tmp_chunk;
-    let chunk = match &chunk_proofs.chunk {
+    let chunk_ref = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
             match encoded_chunk
                 .decode_chunk(runtime_adapter.num_data_parts(&chunk_header.inner.prev_block_hash))
@@ -288,14 +289,14 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => chunk,
     };
 
-    if !validate_chunk_proofs(&chunk, &*runtime_adapter) {
+    if !validate_chunk_proofs(chunk_ref, &*runtime_adapter) {
         // Chunk proofs are invalid. Good challenge.
         return Ok((block_header.hash(), vec![chunk_producer]));
     }
 
     if !validate_chunk_transactions(
         chain_store,
-        &chunk.transactions,
+        &chunk_ref.transactions,
         &block_header,
         transaction_validity_period,
     ) {
