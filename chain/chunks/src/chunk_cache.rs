@@ -165,6 +165,13 @@ impl EncodedChunksCache {
     ) -> Vec<(ShardId, ShardChunkHeader)> {
         self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(|| vec![])
     }
+
+    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
+        self.block_hash_to_chunk_headers
+            .cache_get(prev_block_hash)
+            .map(|x| x.len() as ShardId)
+            .unwrap_or_else(|| 0)
+    }
 }
 
 #[cfg(test)]
@@ -174,7 +181,6 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
-    use near_primitives::types::StateRoot;
     use std::collections::HashMap;
 
     #[test]
@@ -186,7 +192,7 @@ mod tests {
             chunk_hash: Default::default(),
             header: Some(ShardChunkHeader::new(
                 CryptoHash::default(),
-                StateRoot { hash: Default::default(), num_parts: 0 },
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 1,
