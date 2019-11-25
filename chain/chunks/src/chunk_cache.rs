@@ -68,7 +68,7 @@ impl EncodedChunksCache {
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
         self.height_map
-            .entry(entry.header.height_included)
+            .entry(entry.header.inner.height_created)
             .or_insert_with(|| HashSet::default())
             .insert(chunk_hash.clone());
         self.encoded_chunks.insert(chunk_hash, entry);
@@ -105,7 +105,7 @@ impl EncodedChunksCache {
                 chunk_hash.clone(),
                 partial_encoded_chunk.header.as_ref(),
             );
-            let height = entry.header.height_included;
+            let height = entry.header.inner.height_created;
             entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
             self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
             return true;
