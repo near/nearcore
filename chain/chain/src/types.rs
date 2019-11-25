@@ -186,7 +186,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error>;
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(

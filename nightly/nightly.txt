@@ -8,9 +8,9 @@ pytest sanity/staking1.py
 pytest --timeout=800 sanity/staking2.py
 pytest --timeout=800 sanity/staking_repro1.py
 pytest --timeout=800 sanity/staking_repro2.py
-pytest sanity/state_sync.py manytx 50
+pytest sanity/state_sync.py manytx 30
 pytest --timeout=600 sanity/state_sync.py manytx 250
-pytest sanity/state_sync.py onetx 50
+pytest sanity/state_sync.py onetx 30
 pytest --timeout=600 sanity/state_sync.py onetx 250
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
@@ -43,7 +43,7 @@ expensive --timeout=1500 near-client cross_shard_tx tests::test_cross_shard_tx_d
 expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation
 
 # finality gadget safety fuzzy test
-expensive --timeout=600 near-epoch-manager finality tests::test_fuzzy_safety
+expensive --timeout=900 near-epoch-manager finality tests::test_fuzzy_safety
 
 # state sync tests
 expensive near sync_state_nodes sync_state_nodes_multishard

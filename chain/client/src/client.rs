@@ -292,7 +292,6 @@ impl Client {
             epoch_id.clone(),
             next_height,
             approvals.clone(),
-            total_block_producers,
             &*self.runtime_adapter,
             self.chain.mut_store(),
         )?
@@ -814,7 +813,7 @@ impl Client {
                 .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
             {
                 if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|v| v.0 == block_producer.account_id)
+                    validators.into_iter().find(|v| v.0.account_id == block_producer.account_id)
                 {
                     if !is_slashed {
                         let reference_hash =
@@ -875,7 +874,7 @@ impl Client {
             .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
-                let position = validators.iter().position(|x| &(x.0) == account_id);
+                let position = validators.iter().position(|x| &(x.0.account_id) == account_id);
                 if let Some(idx) = position {
                     if !validators[idx].1 {
                         idx
