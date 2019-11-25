@@ -1954,6 +1954,7 @@ dependencies = [
  "near-store 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rust-lzma 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -3093,6 +3094,14 @@ dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "blake2b_simd 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-utils 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "rust-lzma"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "pkg-config 0.3.16 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4443,6 +4452,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum rlp 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)" = "3a44d5ae8afcb238af8b75640907edc6c931efcfab2c854e81ed35fa080f84cd"
 "checksum rocksdb 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "12069b106981c6103d3eab7dd1c86751482d0779a520b7c14954c8b586c1e643"
 "checksum rust-argon2 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4ca4eaef519b494d1f2848fc602d18816fed808a981aedf4f1f00ceb7c9d32cf"
+"checksum rust-lzma 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "895dc04daeaeee338bb96e229797902ed3f0675bfc59d5b42e0f0b0c13ac54da"
 "checksum rustc-demangle 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)" = "4c691c0e608126e00913e33f0ccf3727d5fc84573623b8d65b2df340b5201783"
 "checksum rustc-hex 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "403bb3a286107a04825a5f82e1270acc1e14028d3d554d7a1e08914549575ab8"
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
