@@ -1,5 +1,6 @@
 stages:
     - test
+    - release
 
 variables:
     CACHE_ROOT: "/opt/nearcore"
@@ -87,3 +88,16 @@ test_nearlib_release:
     # the PR is going to merge with. Before fix in bot, keep different version of .gitlab-ci.yml 
     # in staging and master.
     # - master 
+
+release_build:
+    stage: release
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - cargo build --release -p near
+    - ./scripts/upload_release.sh
+    only:
+    - staging
+    - master
