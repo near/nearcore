@@ -6,7 +6,6 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 
 use near_chain::{Chain, ChainGenesis, RuntimeAdapter};
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
@@ -51,7 +50,7 @@ impl Handler<Query> for ViewClientActor {
         let state_root = {
             if path_parts[0] == "validators" && path_parts.len() == 1 {
                 // for querying validators we don't need state root
-                StateRoot { hash: CryptoHash::default(), num_parts: 0 }
+                StateRoot::default()
             } else {
                 let account_id = AccountId::from(path_parts[1]);
                 let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
@@ -66,8 +65,8 @@ impl Handler<Query> for ViewClientActor {
         self.runtime_adapter
             .query(
                 &state_root,
-                header.inner.height,
-                header.inner.timestamp,
+                header.inner_lite.height,
+                header.inner_lite.timestamp,
                 &header.hash,
                 path_parts,
                 &msg.data,

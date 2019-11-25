@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Approval, Block, BlockHeader, BlockHeaderInner};
+use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
@@ -269,35 +269,35 @@ pub struct BlockHeaderView {
 impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            height: header.inner.height,
-            epoch_id: header.inner.epoch_id.0,
+            height: header.inner_lite.height,
+            epoch_id: header.inner_lite.epoch_id.0,
             hash: header.hash,
-            prev_hash: header.inner.prev_hash,
-            prev_state_root: header.inner.prev_state_root,
-            chunk_receipts_root: header.inner.chunk_receipts_root,
-            chunk_headers_root: header.inner.chunk_headers_root,
-            chunk_tx_root: header.inner.chunk_tx_root,
-            chunks_included: header.inner.chunks_included,
-            outcome_root: header.inner.outcome_root,
-            timestamp: header.inner.timestamp,
-            total_weight: header.inner.total_weight.to_num(),
-            score: header.inner.score.to_num(),
+            prev_hash: header.prev_hash,
+            prev_state_root: header.inner_lite.prev_state_root,
+            chunk_receipts_root: header.inner_rest.chunk_receipts_root,
+            chunk_headers_root: header.inner_rest.chunk_headers_root,
+            chunk_tx_root: header.inner_rest.chunk_tx_root,
+            chunks_included: header.inner_rest.chunks_included,
+            outcome_root: header.inner_lite.outcome_root,
+            timestamp: header.inner_lite.timestamp,
+            total_weight: header.inner_rest.total_weight.to_num(),
+            score: header.inner_rest.score.to_num(),
             validator_proposals: header
-                .inner
+                .inner_rest
                 .validator_proposals
                 .into_iter()
                 .map(|v| v.into())
                 .collect(),
-            chunk_mask: header.inner.chunk_mask,
-            gas_price: header.inner.gas_price,
-            rent_paid: header.inner.rent_paid,
-            validator_reward: header.inner.validator_reward,
-            total_supply: header.inner.total_supply,
-            challenges_result: header.inner.challenges_result,
-            last_quorum_pre_vote: header.inner.last_quorum_pre_vote,
-            last_quorum_pre_commit: header.inner.last_quorum_pre_commit,
+            chunk_mask: header.inner_rest.chunk_mask,
+            gas_price: header.inner_rest.gas_price,
+            rent_paid: header.inner_rest.rent_paid,
+            validator_reward: header.inner_rest.validator_reward,
+            total_supply: header.inner_rest.total_supply,
+            challenges_result: header.inner_rest.challenges_result,
+            last_quorum_pre_vote: header.inner_rest.last_quorum_pre_vote,
+            last_quorum_pre_commit: header.inner_rest.last_quorum_pre_commit,
             approvals: header
-                .inner
+                .inner_rest
                 .approvals
                 .into_iter()
                 .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
@@ -310,17 +310,19 @@ impl From<BlockHeader> for BlockHeaderView {
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
         let mut header = Self {
-            inner: BlockHeaderInner {
+            prev_hash: view.prev_hash,
+            inner_lite: BlockHeaderInnerLite {
                 height: view.height,
                 epoch_id: EpochId(view.epoch_id),
-                prev_hash: view.prev_hash,
                 prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
+                timestamp: view.timestamp,
+            },
+            inner_rest: BlockHeaderInnerRest {
                 chunk_receipts_root: view.chunk_receipts_root,
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
-                outcome_root: view.outcome_root,
-                timestamp: view.timestamp,
                 total_weight: view.total_weight.into(),
                 score: view.score.into(),
                 validator_proposals: view
@@ -360,8 +362,7 @@ pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub outcome_root: CryptoHash,
-    pub prev_state_root_hash: CryptoHash,
-    pub prev_state_num_parts: u64,
+    pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockIndex,
@@ -387,8 +388,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: chunk.hash.0,
             prev_block_hash: chunk.inner.prev_block_hash,
             outcome_root: chunk.inner.outcome_root,
-            prev_state_root_hash: chunk.inner.prev_state_root.hash,
-            prev_state_num_parts: chunk.inner.prev_state_root.num_parts,
+            prev_state_root: chunk.inner.prev_state_root,
             encoded_merkle_root: chunk.inner.encoded_merkle_root,
             encoded_length: chunk.inner.encoded_length,
             height_created: chunk.inner.height_created,
@@ -417,10 +417,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
         let mut header = ShardChunkHeader {
             inner: ShardChunkHeaderInner {
                 prev_block_hash: view.prev_block_hash,
-                prev_state_root: StateRoot {
-                    hash: view.prev_state_root_hash,
-                    num_parts: view.prev_state_num_parts,
-                },
+                prev_state_root: view.prev_state_root,
                 outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,

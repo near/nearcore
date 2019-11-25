@@ -1,12 +1,13 @@
 use std::cmp::min;
 use std::collections::HashMap;
 
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
 use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
+use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -21,18 +22,18 @@ impl Trie {
     pub fn get_trie_nodes_for_part(
         &self,
         part_id: u64,
+        num_parts: u64,
         state_root: &StateRoot,
-    ) -> Result<Vec<Vec<u8>>, StorageError> {
-        assert!(part_id < state_root.num_parts);
+    ) -> Result<PartialState, StorageError> {
+        assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
-        let root_node = self.retrieve_node(&state_root.hash)?;
-        let num_parts = state_root.num_parts;
+        let root_node = self.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
 
         let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_size_range(&state_root.hash, size_start, size_end)?;
+        with_recording.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
@@ -141,28 +142,28 @@ impl Trie {
     /// Validate state part
     ///
     /// # Panics
-    /// part_id must be in [0..state_root.num_parts)
+    /// part_id must be in [0..num_parts)
     ///
     /// # Errors
     /// StorageError::TrieNodeWithMissing if some nodes are missing
     pub fn validate_trie_nodes_for_part(
         state_root: &StateRoot,
         part_id: u64,
-        trie_nodes: &Vec<Vec<u8>>,
+        num_parts: u64,
+        trie_nodes: &PartialState,
     ) -> Result<(), StorageError> {
-        assert!(part_id < state_root.num_parts);
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.to_vec() });
+        assert!(part_id < num_parts);
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes.clone() });
 
-        let root_node = trie.retrieve_node(&state_root.hash)?;
-        let num_parts = state_root.num_parts;
+        let root_node = trie.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         let size_end = min((total_size + num_parts - 1) / num_parts * (part_id + 1), total_size);
 
-        trie.visit_nodes_for_size_range(&state_root.hash, size_start, size_end)?;
+        trie.visit_nodes_for_size_range(&state_root, size_start, size_end)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() != trie_nodes.len() {
+        if storage.visited_nodes.lock().expect(POISONED_LOCK_ERR).len() != trie_nodes.0.len() {
             // TODO #1603 not actually TrieNodeMissing.
             // The error is that the proof has more nodes than needed.
             return Err(StorageError::TrieNodeMissing);
@@ -257,9 +258,9 @@ impl Trie {
             .flatten()
             .map(|data| data.to_vec())
             .collect::<Vec<_>>();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
         let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
-        trie.traverse_all_nodes(&state_root.hash, |hash| {
+        trie.traverse_all_nodes(&state_root, |hash| {
             if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                 *rc += 1;
             } else {
@@ -273,10 +274,19 @@ impl Trie {
         insertions.sort();
         Ok(TrieChanges {
             old_root: Default::default(),
-            new_root: state_root.hash,
+            new_root: *state_root,
             insertions,
             deletions: vec![],
         })
+    }
+
+    pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
+        match RawTrieNodeWithSize::decode(&bytes) {
+            Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
+            Err(_) => {
+                Err(StorageError::StorageInconsistentState(format!("Failed to decode node",)))
+            }
+        }
     }
 }
 
@@ -295,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_combine_empty_trie_parts() {
-        let state_root = StateRoot { hash: CryptoHash::default(), num_parts: 0 };
+        let state_root = StateRoot::default();
         let _ = Trie::combine_state_parts(&state_root, &vec![]).unwrap();
     }
 
@@ -306,7 +316,7 @@ mod tests {
             let trie = create_trie();
             let trie_changes = gen_changes(&mut rng, 500);
 
-            let (store_update, root) = trie
+            let (store_update, state_root) = trie
                 .update(&Trie::empty_root(), trie_changes.iter().cloned())
                 .unwrap()
                 .into(trie.clone())
@@ -316,18 +326,19 @@ mod tests {
                 // Test that creating and validating are consistent
                 let num_parts = rng.gen_range(1, 10);
                 let part_id = rng.gen_range(0, num_parts);
-                let state_root = StateRoot { hash: root, num_parts };
-                let trie_nodes = trie.get_trie_nodes_for_part(part_id, &state_root).unwrap();
-                Trie::validate_trie_nodes_for_part(&state_root, part_id, &trie_nodes)
+                let trie_nodes =
+                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap();
+                Trie::validate_trie_nodes_for_part(&state_root, part_id, num_parts, &trie_nodes)
                     .expect("validate ok");
             }
 
             {
                 // Test that combining all parts gets all nodes
                 let num_parts = rng.gen_range(2, 10);
-                let state_root = StateRoot { hash: root, num_parts };
                 let parts = (0..num_parts)
-                    .map(|part_id| trie.get_trie_nodes_for_part(part_id, &state_root).unwrap())
+                    .map(|part_id| {
+                        trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap().0
+                    })
                     .collect::<Vec<_>>();
 
                 let trie_changes = Trie::combine_state_parts(&state_root, &parts).unwrap();
@@ -346,9 +357,10 @@ mod tests {
                 assert_eq!(all_nodes.len(), trie_changes.insertions.len());
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
                 Trie::validate_trie_nodes_for_part(
-                    &StateRoot { hash: root, num_parts: 1 },
+                    &state_root,
                     0,
-                    &all_nodes,
+                    1,
+                    &PartialState(all_nodes.clone()),
                 )
                 .expect("validate ok");
 

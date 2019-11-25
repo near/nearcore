@@ -116,7 +116,7 @@ impl GenesisBuilder {
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root.hash))
+                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), *root))
             })
             .collect();
         self.unflushed_records =
@@ -176,7 +176,7 @@ impl GenesisBuilder {
         let (store_update, root) = state_update.finalize()?.into(trie)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, StateRoot { hash: root, num_parts: 9 /* TODO MOO */ });
+        self.roots.insert(shard_idx, root.clone());
         self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
         Ok(())
     }
@@ -201,7 +201,7 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
-                genesis.header.inner.height,
+                genesis.header.inner_lite.height,
                 0,
                 vec![],
                 vec![],

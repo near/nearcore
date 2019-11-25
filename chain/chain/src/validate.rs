@@ -11,7 +11,7 @@ use near_primitives::types::{AccountId, ChunkExtra, EpochId};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
-use crate::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
+use crate::types::ApplyTransactionResult;
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -127,28 +127,26 @@ fn validate_double_sign(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
     let right_block_header = BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
-    let block_producer = runtime_adapter
-        .get_block_producer(&left_block_header.inner.epoch_id, left_block_header.inner.height)?;
+    let block_producer = runtime_adapter.get_block_producer(
+        &left_block_header.inner_lite.epoch_id,
+        left_block_header.inner_lite.height,
+    )?;
     if left_block_header.hash() != right_block_header.hash()
-        && left_block_header.inner.height == right_block_header.inner.height
-        && runtime_adapter
-            .verify_validator_signature(
-                &left_block_header.inner.epoch_id,
-                &left_block_header.inner.prev_hash,
-                &block_producer,
-                left_block_header.hash().as_ref(),
-                &left_block_header.signature,
-            )
-            .valid()
-        && runtime_adapter
-            .verify_validator_signature(
-                &right_block_header.inner.epoch_id,
-                &right_block_header.inner.prev_hash,
-                &block_producer,
-                right_block_header.hash().as_ref(),
-                &right_block_header.signature,
-            )
-            .valid()
+        && left_block_header.inner_lite.height == right_block_header.inner_lite.height
+        && runtime_adapter.verify_validator_signature(
+            &left_block_header.inner_lite.epoch_id,
+            &left_block_header.prev_hash,
+            &block_producer,
+            left_block_header.hash().as_ref(),
+            &left_block_header.signature,
+        )?
+        && runtime_adapter.verify_validator_signature(
+            &right_block_header.inner_lite.epoch_id,
+            &right_block_header.prev_hash,
+            &block_producer,
+            right_block_header.hash().as_ref(),
+            &right_block_header.signature,
+        )?
     {
         // Deterministically return header with higher hash.
         Ok(if left_block_header.hash() > right_block_header.hash() {
@@ -165,12 +163,10 @@ fn validate_header_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    match runtime_adapter.verify_header_signature(block_header) {
-        ValidatorSignatureVerificationResult::Valid => Ok(()),
-        ValidatorSignatureVerificationResult::Invalid => Err(ErrorKind::InvalidChallenge.into()),
-        ValidatorSignatureVerificationResult::UnknownEpoch => {
-            Err(ErrorKind::EpochOutOfBounds.into())
-        }
+    if runtime_adapter.verify_header_signature(block_header)? {
+        Ok(())
+    } else {
+        Err(ErrorKind::InvalidChallenge.into())
     }
 }
 
@@ -178,19 +174,17 @@ fn validate_chunk_authorship(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    match runtime_adapter.verify_chunk_header_signature(chunk_header) {
-        Ok(true) => {
-            let epoch_id = runtime_adapter
-                .get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
-            let chunk_producer = runtime_adapter.get_chunk_producer(
-                &epoch_id,
-                chunk_header.inner.height_created,
-                chunk_header.inner.shard_id,
-            )?;
-            Ok(chunk_producer)
-        }
-        Ok(false) => return Err(ErrorKind::InvalidChallenge.into()),
-        Err(e) => Err(e),
+    if runtime_adapter.verify_chunk_header_signature(chunk_header)? {
+        let epoch_id =
+            runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
+        let chunk_producer = runtime_adapter.get_chunk_producer(
+            &epoch_id,
+            chunk_header.inner.height_created,
+            chunk_header.inner.shard_id,
+        )?;
+        Ok(chunk_producer)
+    } else {
+        Err(ErrorKind::InvalidChallenge.into())
     }
 }
 
@@ -203,7 +197,7 @@ fn validate_chunk_proofs_challenge(
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_proofs.chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_proofs.chunk.header,
-        &block_header.inner.chunk_headers_root,
+        &block_header.inner_rest.chunk_headers_root,
         &chunk_proofs.merkle_proof,
     ) {
         return Err(ErrorKind::MaliciousChallenge.into());
@@ -233,7 +227,7 @@ fn validate_chunk_state_challenge(
     let _ = validate_chunk_authorship(runtime_adapter, &chunk_state.prev_chunk.header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.prev_chunk.header,
-        &prev_block_header.inner.chunk_headers_root,
+        &prev_block_header.inner_rest.chunk_headers_root,
         &chunk_state.prev_merkle_proof,
     ) {
         return Err(ErrorKind::MaliciousChallenge.into());
@@ -244,7 +238,7 @@ fn validate_chunk_state_challenge(
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
     if !Block::validate_chunk_header_proof(
         &chunk_state.chunk_header,
-        &block_header.inner.chunk_headers_root,
+        &block_header.inner_rest.chunk_headers_root,
         &chunk_state.merkle_proof,
     ) {
         return Err(ErrorKind::MaliciousChallenge.into());
@@ -257,14 +251,14 @@ fn validate_chunk_state_challenge(
             partial_storage,
             chunk_state.prev_chunk.header.inner.shard_id,
             &chunk_state.prev_chunk.header.inner.prev_state_root,
-            block_header.inner.height,
-            block_header.inner.timestamp,
-            &block_header.inner.prev_hash,
+            block_header.inner_lite.height,
+            block_header.inner_lite.timestamp,
+            &block_header.prev_hash,
             &block_header.hash(),
             &chunk_state.prev_chunk.receipts,
             &chunk_state.prev_chunk.transactions,
             &[],
-            prev_block_header.inner.gas_price,
+            prev_block_header.inner_rest.gas_price,
             chunk_state.prev_chunk.header.inner.gas_limit,
             &ChallengesResult::default(),
         )
@@ -291,16 +285,13 @@ pub fn validate_challenge(
     challenge: &Challenge,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
-    if !runtime_adapter
-        .verify_validator_signature(
-            epoch_id,
-            last_block_hash,
-            &challenge.account_id,
-            challenge.hash.as_ref(),
-            &challenge.signature,
-        )
-        .valid()
-    {
+    if !runtime_adapter.verify_validator_signature(
+        epoch_id,
+        last_block_hash,
+        &challenge.account_id,
+        challenge.hash.as_ref(),
+        &challenge.signature,
+    )? {
         return Err(ErrorKind::InvalidChallenge.into());
     }
     match &challenge.body {

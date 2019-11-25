@@ -499,7 +499,8 @@ impl PeerManagerActor {
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
         debug!(target: "network", "{:?} Account announce: {:?}", self.config.account_id, announce_account);
-        if self.routing_table.add_account(announce_account.clone()) {
+        if !self.routing_table.contains_account(&announce_account) {
+            self.routing_table.add_account(announce_account.clone());
             self.broadcast_message(
                 ctx,
                 SendMessage { message: PeerMessage::Sync(SyncData::account(announce_account)) },
@@ -729,12 +730,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, need_header, parts_ranges, target } => {
+            NetworkRequests::StateRequest { shard_id, hash, need_header, parts, target } => {
                 match target {
                     AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
                         ctx,
                         &account_id,
-                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts_ranges),
+                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts),
                     ),
                     peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
                     | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
@@ -745,7 +746,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                 shard_id,
                                 hash,
                                 need_header,
-                                parts_ranges,
+                                parts,
                             ),
                         },
                     ),
@@ -828,8 +829,21 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 // Filter known accounts before validating them.
                 let new_accounts = accounts
                     .into_iter()
-                    .filter(|announce_account| {
-                        !self.routing_table.contains_account(&announce_account)
+                    .filter_map(|announce_account| {
+                        if let Some(current_announce_account) =
+                            self.routing_table.account_peers.get(&announce_account.account_id)
+                        {
+                            if announce_account.epoch_id == current_announce_account.epoch_id {
+                                None
+                            } else {
+                                Some((
+                                    announce_account,
+                                    Some(current_announce_account.epoch_id.clone()),
+                                ))
+                            }
+                        } else {
+                            Some((announce_account, None))
+                        }
                     })
                     .collect();
 

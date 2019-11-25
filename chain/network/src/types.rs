@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::ShardStateSyncResponse;
+use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
@@ -24,7 +24,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, Range, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
@@ -307,7 +307,7 @@ pub enum RoutedMessageBody {
         response: QueryResponse,
         id: String,
     },
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -322,7 +322,7 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -917,7 +917,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         hash: CryptoHash,
         need_header: bool,
-        parts_ranges: Vec<Range>,
+        parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
     },
     /// Ban given peer.
@@ -1066,11 +1066,13 @@ pub enum NetworkClientMessages {
     /// Request a block.
     BlockRequest(CryptoHash),
     /// State request.
-    StateRequest(ShardId, CryptoHash, bool, Vec<Range>, CryptoHash),
+    StateRequest(ShardId, CryptoHash, bool, StateRequestParts, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
-    AnnounceAccount(Vec<AnnounceAccount>),
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),

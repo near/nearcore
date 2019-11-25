@@ -85,6 +85,9 @@ impl RuntimeUser {
                     RuntimeError::InvalidTxError(e) => format!("{}", e),
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
+                    RuntimeError::UnexpectedIntegerOverflow => {
+                        panic!("UnexpectedIntegerOverflow error")
+                    }
                 })?;
             let (_, proofs) =
                 ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -95,7 +98,7 @@ impl RuntimeUser {
                 );
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
-            client.state_root = apply_result.state_root.hash;
+            client.state_root = apply_result.state_root;
             if apply_result.new_receipts.is_empty() {
                 return Ok(());
             }

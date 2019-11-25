@@ -144,7 +144,7 @@ ext_costs = json.loads('''{
           "promise_results_count": 1,
           "promise_return": 1,
           "log_base": 1,
-          "log_per_byte": 1
+          "log_byte": 1
         }''')
 burnt_gas_reward = json.loads('''{
           "denominator": 10,

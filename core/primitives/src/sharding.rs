@@ -225,13 +225,12 @@ impl EncodedShardChunk {
 
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        transactions: &Vec<SignedTransaction>,
+        transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
-        let mut bytes =
-            TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
+        let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
         let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];

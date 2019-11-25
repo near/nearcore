@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use near::{start_with_config, NearConfig};
+use near::{start_with_config, GenesisConfig, NearConfig};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
@@ -28,6 +28,10 @@ fn start_thread(config: NearConfig) -> ShutdownableThread {
 }
 
 impl Node for ThreadNode {
+    fn genesis_config(&self) -> &GenesisConfig {
+        &self.config.genesis_config
+    }
+
     fn account_id(&self) -> Option<AccountId> {
         match &self.config.block_producer {
             Some(bp) => Some(bp.account_id.clone()),

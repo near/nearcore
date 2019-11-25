@@ -58,7 +58,9 @@ pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
 pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
 pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
 pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
-const NUM_COLS: u32 = 23;
+pub const COL_STATE_PARTS: Option<u32> = Some(23);
+pub const COL_EPOCH_START: Option<u32> = Some(24);
+const NUM_COLS: u32 = 25;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

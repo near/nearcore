@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +21,6 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain::Error),
-    Pool(near_pool::Error),
     Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
@@ -31,7 +31,6 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Pool(err) => write!(f, "Pool: {}", err),
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
@@ -52,12 +51,6 @@ impl From<near_chain::ErrorKind> for Error {
     fn from(e: near_chain::ErrorKind) -> Self {
         let error: near_chain::Error = e.into();
         Error::Chain(error)
-    }
-}
-
-impl From<near_pool::Error> for Error {
-    fn from(e: near_pool::Error) -> Self {
-        Error::Pool(e)
     }
 }
 
@@ -171,7 +164,10 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(min_block_prod_time / 2),
-            chunk_request_retry_period: Duration::from_millis(min_block_prod_time / 5),
+            chunk_request_retry_period: min(
+                Duration::from_millis(100),
+                Duration::from_millis(min_block_prod_time / 5),
+            ),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -278,7 +274,9 @@ impl Message for Query {
     type Result = Result<QueryResponse, String>;
 }
 
-pub struct Status {}
+pub struct Status {
+    pub is_health_check: bool,
+}
 
 impl Message for Status {
     type Result = Result<StatusResponse, String>;

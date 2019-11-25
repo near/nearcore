@@ -26,19 +26,19 @@ fn compute_quorums_slow(
     while prev_hash != CryptoHash::default() {
         let block_header = chain_store.get_block_header(&prev_hash).unwrap();
 
-        all_heights_and_hashes.push((block_header.hash().clone(), block_header.inner.height));
+        all_heights_and_hashes.push((block_header.hash().clone(), block_header.inner_lite.height));
 
-        prev_hash = block_header.inner.prev_hash.clone();
-        all_approvals.extend(block_header.inner.approvals.clone());
+        prev_hash = block_header.prev_hash.clone();
+        all_approvals.extend(block_header.inner_rest.approvals.clone());
     }
 
     let all_approvals = all_approvals
         .into_iter()
         .map(|approval| {
             let reference_height =
-                chain_store.get_block_header(&approval.reference_hash).unwrap().inner.height;
+                chain_store.get_block_header(&approval.reference_hash).unwrap().inner_lite.height;
             let parent_height =
-                chain_store.get_block_header(&approval.parent_hash).unwrap().inner.height;
+                chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.height;
 
             assert!(reference_height <= parent_height);
 
@@ -100,9 +100,9 @@ fn create_block(
     total_block_producers: usize,
 ) -> Block {
     let mut block = Block::empty(prev, signer);
-    block.header.inner.approvals = approvals.clone();
-    block.header.inner.height = height;
-    block.header.inner.total_weight = (height as u128).into();
+    block.header.inner_rest.approvals = approvals.clone();
+    block.header.inner_lite.height = height;
+    block.header.inner_rest.total_weight = (height as u128).into();
 
     /*println!(
         "Creating block at height {} with parent {:?} and approvals {:?}",
@@ -125,13 +125,17 @@ fn create_block(
     .unwrap()
     .clone();
 
-    block.header.inner.last_quorum_pre_vote = fast_quorums.last_quorum_pre_vote;
-    block.header.inner.last_quorum_pre_commit = fast_quorums.last_quorum_pre_commit;
+    block.header.inner_rest.last_quorum_pre_vote = fast_quorums.last_quorum_pre_vote;
+    block.header.inner_rest.last_quorum_pre_commit = fast_quorums.last_quorum_pre_commit;
 
-    block.header.inner.score = if fast_quorums.last_quorum_pre_vote == CryptoHash::default() {
+    block.header.inner_rest.score = if fast_quorums.last_quorum_pre_vote == CryptoHash::default() {
         0.into()
     } else {
-        chain_store.get_block_header(&fast_quorums.last_quorum_pre_vote).unwrap().inner.total_weight
+        chain_store
+            .get_block_header(&fast_quorums.last_quorum_pre_vote)
+            .unwrap()
+            .inner_rest
+            .total_weight
     };
 
     block.header.init();
@@ -532,7 +536,6 @@ fn test_fuzzy_finality() {
                                 .mut_store()
                                 .get_block_header(&prev_block_hash)
                                 .unwrap()
-                                .inner
                                 .prev_hash;
                         }
                     }
@@ -547,7 +550,7 @@ fn test_fuzzy_finality() {
 
                 let new_block = create_block(
                     &prev_block,
-                    prev_block.header.inner.height + 1,
+                    prev_block.header.inner_lite.height + 1,
                     chain.mut_store(),
                     &*signer,
                     approvals,
