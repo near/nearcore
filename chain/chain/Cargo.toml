@@ -13,7 +13,7 @@ rocksdb = "0.13"
 rand = "0.7"
 serde = "1.0"
 serde_derive = "1.0"
-cached = "0.9.0"
+cached = "0.11.0"
 lazy_static = "1.4"
 
 borsh = "0.2.9"
@@ -22,7 +22,7 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-
+near-pool = { path = "../pool" }
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

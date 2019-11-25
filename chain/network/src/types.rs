@@ -322,7 +322,7 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -1070,7 +1070,9 @@ pub enum NetworkClientMessages {
     /// State response.
     StateResponse(StateResponseInfo),
     /// Account announcements that needs to be validated before being processed.
-    AnnounceAccount(Vec<AnnounceAccount>),
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),

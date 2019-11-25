@@ -17,7 +17,7 @@ pub enum Direction {
     Right,
 }
 
-fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
+pub fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     let mut combined: Vec<u8> = hash1.into();
     combined.append(&mut hash2.into());
     hash(&combined)

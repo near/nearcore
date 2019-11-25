@@ -65,8 +65,8 @@ impl Handler<Query> for ViewClientActor {
         self.runtime_adapter
             .query(
                 &state_root,
-                header.inner.height,
-                header.inner.timestamp,
+                header.inner_lite.height,
+                header.inner_lite.timestamp,
                 &header.hash,
                 path_parts,
                 &msg.data,

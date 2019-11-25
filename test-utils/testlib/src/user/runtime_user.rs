@@ -85,6 +85,9 @@ impl RuntimeUser {
                     RuntimeError::InvalidTxError(e) => format!("{}", e),
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
+                    RuntimeError::UnexpectedIntegerOverflow => {
+                        panic!("UnexpectedIntegerOverflow error")
+                    }
                 })?;
             let (_, proofs) =
                 ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);

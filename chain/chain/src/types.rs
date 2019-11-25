@@ -6,7 +6,6 @@ use near_crypto::Signature;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -20,6 +19,9 @@ use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_pool::types::PoolIterator;
+use near_primitives::errors::InvalidTxError;
+use std::cmp::Ordering;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -34,7 +36,7 @@ pub struct RootProof(pub CryptoHash, pub MerklePath);
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct StatePartKey(pub ShardId, pub u64 /* PartId */, pub StateRoot);
+pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -76,27 +78,8 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-/// Information about valid transaction that was processed by chain + runtime.
-#[derive(Debug)]
-pub struct ValidTransaction {
-    pub transaction: SignedTransaction,
-}
-
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
-
-#[derive(Eq, PartialEq, Debug)]
-pub enum ValidatorSignatureVerificationResult {
-    Valid,
-    Invalid,
-    UnknownEpoch,
-}
-
-impl ValidatorSignatureVerificationResult {
-    pub fn valid(&self) -> bool {
-        *self == ValidatorSignatureVerificationResult::Valid
-    }
-}
 
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
@@ -139,27 +122,38 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    /// Validates a given signed transaction on top of the given state root.
+    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
+    /// a validation error, or `None` in case the transaction succeeded.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError>;
+        transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error>;
 
-    /// Filter transactions by verifying each one by one in the given order. Every successful
-    /// verification stores the updated account balances to be used by next transactions.
-    fn filter_transactions(
+    /// Returns an ordered list of valid transactions from the pool up the given limits.
+    /// Pulls transactions from the given pool iterators one by one. Validates each transaction
+    /// against the given `chain_validate` closure and runtime's transaction verifier.
+    /// If the transaction is valid for both, it's added to the result and the temporary state
+    /// update is preserved for validation of next transactions.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// `RuntimeError::StorageError`.
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction>;
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn PoolIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
@@ -170,11 +164,10 @@ pub trait RuntimeAdapter: Send + Sync {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult;
+    ) -> Result<bool, Error>;
 
     /// Verify header signature.
-    fn verify_header_signature(&self, header: &BlockHeader)
-        -> ValidatorSignatureVerificationResult;
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
@@ -405,6 +398,12 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
+
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
         let mut receipts_hashes = vec![];
@@ -453,11 +452,11 @@ impl Tip {
     /// Creates a new tip based on provided header.
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
-            height: header.inner.height,
+            height: header.inner_lite.height,
             last_block_hash: header.hash(),
-            prev_block_hash: header.inner.prev_hash,
-            weight_and_score: header.inner.weight_and_score(),
-            epoch_id: header.inner.epoch_id.clone(),
+            prev_block_hash: header.prev_hash,
+            weight_and_score: header.inner_rest.weight_and_score(),
+            epoch_id: header.inner_lite.epoch_id.clone(),
         }
     }
 }
@@ -508,7 +507,7 @@ mod tests {
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.inner.total_weight.to_num(), 1);
+        assert_eq!(b1.header.inner_rest.total_weight.to_num(), 1);
         let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
         let approvals = vec![
             (Approval {
@@ -522,11 +521,11 @@ mod tests {
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
-            b1.header.inner.epoch_id.clone(),
+            b1.header.inner_lite.epoch_id.clone(),
             approvals,
             &signer,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.inner.total_weight.to_num(), 3);
+        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
     }
 }

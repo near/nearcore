@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fs::File;
@@ -9,13 +10,15 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use log::debug;
 
-use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
+use near_chain::types::ApplyTransactionResult;
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
+use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
+use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
@@ -39,7 +42,6 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::block::Approval;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -291,6 +293,10 @@ impl NightshadeRuntime {
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
                 RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                // TODO: process gracefully
+                RuntimeError::UnexpectedIntegerOverflow => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                }
                 RuntimeError::StorageError(_) => ErrorKind::StorageError,
             })?;
 
@@ -373,12 +379,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let validator =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)?;
+        let validator = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
+        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
     }
 
     fn verify_validator_signature(
@@ -388,50 +394,34 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult {
+    ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
-        {
+        if let Some(validator) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
             let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
                 Ok(slashed) => slashed,
-                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
+                Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
             };
             if slashed.contains(&validator.account_id) {
-                return ValidatorSignatureVerificationResult::Invalid;
+                return Ok(false);
             }
-            if signature.verify(data, &validator.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
+            Ok(signature.verify(data, &validator.public_key))
         } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
+            Err(EpochError::EpochOutOfBounds.into())
         }
     }
 
-    fn verify_header_signature(
-        &self,
-        header: &BlockHeader,
-    ) -> ValidatorSignatureVerificationResult {
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(block_producer) =
-            epoch_manager.get_block_producer_info(&header.inner.epoch_id, header.inner.height)
-        {
-            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_hash) {
-                Ok(slashed) => slashed,
-                Err(_) => return ValidatorSignatureVerificationResult::UnknownEpoch,
-            };
-            if slashed.contains(&block_producer.account_id) {
-                return ValidatorSignatureVerificationResult::Invalid;
-            }
-            if header.signature.verify(header.hash.as_ref(), &block_producer.public_key) {
-                ValidatorSignatureVerificationResult::Valid
-            } else {
-                ValidatorSignatureVerificationResult::Invalid
-            }
-        } else {
-            ValidatorSignatureVerificationResult::UnknownEpoch
+        let block_producer = epoch_manager
+            .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
+        let slashed = match epoch_manager.get_slashed_validators(&header.prev_hash) {
+            Ok(slashed) => slashed,
+            Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
+        };
+        if slashed.contains(&block_producer.account_id) {
+            return Ok(false);
         }
+        Ok(header.signature.verify(header.hash.as_ref(), &block_producer.public_key))
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -633,8 +623,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, RuntimeError> {
+        transaction: &SignedTransaction,
+    ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
@@ -645,26 +635,32 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit: None,
         };
 
-        if let Err(err) = self.runtime.verify_and_charge_transaction(
+        match self.runtime.verify_and_charge_transaction(
             &mut state_update,
             &apply_state,
             &transaction,
         ) {
-            debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-            return Err(err);
+            Ok(_) => Ok(None),
+            Err(RuntimeError::InvalidTxError(err)) => {
+                debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                Ok(Some(err))
+            }
+            Err(RuntimeError::StorageError(_err)) => Err(Error::from(ErrorKind::StorageError)),
+            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
         }
-        Ok(ValidTransaction { transaction })
     }
 
-    fn filter_transactions(
+    fn prepare_transactions(
         &self,
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
         state_root: StateRoot,
-        transactions: Vec<SignedTransaction>,
-    ) -> Vec<SignedTransaction> {
+        max_number_of_transactions: usize,
+        pool_iterator: &mut dyn PoolIterator,
+        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+    ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
@@ -673,14 +669,50 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             gas_limit: Some(gas_limit),
         };
-        transactions
-            .into_iter()
-            .filter(|transaction| {
-                self.runtime
-                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
-                    .is_ok()
-            })
-            .collect()
+
+        // Total amount of gas burnt for converting transactions towards receipts.
+        let mut total_gas_burnt = 0;
+        // TODO: Update gas limit for transactions
+        let transactions_gas_limit = gas_limit / 2;
+        let mut transactions = vec![];
+        let mut num_checked_transactions = 0;
+
+        while transactions.len() < max_number_of_transactions
+            && total_gas_burnt < transactions_gas_limit
+        {
+            if let Some(iter) = pool_iterator.next() {
+                while let Some(tx) = iter.next() {
+                    num_checked_transactions += 1;
+                    // Verifying the transaction is on the same chain and hasn't expired yet.
+                    if chain_validate(&tx) {
+                        // Verifying the validity of the transaction based on the current state.
+                        match self.runtime.verify_and_charge_transaction(
+                            &mut state_update,
+                            &apply_state,
+                            &tx,
+                        ) {
+                            Ok(verification_result) => {
+                                state_update.commit();
+                                transactions.push(tx);
+                                total_gas_burnt += verification_result.gas_burnt;
+                                break;
+                            }
+                            Err(RuntimeError::InvalidTxError(_err)) => {
+                                state_update.rollback();
+                            }
+                            Err(RuntimeError::StorageError(_err)) => {
+                                return Err(Error::from(ErrorKind::StorageError))
+                            }
+                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        Ok(transactions)
     }
 
     fn add_validator_proposals(
@@ -879,7 +911,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error> {
-        println!("get validator info");
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_validator_info(block_hash).map_err(|e| e.into())
     }
@@ -942,6 +973,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool {
+        if state_root == &CryptoHash::default() {
+            return state_root_node == &StateRootNode::empty();
+        }
         if hash(&state_root_node.data) != *state_root {
             false
         } else {
@@ -957,6 +991,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(_) => false, // Invalid state_root_node
             }
         }
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
 }
 
@@ -1041,7 +1084,6 @@ mod test {
 
     use tempdir::TempDir;
 
-    use near_chain::types::ValidatorSignatureVerificationResult;
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -1056,16 +1098,16 @@ mod test {
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
     };
+    use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
+    use node_runtime::ApplyState;
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_primitives::utils::key_for_account;
-    use node_runtime::ApplyState;
 
     fn stake(
         nonce: Nonce,
@@ -1624,16 +1666,16 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
-        assert_eq!(
-            ValidatorSignatureVerificationResult::Valid,
-            env.runtime.verify_validator_signature(
+        assert!(env
+            .runtime
+            .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
                 &validators[0],
                 &data,
                 &signature
             )
-        );
+            .unwrap());
     }
 
     #[test]
@@ -1931,16 +1973,16 @@ mod test {
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
-        assert_eq!(
-            env.runtime.verify_validator_signature(
+        assert!(!env
+            .runtime
+            .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
                 &"test2".to_string(),
                 &msg,
                 &signature,
-            ),
-            ValidatorSignatureVerificationResult::Invalid
-        );
+            )
+            .unwrap());
         // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);

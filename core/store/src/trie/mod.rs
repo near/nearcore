@@ -630,10 +630,7 @@ impl Trie {
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         if *root == Trie::empty_root() {
-            return Err(StorageError::StorageInconsistentState(format!(
-                "Failed to retrieve root node {}",
-                root
-            )));
+            return Ok(StateRootNode::empty());
         }
         self.counter.increment();
         let data = self.storage.retrieve_raw_bytes(root)?;

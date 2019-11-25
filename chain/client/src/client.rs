@@ -10,9 +10,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::types::{
-    AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
-};
+use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter, Tip,
 };
@@ -21,13 +19,12 @@ use near_network::types::{PeerId, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
-use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -137,10 +134,10 @@ impl Client {
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner.height == chunk_header.height_included {
+            if block.header.inner_lite.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.inner.prev_hash,
+                    &block.header.prev_hash,
                     shard_id,
                     true,
                 ) {
@@ -160,10 +157,10 @@ impl Client {
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.inner.height == chunk_header.height_included {
+            if block.header.inner_lite.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    &block.header.inner.prev_hash,
+                    &block.header.prev_hash,
                     shard_id,
                     false,
                 ) {
@@ -213,7 +210,7 @@ impl Client {
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
-        let prev_prev_hash = prev.inner.prev_hash;
+        let prev_prev_hash = prev.prev_hash;
 
         debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
@@ -241,10 +238,10 @@ impl Client {
         let total_approvals =
             total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
+        let num_chunks = self.shards_mgr.num_chunks_for_block(prev_hash);
         if head.height > 0
             && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
-            && (new_chunks.len() as ShardId) < self.runtime_adapter.num_shards()
+            && num_chunks < self.runtime_adapter.num_shards()
             && elapsed_since_last_block < self.config.max_block_production_delay
         {
             // Will retry after a `block_production_tracking_delay`.
@@ -252,6 +249,7 @@ impl Client {
             return Ok(None);
         }
 
+        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -303,7 +301,7 @@ impl Client {
         let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
         } else {
-            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner.total_weight
+            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
         };
 
         // Get block extra from previous block.
@@ -311,7 +309,7 @@ impl Client {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        assert!(score >= prev_block.header.inner.score);
+        assert!(score >= prev_block.header.inner_rest.score);
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -380,7 +378,7 @@ impl Client {
         }
 
         if self.runtime_adapter.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.inner.prev_hash;
+            let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.prev_hash;
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
                 debug!(target: "client", "Produce chunk: prev block is not caught up");
@@ -406,38 +404,21 @@ impl Client {
             .clone();
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
-        let transaction_validity_period = self.chain.transaction_validity_period;
-        let transactions: Vec<_> = self
-            .shards_mgr
-            .prepare_transactions(shard_id, self.config.block_expected_weight)?
-            .into_iter()
-            .filter(|t| {
-                self.chain
-                    .mut_store()
-                    .check_blocks_on_same_chain(
-                        &prev_block_header,
-                        &t.transaction.block_hash,
-                        transaction_validity_period,
-                    )
-                    .is_ok()
-            })
-            .collect();
-        let block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let transactions_len = transactions.len();
-        let filtered_transactions = self.runtime_adapter.filter_transactions(
+
+        let transactions = self.prepare_transactions(
             next_height,
             prev_block_timestamp,
-            block_header.inner.gas_price,
-            chunk_extra.gas_limit,
-            chunk_extra.state_root.clone(),
-            transactions,
+            shard_id,
+            &chunk_extra,
+            &prev_block_header,
         );
-        let (tx_root, _) = merklize(&filtered_transactions);
+
+        let num_filtered_transactions = transactions.len();
+
+        let (tx_root, _) = merklize(&transactions);
         debug!(
-            "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
-            filtered_transactions.len(),
-            transactions_len,
-            shard_id
+            "Creating a chunk with {} filtered transactions for shard {}",
+            num_filtered_transactions, shard_id
         );
 
         let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
@@ -474,7 +455,7 @@ impl Client {
             chunk_extra.validator_reward,
             chunk_extra.balance_burnt,
             chunk_extra.validator_proposals.clone(),
-            &filtered_transactions,
+            transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
@@ -486,7 +467,7 @@ impl Client {
             "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
             next_height,
             shard_id,
-            filtered_transactions.len(),
+            num_filtered_transactions,
             outgoing_receipts.len(),
             block_producer.account_id,
             encoded_chunk.chunk_hash().0,
@@ -494,6 +475,48 @@ impl Client {
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
+    }
+
+    /// Prepares an ordered list of valid transactions from the pool up the limits.
+    fn prepare_transactions(
+        &mut self,
+        next_height: u64,
+        prev_block_timestamp: u64,
+        shard_id: u64,
+        chunk_extra: &ChunkExtra,
+        prev_block_header: &BlockHeader,
+    ) -> Vec<SignedTransaction> {
+        let Self { chain, shards_mgr, config, runtime_adapter, .. } = self;
+        let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
+            let transaction_validity_period = chain.transaction_validity_period;
+            runtime_adapter
+                .prepare_transactions(
+                    next_height,
+                    prev_block_timestamp,
+                    prev_block_header.inner_rest.gas_price,
+                    chunk_extra.gas_limit,
+                    chunk_extra.state_root.clone(),
+                    config.block_expected_weight as usize,
+                    &mut iter,
+                    &mut |tx: &SignedTransaction| -> bool {
+                        chain
+                            .mut_store()
+                            .check_blocks_on_same_chain(
+                                &prev_block_header,
+                                &tx.transaction.block_hash,
+                                transaction_validity_period,
+                            )
+                            .is_ok()
+                    },
+                )
+                .expect("no StorageError please")
+        } else {
+            vec![]
+        };
+        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
+        // included into the block.
+        shards_mgr.reintroduce_transactions(shard_id, &transactions);
+        transactions
     }
 
     pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
@@ -648,7 +671,7 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_largest_seen_height(block.header.inner.height);
+            self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
         }
 
         if let Some(bp) = self.block_producer.clone() {
@@ -676,22 +699,22 @@ impl Client {
                     let mut to_reintroduce = vec![];
 
                     while remove_head.hash() != reintroduce_head.hash() {
-                        while remove_head.inner.height > reintroduce_head.inner.height {
+                        while remove_head.inner_lite.height > reintroduce_head.inner_lite.height {
                             to_remove.push(remove_head.hash());
                             remove_head = self
                                 .chain
-                                .get_block_header(&remove_head.inner.prev_hash)
+                                .get_block_header(&remove_head.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
-                        while reintroduce_head.inner.height > remove_head.inner.height
-                            || reintroduce_head.inner.height == remove_head.inner.height
+                        while reintroduce_head.inner_lite.height > remove_head.inner_lite.height
+                            || reintroduce_head.inner_lite.height == remove_head.inner_lite.height
                                 && reintroduce_head.hash() != remove_head.hash()
                         {
                             to_reintroduce.push(reintroduce_head.hash());
                             reintroduce_head = self
                                 .chain
-                                .get_block_header(&reintroduce_head.inner.prev_hash)
+                                .get_block_header(&reintroduce_head.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
@@ -722,7 +745,7 @@ impl Client {
                         .unwrap();
                     let chunk_proposer = self
                         .runtime_adapter
-                        .get_chunk_producer(&epoch_id, block.header.inner.height + 1, shard_id)
+                        .get_chunk_producer(&epoch_id, block.header.inner_lite.height + 1, shard_id)
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
@@ -730,8 +753,8 @@ impl Client {
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
-                            block.header.inner.height + 1,
-                            block.header.inner.timestamp,
+                            block.header.inner_lite.height + 1,
+                            block.header.inner_lite.timestamp,
                             shard_id,
                         ) {
                             Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
@@ -782,13 +805,13 @@ impl Client {
         let epoch_id =
             self.runtime_adapter.get_epoch_id_from_prev_block(&block_header.hash()).ok()?;
         let next_block_producer_account =
-            self.runtime_adapter.get_block_producer(&epoch_id, block_header.inner.height + 1);
+            self.runtime_adapter.get_block_producer(&epoch_id, block_header.inner_lite.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if let Ok(validators) = self
                 .runtime_adapter
-                .get_epoch_block_producers(&block_header.inner.epoch_id, &block_header.hash())
+                .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
             {
                 if let Some((_, is_slashed)) =
                     validators.into_iter().find(|v| v.0 == block_producer.account_id)
@@ -849,7 +872,7 @@ impl Client {
         // If given account is not current block proposer.
         let position = match self
             .runtime_adapter
-            .get_epoch_block_producers(&header.inner.epoch_id, &parent_hash)
+            .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
                 let position = validators.iter().position(|x| &(x.0) == account_id);
@@ -869,16 +892,15 @@ impl Client {
             }
         };
         // Check signature is correct for given validator.
-        if let ValidatorSignatureVerificationResult::Invalid =
-            self.runtime_adapter.verify_validator_signature(
-                &header.inner.epoch_id,
-                &header.inner.prev_hash,
-                account_id,
-                Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
-                signature,
-            )
-        {
-            return false;
+        match self.runtime_adapter.verify_validator_signature(
+            &header.inner_lite.epoch_id,
+            &header.prev_hash,
+            account_id,
+            Approval::get_data_for_sig(parent_hash, reference_hash).as_ref(),
+            signature,
+        ) {
+            Ok(true) => {}
+            _ => return false,
         }
         if let Err(e) = self.chain.verify_approval_conditions(&approval) {
             debug!(target: "client", "Rejecting approval {:?}: {:?}", approval, e);
@@ -991,8 +1013,8 @@ impl Client {
                 let state_root = chunk_extra.state_root.clone();
                 if let Ok(response) = self.runtime_adapter.query(
                     &state_root,
-                    header.inner.height,
-                    header.inner.timestamp,
+                    header.inner_lite.height,
+                    header.inner_lite.timestamp,
                     &header.hash,
                     path_parts.clone(),
                     &data,
@@ -1053,7 +1075,7 @@ impl Client {
                 self.chain.get_block_header(&head.last_block_hash),
                 NetworkClientResponses::NoResponse
             )
-            .inner
+            .inner_rest
             .gas_price;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
                 Ok(chunk_extra) => chunk_extra.state_root.clone(),
@@ -1063,40 +1085,37 @@ impl Client {
                     return self.forward_tx(tx);
                 }
             };
-            match self.runtime_adapter.validate_tx(
-                head.height + 1,
-                cur_block_header.inner.timestamp,
-                gas_price,
-                state_root,
-                tx,
-            ) {
-                Ok(valid_transaction) => {
-                    let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
-                        warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, valid_transaction);
-                        NetworkClientResponses::NoResponse
-                    });
+            if let Some(err) = self
+                .runtime_adapter
+                .validate_tx(
+                    head.height + 1,
+                    cur_block_header.inner_lite.timestamp,
+                    gas_price,
+                    state_root,
+                    &tx,
+                )
+                .expect("no storage errors")
+            {
+                debug!(target: "client", "Invalid tx: {:?}", err);
+                NetworkClientResponses::InvalidTx(err)
+            } else {
+                let active_validator = unwrap_or_return!(self.active_validator(shard_id), {
+                    warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
+                    NetworkClientResponses::NoResponse
+                });
 
-                    // If I'm not an active validator I should forward tx to next validators.
-                    if active_validator {
-                        debug!(
-                            target: "client",
-                            "Recording a transaction. I'm {:?}, {}",
-                            me,
-                            shard_id
-                        );
-                        self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                        NetworkClientResponses::ValidTx
-                    } else {
-                        self.forward_tx(valid_transaction.transaction)
-                    }
-                }
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "client", "Invalid tx: {:?}", err);
-                    NetworkClientResponses::InvalidTx(err)
-                }
-                Err(RuntimeError::StorageError(err)) => panic!("{}", err),
-                Err(RuntimeError::BalanceMismatch(err)) => {
-                    unreachable!("Unexpected BalanceMismatch error in validate_tx: {}", err)
+                // If I'm not an active validator I should forward tx to next validators.
+                if active_validator {
+                    debug!(
+                        target: "client",
+                        "Recording a transaction. I'm {:?}, {}",
+                        me,
+                        shard_id
+                    );
+                    self.shards_mgr.insert_transaction(shard_id, tx);
+                    NetworkClientResponses::ValidTx
+                } else {
+                    self.forward_tx(tx)
                 }
             }
         } else {
@@ -1199,17 +1218,13 @@ impl Client {
         }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
-        if self
-            .runtime_adapter
-            .verify_validator_signature(
-                &head.epoch_id,
-                &head.prev_block_hash,
-                &challenge.account_id,
-                challenge.hash.as_ref(),
-                &challenge.signature,
-            )
-            .valid()
-        {
+        if self.runtime_adapter.verify_validator_signature(
+            &head.epoch_id,
+            &head.prev_block_hash,
+            &challenge.account_id,
+            challenge.hash.as_ref(),
+            &challenge.signature,
+        )? {
             // If challenge is not double sign, we should process it right away to invalidate the chain.
             match challenge.body {
                 ChallengeBody::BlockDoubleSign(_) => {}

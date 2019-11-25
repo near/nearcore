@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 240
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
 
 started = time.time()
 
@@ -50,7 +50,7 @@ while True:
         if height == sent_height + 6:
             cur_balances = ctx.get_balances()
 
-            assert cur_balances == ctx.expected_balances, "%s != %s" % (cur_balances, expected_balances)
+            assert cur_balances == ctx.expected_balances, "%s != %s" % (cur_balances, ctx.expected_balances)
             step = 2
 
     else:

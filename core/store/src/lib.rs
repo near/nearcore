@@ -58,7 +58,10 @@ pub const COL_BLOCK_PER_HEIGHT: usize = 20;
 pub const COL_LAST_APPROVALS_PER_ACCOUNT: usize = 21;
 pub const COL_MY_LAST_APPROVALS_PER_CHAIN: usize = 22;
 pub const COL_STATE_PARTS: usize = 23;
-const NUM_COLS: usize = 24;
+pub const COL_EPOCH_START: usize = 24;
+// Map account_id to announce_account
+pub const COL_ACCOUNT_ANNOUNCEMENTS: usize = 25;
+const NUM_COLS: u32 = 26;
 
 pub struct Store {
     storage: Arc<dyn Database>,

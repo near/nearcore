@@ -16,7 +16,7 @@ use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, total_send_fees, RuntimeConfig,
+    total_prepaid_gas, tx_cost, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
 use near_crypto::PublicKey;
@@ -61,8 +61,6 @@ mod store;
 
 #[cfg(feature = "costs_counting")]
 pub use near_vm_runner::EXT_COSTS_COUNTER;
-
-const OVERFLOW_CHECKED_ERR: &str = "Overflow has already been checked.";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -131,6 +129,7 @@ pub struct DelayedReceiptIndices {
 #[derive(Debug)]
 pub struct ActionResult {
     pub gas_burnt: Gas,
+    pub gas_burnt_for_function_call: Gas,
     pub gas_used: Gas,
     pub result: Result<ReturnData, ActionError>,
     pub logs: Vec<LogEntry>,
@@ -139,9 +138,20 @@ pub struct ActionResult {
 }
 
 impl ActionResult {
-    pub fn merge(&mut self, mut next_result: ActionResult) {
-        self.gas_burnt += next_result.gas_burnt;
-        self.gas_used += next_result.gas_used;
+    pub fn merge(&mut self, mut next_result: ActionResult) -> Result<(), RuntimeError> {
+        assert!(next_result.gas_burnt_for_function_call <= next_result.gas_burnt);
+        assert!(
+            next_result.gas_burnt <= next_result.gas_used,
+            "Gas burnt {} <= Gas used {}",
+            next_result.gas_burnt,
+            next_result.gas_used
+        );
+        self.gas_burnt = safe_add_gas(self.gas_burnt, next_result.gas_burnt)?;
+        self.gas_burnt_for_function_call = safe_add_gas(
+            self.gas_burnt_for_function_call,
+            next_result.gas_burnt_for_function_call,
+        )?;
+        self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
         if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
@@ -155,6 +165,7 @@ impl ActionResult {
             self.new_receipts.clear();
             self.validator_proposals.clear();
         }
+        Ok(())
     }
 }
 
@@ -162,6 +173,7 @@ impl Default for ActionResult {
     fn default() -> Self {
         Self {
             gas_burnt: 0,
+            gas_burnt_for_function_call: 0,
             gas_used: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -227,9 +239,11 @@ impl Runtime {
             match get_access_key(state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
-                    return Err(InvalidAccessKeyError::AccessKeyNotFound(
-                        signer_id.clone(),
-                        transaction.public_key.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::AccessKeyNotFound(
+                            signer_id.clone(),
+                            transaction.public_key.clone(),
+                        ),
                     )
                     .into());
                 }
@@ -243,30 +257,15 @@ impl Runtime {
 
         let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = transaction.nonce;
-        let mut gas_burnt: Gas = self
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(sender_is_receiver);
-        gas_burnt = safe_add_gas(
-            gas_burnt,
-            total_send_fees(
-                &self.config.transaction_costs,
-                sender_is_receiver,
-                &transaction.actions,
-            )?,
-        )?;
-        let mut gas_used = safe_add_gas(
-            gas_burnt,
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-        )?;
-        gas_used = safe_add_gas(
-            gas_used,
-            total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
-        )?;
-        gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
-        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
-        total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
+
+        let (gas_burnt, gas_used, total_cost) = tx_cost(
+            &self.config.transaction_costs,
+            &transaction,
+            apply_state.gas_price,
+            sender_is_receiver,
+        )
+        .map_err(|_| InvalidTxError::CostOverflow)?;
+
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
         })?;
@@ -276,12 +275,12 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidAccessKeyError::NotEnoughAllowance(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance(
                         signer_id.clone(),
                         transaction.public_key.clone(),
                         *allowance,
                         total_cost,
-                    )
+                    ))
                 })?;
             }
         }
@@ -295,13 +294,17 @@ impl Runtime {
             access_key.permission
         {
             if transaction.actions.len() != 1 {
-                return Err(InvalidAccessKeyError::ActionError.into());
+                return Err(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
+                );
             }
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(InvalidAccessKeyError::ReceiverMismatch(
-                        transaction.receiver_id.clone(),
-                        function_call_permission.receiver_id.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::ReceiverMismatch(
+                            transaction.receiver_id.clone(),
+                            function_call_permission.receiver_id.clone(),
+                        ),
                     )
                     .into());
                 }
@@ -311,28 +314,25 @@ impl Runtime {
                         .iter()
                         .all(|method_name| &function_call.method_name != method_name)
                 {
-                    return Err(InvalidAccessKeyError::MethodNameMismatch(
-                        function_call.method_name.clone(),
+                    return Err(InvalidTxError::InvalidAccessKey(
+                        InvalidAccessKeyError::MethodNameMismatch(
+                            function_call.method_name.clone(),
+                        ),
                     )
                     .into());
                 }
             } else {
-                return Err(InvalidAccessKeyError::ActionError.into());
+                return Err(
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
+                );
             }
         };
 
         set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
-
-        // Account reward for gas burnt.
-        let burnt_gas_reward = Balance::from(
-            gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
-                / self.config.transaction_costs.burnt_gas_reward.denominator,
-        ) * apply_state.gas_price;
-        signer.amount += burnt_gas_reward;
-
         set_account(state_update, &signer_id, &signer);
 
-        let validator_reward = Balance::from(gas_burnt) * apply_state.gas_price - burnt_gas_reward;
+        let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
+            .map_err(|_| InvalidTxError::CostOverflow)?;
 
         Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
     }
@@ -383,8 +383,12 @@ impl Runtime {
                     } else {
                         new_receipts.push(receipt);
                     }
-                    stats.total_rent_paid += verification_result.rent_paid;
-                    stats.total_validator_reward += verification_result.validator_reward;
+                    stats.total_rent_paid =
+                        safe_add_balance(stats.total_rent_paid, verification_result.rent_paid)?;
+                    stats.total_validator_reward = safe_add_balance(
+                        stats.total_validator_reward,
+                        verification_result.validator_reward,
+                    )?;
                     ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(receipt_id),
                         logs: vec![],
@@ -439,7 +443,7 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
-                near_metrics::inc_counter(&metrics::ACTION_CREAT_ACCOUNT_TOTAL);
+                near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
                 action_create_account(apply_state, account, actor_id, receipt, &mut result);
             }
             Action::DeployContract(deploy_contract) => {
@@ -503,7 +507,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-    ) -> Result<ExecutionOutcomeWithId, StorageError> {
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
@@ -526,7 +530,7 @@ impl Runtime {
                     None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -559,7 +563,7 @@ impl Runtime {
                     u64::max_value() - action_index as u64,
                 ),
                 is_last_action,
-            )?);
+            )?)?;
             // TODO storage error
             if result.result.is_err() {
                 break;
@@ -575,7 +579,7 @@ impl Runtime {
                     result.merge(ActionResult {
                         result: Err(ActionError::RentUnpaid(account_id.clone(), amount)),
                         ..Default::default()
-                    });
+                    })?;
                 } else {
                     set_account(state_update, account_id, account);
                 }
@@ -589,12 +593,14 @@ impl Runtime {
             // If the refund fails, instead of just burning tokens, we report the total number of
             // tokens burnt in the ApplyResult. It can be used by validators to distribute it.
             if result.result.is_err() {
-                stats.total_balance_burnt +=
-                    total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
+                stats.total_balance_burnt = safe_add_balance(
+                    stats.total_balance_burnt,
+                    total_deposit(&action_receipt.actions)?,
+                )?
             }
         } else {
             // Calculating and generating refunds
-            self.generate_refund_receipts(receipt, action_receipt, &mut result);
+            self.generate_refund_receipts(receipt, action_receipt, &mut result)?;
         }
 
         // Moving validator proposals
@@ -603,7 +609,7 @@ impl Runtime {
         // Committing or rolling back state.
         match &result.result {
             Ok(_) => {
-                stats.total_rent_paid += rent_paid;
+                stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
                 state_update.commit();
             }
             Err(_) => {
@@ -611,25 +617,28 @@ impl Runtime {
             }
         };
 
-        // Adding burnt gas reward if the account exists.
-        let gas_reward = result.gas_burnt
+        // Adding burnt gas reward for function calls if the account exists.
+        let receiver_gas_reward = result.gas_burnt_for_function_call
             * self.config.transaction_costs.burnt_gas_reward.numerator
             / self.config.transaction_costs.burnt_gas_reward.denominator;
-        let mut validator_reward = Balance::from(result.gas_burnt) * action_receipt.gas_price;
-        if gas_reward > 0 {
+        let mut validator_reward = safe_gas_to_balance(action_receipt.gas_price, result.gas_burnt)?;
+        if receiver_gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
-                let reward = Balance::from(gas_reward) * action_receipt.gas_price;
+                let receiver_reward =
+                    safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?;
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
-                validator_reward -= reward;
-                account.amount += reward;
+                validator_reward -= receiver_reward;
+                account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
                 state_update.commit();
             }
         }
-        stats.total_validator_reward += validator_reward;
+
+        stats.total_validator_reward =
+            safe_add_balance(stats.total_validator_reward, validator_reward)?;
 
         // Generating outgoing data
         if !action_receipt.output_data_receivers.is_empty() {
@@ -715,22 +724,23 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-    ) {
-        let total_deposit = total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
-        let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
-            .expect(OVERFLOW_CHECKED_ERR)
-            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+    ) -> Result<(), RuntimeError> {
+        let total_deposit = total_deposit(&action_receipt.actions)?;
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
+        let exec_gas = safe_add_gas(
+            total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)?,
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt
+            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_burnt
         } else {
-            prepaid_gas + exec_gas - result.gas_used
+            safe_add_gas(prepaid_gas, exec_gas)? - result.gas_used
         };
-        let mut gas_balance_refund = Balance::from(gas_refund) * action_receipt.gas_price;
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
         if action_receipt.signer_id == receipt.predecessor_id {
             // Merging 2 refunds
-            deposit_refund += gas_balance_refund;
+            deposit_refund = safe_add_balance(deposit_refund, gas_balance_refund)?;
             gas_balance_refund = 0;
         }
         if deposit_refund > 0 {
@@ -741,6 +751,7 @@ impl Runtime {
                 .new_receipts
                 .push(Receipt::new_refund(&action_receipt.signer_id, gas_balance_refund));
         }
+        Ok(())
     }
 
     fn process_receipt(
@@ -751,7 +762,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-    ) -> Result<Option<ExecutionOutcomeWithId>, StorageError> {
+    ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -786,7 +797,7 @@ impl Runtime {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
 
-                        // Removing pending data count form the state.
+                        // Removing pending data count from the state.
                         state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
                         // Fetching the receipt itself.
                         let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
@@ -988,7 +999,7 @@ impl Runtime {
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
-         -> Result<_, StorageError> {
+         -> Result<_, RuntimeError> {
             self.process_receipt(
                 state_update,
                 apply_state,
@@ -998,10 +1009,14 @@ impl Runtime {
                 &mut stats,
             )?
             .into_iter()
-            .for_each(|outcome_with_id| {
-                *total_gas_burnt += outcome_with_id.outcome.gas_burnt;
-                outcomes.push(outcome_with_id);
-            });
+            .try_for_each(
+                |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
+                    *total_gas_burnt =
+                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                    outcomes.push(outcome_with_id);
+                    Ok(())
+                },
+            )?;
             Ok(())
         };
 
@@ -1221,14 +1236,14 @@ impl Runtime {
 mod tests {
     use super::*;
 
-    use near::config::INITIAL_GAS_PRICE;
     use near_crypto::KeyType;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::fees_utils::gas_burnt_to_reward;
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    const GAS_PRICE: Balance = 100;
 
     #[test]
     fn test_get_and_set_accounts() {
@@ -1282,7 +1297,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
-            gas_price: INITIAL_GAS_PRICE,
+            gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
         };
@@ -1337,11 +1352,6 @@ mod tests {
         let n = 10;
         let receipts = generate_receipts(small_transfer, n);
 
-        let reward_per_receipt = gas_burnt_to_reward(
-            runtime.config.transaction_costs.action_receipt_creation_config.exec_fee()
-                + runtime.config.transaction_costs.action_creation_config.transfer_cost.exec_fee(),
-        );
-
         // Checking n receipts delayed by 1 + 3 extra
         for i in 1..=n + 3 {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
@@ -1357,7 +1367,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
             );
         }
@@ -1380,8 +1390,6 @@ mod tests {
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
 
-        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
-
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
@@ -1397,7 +1405,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(capped_i)
+                    + small_transfer * Balance::from(capped_i)
                     + Balance::from(capped_i * (capped_i - 1) / 2)
             );
         }
@@ -1418,8 +1426,6 @@ mod tests {
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
-
-        let reward_per_receipt = gas_burnt_to_reward(receipt_gas_cost);
 
         let mut num_receipts_given = 0;
         let mut num_receipts_processed = 0;
@@ -1446,7 +1452,7 @@ mod tests {
             assert_eq!(
                 account.amount,
                 initial_balance
-                    + (small_transfer + reward_per_receipt) * Balance::from(num_receipts_processed)
+                    + small_transfer * Balance::from(num_receipts_processed)
                     + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
             );
             println!(
