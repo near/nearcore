@@ -96,8 +96,10 @@ release_build:
     before_script:
     - *setup_cache
     script:
+    - cargo build -p near
     - cargo build --release -p near
     - ./scripts/upload_release.sh
     only:
     - staging
     - master
+    - release-binary
