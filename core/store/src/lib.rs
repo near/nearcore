@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
-use crate::db::{open_rocksdb, DBOp, DBTransaction, Database};
+use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
@@ -73,7 +73,7 @@ impl Store {
     }
 
     pub fn get(&self, column: usize, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
-        self.storage.get(column, key)
+        self.storage.get(column, key).map_err(|e| e.into())
     }
 
     pub fn get_ser<T: BorshDeserialize>(
@@ -87,12 +87,12 @@ impl Store {
                 Err(e) => Err(e),
             },
             Ok(None) => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 
     pub fn exists(&self, column: usize, key: &[u8]) -> Result<bool, io::Error> {
-        self.storage.get(column, key).map(|value| value.is_some())
+        self.storage.get(column, key).map(|value| value.is_some()).map_err(|e| e.into())
     }
 
     pub fn store_update(&self) -> StoreUpdate {
@@ -133,8 +133,7 @@ impl Store {
             Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
             transaction.put(column, &key, &value);
         }
-        self.storage.write(transaction)?;
-        Ok(())
+        self.storage.write(transaction).map_err(|e| e.into())
     }
 }
 
@@ -200,7 +199,7 @@ impl StoreUpdate {
         if let Some(trie) = self.trie {
             trie.update_cache(&self.transaction)?;
         }
-        self.storage.write(self.transaction)
+        self.storage.write(self.transaction).map_err(|e| e.into())
     }
 }
 
@@ -235,7 +234,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db = Arc::new(open_rocksdb(path, NUM_COLS).expect("Failed to open the database"));
+    let db = Arc::new(RocksDB::new(path, NUM_COLS).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 

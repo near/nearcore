@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use crate::db::open_testdb;
+use crate::db::TestDB;
 use crate::trie::Trie;
 use crate::{Store, NUM_COLS};
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
-    let db = Arc::new(open_testdb(NUM_COLS));
+    let db = Arc::new(TestDB::new(NUM_COLS));
     Arc::new(Store::new(db))
 }
 
