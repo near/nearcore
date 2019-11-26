@@ -238,7 +238,7 @@ impl Client {
         let total_approvals =
             total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
-        let num_chunks = self.shards_mgr.num_chunks_for_block(prev_hash);
+        let num_chunks = self.shards_mgr.num_chunks_for_block(&prev_hash);
         if head.height > 0
             && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
             && num_chunks < self.runtime_adapter.num_shards()
@@ -249,7 +249,7 @@ impl Client {
             return Ok(None);
         }
 
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
+        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");

@@ -123,7 +123,7 @@ impl RequestPool {
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
-        let _ = self.requests.remove(chunk_hash);
+        self.requests.remove(chunk_hash);
     }
 
     pub fn fetch(&mut self) -> Vec<(ChunkHash, ChunkRequestInfo)> {
@@ -156,8 +156,6 @@ pub struct ShardsManager {
     network_adapter: Arc<dyn NetworkAdapter>,
 
     encoded_chunks: EncodedChunksCache,
-    block_hash_to_chunk_headers: HashMap<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
-
     requested_partial_encoded_chunks: RequestPool,
 }
 
@@ -173,7 +171,6 @@ impl ShardsManager {
             runtime_adapter,
             network_adapter,
             encoded_chunks: EncodedChunksCache::new(),
-            block_hash_to_chunk_headers: HashMap::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MS),
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_OTHERS_MS),
@@ -409,18 +406,15 @@ impl ShardsManager {
         Ok(())
     }
 
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: CryptoHash) -> ShardId {
-        self.block_hash_to_chunk_headers
-            .get(&prev_block_hash)
-            .map(|x| x.len() as ShardId)
-            .unwrap_or_else(|| 0)
+    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
+        self.encoded_chunks.num_chunks_for_block(prev_block_hash)
     }
 
     pub fn prepare_chunks(
         &mut self,
-        prev_block_hash: CryptoHash,
+        prev_block_hash: &CryptoHash,
     ) -> Vec<(ShardId, ShardChunkHeader)> {
-        self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
+        self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
@@ -716,11 +710,9 @@ impl ShardsManager {
             entry.parts.len() >= self.runtime_adapter.num_data_parts(&prev_block_hash);
 
         if have_all_parts {
-            self.block_hash_to_chunk_headers
-                .entry(header.inner.prev_block_hash)
-                .or_insert_with(|| vec![])
-                .push((partial_encoded_chunk.shard_id, header.clone()));
+            self.encoded_chunks.insert_chunk_header(partial_encoded_chunk.shard_id, header.clone());
         }
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         if have_all_parts && have_all_receipts {
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
@@ -1062,10 +1054,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.block_hash_to_chunk_headers
-            .entry(prev_block_hash)
-            .or_insert_with(|| vec![])
-            .push((shard_id, encoded_chunk.header.clone()));
+        self.encoded_chunks.insert_chunk_header(shard_id, encoded_chunk.header.clone());
 
         // Store the chunk in the permanent storage
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
