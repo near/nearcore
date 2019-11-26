@@ -15,7 +15,7 @@ use log::{debug, error, info, warn};
 
 use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
+    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
 };
 use near_chunks::{NetworkAdapter, NetworkRecipient};
@@ -837,12 +837,17 @@ impl ClientActor {
                 return NetworkClientResponses::NoResponse;
             }
             Err(ref e) if e.is_bad_data() => {
-                debug!(target: "client", "Error on receival of header: {}", e);
+                error!(target: "client", "Error on receival of header: {}", e);
                 return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of header: {}", e);
+                match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {}
+                    _ => {
+                        error!(target: "client", "Error on receival of header: {}", e);
+                    }
+                }
                 return NetworkClientResponses::NoResponse;
             }
             // Got an error when trying to process the block header, but it's not due to
