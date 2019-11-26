@@ -44,3 +44,20 @@ class TxContext:
                 self.expected_balances[to] += amt
                 self.next_nonce += 1
 
+
+# opens up a log file, scrolls to the end. then allows to check if
+# a particular line appeared (or didn't) between the last time it was
+# checked and now
+class LogTracker:
+    def __init__(self, node):
+        self.fname = node.stderr_name
+        with open(self.fname) as f:
+            f.seek(0, 2)
+            self.offset = f.tell()
+
+    def check(self, s):
+        with open(self.fname) as f:
+            f.seek(self.offset)
+            ret = s in f.read()
+            self.offset = f.tell()
+        return ret

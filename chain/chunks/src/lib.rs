@@ -306,18 +306,18 @@ impl ShardsManager {
     ) -> Result<AccountId, Error> {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        for (block_producer, is_slashed) in
+        for (validator_stake, is_slashed) in
             self.runtime_adapter.get_epoch_block_producers(&epoch_id, parent_hash)?
         {
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
-                    Some(&block_producer),
+                    Some(&validator_stake.account_id),
                     &parent_hash,
                     shard_id,
                     false,
                 )
             {
-                block_producers.push(block_producer);
+                block_producers.push(validator_stake.account_id);
             }
         }
 

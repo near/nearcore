@@ -1,10 +1,10 @@
 use near_chain::test_utils::setup;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain::{FinalityGadget, FinalityGadgetQuorums};
-use near_crypto::{Signature, Signer};
+use near_crypto::{KeyType, PublicKey, Signature, Signer};
 use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, EpochId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -14,7 +14,7 @@ fn compute_quorums_slow(
     mut prev_hash: CryptoHash,
     approvals: Vec<Approval>,
     chain_store: &mut dyn ChainStoreAccess,
-    total_block_producers: usize,
+    stakes: Vec<ValidatorStake>,
 ) -> FinalityGadgetQuorums {
     let mut all_approvals = approvals;
 
@@ -22,6 +22,11 @@ fn compute_quorums_slow(
     let mut quorum_pre_commit = CryptoHash::default();
 
     let mut all_heights_and_hashes = vec![];
+
+    let account_id_to_stake =
+        stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+    assert!(account_id_to_stake.len() == stakes.len());
+    let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
     while prev_hash != CryptoHash::default() {
         let block_header = chain_store.get_block_header(&prev_hash).unwrap();
@@ -48,13 +53,17 @@ fn compute_quorums_slow(
 
     for (hash, height) in all_heights_and_hashes.iter().rev() {
         let mut surrounding = HashSet::new();
+        let mut surrounding_stake = 0 as Balance;
         for approval in all_approvals.iter() {
             if approval.1 <= *height && approval.2 >= *height {
-                surrounding.insert(approval.0.clone());
+                if !surrounding.contains(&approval.0) {
+                    surrounding_stake += *account_id_to_stake.get(&approval.0).unwrap();
+                    surrounding.insert(approval.0.clone());
+                }
             }
         }
 
-        if surrounding.len() > total_block_producers * 2 / 3 {
+        if surrounding_stake > threshold {
             quorum_pre_vote = hash.clone();
         }
 
@@ -62,23 +71,29 @@ fn compute_quorums_slow(
             if other_height > height {
                 let mut surrounding_both = HashSet::new();
                 let mut surrounding_left = HashSet::new();
+                let mut surrounding_both_stake = 0 as Balance;
+                let mut surrounding_left_stake = 0 as Balance;
                 for approval in all_approvals.iter() {
                     if approval.1 <= *height
                         && approval.2 >= *height
                         && approval.1 <= *other_height
                         && approval.2 >= *other_height
+                        && !surrounding_both.contains(&approval.0)
                     {
+                        surrounding_both_stake += *account_id_to_stake.get(&approval.0).unwrap();
                         surrounding_both.insert(approval.0.clone());
                     }
-                    if approval.1 <= *height && approval.2 >= *height && approval.2 < *other_height
+                    if approval.1 <= *height
+                        && approval.2 >= *height
+                        && approval.2 < *other_height
+                        && !surrounding_left.contains(&approval.0)
                     {
+                        surrounding_left_stake += *account_id_to_stake.get(&approval.0).unwrap();
                         surrounding_left.insert(approval.0.clone());
                     }
                 }
 
-                if surrounding_both.len() > total_block_producers * 2 / 3
-                    && surrounding_left.len() > total_block_producers * 2 / 3
-                {
+                if surrounding_both_stake > threshold && surrounding_left_stake > threshold {
                     quorum_pre_commit = hash.clone();
                 }
             }
@@ -97,7 +112,7 @@ fn create_block(
     chain_store: &mut ChainStore,
     signer: &dyn Signer,
     approvals: Vec<Approval>,
-    total_block_producers: usize,
+    stakes: Vec<ValidatorStake>,
 ) -> Block {
     let mut block = Block::empty(prev, signer);
     block.header.inner_rest.approvals = approvals.clone();
@@ -112,15 +127,14 @@ fn create_block(
     );*/
 
     let slow_quorums =
-        compute_quorums_slow(prev.hash(), approvals.clone(), chain_store, total_block_producers)
-            .clone();
+        compute_quorums_slow(prev.hash(), approvals.clone(), chain_store, stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         prev.hash(),
         EpochId(CryptoHash::default()),
         height,
         approvals.clone(),
         chain_store,
-        total_block_producers,
+        stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -154,19 +168,31 @@ fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHas
     Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
 }
 
+fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
+    (0..n)
+        .map(|x| {
+            ValidatorStake::new(format!("test{}", x + 1), PublicKey::empty(KeyType::ED25519), 1)
+        })
+        .collect()
+}
+
 #[test]
 fn test_finality_genesis() {
     let store = create_test_store();
     let mut chain_store = ChainStore::new(store);
+
+    let stakes = gen_stakes(10);
 
     let expected_quorums = FinalityGadgetQuorums {
         last_quorum_pre_vote: CryptoHash::default(),
         last_quorum_pre_commit: CryptoHash::default(),
     };
     let slow_quorums =
-        compute_quorums_slow(CryptoHash::default(), vec![], &mut chain_store, 10).clone();
+        compute_quorums_slow(CryptoHash::default(), vec![], &mut chain_store, stakes.clone())
+            .clone();
     let fast_quorums =
-        compute_quorums_slow(CryptoHash::default(), vec![], &mut chain_store, 10).clone();
+        compute_quorums_slow(CryptoHash::default(), vec![], &mut chain_store, stakes.clone())
+            .clone();
 
     assert_eq!(expected_quorums, slow_quorums);
     assert_eq!(expected_quorums, fast_quorums);
@@ -175,7 +201,7 @@ fn test_finality_genesis() {
 #[test]
 fn test_finality_genesis2() {
     let (mut chain, _, signer) = setup();
-    let total_block_producers = 4;
+    let stakes = gen_stakes(4);
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
@@ -189,7 +215,7 @@ fn test_finality_genesis2() {
             apr("test2".to_string(), genesis_block.hash(), genesis_block.hash()),
             apr("test3".to_string(), genesis_block.hash(), genesis_block.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
 
     let expected_quorums = FinalityGadgetQuorums {
@@ -198,15 +224,14 @@ fn test_finality_genesis2() {
     };
 
     let slow_quorums =
-        compute_quorums_slow(block1.hash(), vec![], chain.mut_store(), total_block_producers)
-            .clone();
+        compute_quorums_slow(block1.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block1.hash(),
         EpochId(CryptoHash::default()),
         2,
         vec![],
         chain.mut_store(),
-        total_block_producers,
+        stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -218,12 +243,12 @@ fn test_finality_genesis2() {
 #[test]
 fn test_finality_basic() {
     let (mut chain, _, signer) = setup();
-    let total_block_producers = 4;
+    let stakes = gen_stakes(4);
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let block1 =
-        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], total_block_producers);
+        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], stakes.clone());
     let block2 = create_block(
         &block1,
         2,
@@ -234,7 +259,7 @@ fn test_finality_basic() {
             apr("test2".to_string(), block1.hash(), block1.hash()),
             apr("test3".to_string(), block1.hash(), block1.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
     let block3 = create_block(
         &block2,
@@ -246,7 +271,7 @@ fn test_finality_basic() {
             apr("test2".to_string(), block1.hash(), block2.hash()),
             apr("test3".to_string(), block1.hash(), block2.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
 
     let expected_quorums = FinalityGadgetQuorums {
@@ -255,15 +280,63 @@ fn test_finality_basic() {
     };
 
     let slow_quorums =
-        compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), total_block_producers)
-            .clone();
+        compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block3.hash(),
         EpochId(CryptoHash::default()),
         4,
         vec![],
         chain.mut_store(),
-        total_block_producers,
+        stakes.clone(),
+    )
+    .unwrap()
+    .clone();
+
+    assert_eq!(expected_quorums, slow_quorums);
+    assert_eq!(expected_quorums, fast_quorums);
+}
+
+#[test]
+fn test_finality_weight() {
+    let (mut chain, _, signer) = setup();
+    let mut stakes = gen_stakes(4);
+    stakes[0].amount = 8;
+
+    let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+
+    let block1 =
+        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block2 = create_block(
+        &block1,
+        2,
+        chain.mut_store(),
+        &*signer,
+        vec![apr("test1".to_string(), block1.hash(), block1.hash())],
+        stakes.clone(),
+    );
+    let block3 = create_block(
+        &block2,
+        3,
+        chain.mut_store(),
+        &*signer,
+        vec![apr("test1".to_string(), block1.hash(), block2.hash())],
+        stakes.clone(),
+    );
+
+    let expected_quorums = FinalityGadgetQuorums {
+        last_quorum_pre_vote: block2.hash(),
+        last_quorum_pre_commit: block1.hash(),
+    };
+
+    let slow_quorums =
+        compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
+    let fast_quorums = FinalityGadget::compute_quorums(
+        block3.hash(),
+        EpochId(CryptoHash::default()),
+        4,
+        vec![],
+        chain.mut_store(),
+        stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -275,12 +348,12 @@ fn test_finality_basic() {
 #[test]
 fn test_finality_fewer_approvals_per_block() {
     let (mut chain, _, signer) = setup();
-    let total_block_producers = 4;
+    let stakes = gen_stakes(4);
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let block1 =
-        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], total_block_producers);
+        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], stakes.clone());
     let block2 = create_block(
         &block1,
         2,
@@ -290,7 +363,7 @@ fn test_finality_fewer_approvals_per_block() {
             apr("test1".to_string(), block1.hash(), block1.hash()),
             apr("test2".to_string(), block1.hash(), block1.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
     let block3 = create_block(
         &block2,
@@ -301,7 +374,7 @@ fn test_finality_fewer_approvals_per_block() {
             apr("test1".to_string(), block1.hash(), block2.hash()),
             apr("test3".to_string(), block1.hash(), block2.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
     let block4 = create_block(
         &block3,
@@ -312,7 +385,7 @@ fn test_finality_fewer_approvals_per_block() {
             apr("test1".to_string(), block1.hash(), block3.hash()),
             apr("test2".to_string(), block1.hash(), block3.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
     let block5 = create_block(
         &block4,
@@ -323,7 +396,7 @@ fn test_finality_fewer_approvals_per_block() {
             apr("test1".to_string(), block1.hash(), block4.hash()),
             apr("test3".to_string(), block1.hash(), block4.hash()),
         ],
-        total_block_producers,
+        stakes.clone(),
     );
 
     let expected_quorums = FinalityGadgetQuorums {
@@ -332,15 +405,14 @@ fn test_finality_fewer_approvals_per_block() {
     };
 
     let slow_quorums =
-        compute_quorums_slow(block5.hash(), vec![], chain.mut_store(), total_block_producers)
-            .clone();
+        compute_quorums_slow(block5.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block5.hash(),
         EpochId(CryptoHash::default()),
         6,
         vec![],
         chain.mut_store(),
-        total_block_producers,
+        stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -353,20 +425,13 @@ fn test_finality_fewer_approvals_per_block() {
 fn test_finality_quorum_precommit_cases() {
     for target in 0..=1 {
         let (mut chain, _, signer) = setup();
-        let total_block_producers = 4;
+        let stakes = gen_stakes(4);
 
         let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-        let block1 = create_block(
-            &genesis_block,
-            1,
-            chain.mut_store(),
-            &*signer,
-            vec![],
-            total_block_producers,
-        );
-        let block2 =
-            create_block(&block1, 2, chain.mut_store(), &*signer, vec![], total_block_producers);
+        let block1 =
+            create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], stakes.clone());
+        let block2 = create_block(&block1, 2, chain.mut_store(), &*signer, vec![], stakes.clone());
 
         let block3 = create_block(
             &block2,
@@ -378,7 +443,7 @@ fn test_finality_quorum_precommit_cases() {
                 apr("test2".to_string(), block1.hash(), block2.hash()),
                 apr("test3".to_string(), block1.hash(), block2.hash()),
             ],
-            total_block_producers,
+            stakes.clone(),
         );
 
         let target_hash = if target == 0 { block1.hash() } else { block3.hash() };
@@ -393,7 +458,7 @@ fn test_finality_quorum_precommit_cases() {
                 apr("test2".to_string(), target_hash, block3.hash()),
                 apr("test3".to_string(), target_hash, block3.hash()),
             ],
-            total_block_producers,
+            stakes.clone(),
         );
 
         let expected_quorums = FinalityGadgetQuorums {
@@ -402,15 +467,14 @@ fn test_finality_quorum_precommit_cases() {
         };
 
         let slow_quorums =
-            compute_quorums_slow(block4.hash(), vec![], chain.mut_store(), total_block_producers)
-                .clone();
+            compute_quorums_slow(block4.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
         let fast_quorums = FinalityGadget::compute_quorums(
             block4.hash(),
             EpochId(CryptoHash::default()),
             5,
             vec![],
             chain.mut_store(),
-            total_block_producers,
+            stakes.clone(),
         )
         .unwrap()
         .clone();
@@ -423,29 +487,21 @@ fn test_finality_quorum_precommit_cases() {
 #[test]
 fn test_my_approvals() {
     let (mut chain, _, signer) = setup();
-    let total_block_producers = 4;
-    let account_id = "test".to_string();
+    let stakes = gen_stakes(4);
+    let account_id = "test1".to_string();
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let block1 =
-        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block2 =
-        create_block(&block1, 2, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block3 =
-        create_block(&block2, 3, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block4 =
-        create_block(&block3, 4, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block5 =
-        create_block(&block1, 5, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block6 =
-        create_block(&block4, 6, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block7 =
-        create_block(&block6, 7, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block8 =
-        create_block(&block6, 8, chain.mut_store(), &*signer, vec![], total_block_producers);
-    let block9 =
-        create_block(&block7, 9, chain.mut_store(), &*signer, vec![], total_block_producers);
+        create_block(&genesis_block, 1, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block2 = create_block(&block1, 2, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block3 = create_block(&block2, 3, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block4 = create_block(&block3, 4, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block5 = create_block(&block1, 5, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block6 = create_block(&block4, 6, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block7 = create_block(&block6, 7, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block8 = create_block(&block6, 8, chain.mut_store(), &*signer, vec![], stakes.clone());
+    let block9 = create_block(&block7, 9, chain.mut_store(), &*signer, vec![], stakes.clone());
 
     // Intentionally skipping block8 in both expeted and in the loop below, block8 is processed
     //     separately at the end
@@ -495,7 +551,7 @@ fn test_fuzzy_finality() {
 
     let block_producers =
         vec!["test1".to_string(), "test2".to_string(), "test3".to_string(), "test4".to_string()];
-    let total_block_producers = block_producers.len();
+    let stakes = gen_stakes(block_producers.len());
 
     for complexity in 1..=num_complexities {
         for iter in 0..num_iters {
@@ -554,7 +610,7 @@ fn test_fuzzy_finality() {
                     chain.mut_store(),
                     &*signer,
                     approvals,
-                    total_block_producers,
+                    stakes.clone(),
                 );
 
                 last_approvals.insert(new_block.hash().clone(), last_approvals_entry);
