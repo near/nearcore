@@ -494,7 +494,10 @@ impl Handler<Status> for ClientActor {
             .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
             .map_err(|err| err.to_string())?
             .into_iter()
-            .map(|(account_id, is_slashed)| ValidatorInfo { account_id, is_slashed })
+            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                account_id: validator_stake.account_id,
+                is_slashed,
+            })
             .collect();
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
@@ -598,7 +601,9 @@ impl ClientActor {
         if let Ok(validators) =
             self.client.runtime_adapter.get_epoch_block_producers(&next_epoch_id, &prev_block_hash)
         {
-            if validators.iter().any(|(account_id, _)| (account_id == &block_producer.account_id)) {
+            if validators.iter().any(|(validator_stake, _)| {
+                (validator_stake.account_id == block_producer.account_id)
+            }) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
@@ -1196,7 +1201,7 @@ impl ClientActor {
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.client.block_producer {
                 if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|x| x.0 == block_producer.account_id)
+                    validators.into_iter().find(|x| x.0.account_id == block_producer.account_id)
                 {
                     !is_slashed
                 } else {

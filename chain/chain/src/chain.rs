@@ -342,17 +342,21 @@ impl Chain {
         epoch_id: EpochId,
         height: BlockIndex,
         approvals: Vec<Approval>,
-        total_block_producers: usize,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<FinalityGadgetQuorums, Error> {
+        let stakes = runtime_adapter
+            .get_epoch_block_producers(&epoch_id, &prev_hash)?
+            .iter()
+            .map(|x| x.0.clone())
+            .collect();
         let mut ret = FinalityGadget::compute_quorums(
             prev_hash,
             epoch_id,
             height,
             approvals,
             chain_store,
-            total_block_producers,
+            stakes,
         )?;
         ret.last_quorum_pre_commit = runtime_adapter
             .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
@@ -2514,9 +2518,6 @@ impl<'a> ChainUpdate<'a> {
                 header.inner_lite.epoch_id.clone(),
                 header.inner_lite.height,
                 header.inner_rest.approvals.clone(),
-                self.runtime_adapter
-                    .get_epoch_block_producers(&header.inner_lite.epoch_id, &header.prev_hash)?
-                    .len(),
                 &*self.runtime_adapter,
                 &mut self.chain_store_update,
             )?;
