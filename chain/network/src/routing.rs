@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{ByteOrder, WriteBytesExt};
+use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
 use log::warn;
@@ -26,8 +27,8 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
 /// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
 /// seconds will be removed from cache and persisted in disk.
-const SAVE_PEERS_MAX_TIME: u64 = 7_200;
-const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
+pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
+pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -47,7 +48,7 @@ impl EdgeInfo {
 }
 
 /// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum EdgeType {
     Added,
     Removed,
@@ -234,7 +235,6 @@ impl Edge {
 }
 
 pub struct RoutingTable {
-    // TODO(MarX, #1363): Use cache and file storing to keep this information.
     /// PeerId associated for every known account id.
     account_peers: SizedCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -260,7 +260,7 @@ pub struct RoutingTable {
     /// Ping received by nonce. Used for testing only.
     pong_info: Option<HashMap<usize, Pong>>,
     /// Last nonce used to store edges on disk.
-    component_nonce: u64,
+    pub component_nonce: u64,
 }
 
 #[derive(Debug)]
@@ -275,9 +275,11 @@ impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
         let component_nonce =
-            store.iter(ColComponentEdges).fold(0, |nonce, (component_nonce, _)| {
-                let y = LittleEndian::read_u64(component_nonce.as_ref());
-                std::cmp::max(nonce, y)
+            store.iter(ColComponentEdges).fold(0, |mut nonce, (component_nonce, _)| {
+                if let Ok(y) = u64::try_from_slice(component_nonce.as_ref()) {
+                    nonce = std::cmp::max(nonce, y + 1);
+                }
+                nonce
             });
 
         Self {
@@ -294,6 +296,10 @@ impl RoutingTable {
             pong_info: None,
             component_nonce,
         }
+    }
+
+    fn peer_id(&self) -> &PeerId {
+        &self.raw_graph.source
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
@@ -383,14 +389,15 @@ impl RoutingTable {
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
     fn touch(&mut self, peer_id: &PeerId) {
-        if self.peer_last_time_reachable.contains_key(peer_id) {
+        if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
             return;
         }
+
+        let me = self.peer_id().clone();
 
         if let Ok(Some(nonce)) =
             self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id.clone()).as_ref())
         {
-            let mut peers_back = HashSet::new();
             let mut update = self.store.store_update();
             let enc_nonce = u64_as_bytes(nonce);
 
@@ -398,9 +405,9 @@ impl RoutingTable {
                 self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref())
             {
                 for edge in edges.into_iter() {
-                    let add_edge = vec![&edge.peer0, &edge.peer1].iter().all(|&peer_id| {
-                        if peers_back.contains(peer_id) {
-                            return true;
+                    for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
+                        if peer_id == &me || self.peer_last_time_reachable.contains_key(peer_id) {
+                            continue;
                         }
 
                         if let Ok(Some(cur_nonce)) = self
@@ -408,22 +415,22 @@ impl RoutingTable {
                             .get_ser::<u64>(ColPeerComponent, Vec::from(peer_id.clone()).as_ref())
                         {
                             if cur_nonce == nonce {
-                                peers_back.insert(peer_id.clone());
-                                update
-                                    .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
-
-                                return true;
+                                self.peer_last_time_reachable.insert(
+                                    peer_id.clone(),
+                                    Instant::now().sub(Duration::from_secs(SAVE_PEERS_MAX_TIME)),
+                                );
+                                update.delete(
+                                    ColPeerComponent,
+                                    Vec::from(peer_id.clone()).as_ref(),
+                                );
                             }
                         }
-
-                        false
-                    });
-
-                    if add_edge {
-                        self.add_edge(edge);
                     }
+                    self.add_edge(edge);
                 }
             }
+
+            update.delete(ColComponentEdges, enc_nonce.as_ref());
 
             if let Err(e) = update.commit() {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
