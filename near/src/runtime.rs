@@ -252,24 +252,20 @@ impl NightshadeRuntime {
                         .map(Clone::clone)
                         .collect(),
                 })
+            } else if !challenges_result.is_empty() {
+                Some(ValidatorAccountsUpdate {
+                    stake_info: Default::default(),
+                    validator_rewards: Default::default(),
+                    last_proposals: Default::default(),
+                    protocol_treasury_account_id: None,
+                    slashed_accounts: challenges_result
+                        .iter()
+                        .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id)
+                        .map(Clone::clone)
+                        .collect(),
+                })
             } else {
-                if !challenges_result.is_empty() {
-                    Some(ValidatorAccountsUpdate {
-                        stake_info: Default::default(),
-                        validator_rewards: Default::default(),
-                        last_proposals: Default::default(),
-                        protocol_treasury_account_id: None,
-                        slashed_accounts: challenges_result
-                            .iter()
-                            .filter(|account_id| {
-                                self.account_id_to_shard_id(account_id) == shard_id
-                            })
-                            .map(Clone::clone)
-                            .collect(),
-                    })
-                } else {
-                    None
-                }
+                None
             }
         };
 
@@ -923,10 +919,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         block_height,
                     }),
                     Err(err) => Ok(QueryResponse {
-                        kind: QueryResponseKind::Error(QueryError {
-                            error: err.to_string(),
-                            logs,
-                        }),
+                        kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
                         block_height,
                     }),
                 }
@@ -968,9 +961,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &PublicKey::try_from(path_parts[2])?,
                     )
                     .map(|r| QueryResponse {
-                        kind: QueryResponseKind::AccessKey(
-                            r.map(|access_key| access_key.into()),
-                        ),
+                        kind: QueryResponseKind::AccessKey(r.map(|access_key| access_key.into())),
                         block_height,
                     })
                 };
