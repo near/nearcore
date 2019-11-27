@@ -10,12 +10,18 @@ use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance};
 use crate::utils::system_account;
 
+/// Receipts are used for a cross-shard communication.
+/// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
+    /// An issuer account_id of a particular receipt.
+    /// `predecessor_id` could be either Transaction signer_id or intermediate contract's account_id
     pub predecessor_id: AccountId,
+    /// `receiver_id` is a receipt destination.
     pub receiver_id: AccountId,
+    /// An unique id for the receipt
     pub receipt_id: CryptoHash,
-
+    /// A receipt type
     pub receipt: ReceiptEnum,
 }
 
@@ -56,31 +62,35 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
 }
 
+///
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
+    /// A signer of the original transaction
     pub signer_id: AccountId,
+    /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
-
+    /// A gas_price which has been used to buy gas in the original transaction
     pub gas_price: Balance,
-
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
-
+    /// A list of input data dependencies for this Receipt to process.
     pub input_data_ids: Vec<CryptoHash>,
-
+    /// A list of actions to process
     pub actions: Vec<Action>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
-pub struct DataReceiver {
-    pub data_id: CryptoHash,
-    pub receiver_id: AccountId,
-}
-
+/// An incoming DataReceipt from some account
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
     pub data: Option<Vec<u8>>,
+}
+
+///
+#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
+pub struct DataReceiver {
+    pub data_id: CryptoHash,
+    pub receiver_id: AccountId,
 }
 
 impl fmt::Debug for DataReceipt {
@@ -92,6 +102,9 @@ impl fmt::Debug for DataReceipt {
     }
 }
 
+/// A temporary data which is created by processing of DataReceipt
+/// stored in a trie with a key = `account_id` + `data` until
+/// `input_data_ids` will be filled
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct ReceivedData {
     pub data: Option<Vec<u8>>,
