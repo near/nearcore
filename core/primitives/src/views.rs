@@ -160,7 +160,7 @@ pub enum QueryResponseKind {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct QueryResponse {
     #[serde(flatten)]
-    pub response: QueryResponseKind,
+    pub kind: QueryResponseKind,
     pub block_height: BlockIndex,
 }
 
@@ -199,7 +199,7 @@ impl TryFrom<QueryResponse> for AccountView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.response {
+        match query_response.kind {
             QueryResponseKind::ViewAccount(acc) => Ok(acc),
             _ => Err("Invalid type of response".into()),
         }
@@ -210,7 +210,7 @@ impl TryFrom<QueryResponse> for ViewStateResult {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.response {
+        match query_response.kind {
             QueryResponseKind::ViewState(vs) => Ok(vs),
             _ => Err("Invalid type of response".into()),
         }
@@ -221,7 +221,7 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response.response {
+        match query_response.kind {
             QueryResponseKind::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
         }

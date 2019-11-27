@@ -9,7 +9,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::QueryResponse::ViewAccount;
+use near_primitives::views::QueryResponseKind::ViewAccount;
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -52,7 +52,7 @@ fn test_keyvalue_runtime_balances() {
                     .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
                     .then(move |res| {
                         let query_responce = res.unwrap().unwrap().unwrap();
-                        if let ViewAccount(view_account_result) = query_responce {
+                        if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
                             if successful_queries2.load(Ordering::Relaxed) >= 4 {
@@ -91,7 +91,7 @@ mod tests {
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
     use near_primitives::views::QueryResponse;
-    use near_primitives::views::QueryResponse::ViewAccount;
+    use near_primitives::views::QueryResponseKind::ViewAccount;
 
     fn send_tx(
         num_validators: usize,
@@ -211,7 +211,7 @@ mod tests {
             }
         };
 
-        if let ViewAccount(view_account_result) = query_response {
+        if let ViewAccount(view_account_result) = query_response.kind {
             let mut expected = 0;
             for i in 0..8 {
                 if validators[i] == account_id {

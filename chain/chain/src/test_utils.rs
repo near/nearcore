@@ -677,7 +677,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let account_id = path[1].to_string();
         let account_id2 = account_id.clone();
         Ok(QueryResponse {
-            response: QueryResponseKind::ViewAccount(
+            kind: QueryResponseKind::ViewAccount(
                 Account {
                     amount: self
                         .state

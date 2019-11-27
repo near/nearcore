@@ -129,12 +129,12 @@ fn test_query() {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);
                 let account_info =
-                    if let QueryResponseKind::ViewAccount(account) = query_response.response {
+                    if let QueryResponseKind::ViewAccount(account) = query_response.kind {
                         account
                     } else {
                         panic!(
                             "queried account, but received something else: {:?}",
-                            query_response.response
+                            query_response.kind
                         );
                     };
                 assert_eq!(account_info.amount, 0);

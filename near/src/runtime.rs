@@ -902,7 +902,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match path_parts[0] {
             "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
                 Ok(r) => Ok(QueryResponse {
-                    response: QueryResponseKind::ViewAccount(r.into()),
+                    kind: QueryResponseKind::ViewAccount(r.into()),
                     block_height,
                 }),
                 Err(e) => Err(e),
@@ -919,11 +919,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &mut logs,
                 ) {
                     Ok(result) => Ok(QueryResponse {
-                        response: QueryResponseKind::CallResult(CallResult { result, logs }),
+                        kind: QueryResponseKind::CallResult(CallResult { result, logs }),
                         block_height,
                     }),
                     Err(err) => Ok(QueryResponse {
-                        response: QueryResponseKind::Error(QueryError {
+                        kind: QueryResponseKind::Error(QueryError {
                             error: err.to_string(),
                             logs,
                         }),
@@ -934,11 +934,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             "contract" => {
                 match self.view_state(*state_root, &AccountId::from(path_parts[1]), data) {
                     Ok(result) => Ok(QueryResponse {
-                        response: QueryResponseKind::ViewState(result),
+                        kind: QueryResponseKind::ViewState(result),
                         block_height,
                     }),
                     Err(err) => Ok(QueryResponse {
-                        response: QueryResponseKind::Error(QueryError {
+                        kind: QueryResponseKind::Error(QueryError {
                             error: err.to_string(),
                             logs: vec![],
                         }),
@@ -950,7 +950,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let result = if path_parts.len() == 2 {
                     self.view_access_keys(*state_root, &AccountId::from(path_parts[1])).map(|r| {
                         QueryResponse {
-                            response: QueryResponseKind::AccessKeyList(
+                            kind: QueryResponseKind::AccessKeyList(
                                 r.into_iter()
                                     .map(|(public_key, access_key)| AccessKeyInfoView {
                                         public_key,
@@ -968,7 +968,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &PublicKey::try_from(path_parts[2])?,
                     )
                     .map(|r| QueryResponse {
-                        response: QueryResponseKind::AccessKey(
+                        kind: QueryResponseKind::AccessKey(
                             r.map(|access_key| access_key.into()),
                         ),
                         block_height,
@@ -977,7 +977,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match result {
                     Ok(result) => Ok(result),
                     Err(err) => Ok(QueryResponse {
-                        response: QueryResponseKind::Error(QueryError {
+                        kind: QueryResponseKind::Error(QueryError {
                             error: err.to_string(),
                             logs: vec![],
                         }),
