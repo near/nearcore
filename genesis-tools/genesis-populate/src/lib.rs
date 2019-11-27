@@ -21,7 +21,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
+    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
 use node_runtime::StateRecord;
 
@@ -145,7 +145,7 @@ impl GenesisBuilder {
     pub fn dump_state(self) -> Result<Self> {
         let mut dump_path = self.home_dir.clone();
         dump_path.push("state_dump");
-        self.store.save_to_file(COL_STATE, dump_path.as_path())?;
+        self.store.save_to_file(ColState, dump_path.as_path())?;
         {
             let mut roots_files = self.home_dir.clone();
             roots_files.push("genesis_roots");

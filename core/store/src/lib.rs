@@ -31,37 +31,7 @@ mod db;
 pub mod test_utils;
 mod trie;
 
-pub const COL_BLOCK_MISC: usize = 0;
-pub const COL_BLOCK: usize = 1;
-pub const COL_BLOCK_HEADER: usize = 2;
-pub const COL_BLOCK_INDEX: usize = 3;
-pub const COL_STATE: usize = 4;
-pub const COL_CHUNK_EXTRA: usize = 5;
-pub const COL_TRANSACTION_RESULT: usize = 6;
-pub const COL_OUTGOING_RECEIPTS: usize = 7;
-pub const COL_INCOMING_RECEIPTS: usize = 8;
-pub const COL_PEERS: usize = 9;
-pub const COL_EPOCH_INFO: usize = 10;
-pub const COL_BLOCK_INFO: usize = 11;
-pub const COL_CHUNKS: usize = 12;
-pub const COL_PARTIAL_CHUNKS: usize = 13;
-/// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-pub const COL_BLOCKS_TO_CATCHUP: usize = 14;
-/// Blocks for which the state is being downloaded
-pub const COL_STATE_DL_INFOS: usize = 15;
-pub const COL_CHALLENGED_BLOCKS: usize = 16;
-pub const COL_STATE_HEADERS: usize = 17;
-pub const COL_INVALID_CHUNKS: usize = 18;
-pub const COL_BLOCK_EXTRA: usize = 19;
-/// Store hash of a block per each height, to detect double signs.
-pub const COL_BLOCK_PER_HEIGHT: usize = 20;
-pub const COL_LAST_APPROVALS_PER_ACCOUNT: usize = 21;
-pub const COL_MY_LAST_APPROVALS_PER_CHAIN: usize = 22;
-pub const COL_STATE_PARTS: usize = 23;
-pub const COL_EPOCH_START: usize = 24;
-// Map account_id to announce_account
-pub const COL_ACCOUNT_ANNOUNCEMENTS: usize = 25;
-const NUM_COLS: usize = 26;
+pub use db::DBCol::{self, *};
 
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -72,13 +42,13 @@ impl Store {
         Store { storage }
     }
 
-    pub fn get(&self, column: usize, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
         self.storage.get(column, key).map_err(|e| e.into())
     }
 
     pub fn get_ser<T: BorshDeserialize>(
         &self,
-        column: usize,
+        column: DBCol,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
@@ -91,7 +61,7 @@ impl Store {
         }
     }
 
-    pub fn exists(&self, column: usize, key: &[u8]) -> Result<bool, io::Error> {
+    pub fn exists(&self, column: DBCol, key: &[u8]) -> Result<bool, io::Error> {
         self.storage.get(column, key).map(|value| value.is_some()).map_err(|e| e.into())
     }
 
@@ -101,12 +71,12 @@ impl Store {
 
     pub fn iter<'a>(
         &'a self,
-        column: usize,
+        column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
     }
 
-    pub fn save_to_file(&self, column: usize, filename: &Path) -> Result<(), std::io::Error> {
+    pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
         for (key, value) in self.storage.iter(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -117,7 +87,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn load_from_file(&self, column: usize, filename: &Path) -> Result<(), std::io::Error> {
+    pub fn load_from_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::open(filename)?;
         let mut transaction = self.storage.transaction();
         loop {
@@ -156,13 +126,13 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
 
-    pub fn set(&mut self, column: usize, key: &[u8], value: &[u8]) {
+    pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.put(column, key, value)
     }
 
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
-        column: usize,
+        column: DBCol,
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
@@ -171,7 +141,7 @@ impl StoreUpdate {
         Ok(())
     }
 
-    pub fn delete(&mut self, column: usize, key: &[u8]) {
+    pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         self.transaction.delete(column, key);
     }
 
@@ -218,7 +188,7 @@ impl fmt::Debug for StoreUpdate {
 
 pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
-    col: usize,
+    col: DBCol,
     cache: &'a mut SizedCache<Vec<u8>, T>,
     key: &[u8],
 ) -> io::Result<Option<&'a T>> {
@@ -234,7 +204,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db = Arc::new(RocksDB::new(path, NUM_COLS).expect("Failed to open the database"));
+    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 

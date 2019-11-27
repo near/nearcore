@@ -26,7 +26,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_store::{Store, COL_STATE_HEADERS, COL_STATE_PARTS};
+use near_store::{ColStateHeaders, ColStateParts, Store};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
@@ -1358,7 +1358,7 @@ impl Chain {
         // Saving the header data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
+        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(())
@@ -1370,13 +1370,13 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
+        /*self.store.store().get_ser(ColStateHeaders, sync_hash.as_ref())?.unwrap_or(
             return Err(
             ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
                 .into(),
         ));*/
         // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.owned_store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
+        Ok(self.store.owned_store().get_ser(ColStateHeaders, &key)?.unwrap())
     }
 
     pub fn set_state_part(
@@ -1401,7 +1401,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(COL_STATE_PARTS, &key, data)?;
+        store_update.set_ser(ColStateParts, &key, data)?;
         store_update.commit()?;
         Ok(())
     }
@@ -1418,7 +1418,7 @@ impl Chain {
         let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get_ser(COL_STATE_PARTS, &key)?.unwrap());
+            parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
         }
 
         // Confirm that state matches the parts we received
@@ -1470,7 +1470,7 @@ impl Chain {
         let mut store_update = self.store.owned_store().store_update();
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            store_update.delete(COL_STATE_PARTS, &key);
+            store_update.delete(ColStateParts, &key);
         }
         Ok(store_update.commit()?)
     }

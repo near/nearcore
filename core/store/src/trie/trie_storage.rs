@@ -7,7 +7,7 @@ use cached::{Cached, SizedCache};
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::{RcTrieNode, POISONED_LOCK_ERR};
-use crate::{StorageError, Store, COL_STATE};
+use crate::{ColState, StorageError, Store};
 
 pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized TrieNode.
@@ -115,7 +115,7 @@ impl TrieCachingStorage {
         } else {
             let val = self
                 .store
-                .get(COL_STATE, hash.as_ref())
+                .get(ColState, hash.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let rc = Self::vec_to_rc(&val);
             (*guard).cache_set(*hash, val);
@@ -132,7 +132,7 @@ impl TrieStorage for TrieCachingStorage {
         } else {
             let val = self
                 .store
-                .get(COL_STATE, hash.as_ref())
+                .get(ColState, hash.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?;
             let raw_node = Self::vec_to_bytes(&val);
             (*guard).cache_set(*hash, val);

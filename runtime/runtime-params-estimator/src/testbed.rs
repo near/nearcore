@@ -3,7 +3,7 @@ use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, Trie, COL_STATE};
+use near_store::{create_store, ColState, Trie};
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashSet;
@@ -37,7 +37,7 @@ impl RuntimeTestbed {
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        store.load_from_file(COL_STATE, state_file.as_path()).expect("Failed to read state dump");
+        store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = dump_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
