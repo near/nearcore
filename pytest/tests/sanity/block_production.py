@@ -19,6 +19,8 @@ nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'},
 # nodes = start_cluster(4, 0, 4, {'local': False, 'near_root': '../target/debug/',
 #     'remote': {
 #         'instance_name': 'near-pytest',
+#         'binary': 'near-release-binary-09c5aa59630e3d6ca725276ed5119f968d9a9c24-debug',
+#         'zones': ['us-west2-a', 'us-central1-c', 'us-east1-b']  # More zones available at `gcloud compute zones list`
 #     }
 # }, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 

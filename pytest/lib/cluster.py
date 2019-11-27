@@ -10,9 +10,14 @@ import requests
 import time
 import base58
 import base64
-import retry
-from gcloud import compute, get_zone, ssh, copy_to_instance
+from retry import retry as retry2
+import retrying as retry
+import rc
+from rc import gcloud
 import uuid
+
+class DownloadException(Exception):
+    pass
 
 
 def atexit_cleanup(node):
@@ -157,23 +162,44 @@ class BotoNode(BaseNode):
 
 
 class GCloudNode(BaseNode):
-    def __init__(self, instance_name, node_dir):
+    def __init__(self, instance_name, zone, node_dir, binary):
         self.instance_name = instance_name
-        self.zone = get_zone(instance_name)
         self.port = 24567
         self.rpc_port = 3030
-        self.resource = self.get_gcloud()
-        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+        self.machine = gcloud.create(
+            name=instance_name,
+            machine_type='n1-standard-2',
+            disk_size='50G',
+            image_project='ubuntu-os-cloud',
+            image_family='ubuntu-1804-lts',
+            zone=zone,
+            firewall_allows=['tcp:3030', 'tcp:24567'],
+            preemptible=True 
+        )
+        self.ip = self.machine.ip
+        self._upload_config_files(node_dir)
+        self._download_binary(binary)
+        atexit.register(atexit_cleanup, self)
+
+       
+    def _upload_config_files(self, node_dir):
+        self.machine.run('bash', input='mkdir -p ~/.near')
+        self.machine.upload(os.path.join(node_dir, '*.json'), f'/home/{self.machine.username}/.near/')
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(
             os.path.join(node_dir, "node_key.json"))
-        # self.signer_key = Key.from_json_file(
-        #     os.path.join(node_dir, "signer_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
 
-    def get_gcloud(self):
-        return compute().instances().get(project='near-core', zone=self.zone,
-                                         instance=self.instance_name).execute()
+    @retry2(delay=1, tries=3)
+    def _download_binary(self, binary):
+        p = self.machine.run('bash', input=f'''
+/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
+chmod +x near
+''')
+        if p.returncode != 0:
+            raise DownloadException(p.stderr)
 
     def addr(self):
         return (self.ip, self.port)
@@ -181,72 +207,22 @@ class GCloudNode(BaseNode):
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
 
-    def exec(self, command):
-        return ssh(self.zone, self.instance_name, command)
-
-    def machine_status(self):
-        return self.get_gcloud()['status']
-
-    def is_ready(self):
-        """
-        Raise exception if it's not ready. Ready means instance fully created. compilation
-        finishes and binary exists
-        """
-        assert self.machine_status() == 'RUNNING'
-        assert self.exec("ls /opt/nearcore/target/debug/near")
-
-    def turn_on_machine(self):
-        """
-        Turn on gcloud instance, wait until it's on.
-        """
-        compute().instances().start(project='near-core', zone=self.zone, instance=self.instance_name)
-        retry.retry(lambda: self.machine_status() == 'RUNNING', 60)
-        self.exec("tmux new -s node -d")
-
-    def turn_off_machine(self):
-        """
-        Turn off gcloud instance, wait until it's off.
-        """
-        compute().instances().stop(project='near-core', zone=self.zone, instance=self.instance_name)
-        retry.retry(lambda: self.machine_status() == 'STOPPED', 60)
-
-    def start(self, boot_key, boot_node_addr, zone='us-west2-a'):
-        self.exec("""tmux send-keys -t node "{cmd}" C-m
-""".format(cmd=" ".join(self._get_command_line('/opt/nearcore/target/debug/', '/opt/near', boot_key, boot_node_addr)).replace("--verbose", "--verbose ''"))
-        )
-        self.resource = self.get_gcloud()
-        self.ip = self.resource['networkInterfaces'][0]['accessConfigs'][0]['natIP']
-        self.wait_for_rpc(timeout=10)
-
-    def change_version(self, commit):
-        """
-        Fetch and checkout to a different commit or git branch, then recompile
-        """
-        self.kill()
-        self.exec("tmux send-keys -t node 'cd /opt/nearcore' C-m")
-        self.exec("tmux send-keys -t node 'rm /opt/nearcore/target/debug/near' C-m")
-        self.exec("tmux send-keys -t node 'git fetch' C-m")
-        self.exec("tmux send-keys -t node 'git checkout {}' C-m".format(commit))
-        self.exec("tmux send-keys -t node 'cargo build -p near' C-m")
+    def start(self, boot_key, boot_node_addr):
+        self.machine.run_detach_tmux("RUST_BACKTRACE=1 "+" ".join(self._get_command_line('.', '.near', boot_key, boot_node_addr)).replace("--verbose", '--verbose ""'))
+        self.wait_for_rpc(timeout=30)
 
     def kill(self):
-        self.exec("tmux send-keys -t node C-c")
+        self.machine.kill_detach_tmux()
+    
+    def destroy_machine(self):
+        self.machine.delete()
 
     def cleanup(self):
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
-        self.exec("rm -rf /opt/near_finished")
-        self.exec("cp -r /opt/near /opt/near_finished")
-        self.exec("rm -rf /opt/near/data")
-
-    def update_config_files(self, node_dir):
-        copy_to_instance(self.zone, self.instance_name, os.path.join(node_dir, '*.json'), "/opt/near/")
-        self.validator_key = Key.from_json_file(
-            os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(
-            os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(
-            os.path.join(node_dir, "signer_key.json"))
+        rc.run(f'mkdir -p /tmp/pytest_remote_log')
+        self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
+        self.destroy_machine()
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -258,13 +234,14 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
         node = LocalNode(24567 + 10 + ordinal, 3030 +
                          10 + ordinal, near_root, node_dir)
     else:
-        instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'),ordinal)
-        node = GCloudNode(instance_name, node_dir)
-        if node.machine_status() == 'STOPPED':
-            node.turn_on_machine()
+        instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal)
+        zones = config['remote']['zones']
+        zone = zones[ordinal % len(zones)]
+        node = GCloudNode(instance_name, zone, node_dir, config['remote']['binary'])
+        print(f"node {ordinal} machine created")
 
     node.start(boot_key, boot_addr)
-
+    print(f"node {ordinal} started")
     return node
 
 
