@@ -1,7 +1,8 @@
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, IteratorMode,
+    Options, ReadOptions, WriteBatch, DB,
 };
+use std::cmp;
 use std::collections::HashMap;
 use std::io;
 use std::sync::RwLock;
@@ -137,27 +138,48 @@ impl Database for TestDB {
     }
 }
 
+fn rocksdb_read_options() -> ReadOptions {
+    let mut read_options = ReadOptions::default();
+    read_options.set_verify_checksums(false);
+    read_options
+}
+
+/// DB level options
 fn rocksdb_options() -> Options {
-    // TODO: experiment here
     let mut opts = Options::default();
+
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
-    opts.set_max_open_files(10000);
     opts.set_use_fsync(false);
-    opts.set_bytes_per_sync(8388608);
-    opts.optimize_for_point_lookup(1024);
-    opts.set_table_cache_num_shard_bits(6);
-    opts.set_max_write_buffer_number(32);
-    opts.set_write_buffer_size(536870912);
-    opts.set_target_file_size_base(1073741824);
-    opts.set_min_write_buffer_number_to_merge(4);
-    opts.set_level_zero_stop_writes_trigger(2000);
-    opts.set_level_zero_slowdown_writes_trigger(0);
-    opts.set_compaction_style(DBCompactionStyle::Universal);
-    opts.set_max_background_compactions(4);
-    opts.set_max_background_flushes(4);
-    opts.set_disable_auto_compactions(true);
+    opts.set_max_open_files(512);
+    opts.set_keep_log_file_num(1);
+    opts.set_bytes_per_sync(1048576);
+    opts.set_write_buffer_size(1024 * 1024 * 512 / 2);
+    opts.set_max_bytes_for_level_base(1024 * 1024 * 512 / 2);
+    opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+
     return opts;
+}
+
+fn rocksdb_block_based_options() -> BlockBasedOptions {
+    let mut block_opts = BlockBasedOptions::default();
+    block_opts.set_block_size(1024 * 1024 * 8);
+    let cache_size = 1024 * 1024 * 512 / 3;
+    block_opts.set_lru_cache(cache_size);
+    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    block_opts.set_cache_index_and_filter_blocks(true);
+
+    block_opts
+}
+
+fn rocksdb_column_options() -> Options {
+    let mut opts = Options::default();
+    opts.set_level_compaction_dynamic_level_bytes(true);
+    opts.set_block_based_table_factory(&rocksdb_block_based_options());
+    opts.optimize_level_style_compaction(1024 * 1024 * 128);
+    opts.set_target_file_size_base(1024 * 1024 * 64);
+    opts.set_compression_per_level(&[]);
+    opts
 }
 
 impl RocksDB {
@@ -174,7 +196,7 @@ impl RocksDB {
                 ptr
             })
             .collect();
-        Ok(Self { db, cfs, read_options: ReadOptions::default() })
+        Ok(Self { db, cfs, read_options: rocksdb_read_options() })
     }
 }
 
