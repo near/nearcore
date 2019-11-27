@@ -29,7 +29,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
     ValidatorStake,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse};
+use near_primitives::views::{EpochValidatorInfo, QueryResponse, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
@@ -668,7 +668,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        _height: BlockIndex,
+        block_height: BlockIndex,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
         path: Vec<&str>,
@@ -676,21 +676,24 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         let account_id = path[1].to_string();
         let account_id2 = account_id.clone();
-        Ok(QueryResponse::ViewAccount(
-            Account {
-                amount: self
-                    .state
-                    .read()
-                    .unwrap()
-                    .get(&state_root)
-                    .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
-                locked: 0,
-                code_hash: CryptoHash::default(),
-                storage_usage: 0,
-                storage_paid_at: 0,
-            }
-            .into(),
-        ))
+        Ok(QueryResponse {
+            response: QueryResponseKind::ViewAccount(
+                Account {
+                    amount: self
+                        .state
+                        .read()
+                        .unwrap()
+                        .get(&state_root)
+                        .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
+                    locked: 0,
+                    code_hash: CryptoHash::default(),
+                    storage_usage: 0,
+                    storage_paid_at: 0,
+                }
+                .into(),
+            ),
+            block_height,
+        })
     }
 
     fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {

@@ -12,6 +12,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::ShardId;
+use near_primitives::views::QueryResponseKind;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -123,11 +124,28 @@ fn test_query() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(|res| {
-            assert!(res.is_ok());
-            System::current().stop();
-            future::result(Ok(()))
-        }));
+        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let account_info =
+                    if let QueryResponseKind::ViewAccount(account) = query_response.response {
+                        account
+                    } else {
+                        panic!(
+                            "queried account, but received something else: {:?}",
+                            query_response.response
+                        );
+                    };
+                assert_eq!(account_info.amount, 0);
+                assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+                assert_eq!(account_info.locked, 0);
+                assert_eq!(account_info.storage_paid_at, 0);
+                assert_eq!(account_info.storage_usage, 0);
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
     })
     .unwrap();
 }

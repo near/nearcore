@@ -147,7 +147,7 @@ pub struct AccessKeyInfoView {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(untagged)]
-pub enum QueryResponse {
+pub enum QueryResponseKind {
     ViewAccount(AccountView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
@@ -155,6 +155,13 @@ pub enum QueryResponse {
     AccessKey(Option<AccessKeyView>),
     AccessKeyList(Vec<AccessKeyInfoView>),
     Validators(EpochValidatorInfo),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct QueryResponse {
+    #[serde(flatten)]
+    pub response: QueryResponseKind,
+    pub block_height: BlockIndex,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -192,8 +199,8 @@ impl TryFrom<QueryResponse> for AccountView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewAccount(acc) => Ok(acc),
+        match query_response.response {
+            QueryResponseKind::ViewAccount(acc) => Ok(acc),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -203,8 +210,8 @@ impl TryFrom<QueryResponse> for ViewStateResult {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewState(vs) => Ok(vs),
+        match query_response.response {
+            QueryResponseKind::ViewState(vs) => Ok(vs),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -214,8 +221,8 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::AccessKey(access_key) => Ok(access_key),
+        match query_response.response {
+            QueryResponseKind::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
         }
     }
