@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::mem::size_of;
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
@@ -15,6 +14,7 @@ use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 
 use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo};
+use crate::utils::u64_as_bytes;
 use crate::PeerManagerActor;
 
 /// Returns available port.
@@ -155,9 +155,7 @@ pub fn random_peer_id() -> PeerId {
 }
 
 pub fn random_epoch_id() -> EpochId {
-    let mut buffer = [0u8; size_of::<u64>()];
-    LittleEndian::write_u64(&mut buffer, thread_rng().next_u64());
-    EpochId(hash(buffer.as_ref()))
+    EpochId(hash(u64_as_bytes(thread_rng().next_u64()).as_ref()))
 }
 
 pub fn expected_routing_tables(
