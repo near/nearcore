@@ -22,6 +22,7 @@ use crate::utils::u64_as_bytes;
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
+const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
 /// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
 /// seconds will be removed from cache and persisted in disk.
@@ -248,11 +249,10 @@ pub struct RoutingTable {
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
     raw_graph: Graph,
-    // TODO(MarX, Now): Use Sized Cache here
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
-    route_nonce: HashMap<PeerId, usize>,
+    route_nonce: SizedCache<PeerId, usize>,
     /// Flag to know if there is state recalculation pending.
     recalculation_scheduled: Option<Instant>,
     /// Ping received by nonce. Used for testing only.
@@ -288,7 +288,7 @@ impl RoutingTable {
             peer_last_time_reachable: HashMap::new(),
             store,
             raw_graph: Graph::new(peer_id),
-            route_nonce: HashMap::new(),
+            route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             recalculation_scheduled: None,
             ping_info: None,
             pong_info: None,
@@ -299,14 +299,14 @@ impl RoutingTable {
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
     pub fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(&peer_id) {
+        if let Some(routes) = self.peer_forwarding.get(&peer_id).cloned() {
             // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
             // nonce by one. Additionally if the difference between the highest nonce and the lowest
             // nonce is greater than some threshold increase the lowest nonce to be at least
             // max nonce - threshold.
 
             let (min_v, max_v) = routes.iter().fold((None, None), |(min_v, max_v), peer_id| {
-                let nonce = self.route_nonce.get(&peer_id).cloned().unwrap_or(0usize);
+                let nonce = self.route_nonce.cache_get(&peer_id).cloned().unwrap_or(0usize);
                 let current = (nonce, peer_id.clone());
                 if min_v.is_none() || current < *min_v.as_ref().unwrap() {
                     (Some(current), max_v)
@@ -324,7 +324,7 @@ impl RoutingTable {
                 (Some(min_v), None) => min_v.1,
                 (Some(min_v), Some(max_v)) => {
                     if min_v.0 + ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED < max_v.0 {
-                        self.route_nonce.insert(
+                        self.route_nonce.cache_set(
                             min_v.1.clone(),
                             max_v.0 - ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED,
                         );
@@ -333,12 +333,9 @@ impl RoutingTable {
                 }
             };
 
-            self.route_nonce
-                .entry(next_hop.clone())
-                .and_modify(|nonce| {
-                    *nonce += 1;
-                })
-                .or_insert(1);
+            let nonce = self.route_nonce.cache_get(&next_hop).cloned();
+            self.route_nonce.cache_set(next_hop.clone(), nonce.map_or(1, |nonce| nonce + 1));
+
             Ok(next_hop)
         } else {
             Err(FindRouteError::PeerNotFound)
@@ -557,9 +554,6 @@ impl RoutingTable {
             .collect();
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
-
-    // TODO(MarX, Now): Touch nodes. Try to bring them from persisted disk if they are not in memory
-    //  If they are new in memory set last time reachable to now
 
     fn try_save_edges(&mut self) {
         let now = Instant::now();
