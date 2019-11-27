@@ -305,9 +305,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
+        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
     }
 
     fn get_block_producer(

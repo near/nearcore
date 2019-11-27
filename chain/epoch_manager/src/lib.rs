@@ -439,11 +439,11 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, EpochError> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         Ok(self
             .get_all_block_producer_info(epoch_id, last_known_block_hash)?
             .into_iter()
-            .map(|(v, is_slashed)| (v.account_id, is_slashed))
+            .map(|(v, is_slashed)| (v, is_slashed))
             .collect())
     }
 
@@ -1027,7 +1027,12 @@ mod tests {
 
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch1, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch1, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![
                 ("test3".to_string(), false),
                 ("test2".to_string(), false),
@@ -1037,13 +1042,23 @@ mod tests {
 
         let epoch2_1 = epoch_manager.get_epoch_id(&h[13]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_1, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch2_1, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), false), ("test4".to_string(), false)]
         );
 
         let epoch2_2 = epoch_manager.get_epoch_id(&h[11]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_2, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch2_2, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test1".to_string(), false), ("test3".to_string(), false),]
         );
 
@@ -1231,7 +1246,12 @@ mod tests {
 
         let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch_id, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch_id, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), false), ("test1".to_string(), true)]
         );
 

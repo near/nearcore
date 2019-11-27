@@ -483,7 +483,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
     }
@@ -557,7 +557,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
-        Ok(block_producers[part_id as usize % block_producers.len()].0.clone())
+        Ok(block_producers[part_id as usize % block_producers.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(
@@ -1396,7 +1396,12 @@ mod test {
 
         let epoch_id = env.runtime.get_epoch_id_from_prev_block(&env.head.last_block_hash).unwrap();
         assert_eq!(
-            env.runtime.get_epoch_block_producers(&epoch_id, &env.head.last_block_hash).unwrap(),
+            env.runtime
+                .get_epoch_block_producers(&epoch_id, &env.head.last_block_hash)
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test3".to_string(), false), ("test1".to_string(), false)]
         );
 
@@ -1967,7 +1972,10 @@ mod test {
         assert_eq!(
             env.runtime
                 .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap(),
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), true), ("test1".to_string(), false)]
         );
         let msg = vec![0, 1, 2];

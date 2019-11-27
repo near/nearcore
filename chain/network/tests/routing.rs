@@ -265,12 +265,13 @@ impl StateMachine {
 struct Runner {
     num_nodes: usize,
     num_validators: usize,
+    peer_max_count: u32,
     state_machine: Option<StateMachine>,
 }
 
 impl Runner {
-    fn new(num_nodes: usize, num_validators: usize) -> Self {
-        Self { num_nodes, num_validators, state_machine: Some(StateMachine::new()) }
+    fn new(num_nodes: usize, num_validators: usize, peer_max_count: u32) -> Self {
+        Self { num_nodes, num_validators, peer_max_count, state_machine: Some(StateMachine::new()) }
     }
 
     fn push(&mut self, action: Action) {
@@ -302,7 +303,7 @@ impl Runner {
                     vec![],
                     validators.clone(),
                     genesis_time,
-                    0,
+                    self.peer_max_count,
                 )
             })
             .collect();
@@ -345,7 +346,7 @@ fn simple() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(2, 1);
+        let mut runner = Runner::new(2, 1, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
@@ -361,7 +362,7 @@ fn three_nodes_path() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -379,7 +380,7 @@ fn three_nodes_star() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -401,7 +402,7 @@ fn join_components() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(4, 4);
+        let mut runner = Runner::new(4, 4, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(2, 3));
@@ -430,7 +431,7 @@ fn account_propagation() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckAccountId(1, vec![0, 1]));
@@ -447,7 +448,7 @@ fn ping_simple() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(2, 2);
+        let mut runner = Runner::new(2, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
@@ -465,7 +466,7 @@ fn ping_jump() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -484,7 +485,7 @@ fn simple_remove() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 3);
+        let mut runner = Runner::new(3, 3, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -504,7 +505,7 @@ fn square() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(4, 4);
+        let mut runner = Runner::new(4, 4, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -516,6 +517,35 @@ fn square() {
         runner.push(Action::CheckRoutingTable(0, vec![(3, vec![3]), (2, vec![3])]));
         runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3]), (0, vec![3])]));
         runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2]), (0, vec![0])]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+/// Spin up four nodes and connect them in a square.
+/// Each node will have at most two connections.
+/// Turn off two non adjacent nodes, and check other two nodes create
+/// a connection among them.
+#[test]
+fn churn_attack() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4, 1);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::AddEdge(3, 0));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
+        runner
+            .push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (3, vec![3]), (0, vec![1, 3])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::Stop(3));
+        runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
 
         runner.run();
     })
