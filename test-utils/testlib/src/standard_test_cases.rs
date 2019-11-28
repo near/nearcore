@@ -540,12 +540,8 @@ pub fn test_swap_key(node: impl Node) {
 
     assert!(node_user
         .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
-        .unwrap()
-        .is_none());
-    assert!(node_user
-        .get_access_key(&eve_dot_alice_account(), &signer2.public_key)
-        .unwrap()
-        .is_some());
+        .is_ok());
+    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key).is_ok());
 }
 
 pub fn test_add_key(node: impl Node) {
@@ -555,8 +551,8 @@ pub fn test_add_key(node: impl Node) {
 
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
 pub fn test_add_existing_key(node: impl Node) {
@@ -576,7 +572,7 @@ pub fn test_add_existing_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
 }
 
 pub fn test_delete_key(node: impl Node) {
@@ -592,8 +588,8 @@ pub fn test_delete_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_none());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
 pub fn test_delete_key_not_owned(node: impl Node) {
@@ -614,8 +610,8 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
 pub fn test_delete_key_last(node: impl Node) {
@@ -630,7 +626,7 @@ pub fn test_delete_key_last(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_none());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
 }
 
 pub fn test_add_access_key_function_call(node: impl Node) {
@@ -647,10 +643,10 @@ pub fn test_add_access_key_function_call(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, Some(access_key.into()));
+    assert_eq!(view_access_key, access_key.into());
 }
 
 pub fn test_delete_access_key(node: impl Node) {
@@ -675,8 +671,8 @@ pub fn test_delete_access_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
 pub fn test_add_access_key_with_allowance(node: impl Node) {
@@ -700,9 +696,9 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.amount, initial_balance - add_access_key_cost);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, Some(access_key.into()));
+    assert_eq!(view_access_key, access_key.into());
 }
 
 pub fn test_delete_access_key_with_allowance(node: impl Node) {
@@ -735,8 +731,8 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.amount, initial_balance - add_access_key_cost - delete_access_key_cost);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
 pub fn test_access_key_smart_contract(node: impl Node) {
@@ -774,17 +770,15 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(
         view_access_key,
-        Some(
-            AccessKey {
-                nonce: 1,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost),
-                    receiver_id: bob_account(),
-                    method_names: vec![],
-                }),
-            }
-            .into()
-        )
+        AccessKey {
+            nonce: 1,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost),
+                receiver_id: bob_account(),
+                method_names: vec![],
+            }),
+        }
+        .into()
     );
 }
 

@@ -115,9 +115,9 @@ fn test_chunk_by_hash() {
     .unwrap();
 }
 
-/// Connect to json rpc and query the client.
+/// Connect to json rpc and query account info.
 #[test]
-fn test_query() {
+fn test_query_account() {
     init_test_logger();
 
     System::run(|| {
@@ -142,6 +142,66 @@ fn test_query() {
                 assert_eq!(account_info.locked, 0);
                 assert_eq!(account_info.storage_paid_at, 0);
                 assert_eq!(account_info.storage_usage, 0);
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
+    })
+    .unwrap();
+}
+
+/// Connect to json rpc and query account info.
+#[test]
+fn test_query_access_keys() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.query("access_key/test".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let access_keys =
+                    if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind {
+                        access_keys
+                    } else {
+                        panic!(
+                            "queried access keys, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
+    })
+    .unwrap();
+}
+
+/// Connect to json rpc and query account info.
+#[test]
+fn test_query_access_key() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.query("access_key/test/xxx".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let access_keys =
+                    if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
+                        access_keys
+                    } else {
+                        panic!(
+                            "queried access keys, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
                 System::current().stop();
                 future::result(Ok(()))
             },

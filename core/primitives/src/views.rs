@@ -146,14 +146,25 @@ pub struct AccessKeyInfoView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct AccessKeyList {
+    pub keys: Vec<AccessKeyInfoView>,
+}
+
+impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
+    fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
+        Self { keys: iter.into_iter().collect() }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
-    AccessKey(Option<AccessKeyView>),
-    AccessKeyList(Vec<AccessKeyInfoView>),
+    AccessKey(AccessKeyView),
+    AccessKeyList(AccessKeyList),
     Validators(EpochValidatorInfo),
 }
 
@@ -217,7 +228,7 @@ impl TryFrom<QueryResponse> for ViewStateResult {
     }
 }
 
-impl TryFrom<QueryResponse> for Option<AccessKeyView> {
+impl TryFrom<QueryResponse> for AccessKeyView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {

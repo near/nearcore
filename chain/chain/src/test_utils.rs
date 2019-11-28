@@ -13,7 +13,7 @@ use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
 use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxError;
@@ -29,7 +29,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
     ValidatorStake,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse, QueryResponseKind};
+use near_primitives::views::{
+    AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
+};
 use near_store::test_utils::create_test_store;
 use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
@@ -674,26 +676,44 @@ impl RuntimeAdapter for KeyValueRuntime {
         path: Vec<&str>,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        let account_id = path[1].to_string();
-        let account_id2 = account_id.clone();
-        Ok(QueryResponse {
-            kind: QueryResponseKind::ViewAccount(
-                Account {
-                    amount: self
-                        .state
-                        .read()
-                        .unwrap()
-                        .get(&state_root)
-                        .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
-                    locked: 0,
-                    code_hash: CryptoHash::default(),
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                }
-                .into(),
-            ),
-            block_height,
-        })
+        match path[0] {
+            "account" => {
+                let account_id = path[1].to_string();
+                let account_id2 = account_id.clone();
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewAccount(
+                        Account {
+                            amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                                || 0,
+                                |state| *state.amounts.get(&account_id2).unwrap_or(&0),
+                            ),
+                            locked: 0,
+                            code_hash: CryptoHash::default(),
+                            storage_usage: 0,
+                            storage_paid_at: 0,
+                        }
+                        .into(),
+                    ),
+                    block_height,
+                })
+            }
+            "access_key" if path.len() == 2 => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKeyList(AccessKeyList {
+                    keys: vec![AccessKeyInfoView {
+                        public_key: PublicKey::empty(KeyType::ED25519),
+                        access_key: AccessKey::full_access().into(),
+                    }],
+                }),
+                block_height,
+            }),
+            "access_key" if path.len() == 3 => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
+                block_height,
+            }),
+            _ => {
+                panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);
+            }
+        }
     }
 
     fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {

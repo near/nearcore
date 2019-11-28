@@ -960,8 +960,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &AccountId::from(path_parts[1]),
                         &PublicKey::try_from(path_parts[2])?,
                     )
-                    .map(|r| QueryResponse {
-                        kind: QueryResponseKind::AccessKey(r.map(|access_key| access_key.into())),
+                    .map(|access_key| QueryResponse {
+                        kind: QueryResponseKind::AccessKey(access_key.into()),
                         block_height,
                     })
                 };
@@ -1110,7 +1110,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
