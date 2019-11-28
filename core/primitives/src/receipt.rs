@@ -15,7 +15,7 @@ use crate::utils::system_account;
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     /// An issuer account_id of a particular receipt.
-    /// `predecessor_id` could be either Transaction signer_id or intermediate contract's account_id
+    /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
     pub predecessor_id: AccountId,
     /// `receiver_id` is a receipt destination.
     pub receiver_id: AccountId,
