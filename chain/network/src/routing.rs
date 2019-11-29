@@ -453,7 +453,7 @@ impl RoutingTable {
         }
 
         if let Some(ping_info) = self.ping_info.as_mut() {
-            ping_info.entry(ping.nonce).or_insert(ping);
+            ping_info.entry(ping.nonce as usize).or_insert(ping);
         }
     }
 
@@ -463,7 +463,7 @@ impl RoutingTable {
         }
 
         if let Some(pong_info) = self.pong_info.as_mut() {
-            pong_info.entry(pong.nonce).or_insert(pong);
+            pong_info.entry(pong.nonce as usize).or_insert(pong);
         }
     }
 

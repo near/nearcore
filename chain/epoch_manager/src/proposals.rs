@@ -72,10 +72,10 @@ pub fn proposals_to_epoch_info(
     }
 
     // Get the threshold given current number of seats and stakes.
-    let num_fisherman_seats: usize = epoch_config.avg_fisherman_per_shard.iter().sum();
+    let num_fisherman_seats: u64 = epoch_config.avg_fisherman_per_shard.iter().sum();
     let num_seats = epoch_config.num_block_producers + num_fisherman_seats;
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
-    let threshold = find_threshold(&stakes, num_seats as u64)?;
+    let threshold = find_threshold(&stakes, num_seats)?;
     // Remove proposals under threshold.
     let mut final_proposals = vec![];
     for (account_id, p) in ordered_proposals {
@@ -103,7 +103,7 @@ pub fn proposals_to_epoch_info(
     let (final_proposals, validator_to_index) = final_proposals.into_iter().enumerate().fold(
         (vec![], HashMap::new()),
         |(mut proposals, mut validator_to_index), (i, p)| {
-            validator_to_index.insert(p.account_id.clone(), i);
+            validator_to_index.insert(p.account_id.clone(), i as u64);
             proposals.push(p);
             (proposals, validator_to_index)
         },
@@ -113,7 +113,7 @@ pub fn proposals_to_epoch_info(
     let mut dup_proposals = final_proposals
         .iter()
         .enumerate()
-        .flat_map(|(i, p)| iter::repeat(i).take((p.amount / threshold) as usize))
+        .flat_map(|(i, p)| iter::repeat(i as u64).take((p.amount / threshold) as usize))
         .collect::<Vec<_>>();
     if dup_proposals.len() < num_seats as usize {
         return Err(EpochError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_seats));
@@ -127,15 +127,16 @@ pub fn proposals_to_epoch_info(
     }
 
     // Block producers are first `num_block_producers` proposals.
-    let block_producers = dup_proposals[..epoch_config.num_block_producers].to_vec();
+    let block_producers = dup_proposals[..epoch_config.num_block_producers as usize].to_vec();
 
     // Collect proposals into block producer assignments.
     let mut chunk_producers: Vec<Vec<ValidatorId>> = vec![];
-    let mut last_index: usize = 0;
+    let mut last_index: u64 = 0;
     for num_seats in epoch_config.block_producers_per_shard.iter() {
         let mut cp: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats {
-            let proposal_index = dup_proposals[(i + last_index) % epoch_config.num_block_producers];
+            let proposal_index =
+                dup_proposals[((i + last_index) % epoch_config.num_block_producers) as usize];
             cp.push(proposal_index);
         }
         chunk_producers.push(cp);

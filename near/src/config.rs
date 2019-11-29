@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -282,7 +281,6 @@ impl NearConfig {
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
                 min_num_peers: config.consensus.min_num_peers,
-                fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
@@ -328,6 +326,7 @@ impl NearConfig {
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
@@ -461,8 +460,8 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
 impl GenesisConfig {
     fn test_with_seeds(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
@@ -473,6 +472,7 @@ impl GenesisConfig {
         let code_hash = hash(&default_test_contract);
         for (i, &account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
+            let i = i as u64;
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
@@ -524,11 +524,11 @@ impl GenesisConfig {
         }
     }
 
-    pub fn test(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         Self::test_with_seeds(seeds, num_validators, vec![num_validators])
     }
 
-    pub fn test_free(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test_free(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         let mut config = Self::test_with_seeds(seeds, num_validators, vec![num_validators]);
         config.runtime_config = RuntimeConfig::free();
         config
@@ -536,8 +536,8 @@ impl GenesisConfig {
 
     pub fn test_sharded(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         Self::test_with_seeds(seeds, num_validators, validators_per_shard)
     }
@@ -569,14 +569,6 @@ impl From<&str> for GenesisConfig {
             panic!(format!(
                 "Incorrect version of genesis config {} expected {}",
                 config.protocol_version, PROTOCOL_VERSION
-            ));
-        }
-        let num_shards = config.block_producers_per_shard.len();
-        let num_chunk_producers: ValidatorId = config.block_producers_per_shard.iter().sum();
-        if num_chunk_producers != max(config.num_block_producers, num_shards) {
-            panic!(format!(
-                "Number of chunk producers {} does not match number of block producers {}",
-                num_chunk_producers, config.num_block_producers
             ));
         }
         let total_supply = get_initial_supply(&config.records);
@@ -753,7 +745,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validators: usize,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
-    let num_validators = seeds.len() - num_non_validators;
+    let num_validators = (seeds.len() - num_non_validators) as ValidatorId;
     let signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
@@ -783,7 +775,7 @@ pub fn create_testnet_configs_from_seeds(
             config.network.skip_sync_wait = num_validators == 1;
         }
         config.consensus.min_num_peers =
-            cmp::min(num_validators - 1, config.consensus.min_num_peers);
+            cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
     (configs, signers, network_signers, genesis_config)
