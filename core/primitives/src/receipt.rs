@@ -73,20 +73,27 @@ pub struct ActionReceipt {
     pub gas_price: Balance,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
-    /// A list of input data dependencies for this Receipt to process.
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
     pub input_data_ids: Vec<CryptoHash>,
-    /// A list of actions to process
+    /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
 }
 
-/// An incoming DataReceipt from some account
+/// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
+/// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+/// In runtime
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
     pub data: Option<Vec<u8>>,
 }
 
-///
+/// The outgoing (egress) data which will be transformed
+/// to a `DataReceipt` to be sent to a `receipt.receiver`
 #[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiver {
     pub data_id: CryptoHash,
@@ -103,8 +110,9 @@ impl fmt::Debug for DataReceipt {
 }
 
 /// A temporary data which is created by processing of DataReceipt
-/// stored in a trie with a key = `account_id` + `data` until
-/// `input_data_ids` will be filled
+/// stored in a state trie with a key = `account_id` + `data_id` until
+/// `input_data_ids` of all incoming Receipts are satisfied
+/// None means data retrieval was failed
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct ReceivedData {
     pub data: Option<Vec<u8>>,
