@@ -193,6 +193,8 @@ impl Client {
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.prev_hash;
+        let prev_epoch_id = prev.inner_lite.epoch_id.clone();
+        let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
 
         debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
@@ -264,6 +266,11 @@ impl Client {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
+        let next_epoch_id = self
+            .runtime_adapter
+            .get_next_epoch_id_from_prev_block(&head.last_block_hash)
+            .expect("Epoch hash should exist at this point");
+
         // Here `total_block_producers` is the number of block producers in the epoch of the previous
         // block. It would be more correct to pass the number of block producers in the current epoch.
         // However, in the case when the epochs differ the `compute_quorums` will exit on the very
@@ -276,6 +283,7 @@ impl Client {
             approvals.clone(),
             &*self.runtime_adapter,
             self.chain.mut_store(),
+            true,
         )?
         .clone();
 
@@ -283,6 +291,12 @@ impl Client {
             0.into()
         } else {
             self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
+        };
+
+        let next_bp_hash = if prev_epoch_id != epoch_id {
+            Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
+        } else {
+            prev_next_bp_hash
         };
 
         // Get block extra from previous block.
@@ -316,6 +330,7 @@ impl Client {
             next_height,
             chunks,
             epoch_id,
+            next_epoch_id,
             approvals,
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
@@ -325,6 +340,7 @@ impl Client {
             score,
             quorums.last_quorum_pre_vote,
             quorums.last_quorum_pre_commit,
+            next_bp_hash,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.

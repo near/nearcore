@@ -134,7 +134,7 @@ fn create_block(
         height,
         approvals.clone(),
         chain_store,
-        stakes.clone(),
+        &stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -231,7 +231,7 @@ fn test_finality_genesis2() {
         2,
         vec![],
         chain.mut_store(),
-        stakes.clone(),
+        &stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -287,7 +287,7 @@ fn test_finality_basic() {
         4,
         vec![],
         chain.mut_store(),
-        stakes.clone(),
+        &stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -336,7 +336,7 @@ fn test_finality_weight() {
         4,
         vec![],
         chain.mut_store(),
-        stakes.clone(),
+        &stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -412,7 +412,7 @@ fn test_finality_fewer_approvals_per_block() {
         6,
         vec![],
         chain.mut_store(),
-        stakes.clone(),
+        &stakes.clone(),
     )
     .unwrap()
     .clone();
@@ -474,7 +474,7 @@ fn test_finality_quorum_precommit_cases() {
             5,
             vec![],
             chain.mut_store(),
-            stakes.clone(),
+            &stakes.clone(),
         )
         .unwrap()
         .clone();

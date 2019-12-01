@@ -178,7 +178,7 @@ impl FinalityGadget {
         mut height: BlockIndex,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
-        stakes: Vec<ValidatorStake>,
+        stakes: &Vec<ValidatorStake>,
     ) -> Result<FinalityGadgetQuorums, Error> {
         let mut quorum_pre_vote = None;
         let mut quorum_pre_commit = None;

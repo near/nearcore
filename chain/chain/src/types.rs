@@ -493,6 +493,7 @@ mod tests {
     use near_primitives::block::genesis_chunks;
 
     use super::*;
+    use crate::Chain;
 
     #[test]
     fn test_block_produce() {
@@ -503,6 +504,7 @@ mod tests {
             Utc::now(),
             100,
             1_000_000_000,
+            Chain::compute_bp_hash_inner(&vec![]).unwrap(),
         );
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
@@ -522,8 +524,10 @@ mod tests {
             &b1,
             2,
             b1.header.inner_lite.epoch_id.clone(),
+            EpochId(genesis.hash()),
             approvals,
             &signer,
+            genesis.header.inner_lite.next_bp_hash,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
