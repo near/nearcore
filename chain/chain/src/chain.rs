@@ -669,6 +669,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
+        sync_hash_block: Option<Block>,
         block_accepted: F,
         block_misses_chunks: F2,
         on_challenge: F3,
@@ -688,6 +689,10 @@ impl Chain {
         chain_store_update.save_body_head(&tip)?;
         chain_store_update.save_body_tail(&tip);
         chain_store_update.commit()?;
+
+        if let Some(block) = sync_hash_block {
+            self.orphans.add(Orphan { block, provenance: Provenance::NONE, added: Instant::now() });
+        }
 
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks

@@ -201,6 +201,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 error!(target: "client", "Failed to save a block during state sync");
                             }
                             return NetworkClientResponses::NoResponse;
+                        } else if &block.hash() == sync_hash {
+                            println!("receive sync hash block, {}", sync_hash);
+                            self.client.state_sync.save_sync_hash_block(&block);
+                            return NetworkClientResponses::NoResponse;
                         }
                     }
                 }
@@ -795,7 +799,7 @@ impl ClientActor {
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    info!(target: "client", "Error on receival of block: {}", err);
+                    debug!(target: "client", "Error on receival of block: {}", err);
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
@@ -1122,7 +1126,7 @@ impl ClientActor {
                             }
                         }
                     }
-                    StateSyncResult::Completed => {
+                    StateSyncResult::Completed(sync_hash_block) => {
                         info!(target: "sync", "State sync: all shards are done");
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
@@ -1132,6 +1136,7 @@ impl ClientActor {
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
                             sync_hash,
+                            sync_hash_block,
                             |accepted_block| {
                                 accepted_blocks.write().unwrap().push(accepted_block);
                             },

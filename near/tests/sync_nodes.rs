@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::{Actor, Addr, System};
@@ -10,14 +10,16 @@ use tempdir::TempDir;
 use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_chain::Block;
-use near_client::{ClientActor, GetBlock};
+use near_client::{ClientActor, GetBlock, Query};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::types::PeerId;
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::views::BlockView;
 use testlib::genesis_block;
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.

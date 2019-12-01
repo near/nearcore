@@ -735,7 +735,7 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC {
+            if provenance != Provenance::SYNC && self.sync_status == SyncStatus::NoSync {
                 // Produce new chunks
                 for shard_id in 0..self.runtime_adapter.num_shards() {
                     let epoch_id = self
@@ -1175,7 +1175,7 @@ impl Client {
                 StateSyncResult::Changed(fetch_block) => {
                     assert!(!fetch_block);
                 }
-                StateSyncResult::Completed => {
+                StateSyncResult::Completed(_) => {
                     let accepted_blocks = Arc::new(RwLock::new(vec![]));
                     let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                     let challenges = Arc::new(RwLock::new(vec![]));

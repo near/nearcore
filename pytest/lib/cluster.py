@@ -312,7 +312,12 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
         if i in client_config_changes:
             for k, v in client_config_changes[i].items():
                 assert k in config_json
-                config_json[k] = v
+                if isinstance(v, dict):
+                    for key, value in v.items():
+                        assert key in config_json[k]
+                        config_json[k][key] = value
+                else:
+                    config_json[k] = v
 
         with open(fname, 'w') as f:
             f.write(json.dumps(config_json, indent=2))
