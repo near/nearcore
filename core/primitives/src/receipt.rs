@@ -56,13 +56,14 @@ impl Receipt {
     }
 }
 
+/// Receipt could be either ActionReceipt or DataReceipt
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
-///
+/// ActionReceipt is derived from an Action from `Transaction or from Receipt`
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     /// A signer of the original transaction
@@ -85,7 +86,6 @@ pub struct ActionReceipt {
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
-/// In runtime
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,

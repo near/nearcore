@@ -41,7 +41,6 @@ use near_primitives::utils::{
     key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
     key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
     set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
@@ -527,6 +526,7 @@ impl Runtime {
         Ok(result)
     }
 
+    // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
         state_update: &mut TrieUpdate,
