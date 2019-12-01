@@ -1,28 +1,17 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::crypto::aggregate_signature::BlsSignature;
-use crate::crypto::signature::{PublicKey, Signature};
+use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
+use near_crypto::PublicKey;
 
-/// Public key alias. Used to human readable public key.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct ReadablePublicKey(pub String);
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct ReadableBlsPublicKey(pub String);
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
-// TODO: Separate cryptographic hash from the hashmap hash.
-/// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
-/// confused with the multisig.
-pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = usize;
 /// Mask which validators participated in multi sign.
 pub type ValidatorMask = Vec<bool>;
-/// Part of the signature.
-pub type PartialSignature = BlsSignature;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
@@ -41,8 +30,37 @@ pub type Gas = u64;
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
+/// Hash used by to store state root.
+pub type StateRoot = CryptoHash;
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateRootNode {
+    /// in Nightshade, data is the serialized TrieNodeWithSize
+    pub data: Vec<u8>,
+    /// in Nightshade, memory_usage is a field of TrieNodeWithSize
+    pub memory_usage: u64,
+}
+
+impl StateRootNode {
+    pub fn empty() -> Self {
+        StateRootNode { data: vec![], memory_usage: 0 }
+    }
+}
+
+/// Epoch identifier -- wrapped hash, to make it easier to distinguish.
+#[derive(
+    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+)]
+pub struct EpochId(pub CryptoHash);
+
+impl AsRef<[u8]> for EpochId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -58,13 +76,56 @@ impl ValidatorStake {
     }
 }
 
-impl PartialEq for ValidatorStake {
-    fn eq(&self, other: &Self) -> bool {
-        self.account_id == other.account_id && self.public_key == other.public_key
-    }
+/// Information after block was processed.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct BlockExtra {
+    pub challenges_result: ChallengesResult,
 }
 
-impl Eq for ValidatorStake {}
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct ChunkExtra {
+    /// Post state root after applying give chunk.
+    pub state_root: StateRoot,
+    /// Root of merklizing results of receipts (transactions) execution.
+    pub outcome_root: CryptoHash,
+    /// Validator proposals produced by given chunk.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Actually how much gas were used.
+    pub gas_used: Gas,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: Gas,
+    /// Total rent paid after processing the current chunk.
+    pub rent_paid: Balance,
+    /// Total validation execution reward after processing the current chunk.
+    pub validator_reward: Balance,
+    /// Total balance burnt after processing the current chunk.
+    pub balance_burnt: Balance,
+}
+
+impl ChunkExtra {
+    pub fn new(
+        state_root: &StateRoot,
+        outcome_root: CryptoHash,
+        validator_proposals: Vec<ValidatorStake>,
+        gas_used: Gas,
+        gas_limit: Gas,
+        rent_paid: Balance,
+        validator_reward: Balance,
+        balance_burnt: Balance,
+    ) -> Self {
+        Self {
+            state_root: state_root.clone(),
+            outcome_root,
+            validator_proposals,
+            gas_used,
+            gas_limit,
+            rent_paid,
+            validator_reward,
+            balance_burnt,
+        }
+    }
+}
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

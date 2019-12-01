@@ -1,20 +1,16 @@
 #[macro_use]
 extern crate bencher;
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use bencher::Bencher;
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
-use near_primitives::block::Block;
-use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{EpochId, StateRoot};
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -22,30 +18,41 @@ fn create_transaction() -> SignedTransaction {
         actions.push(Action::Transfer(TransferAction { deposit: 1_000_000_000 }));
     }
     SignedTransaction::new(
-        DEFAULT_SIGNATURE,
+        Signature::empty(KeyType::ED25519),
         Transaction {
             signer_id: "123213123123".to_string(),
-            public_key: PublicKey::empty(),
+            public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
             receiver_id: "1231231232131".to_string(),
+            block_hash: Default::default(),
             actions,
         },
     )
 }
 
 fn create_block() -> Block {
-    let transactions = (0..1000).map(|_| create_transaction()).collect::<Vec<_>>();
-    let genesis = Block::genesis(MerkleHash::default(), Utc::now());
-    let signer = Arc::new(InMemorySigner::from_random());
+    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000);
+    let genesis = Block::genesis(
+        genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
+        Utc::now(),
+        1_000,
+        1_000,
+    );
+    let signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
         &genesis.header,
         10,
-        MerkleHash::default(),
-        CryptoHash::default(),
-        transactions,
-        HashMap::default(),
+        vec![genesis.chunks[0].clone()],
+        EpochId::default(),
         vec![],
-        signer.clone(),
+        0,
+        Some(0),
+        vec![],
+        vec![],
+        &signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
     )
 }
 

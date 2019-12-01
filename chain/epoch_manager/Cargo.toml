@@ -1,0 +1,25 @@
+[package]
+name = "near-epoch-manager"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+
+[dependencies]
+protocol_defining_rand = { package = "rand", version = "0.6.5" }
+log = "0.4"
+cached = "0.11.0"
+borsh = "0.2.9"
+rand = "0.7"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-chain = { path = "../chain" }
+near-store = { path = "../../core/store" }
+
+[features]
+expensive_tests = []

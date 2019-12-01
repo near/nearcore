@@ -148,8 +148,8 @@ mod test {
     }
 
     #[test]
-    fn test_add_key_testnet() {
-        run_testnet_test!(test_add_key);
+    fn test_add_access_key_function_call_testnet() {
+        run_testnet_test!(test_add_access_key_function_call);
     }
 
     #[test]
@@ -170,6 +170,11 @@ mod test {
     #[test]
     fn test_delete_key_last_testnet() {
         run_testnet_test!(test_delete_key_last);
+    }
+
+    #[test]
+    fn test_add_key_testnet() {
+        run_testnet_test!(test_add_key);
     }
 
     #[test]

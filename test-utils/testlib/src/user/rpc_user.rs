@@ -1,33 +1,36 @@
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::Duration;
 
 use actix::System;
-use borsh::Serializable;
+use borsh::BorshSerialize;
 
 use near_client::StatusResponse;
+use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
+use near_jsonrpc_client::BlockId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::serialize::{to_base, to_base64, BaseEncode};
+use near_primitives::receipt::Receipt;
+use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
-    TransactionResultView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
+    QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
 
 pub struct RpcUser {
-    signer: Arc<dyn EDSigner>,
-    client: RwLock<JsonRpcClient>,
+    account_id: AccountId,
+    signer: Arc<dyn Signer>,
+    pub client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {
-    pub fn new(addr: &str, signer: Arc<dyn EDSigner>) -> RpcUser {
-        RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
+    pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {
+        RpcUser { account_id, client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
@@ -58,10 +61,16 @@ impl User for RpcUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalTransactionResult, String> {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         let bytes = transaction.try_to_vec().unwrap();
-        System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
+        let result = System::new("actix")
+            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
+        // Wait for one more block, to make sure all nodes actually apply the state transition.
+        let height = self.get_best_block_index().unwrap();
+        while height == self.get_best_block_index().unwrap() {
+            thread::sleep(Duration::from_millis(50));
+        }
+        result
     }
 
     fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
@@ -73,25 +82,29 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
+    fn get_best_block_hash(&self) -> Option<CryptoHash> {
+        self.get_status().map(|status| status.sync_info.latest_block_hash.into())
+    }
+
     fn get_block(&self, index: u64) -> Option<BlockView> {
-        System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
+        System::new("actix")
+            .block_on(self.client.write().unwrap().block(BlockId::Height(index)))
+            .ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
-        System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
-    }
-
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
-    }
-
-    fn get_state_root(&self) -> CryptoHashView {
-        self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
-    }
-
-    fn get_receipt_info(&self, _hash: &CryptoHash) -> Option<ReceiptInfo> {
-        // TDDO: figure out if rpc will support this
+    fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
         unimplemented!()
+    }
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+        let account_id = self.account_id.clone();
+        System::new("actix")
+            .block_on(self.client.write().unwrap().tx(hash.into(), account_id))
+            .unwrap()
+    }
+
+    fn get_state_root(&self) -> CryptoHash {
+        self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 
     fn get_access_key(
@@ -99,14 +112,14 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
+        self.query(format!("access_key/{}/{}", account_id, public_key), &[])?.try_into()
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<EDSigner>) {
+    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
         self.signer = signer;
     }
 }

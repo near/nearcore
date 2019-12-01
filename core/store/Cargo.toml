@@ -12,16 +12,19 @@ kvdb-memorydb = "0.1"
 kvdb-rocksdb = "0.1.3"
 serde = "1.0"
 serde_derive = "1.0"
-cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
+cached = "0.11.0"
 log = "0.4"
 
-borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+borsh = "0.2.9"
+
+near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]
-hex-literal = "0.1.1"
+tempdir = "0.3"
+hex-literal = "0.2"
 bencher = "0.1.5"
-rand = "0.6"
+rand = "0.7"
 
 [[bench]]
 name = "trie_bench"

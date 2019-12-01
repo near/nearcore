@@ -1,29 +1,27 @@
 use std::collections::HashMap;
 use std::str;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use borsh::BorshSerialize;
+
+use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_primitives::views::ViewStateResult;
+use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
-use near_vm_logic::{Config, ReturnData, VMContext};
+use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
-use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 
-#[allow(dead_code)]
-pub struct TrieViewer {
-    ethash_provider: Arc<Mutex<EthashProvider>>,
-}
+pub struct TrieViewer {}
 
 impl TrieViewer {
-    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Self { ethash_provider }
+    pub fn new() -> Self {
+        Self {}
     }
 
     pub fn view_account(
@@ -35,7 +33,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        get_account(state_update, &account_id)
+        get_account(state_update, &account_id)?
             .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
     }
 
@@ -49,7 +47,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        Ok(get_access_key(state_update, account_id, public_key))
+        get_access_key(state_update, account_id, public_key).map_err(|e| Box::new(e).into())
     }
 
     pub fn view_state(
@@ -66,7 +64,8 @@ impl TrieViewer {
         let acc_sep_len = query.len();
         query.extend_from_slice(prefix);
         state_update.for_keys_with_prefix(&query, |key| {
-            if let Some(value) = state_update.get(key) {
+            // TODO error
+            if let Ok(Some(value)) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
         });
@@ -77,6 +76,7 @@ impl TrieViewer {
         &self,
         mut state_update: TrieUpdate,
         block_index: u64,
+        block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -87,50 +87,52 @@ impl TrieViewer {
             return Err(format!("Contract ID {:?} is not valid", contract_id).into());
         }
         let root = state_update.get_root();
-        let account = get_account(&state_update, contract_id)
+        let account = get_account(&state_update, contract_id)?
             .ok_or_else(|| format!("Account {:?} doesn't exists", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id, &account)?;
+        let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
+            format!("cannot find contract code for account {}", contract_id.clone())
+        })?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
-        let public_key = PublicKey::empty();
-        let (outcome, err) = match get_account(&state_update, &contract_id) {
-            Some(account) => {
-                let empty_hash = CryptoHash::default();
-                let mut runtime_ext = RuntimeExt::new(
-                    &mut state_update,
-                    contract_id,
-                    originator_id,
-                    &public_key,
-                    0,
-                    &empty_hash,
-                );
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        let (outcome, err) = {
+            let empty_hash = CryptoHash::default();
+            let mut runtime_ext = RuntimeExt::new(
+                &mut state_update,
+                contract_id,
+                originator_id,
+                &public_key,
+                0,
+                &empty_hash,
+            );
 
-                let context = VMContext {
-                    current_account_id: contract_id.clone(),
-                    signer_account_id: originator_id.clone(),
-                    signer_account_pk: public_key.as_ref().to_vec(),
-                    predecessor_account_id: originator_id.clone(),
-                    input: args.to_owned(),
-                    block_index,
-                    account_balance: account.amount,
-                    attached_deposit: 0,
-                    prepaid_gas: 0,
-                    random_seed: root.as_ref().into(),
-                    free_of_charge: true,
-                    output_data_receivers: vec![],
-                };
+            let context = VMContext {
+                current_account_id: contract_id.clone(),
+                signer_account_id: originator_id.clone(),
+                signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
+                predecessor_account_id: originator_id.clone(),
+                input: args.to_owned(),
+                block_index,
+                block_timestamp,
+                account_balance: account.amount,
+                storage_usage: account.storage_usage,
+                attached_deposit: 0,
+                prepaid_gas: 0,
+                random_seed: root.as_ref().into(),
+                is_view: true,
+                output_data_receivers: vec![],
+            };
 
-                near_vm_runner::run(
-                    code.hash.as_ref().to_vec(),
-                    &code.code,
-                    method_name.as_bytes(),
-                    &mut runtime_ext,
-                    context,
-                    &Config::default(),
-                    &[],
-                )
-            }
-            None => return Err(format!("contract {} does not exist", contract_id).into()),
+            near_vm_runner::run(
+                code.hash.as_ref().to_vec(),
+                &code.code,
+                method_name.as_bytes(),
+                &mut runtime_ext,
+                context,
+                &VMConfig::default(),
+                &RuntimeFeesConfig::default(),
+                &[],
+            )
         };
         let elapsed = now.elapsed();
         let time_ms =
@@ -161,8 +163,6 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use kvdb::DBValue;
-    use tempdir::TempDir;
-
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -175,7 +175,7 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(root, 1, &alice_account(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(root, 1, 1, &alice_account(), "run_test", &[], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -185,8 +185,15 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result =
-            viewer.call_function(root, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &"bad!contract".to_string(),
+            "run_test",
+            &[],
+            &mut logs,
+        );
 
         assert!(result.is_err());
     }
@@ -198,6 +205,7 @@ mod tests {
         let mut logs = vec![];
         let result = viewer.call_function(
             root,
+            1,
             1,
             &alice_account(),
             "run_test_with_storage_change",
@@ -214,7 +222,7 @@ mod tests {
         let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
         let view_call_result =
-            viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
+            viewer.call_function(root, 1, 1, &alice_account(), "sum_with_input", &args, &mut logs);
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
@@ -227,9 +235,7 @@ mod tests {
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
-        let ethash_provider =
-            EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
-        let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
+        let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(
             result.values,

@@ -1,15 +1,20 @@
+use std::collections::{HashMap, HashSet};
+use std::mem::size_of;
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, AsyncContext, Context, System};
+use byteorder::{ByteOrder, LittleEndian};
+use futures::future;
 use futures::future::Future;
+use rand::{thread_rng, RngCore};
 use tokio::timer::Delay;
 
-use near_primitives::crypto::signature::get_key_pair;
-use near_primitives::test_utils::get_key_pair_from_seed;
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::hash::hash;
+use near_primitives::types::EpochId;
 
-use crate::types::{NetworkConfig, PeerInfo};
-use futures::future;
+use crate::types::{NetworkConfig, PeerId, PeerInfo};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -23,7 +28,8 @@ pub fn open_port() -> u16 {
 impl NetworkConfig {
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let (public_key, secret_key) = get_key_pair_from_seed(seed);
+        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
+        let public_key = secret_key.public_key();
         NetworkConfig {
             public_key,
             secret_key,
@@ -38,6 +44,9 @@ impl NetworkConfig {
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
+            ttl_account_id_router: Duration::from_secs(60 * 60),
+            max_routes_to_store: 1,
+            most_weighted_peer_height_horizon: 5,
         }
     }
 }
@@ -45,17 +54,22 @@ impl NetworkConfig {
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
-        let (id, _) = get_key_pair_from_seed(peer_seed);
+        let id = SecretKey::from_seed(KeyType::ED25519, peer_seed).public_key();
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
 }
 
+impl PeerId {
+    pub fn random() -> Self {
+        SecretKey::from_random(KeyType::ED25519).public_key().into()
+    }
+}
+
 impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
-        let (id, _) = get_key_pair();
-        PeerInfo { id: id.into(), addr: None, account_id: None }
+        PeerInfo { id: PeerId::random(), addr: None, account_id: None }
     }
 }
 
@@ -127,4 +141,46 @@ impl Actor for WaitOrTimeout {
     fn started(&mut self, ctx: &mut Context<Self>) {
         self.wait_or_timeout(ctx);
     }
+}
+
+pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
+    values.iter().map(|x| x.to_string()).collect()
+}
+
+pub fn random_peer_id() -> PeerId {
+    let sk = SecretKey::from_random(KeyType::ED25519);
+    sk.public_key().into()
+}
+
+pub fn random_epoch_id() -> EpochId {
+    let mut buffer = [0u8; size_of::<u64>()];
+    LittleEndian::write_u64(&mut buffer, thread_rng().next_u64());
+    EpochId(hash(buffer.as_ref()))
+}
+
+pub fn expected_routing_tables(
+    current: HashMap<PeerId, HashSet<PeerId>>,
+    expected: Vec<(PeerId, Vec<PeerId>)>,
+) -> bool {
+    if current.len() != expected.len() {
+        return false;
+    }
+
+    for (peer, paths) in expected.into_iter() {
+        let cur_paths = current.get(&peer);
+        if !cur_paths.is_some() {
+            return false;
+        }
+        let cur_paths = cur_paths.unwrap();
+        if cur_paths.len() != paths.len() {
+            return false;
+        }
+        for next_hop in paths.into_iter() {
+            if !cur_paths.contains(&next_hop) {
+                return false;
+            }
+        }
+    }
+
+    true
 }

@@ -1,9 +1,10 @@
 use cached::{cached_key, SizedCache};
 use wasmer_runtime;
 
-use crate::errors::VMError;
+use crate::errors::IntoVMError;
 use crate::prepare;
-use near_vm_logic::Config;
+use near_vm_errors::VMError;
+use near_vm_logic::VMConfig;
 
 /// Cache size in number of cached modules to hold.
 const CACHE_SIZE: usize = 1024;
@@ -16,9 +17,9 @@ cached_key! {
         (code_hash, config.non_crypto_hash())
     };
 
-    fn compile_cached_module(code_hash: Vec<u8>, code: &[u8], config: &Config
+    fn compile_cached_module(code_hash: Vec<u8>, code: &[u8], config: &VMConfig
         ) -> Result<wasmer_runtime::Module, VMError> = {
         let prepared_code = prepare::prepare_contract(code, config)?;
-        wasmer_runtime::compile(&prepared_code).map_err(|err| err.into())
+        wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
     }
 }

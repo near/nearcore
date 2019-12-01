@@ -13,17 +13,21 @@ mod test {
         RuntimeNode::new(&alice_account())
     }
 
+    fn create_free_runtime_node() -> RuntimeNode {
+        RuntimeNode::free(&alice_account())
+    }
+
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
         let mut genesis_config =
-            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
+        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
         genesis_config.runtime_config.poke_threshold = 10;
-        match &mut genesis_config.records[0][0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+        match &mut genesis_config.records[0] {
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
             _ => {}
         }
-        genesis_config.records[0].push(StateRecord::Data {
+        genesis_config.records.push(StateRecord::Data {
             key: to_base64(&key_for_data(&bob_account(), b"test")),
             value: to_base64(b"123"),
         });
@@ -32,7 +36,7 @@ mod test {
 
     fn create_runtime_with_expensive_account_length() -> RuntimeNode {
         let mut genesis_config =
-            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive account length rent and add alice more money.
         // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
         // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73
@@ -41,11 +45,11 @@ mod test {
             73 * TESTING_INIT_BALANCE;
         genesis_config.runtime_config.storage_cost_byte_per_block = 1;
         genesis_config.runtime_config.poke_threshold = 10;
-        match &mut genesis_config.records[0][0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+        match &mut genesis_config.records[0] {
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
             _ => {}
         }
-        genesis_config.records[0].push(StateRecord::Data {
+        genesis_config.records.push(StateRecord::Data {
             key: to_base64(&key_for_data(&bob_account(), b"test")),
             value: to_base64(b"123"),
         });
@@ -56,6 +60,12 @@ mod test {
     fn test_smart_contract_simple_runtime() {
         let node = create_runtime_node();
         test_smart_contract_simple(node);
+    }
+
+    #[test]
+    fn test_smart_contract_panic_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_panic(node);
     }
 
     #[test]
@@ -122,6 +132,12 @@ mod test {
     fn test_send_money_runtime() {
         let node = create_runtime_node();
         test_send_money(node);
+    }
+
+    #[test]
+    fn test_smart_contract_reward_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_reward(node);
     }
 
     #[test]
@@ -314,5 +330,11 @@ mod test {
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
         test_delete_account_while_staking(node);
+    }
+
+    #[test]
+    fn test_smart_contract_free_runtime() {
+        let node = create_free_runtime_node();
+        test_smart_contract_free(node);
     }
 }

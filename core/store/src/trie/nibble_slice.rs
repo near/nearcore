@@ -27,7 +27,7 @@ use std::fmt;
 /// # Example
 /// ```snippet
 /// use patricia_trie::nibbleslice::NibbleSlice;
-/// fn main() {
+/// {
 ///   let d1 = &[0x01u8, 0x23, 0x45];
 ///   let d2 = &[0x34u8, 0x50, 0x12];
 ///   let d3 = &[0x00u8, 0x12];
@@ -127,6 +127,20 @@ impl<'a> NibbleSlice<'a> {
             }
         }
         s
+    }
+
+    /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
+    #[inline]
+    pub fn encode_nibbles(nibbles: &[u8], is_leaf: bool) -> ElasticArray36<u8> {
+        let l = nibbles.len();
+        let mut r = ElasticArray36::new();
+        let mut i = l % 2;
+        r.push(if i == 1 { 0x10 + nibbles[0] } else { 0 } + if is_leaf { 0x20 } else { 0 });
+        while i < l {
+            r.push(nibbles[i] * 16 + nibbles[i + 1]);
+            i += 2;
+        }
+        r
     }
 
     /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.

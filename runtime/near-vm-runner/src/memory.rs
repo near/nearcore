@@ -1,5 +1,5 @@
-use crate::errors::VMError;
-use near_vm_logic::{Config, MemoryLike};
+use near_vm_errors::VMError;
+use near_vm_logic::{MemoryLike, VMConfig};
 use wasmer_runtime::units::{Bytes, Pages};
 use wasmer_runtime::wasm::MemoryDescriptor;
 use wasmer_runtime::Memory;
@@ -7,12 +7,18 @@ use wasmer_runtime::Memory;
 pub struct WasmerMemory(Memory);
 
 impl WasmerMemory {
-    pub fn new(config: &Config) -> Result<Self, VMError> {
-        Ok(WasmerMemory(Memory::new(MemoryDescriptor {
-            minimum: Pages(config.initial_memory_pages),
-            maximum: Some(Pages(config.max_memory_pages)),
-            shared: false,
-        })?))
+    pub fn new(config: &VMConfig) -> Result<Self, VMError> {
+        Ok(WasmerMemory(
+            Memory::new(
+                MemoryDescriptor::new(
+                    Pages(config.initial_memory_pages),
+                    Some(Pages(config.max_memory_pages)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .expect("TODO creating memory cannot fail"),
+        ))
     }
 
     pub fn clone(&self) -> Memory {

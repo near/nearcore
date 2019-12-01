@@ -1,16 +1,34 @@
 use std::time::Duration;
 
-use actix_web::client::Client;
+use actix_web::client::{Client, Connector};
 use futures::Future;
+use serde::Deserialize;
 use serde::Serialize;
 
-use near_primitives::types::BlockIndex;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, QueryResponse, StatusResponse, TransactionResultView,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+    StatusResponse,
 };
 
-pub mod message;
 use crate::message::{from_slice, Message};
+
+pub mod message;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockId {
+    Height(BlockIndex),
+    Hash(CryptoHash),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChunkId {
+    BlockShardId(BlockId, ShardId),
+    Hash(CryptoHash),
+}
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -117,7 +135,7 @@ macro_rules! http_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_http_get(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_http_get(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }
@@ -154,7 +172,7 @@ macro_rules! jsonrpc_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_method(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_method(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }
@@ -163,19 +181,31 @@ macro_rules! jsonrpc_client {
 
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
-    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalTransactionResult>;
+    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResultView>;
-    pub fn block(&mut self, height: BlockIndex) -> RpcRequest<BlockView>;
+    pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
+    pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
+    pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
 });
+
+fn create_client() -> Client {
+    Client::build()
+        .timeout(CONNECT_TIMEOUT)
+        .connector(
+            Connector::new()
+                .conn_lifetime(Duration::from_secs(u64::max_value()))
+                .conn_keep_alive(Duration::from_secs(30))
+                .finish(),
+        )
+        .finish()
+}
 
 /// Create new JSON RPC client that connects to the given address.
 pub fn new_client(server_addr: &str) -> JsonRpcClient {
-    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
-    JsonRpcClient::new(server_addr, client)
+    JsonRpcClient::new(server_addr, create_client())
 }
 
 http_client!(pub struct HttpClient {
@@ -184,6 +214,5 @@ http_client!(pub struct HttpClient {
 
 /// Create new HTTP client that connects to the given address.
 pub fn new_http_client(server_addr: &str) -> HttpClient {
-    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
-    HttpClient::new(server_addr, client)
+    HttpClient::new(server_addr, create_client())
 }

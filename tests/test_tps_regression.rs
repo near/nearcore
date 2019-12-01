@@ -38,8 +38,9 @@ mod test {
             nonce,
             sender_acc,
             receiver_acc,
-            nodes[money_sender].read().unwrap().signer(),
+            &*nodes[money_sender].read().unwrap().signer(),
             1,
+            nodes[money_sender].read().unwrap().user().get_best_block_hash().unwrap(),
         );
         nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
         submitted_transactions.write().unwrap().push((1, Instant::now()));
@@ -139,10 +140,17 @@ mod test {
                                 .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())
                                 .collect::<Vec<_>>();
                             for b in &blocks {
+                                let gas_used = b.chunks.iter().fold(0, |acc, chunk| {
+                                    if chunk.height_included == b.header.height {
+                                        acc + chunk.gas_used
+                                    } else {
+                                        acc
+                                    }
+                                });
                                 observed_transactions
                                     .write()
                                     .unwrap()
-                                    .push((b.transactions.len() as u64, Instant::now()));
+                                    .push((gas_used, Instant::now()));
                             }
                             prev_ind = new_ind;
                         }

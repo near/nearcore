@@ -1,12 +1,7 @@
 use crate::MemoryLike;
 
+#[derive(Default)]
 pub struct MockedMemory {}
-
-impl MockedMemory {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
 
 impl MemoryLike for MockedMemory {
     fn fits_memory(&self, _offset: u64, _len: u64) -> bool {

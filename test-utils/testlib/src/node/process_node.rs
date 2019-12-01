@@ -8,12 +8,13 @@ use log::error;
 use rand::Rng;
 
 use near::config::NearConfig;
-use near_primitives::crypto::signer::EDSigner;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;
+use near::GenesisConfig;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -24,9 +25,14 @@ pub struct ProcessNode {
     pub work_dir: String,
     pub config: NearConfig,
     pub state: ProcessNodeState,
+    pub signer: Arc<InMemorySigner>,
 }
 
 impl Node for ProcessNode {
+    fn genesis_config(&self) -> &GenesisConfig {
+        &self.config.genesis_config
+    }
+
     fn account_id(&self) -> Option<AccountId> {
         match &self.config.block_producer {
             Some(bp) => Some(bp.account_id.clone()),
@@ -57,8 +63,8 @@ impl Node for ProcessNode {
         }
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
-        self.config.block_producer.clone().unwrap().signer.clone()
+    fn signer(&self) -> Arc<dyn Signer> {
+        self.signer.clone()
     }
 
     fn is_running(&self) -> bool {
@@ -69,10 +75,8 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(
-            &self.config.rpc_config.addr,
-            self.config.block_producer.clone().unwrap().signer.clone(),
-        ))
+        let account_id = self.signer.account_id.clone();
+        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {
@@ -93,7 +97,12 @@ impl ProcessNode {
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );
-        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped };
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &config.block_producer.clone().unwrap().account_id,
+            KeyType::ED25519,
+            &config.block_producer.clone().unwrap().account_id,
+        ));
+        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();
         result
     }

@@ -1,25 +1,32 @@
+use reqwest::r#async::Client as AsyncClient;
+use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use futures::Future;
-use reqwest::r#async::Client as AsyncClient;
-use reqwest::Client as SyncClient;
-
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::serialize::{from_base, BaseEncode};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_jsonrpc::client::message::Message;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
+use reqwest::Client as SyncClient;
+use std::convert::TryInto;
+use testlib::user::rpc_user::RpcUser;
+use testlib::user::User;
+
+use log::{debug, info};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
-pub const MAX_BLOCKS_FETCH: u64 = 20;
+pub const MAX_BLOCKS_FETCH: u64 = 1;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
+const VALUE_NOT_NUM_ERR: &str = "Value is not number";
 
 /// Maximum number of times we retry a single RPC.
 const MAX_RETRIES_PER_RPC: usize = 10;
@@ -34,8 +41,8 @@ pub struct RemoteNode {
     pub signers: Vec<Arc<InMemorySigner>>,
     pub nonces: Vec<Nonce>,
     pub url: String,
-    async_client: Arc<AsyncClient>,
     sync_client: SyncClient,
+    async_client: Arc<AsyncClient>,
 }
 
 pub fn wait<F, T>(mut f: F) -> T
@@ -100,9 +107,16 @@ impl RemoteNode {
         let url = format!("http://{}", addr);
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
             .collect();
         let nonces = vec![0; signers.len()];
+
+        let sync_client = SyncClient::builder()
+            .use_rustls_tls()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .unwrap();
+
         let async_client = Arc::new(
             AsyncClient::builder()
                 .use_rustls_tls()
@@ -110,13 +124,7 @@ impl RemoteNode {
                 .build()
                 .unwrap(),
         );
-
-        let sync_client = SyncClient::builder()
-            .use_rustls_tls()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .unwrap();
-        let mut result = Self { addr, signers, nonces, url, async_client, sync_client };
+        let mut result = Self { addr, signers, nonces, url, sync_client, async_client };
 
         // Wait for the node to be up.
         wait(|| result.health_ok());
@@ -132,10 +140,21 @@ impl RemoteNode {
             .iter()
             .zip(self.signers.iter().map(|s| &s.public_key))
             .map(|(account_id, public_key)| {
-                get_result(|| self.get_access_key(&account_id, &public_key)).unwrap().nonce
+                get_result(|| self.get_access_key(&account_id, &public_key))
+                    .expect("No access key for given public key")
+                    .nonce
             })
             .collect();
         self.nonces = nonces;
+    }
+
+    pub fn update_accounts(&mut self, signers_accs: &[AccountId]) {
+        let signers: Vec<_> = signers_accs
+            .iter()
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .collect();
+        self.signers = signers;
+        self.get_nonces(signers_accs);
     }
 
     fn get_access_key(
@@ -143,38 +162,43 @@ impl RemoteNode {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/abci_query");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("path", format!("\"access_key/{}/{}\"", account_id, public_key.to_base()))])
-            .send()?
-            .json()?;
-        let bytes =
-            from_base(response["result"]["response"]["value"].as_str().ok_or(VALUE_NOT_STR_ERR)?)?;
-        let s = std::str::from_utf8(&bytes)?;
-        Ok(serde_json::from_str(s)?)
+        let user = RpcUser::new(
+            &self.addr.to_string(),
+            account_id.to_string(),
+            self.signers.first().unwrap().clone(),
+        );
+        let access_key = user.get_access_key(account_id, public_key)?;
+        info!("get access key of {}", account_id);
+        Ok(access_key)
     }
 
     fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        Ok(self.sync_client.post(url.as_str()).send().map(|_| ())?)
+        Ok(self.sync_client.get(url.as_str()).send().map(|_| ())?)
     }
 
     /// Sends transaction using `broadcast_tx_sync` using non-blocking Futures.
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+    ) -> Box<dyn Future<Item = String, Error = String> + Send> {
         let bytes = transaction.try_to_vec().unwrap();
-        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_async".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
         let response = self
             .async_client
-            .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
+            .post(self.url.as_str())
+            .json(&message)
             .send()
-            .map(|_| ())
-            .map_err(|err| format!("{}", err));
+            .and_then(|mut r| r.json::<serde_json::Value>())
+            .map_err(|err| format!("{}", err))
+            .and_then(|j| {
+                j["result"].as_str().map(|s| s.to_string()).ok_or(VALUE_NOT_STR_ERR.to_string())
+            });
+
         Box::new(response)
     }
 
@@ -185,84 +209,94 @@ impl RemoteNode {
         transaction: SignedTransaction,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let bytes = transaction.try_to_vec().unwrap();
-        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
-        let result: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
-            .send()?
-            .json()?;
-        Ok(result["result"]["hash"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_async".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
+        let result: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+
+        Ok(result["result"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
     }
 
-    /// Returns block height if transaction is committed to a block.
-    pub fn transaction_committed(&self, hash: &String) -> Result<u64, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/tx");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("hash", format!("0x{}", hash))])
-            .send()?
-            .json()?;
-        Ok(response["result"]["height"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse()?)
+    pub fn add_transaction_committed(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = transaction.try_to_vec().unwrap();
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_commit".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
+        let result: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+        info!("{:?}", result);
+        Ok(())
+    }
+
+    /// Returns () if transaction is completed
+    pub fn transaction_committed(&self, hash: &String) -> Result<(), Box<dyn std::error::Error>> {
+        let params = (hash,);
+        let message =
+            Message::request("tx".to_string(), Some(serde_json::to_value(&params).unwrap()));
+
+        let response: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+
+        let status = response["result"]["status"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned();
+        if status == "Completed" {
+            debug!("txn completed: {}", hash);
+            Ok(())
+        } else {
+            Err(format!("txn not completed: {} status: {}", hash, status).into())
+        }
     }
 
     pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        let response: serde_json::Value = self.sync_client.post(url.as_str()).send()?.json()?;
-        Ok(response["result"]["sync_info"]["latest_block_height"]
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        Ok(response["sync_info"]["latest_block_height"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
+    }
+
+    pub fn get_current_block_hash(&self) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        Ok(response["sync_info"]["latest_block_hash"]
             .as_str()
             .ok_or(VALUE_NOT_STR_ERR)?
-            .parse()?)
+            .to_string()
+            .try_into()?)
     }
 
-    // This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6
-    pub fn block_result_codes(
-        &self,
-        height: u64,
-    ) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/block_results");
+    pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {
+        let params = (height,);
+        let message =
+            Message::request("block".to_string(), Some(serde_json::to_value(&params).unwrap()));
         let response: serde_json::Value = self
             .sync_client
-            .post(url.as_str())
-            .form(&[("height", format!("{}", height))])
+            .post(&format!("http://{}", &self.addr.to_string()))
+            .json(&message)
             .send()?
             .json()?;
 
-        let mut results = vec![];
-        for result in response["result"]["results"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
-            results.push((
-                result["code"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse::<u32>()?,
-                result["data"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned(),
-            ));
-        }
-        Ok(results)
+        Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }
 
-    pub fn get_transactions(
-        &self,
-        min_height: u64,
-        max_height: u64,
-    ) -> Result<u64, Box<dyn std::error::Error>> {
-        assert!(max_height - min_height <= MAX_BLOCKS_FETCH, "Too many blocks to fetch");
-        let url = format!("{}{}", self.url, "/blockchain");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[
-                ("minHeight", format!("{}", min_height)),
-                ("maxHeight", format!("{}", max_height)),
-            ])
-            .send()?
-            .json()?;
-        let mut result = 0u64;
-        for block_meta in response["result"]["block_metas"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
-            result += block_meta["header"]["num_txs"]
-                .as_str()
-                .ok_or(VALUE_NOT_STR_ERR)?
-                .parse::<u64>()?;
-        }
-
-        Ok(result)
+    pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        Ok(response["active_peers"]
+            .as_array()
+            .ok_or(VALUE_NOT_ARR_ERR)?
+            .into_iter()
+            .map(|active_peer| {
+                let mut socket_addr =
+                    active_peer["addr"].as_str().unwrap().parse::<SocketAddr>().unwrap();
+                socket_addr.set_port(3030);
+                socket_addr.to_string()
+            })
+            .collect())
     }
 }

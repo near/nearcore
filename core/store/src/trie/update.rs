@@ -1,46 +1,75 @@
-use std::collections::BTreeMap;
-use std::convert::identity;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
 use kvdb::DBValue;
 use log::debug;
 
-use near_primitives::types::MerkleHash;
+use near_primitives::hash::CryptoHash;
 
 use crate::trie::TrieChanges;
 
 use super::{Trie, TrieIterator};
+use crate::StorageError;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
-    root: MerkleHash,
+    root: CryptoHash,
     committed: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
+/// For each prefix, the value is a <key, value> map that records the changes in the
+/// trie update.
+pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
+
 impl TrieUpdate {
-    pub fn new(trie: Arc<Trie>, root: MerkleHash) -> Self {
+    pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
         TrieUpdate { trie, root, committed: BTreeMap::default(), prospective: BTreeMap::default() }
     }
-    pub fn get(&self, key: &[u8]) -> Option<DBValue> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Some(DBValue::from_slice(value.as_ref()?))
+            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
         } else if let Some(value) = self.committed.get(key) {
-            Some(DBValue::from_slice(value.as_ref()?))
+            Ok(value.as_ref().map(|val| DBValue::from_slice(val)))
         } else {
-            self.trie.get(&self.root, key).map(DBValue::from_vec)
+            self.trie.get(&self.root, key).map(|x| x.map(DBValue::from_vec))
         }
     }
-    pub fn set(&mut self, key: Vec<u8>, value: DBValue) -> Option<Vec<u8>> {
-        self.prospective.insert(key, Some(value.into_vec())).and_then(identity)
-    }
-    pub fn remove(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-        self.prospective.insert(key.to_vec(), None).and_then(identity)
+
+    /// Get values in trie update for a set of keys.
+    /// Returns: a hash map of prefix -> <key, value> changes in the trie update.
+    /// This function will commit changes. Need to be used with caution
+    pub fn get_prefix_changes(
+        &mut self,
+        prefixes: &HashSet<Vec<u8>>,
+    ) -> Result<PrefixKeyValueChanges, StorageError> {
+        assert!(self.prospective.is_empty(), "Uncommitted changes exist");
+        let mut res = HashMap::new();
+        for prefix in prefixes {
+            let mut prefix_key_value_change = HashMap::new();
+            for (key, value) in self.committed.range(prefix.to_vec()..) {
+                if !key.starts_with(prefix) {
+                    break;
+                }
+                prefix_key_value_change.insert(key.to_vec(), value.clone());
+            }
+            if !prefix_key_value_change.is_empty() {
+                res.insert(prefix.to_vec(), prefix_key_value_change);
+            }
+        }
+        Ok(res)
     }
 
-    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
+        self.prospective.insert(key, Some(value.into_vec()));
+    }
+    pub fn remove(&mut self, key: &[u8]) {
+        self.prospective.insert(key.to_vec(), None);
+    }
+
+    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), StorageError> {
         let mut keys = vec![];
         for key in self.iter(prefix)? {
             keys.push(key);
@@ -74,10 +103,12 @@ impl TrieUpdate {
             }
         }
     }
+
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> Result<TrieChanges, Box<dyn std::error::Error>> {
+
+    pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
         if !self.prospective.is_empty() {
             self.commit();
         }
@@ -86,7 +117,7 @@ impl TrieUpdate {
     }
 
     /// Returns Error if the underlying storage fails
-    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
+    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, StorageError> {
         TrieUpdateIterator::new(self, prefix, b"", None)
     }
 
@@ -95,11 +126,11 @@ impl TrieUpdate {
         prefix: &[u8],
         start: &[u8],
         end: &[u8],
-    ) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
+    ) -> Result<TrieUpdateIterator, StorageError> {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
-    pub fn get_root(&self) -> MerkleHash {
+    pub fn get_root(&self) -> CryptoHash {
         self.root
     }
 }
@@ -114,15 +145,7 @@ impl<'a, I: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>> Iterator for Me
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = match (self.left.peek(), self.right.peek()) {
-            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => {
-                if left_key < right_key {
-                    std::cmp::Ordering::Less
-                } else if left_key == right_key {
-                    std::cmp::Ordering::Equal
-                } else {
-                    std::cmp::Ordering::Greater
-                }
-            }
+            (Some(&(ref left_key, _)), Some(&(ref right_key, _))) => left_key.cmp(&right_key),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => return None,
@@ -158,7 +181,7 @@ impl<'a> TrieUpdateIterator<'a> {
         prefix: &[u8],
         start: &[u8],
         end: Option<&[u8]>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter(&state_update.root)?;
         let mut start_offset = prefix.to_vec();
         start_offset.extend_from_slice(start);
@@ -277,7 +300,7 @@ mod tests {
     #[test]
     fn trie() {
         let trie = create_trie();
-        let root = MerkleHash::default();
+        let root = CryptoHash::default();
         let mut trie_update = TrieUpdate::new(trie.clone(), root);
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.set(b"dog2".to_vec(), DBValue::from_slice(b"puppy"));
@@ -285,7 +308,7 @@ mod tests {
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
-        assert_eq!(trie_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
+        assert_eq!(trie_update2.get(b"dog"), Ok(Some(DBValue::from_slice(b"puppy"))));
         let mut values = vec![];
         trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec()));
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
@@ -296,37 +319,37 @@ mod tests {
         let trie = create_trie();
 
         // Delete non-existing element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
 
         // Add and right away delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
 
         // Add, apply changes and then delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_ne!(new_root, MerkleHash::default());
+        assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
-        assert_eq!(new_root, MerkleHash::default());
+        assert_eq!(new_root, CryptoHash::default());
     }
 
     #[test]
     fn trie_iter() {
         let trie = create_trie();
-        let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), DBValue::from_slice(b"puppy"));
         trie_update.set(b"aaa".to_vec(), DBValue::from_slice(b"puppy"));
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();

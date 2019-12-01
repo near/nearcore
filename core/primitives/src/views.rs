@@ -3,144 +3,40 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::crypto::signature::{PublicKey, SecretKey, Signature};
+use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::challenge::{Challenge, ChallengesResult};
+use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
-    base_bytes_format, from_base, from_base64, option_base64_format, option_u128_dec_format,
-    to_base, to_base64, u128_dec_format,
+    from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
 };
+use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, LogEntry, SignedTransaction, StakeAction,
-    TransactionLog, TransactionResult, TransactionStatus, TransferAction,
+    DeployContractAction, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
+    ValidatorStake, Version,
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum KeyType {
-    ED25519 = 0,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct PublicKeyView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl fmt::Display for PublicKeyView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}:{}", self.key_type, to_base(&self.data))
-    }
-}
-
-impl From<PublicKey> for PublicKeyView {
-    fn from(public_key: PublicKey) -> Self {
-        Self { key_type: KeyType::ED25519, data: public_key.0.as_ref().to_vec() }
-    }
-}
-
-impl From<PublicKeyView> for PublicKey {
-    fn from(view: PublicKeyView) -> Self {
-        Self::try_from(view.data).expect("Failed to get PublicKey from PublicKeyView")
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SecretKeyView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl From<SecretKey> for SecretKeyView {
-    fn from(secret_key: SecretKey) -> Self {
-        Self { key_type: KeyType::ED25519, data: secret_key.0[..].to_vec() }
-    }
-}
-
-impl From<SecretKeyView> for SecretKey {
-    fn from(view: SecretKeyView) -> Self {
-        TryFrom::<&[u8]>::try_from(view.data.as_ref())
-            .expect("Failed to get SecretKeyView from SecretKey")
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignatureView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl From<Signature> for SignatureView {
-    fn from(signature: Signature) -> Self {
-        Self { key_type: KeyType::ED25519, data: signature.0.as_ref().to_vec() }
-    }
-}
-
-impl From<SignatureView> for Signature {
-    fn from(view: SignatureView) -> Self {
-        Signature::try_from(view.data).expect("Failed to get Signature from SignatureView")
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CryptoHashView(pub Vec<u8>);
-
-impl Serialize for CryptoHashView {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(&self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for CryptoHashView {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let view = from_base(&s)
-            .map(|v| CryptoHashView(v))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        if let Err(err) = CryptoHash::try_from(view.0.clone()) {
-            return Err(serde::de::Error::custom(err.to_string()));
-        }
-        Ok(view)
-    }
-}
-
-impl From<CryptoHash> for CryptoHashView {
-    fn from(hash: CryptoHash) -> Self {
-        CryptoHashView(hash.as_ref().to_vec())
-    }
-}
-
-impl From<CryptoHashView> for CryptoHash {
-    fn from(view: CryptoHashView) -> Self {
-        CryptoHash::try_from(view.0).expect("Failed to convert CryptoHashView to CryptoHash")
-    }
-}
-
 /// A view of the account
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub staked: Balance,
-    pub code_hash: CryptoHashView,
+    pub locked: Balance,
+    pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     pub storage_paid_at: BlockIndex,
 }
@@ -149,8 +45,8 @@ impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         AccountView {
             amount: account.amount,
-            staked: account.staked,
-            code_hash: account.code_hash.into(),
+            locked: account.locked,
+            code_hash: account.code_hash,
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
         }
@@ -161,15 +57,15 @@ impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         Self {
             amount: view.amount,
-            staked: view.staked,
-            code_hash: view.code_hash.into(),
+            locked: view.locked,
+            code_hash: view.code_hash,
             storage_usage: view.storage_usage,
             storage_paid_at: view.storage_paid_at,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
@@ -208,7 +104,7 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccessKeyView {
     pub nonce: Nonce,
     pub permission: AccessKeyPermissionView,
@@ -226,30 +122,30 @@ impl From<AccessKeyView> for AccessKey {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: HashMap<Vec<u8>, Vec<u8>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CallResult {
     pub result: Vec<u8>,
     pub logs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct QueryError {
     pub error: String,
     pub logs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct AccessKeyInfoView {
-    pub public_key: PublicKeyView,
+    pub public_key: PublicKey,
     pub access_key: AccessKeyView,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 pub enum QueryResponse {
     ViewAccount(AccountView),
@@ -258,13 +154,14 @@ pub enum QueryResponse {
     Error(QueryError),
     AccessKey(Option<AccessKeyView>),
     AccessKeyList(Vec<AccessKeyInfoView>),
+    Validators(EpochValidatorInfo),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
-    pub latest_block_hash: CryptoHashView,
+    pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockIndex,
-    pub latest_state_root: CryptoHashView,
+    pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
 }
@@ -325,44 +222,87 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChallengeView {
+    // TODO: decide how to represent challenges in json.
+}
+
+impl From<Challenge> for ChallengeView {
+    fn from(_challenge: Challenge) -> Self {
+        Self {}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
-    pub epoch_hash: CryptoHashView,
-    pub prev_hash: CryptoHashView,
-    pub prev_state_root: CryptoHashView,
-    pub tx_root: CryptoHashView,
+    pub epoch_id: CryptoHash,
+    pub hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub prev_state_root: CryptoHash,
+    pub chunk_receipts_root: CryptoHash,
+    pub chunk_headers_root: CryptoHash,
+    pub chunk_tx_root: CryptoHash,
+    pub outcome_root: CryptoHash,
+    pub chunks_included: u64,
     pub timestamp: u64,
-    pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<SignatureView>,
-    pub total_weight: u64,
+    #[serde(with = "u128_dec_format")]
+    pub total_weight: u128,
+    #[serde(with = "u128_dec_format")]
+    pub score: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
-    pub signature: SignatureView,
+    pub chunk_mask: Vec<bool>,
+    #[serde(with = "u128_dec_format")]
+    pub gas_price: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub validator_reward: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub total_supply: Balance,
+    pub challenges_result: ChallengesResult,
+    pub last_quorum_pre_vote: CryptoHash,
+    pub last_quorum_pre_commit: CryptoHash,
+    pub approvals: Vec<(AccountId, CryptoHash, CryptoHash, Signature)>,
+    pub signature: Signature,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            height: header.inner.height,
-            epoch_hash: header.inner.epoch_hash.into(),
-            prev_hash: header.inner.prev_hash.into(),
-            prev_state_root: header.inner.prev_state_root.into(),
-            tx_root: header.inner.tx_root.into(),
-            timestamp: header.inner.timestamp,
-            approval_mask: header.inner.approval_mask,
-            approval_sigs: header
-                .inner
-                .approval_sigs
-                .into_iter()
-                .map(|signature| signature.into())
-                .collect(),
-            total_weight: header.inner.total_weight.to_num(),
+            height: header.inner_lite.height,
+            epoch_id: header.inner_lite.epoch_id.0,
+            hash: header.hash,
+            prev_hash: header.prev_hash,
+            prev_state_root: header.inner_lite.prev_state_root,
+            chunk_receipts_root: header.inner_rest.chunk_receipts_root,
+            chunk_headers_root: header.inner_rest.chunk_headers_root,
+            chunk_tx_root: header.inner_rest.chunk_tx_root,
+            chunks_included: header.inner_rest.chunks_included,
+            outcome_root: header.inner_lite.outcome_root,
+            timestamp: header.inner_lite.timestamp,
+            total_weight: header.inner_rest.total_weight.to_num(),
+            score: header.inner_rest.score.to_num(),
             validator_proposals: header
-                .inner
+                .inner_rest
                 .validator_proposals
                 .into_iter()
                 .map(|v| v.into())
                 .collect(),
-            signature: header.signature.into(),
+            chunk_mask: header.inner_rest.chunk_mask,
+            gas_price: header.inner_rest.gas_price,
+            rent_paid: header.inner_rest.rent_paid,
+            validator_reward: header.inner_rest.validator_reward,
+            total_supply: header.inner_rest.total_supply,
+            challenges_result: header.inner_rest.challenges_result,
+            last_quorum_pre_vote: header.inner_rest.last_quorum_pre_vote,
+            last_quorum_pre_commit: header.inner_rest.last_quorum_pre_commit,
+            approvals: header
+                .inner_rest
+                .approvals
+                .into_iter()
+                .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
+                .collect(),
+            signature: header.signature,
         }
     }
 }
@@ -370,28 +310,131 @@ impl From<BlockHeader> for BlockHeaderView {
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
         let mut header = Self {
-            inner: BlockHeaderInner {
+            prev_hash: view.prev_hash,
+            inner_lite: BlockHeaderInnerLite {
                 height: view.height,
-                epoch_hash: view.epoch_hash.into(),
-                prev_hash: view.prev_hash.into(),
-                prev_state_root: view.prev_state_root.into(),
-                tx_root: view.tx_root.into(),
+                epoch_id: EpochId(view.epoch_id),
+                prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
                 timestamp: view.timestamp,
-                approval_mask: view.approval_mask,
-                approval_sigs: view
-                    .approval_sigs
-                    .into_iter()
-                    .map(|signature| signature.into())
-                    .collect(),
+            },
+            inner_rest: BlockHeaderInnerRest {
+                chunk_receipts_root: view.chunk_receipts_root,
+                chunk_headers_root: view.chunk_headers_root,
+                chunk_tx_root: view.chunk_tx_root,
+                chunks_included: view.chunks_included,
                 total_weight: view.total_weight.into(),
+                score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals
                     .into_iter()
                     .map(|v| v.into())
                     .collect(),
+                chunk_mask: view.chunk_mask,
+                gas_price: view.gas_price,
+                total_supply: view.total_supply,
+                challenges_result: view.challenges_result,
+                rent_paid: view.rent_paid,
+                validator_reward: view.validator_reward,
+                last_quorum_pre_vote: view.last_quorum_pre_vote,
+                last_quorum_pre_commit: view.last_quorum_pre_commit,
+                approvals: view
+                    .approvals
+                    .into_iter()
+                    .map(|(account_id, parent_hash, reference_hash, signature)| Approval {
+                        account_id,
+                        parent_hash,
+                        reference_hash,
+                        signature,
+                    })
+                    .collect(),
             },
-            signature: view.signature.into(),
+            signature: view.signature,
             hash: CryptoHash::default(),
+        };
+        header.init();
+        header
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChunkHeaderView {
+    pub chunk_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+    pub outcome_root: CryptoHash,
+    pub prev_state_root: StateRoot,
+    pub encoded_merkle_root: CryptoHash,
+    pub encoded_length: u64,
+    pub height_created: BlockIndex,
+    pub height_included: BlockIndex,
+    pub shard_id: ShardId,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
+    #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub validator_reward: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub balance_burnt: Balance,
+    pub outgoing_receipts_root: CryptoHash,
+    pub tx_root: CryptoHash,
+    pub validator_proposals: Vec<ValidatorStakeView>,
+    pub signature: Signature,
+}
+
+impl From<ShardChunkHeader> for ChunkHeaderView {
+    fn from(chunk: ShardChunkHeader) -> Self {
+        ChunkHeaderView {
+            chunk_hash: chunk.hash.0,
+            prev_block_hash: chunk.inner.prev_block_hash,
+            outcome_root: chunk.inner.outcome_root,
+            prev_state_root: chunk.inner.prev_state_root,
+            encoded_merkle_root: chunk.inner.encoded_merkle_root,
+            encoded_length: chunk.inner.encoded_length,
+            height_created: chunk.inner.height_created,
+            height_included: chunk.height_included,
+            shard_id: chunk.inner.shard_id,
+            gas_used: chunk.inner.gas_used,
+            gas_limit: chunk.inner.gas_limit,
+            rent_paid: chunk.inner.rent_paid,
+            validator_reward: chunk.inner.validator_reward,
+            balance_burnt: chunk.inner.balance_burnt,
+            outgoing_receipts_root: chunk.inner.outgoing_receipts_root,
+            tx_root: chunk.inner.tx_root,
+            validator_proposals: chunk
+                .inner
+                .validator_proposals
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            signature: chunk.signature,
+        }
+    }
+}
+
+impl From<ChunkHeaderView> for ShardChunkHeader {
+    fn from(view: ChunkHeaderView) -> Self {
+        let mut header = ShardChunkHeader {
+            inner: ShardChunkHeaderInner {
+                prev_block_hash: view.prev_block_hash,
+                prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
+                encoded_merkle_root: view.encoded_merkle_root,
+                encoded_length: view.encoded_length,
+                height_created: view.height_created,
+                shard_id: view.shard_id,
+                gas_used: view.gas_used,
+                gas_limit: view.gas_limit,
+                rent_paid: view.rent_paid,
+                validator_reward: view.validator_reward,
+                balance_burnt: view.balance_burnt,
+                outgoing_receipts_root: view.outgoing_receipts_root,
+                tx_root: view.tx_root,
+                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+            },
+            height_included: view.height_included,
+            signature: view.signature,
+            hash: ChunkHash::default(),
         };
         header.init();
         header
@@ -401,14 +444,31 @@ impl From<BlockHeaderView> for BlockHeader {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockView {
     pub header: BlockHeaderView,
-    pub transactions: Vec<SignedTransactionView>,
+    pub chunks: Vec<ChunkHeaderView>,
 }
 
 impl From<Block> for BlockView {
     fn from(block: Block) -> Self {
         BlockView {
             header: block.header.into(),
-            transactions: block.transactions.into_iter().map(|tx| tx.into()).collect(),
+            chunks: block.chunks.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChunkView {
+    pub header: ChunkHeaderView,
+    pub transactions: Vec<SignedTransactionView>,
+    pub receipts: Vec<ReceiptView>,
+}
+
+impl From<ShardChunk> for ChunkView {
+    fn from(chunk: ShardChunk) -> Self {
+        Self {
+            header: chunk.header.into(),
+            transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+            receipts: chunk.receipts.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -433,14 +493,14 @@ pub enum ActionView {
     Stake {
         #[serde(with = "u128_dec_format")]
         stake: Balance,
-        public_key: PublicKeyView,
+        public_key: PublicKey,
     },
     AddKey {
-        public_key: PublicKeyView,
+        public_key: PublicKey,
         access_key: AccessKeyView,
     },
     DeleteKey {
-        public_key: PublicKeyView,
+        public_key: PublicKey,
     },
     DeleteAccount {
         beneficiary_id: AccountId,
@@ -462,15 +522,13 @@ impl From<Action> for ActionView {
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
             Action::Stake(action) => {
-                ActionView::Stake { stake: action.stake, public_key: action.public_key.into() }
+                ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
             Action::AddKey(action) => ActionView::AddKey {
-                public_key: action.public_key.into(),
+                public_key: action.public_key,
                 access_key: action.access_key.into(),
             },
-            Action::DeleteKey(action) => {
-                ActionView::DeleteKey { public_key: action.public_key.into() }
-            }
+            Action::DeleteKey(action) => ActionView::DeleteKey { public_key: action.public_key },
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
@@ -497,14 +555,13 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key: public_key.into() })
+                Action::Stake(StakeAction { stake, public_key })
             }
-            ActionView::AddKey { public_key, access_key } => Action::AddKey(AddKeyAction {
-                public_key: public_key.into(),
-                access_key: access_key.into(),
-            }),
+            ActionView::AddKey { public_key, access_key } => {
+                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+            }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key: public_key.into() })
+                Action::DeleteKey(DeleteKeyAction { public_key })
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
@@ -516,20 +573,20 @@ impl TryFrom<ActionView> for Action {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignedTransactionView {
     signer_id: AccountId,
-    public_key: PublicKeyView,
+    public_key: PublicKey,
     nonce: Nonce,
     receiver_id: AccountId,
     actions: Vec<ActionView>,
-    signature: SignatureView,
-    hash: CryptoHashView,
+    signature: Signature,
+    hash: CryptoHash,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
-        let hash = signed_tx.get_hash().into();
+        let hash = signed_tx.get_hash();
         SignedTransactionView {
             signer_id: signed_tx.transaction.signer_id,
-            public_key: signed_tx.transaction.public_key.into(),
+            public_key: signed_tx.transaction.public_key,
             nonce: signed_tx.transaction.nonce,
             receiver_id: signed_tx.transaction.receiver_id,
             actions: signed_tx
@@ -538,143 +595,263 @@ impl From<SignedTransaction> for SignedTransactionView {
                 .into_iter()
                 .map(|action| action.into())
                 .collect(),
-            signature: signed_tx.signature.into(),
+            signature: signed_tx.signature,
             hash,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub enum FinalTransactionStatus {
-    Unknown,
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub enum FinalExecutionStatus {
+    /// The execution has not yet started.
+    NotStarted,
+    /// The execution has started and still going.
     Started,
-    Failed,
-    Completed,
+    /// The execution has failed with the given error.
+    Failure(ExecutionErrorView),
+    /// The execution has succeeded and returned some value or an empty vec encoded in base64.
+    SuccessValue(String),
 }
 
-impl Default for FinalTransactionStatus {
-    fn default() -> Self {
-        FinalTransactionStatus::Unknown
-    }
-}
-
-impl FinalTransactionStatus {
-    pub fn to_code(&self) -> u64 {
-        match self {
-            FinalTransactionStatus::Completed => 0,
-            FinalTransactionStatus::Failed => 1,
-            FinalTransactionStatus::Started => 2,
-            FinalTransactionStatus::Unknown => std::u64::MAX,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TransactionResultView {
-    pub status: TransactionStatus,
-    pub logs: Vec<LogEntry>,
-    pub receipts: Vec<CryptoHashView>,
-    pub result: Option<String>,
-}
-
-impl From<TransactionResult> for TransactionResultView {
-    fn from(result: TransactionResult) -> Self {
-        Self {
-            status: result.status,
-            logs: result.logs,
-            receipts: result.receipts.into_iter().map(|h| h.into()).collect(),
-            result: result.result.map(|v| to_base64(&v)),
-        }
-    }
-}
-
-impl From<TransactionResultView> for TransactionResult {
-    fn from(view: TransactionResultView) -> Self {
-        Self {
-            status: view.status,
-            logs: view.logs,
-            receipts: view.receipts.into_iter().map(|h| h.into()).collect(),
-            result: view.result.map(|v| from_base64(&v).unwrap()),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TransactionLogView {
-    pub hash: CryptoHashView,
-    pub result: TransactionResultView,
-}
-
-impl From<TransactionLog> for TransactionLogView {
-    fn from(log: TransactionLog) -> Self {
-        Self { hash: log.hash.into(), result: log.result.into() }
-    }
-}
-
-/// Result of transaction and all of subsequent the receipts.
-#[derive(Serialize, Deserialize)]
-pub struct FinalTransactionResult {
-    /// Status of the whole transaction and it's receipts.
-    pub status: FinalTransactionStatus,
-    /// Transaction results.
-    pub transactions: Vec<TransactionLogView>,
-}
-
-impl fmt::Debug for FinalTransactionResult {
+impl fmt::Debug for FinalExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("FinalTransactionResult")
+        match self {
+            FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
+            FinalExecutionStatus::Started => f.write_str("Started"),
+            FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
+            FinalExecutionStatus::SuccessValue(v) => f.write_fmt(format_args!(
+                "SuccessValue({})",
+                logging::pretty_utf8(&from_base64(&v).unwrap())
+            )),
+        }
+    }
+}
+
+impl Default for FinalExecutionStatus {
+    fn default() -> Self {
+        FinalExecutionStatus::NotStarted
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ExecutionErrorView {
+    pub error_message: String,
+    pub error_type: String,
+}
+
+impl From<ExecutionError> for ExecutionErrorView {
+    fn from(error: ExecutionError) -> Self {
+        ExecutionErrorView {
+            error_message: format!("{}", error),
+            error_type: match &error {
+                ExecutionError::Action(e) => match e {
+                    ActionError::AccountAlreadyExists(_) => {
+                        "ActionError::AccountAlreadyExists".to_string()
+                    }
+                    ActionError::AccountDoesNotExist(_, _) => {
+                        "ActionError::AccountDoesNotExist".to_string()
+                    }
+                    ActionError::CreateAccountNotAllowed(_, _) => {
+                        "ActionError::CreateAccountNotAllowed".to_string()
+                    }
+                    ActionError::ActorNoPermission(_, _, _) => {
+                        "ActionError::ActorNoPermission".to_string()
+                    }
+                    ActionError::DeleteKeyDoesNotExist(_) => {
+                        "ActionError::DeleteKeyDoesNotExist".to_string()
+                    }
+                    ActionError::AddKeyAlreadyExists(_) => {
+                        "ActionError::AddKeyAlreadyExists".to_string()
+                    }
+                    ActionError::DeleteAccountStaking(_) => {
+                        "ActionError::DeleteAccountStaking".to_string()
+                    }
+                    ActionError::DeleteAccountHasRent(_, _) => {
+                        "ActionError::DeleteAccountHasRent".to_string()
+                    }
+                    ActionError::RentUnpaid(_, _) => "ActionError::RentUnpaid".to_string(),
+                    ActionError::TriesToUnstake(_) => "ActionError::TriesToUnstake".to_string(),
+                    ActionError::TriesToStake(_, _, _, _) => {
+                        "ActionError::TriesToStake".to_string()
+                    }
+                    ActionError::FunctionCallError(_) => {
+                        "ActionError::FunctionCallError".to_string()
+                    }
+                },
+                ExecutionError::InvalidTx(e) => match e {
+                    InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),
+                    InvalidTxError::SignerDoesNotExist(_) => {
+                        "InvalidTxError::SignerDoesNotExist".to_string()
+                    }
+                    InvalidTxError::InvalidAccessKey(e) => match e {
+                        InvalidAccessKeyError::AccessKeyNotFound(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
+                        }
+                        InvalidAccessKeyError::ReceiverMismatch(_, _) => {
+                            "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::MethodNameMismatch(_) => {
+                            "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
+                        }
+                        InvalidAccessKeyError::ActionError => {
+                            "InvalidTxError::InvalidAccessKey::ActionError".to_string()
+                        }
+                        InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
+                            "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
+                        }
+                    },
+                    InvalidTxError::InvalidNonce(_, _) => {
+                        "InvalidTxError::InvalidNonce".to_string()
+                    }
+                    InvalidTxError::InvalidReceiver(_) => {
+                        "InvalidTxError::InvalidReceiver".to_string()
+                    }
+                    InvalidTxError::InvalidSignature => {
+                        "InvalidTxError::InvalidSignature".to_string()
+                    }
+                    InvalidTxError::NotEnoughBalance(_, _, _) => {
+                        "InvalidTxError::NotEnoughBalance".to_string()
+                    }
+                    InvalidTxError::RentUnpaid(_, _) => "InvalidTxError::RentUnpaid".to_string(),
+                    InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
+                    InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
+                    InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
+                },
+            },
+        }
+    }
+}
+
+impl From<ActionError> for ExecutionErrorView {
+    fn from(error: ActionError) -> Self {
+        ExecutionError::Action(error).into()
+    }
+}
+
+impl From<InvalidTxError> for ExecutionErrorView {
+    fn from(error: InvalidTxError) -> Self {
+        ExecutionError::InvalidTx(error).into()
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub enum ExecutionStatusView {
+    /// The execution is pending or unknown.
+    Unknown,
+    /// The execution has failed.
+    Failure(ExecutionErrorView),
+    /// The final action succeeded and returned some value or an empty vec encoded in base64.
+    SuccessValue(String),
+    /// The final action of the receipt returned a promise or the signed transaction was converted
+    /// to a receipt. Contains the receipt_id of the generated receipt.
+    SuccessReceiptId(CryptoHash),
+}
+
+impl fmt::Debug for ExecutionStatusView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ExecutionStatusView::Unknown => f.write_str("Unknown"),
+            ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
+            ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
+                "SuccessValue({})",
+                logging::pretty_utf8(&from_base64(&v).unwrap())
+            )),
+            ExecutionStatusView::SuccessReceiptId(receipt_id) => {
+                f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
+            }
+        }
+    }
+}
+
+impl From<ExecutionStatus> for ExecutionStatusView {
+    fn from(outcome: ExecutionStatus) -> Self {
+        match outcome {
+            ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
+            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e.into()),
+            ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
+            ExecutionStatus::SuccessReceiptId(receipt_id) => {
+                ExecutionStatusView::SuccessReceiptId(receipt_id)
+            }
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionOutcomeView {
+    /// Execution status. Contains the result in case of successful execution.
+    pub status: ExecutionStatusView,
+    /// Logs from this transaction or receipt.
+    pub logs: Vec<String>,
+    /// Receipt IDs generated by this transaction or receipt.
+    pub receipt_ids: Vec<CryptoHash>,
+    /// The amount of the gas burnt by the given transaction or receipt.
+    pub gas_burnt: Gas,
+    /// Proofs for given execution outcome.
+    pub proof: MerklePath,
+}
+
+impl From<ExecutionOutcomeWithProof> for ExecutionOutcomeView {
+    fn from(outcome: ExecutionOutcomeWithProof) -> Self {
+        Self {
+            status: outcome.outcome.status.into(),
+            logs: outcome.outcome.logs,
+            receipt_ids: outcome.outcome.receipt_ids,
+            gas_burnt: outcome.outcome.gas_burnt,
+            proof: outcome.proof,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ExecutionOutcomeWithIdView {
+    pub id: CryptoHash,
+    pub outcome: ExecutionOutcomeView,
+}
+
+impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
+    fn from(outcome_with_id: ExecutionOutcomeWithIdAndProof) -> Self {
+        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome_with_proof.into() }
+    }
+}
+
+/// Final execution outcome of the transaction and all of subsequent the receipts.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct FinalExecutionOutcomeView {
+    /// Execution status. Contains the result in case of successful execution.
+    pub status: FinalExecutionStatus,
+    /// The execution outcome of the signed transaction.
+    pub transaction: ExecutionOutcomeWithIdView,
+    /// The execution outcome of receipts.
+    pub receipts: Vec<ExecutionOutcomeWithIdView>,
+}
+
+impl fmt::Debug for FinalExecutionOutcomeView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
-            .field("transactions", &format_args!("{}", logging::pretty_vec(&self.transactions)))
+            .field("transaction", &self.transaction)
+            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
             .finish()
     }
 }
 
-impl FinalTransactionResult {
-    pub fn final_log(&self) -> String {
-        let mut logs = vec![];
-        for transaction in &self.transactions {
-            for line in &transaction.result.logs {
-                logs.push(line.clone());
-            }
-        }
-        logs.join("\n")
-    }
-
-    pub fn last_result(&self) -> String {
-        for transaction in self.transactions.iter().rev() {
-            if let Some(r) = &transaction.result.result {
-                return r.clone();
-            }
-        }
-        "".to_string()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
-    pub public_key: PublicKeyView,
+    pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self {
-            account_id: stake.account_id,
-            public_key: stake.public_key.into(),
-            amount: stake.amount,
-        }
+        Self { account_id: stake.account_id, public_key: stake.public_key, amount: stake.amount }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self {
-            account_id: view.account_id,
-            public_key: view.public_key.into(),
-            amount: view.amount,
-        }
+        Self { account_id: view.account_id, public_key: view.public_key, amount: view.amount }
     }
 }
 
@@ -682,14 +859,14 @@ impl From<ValidatorStakeView> for ValidatorStake {
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
-    pub receipt_id: CryptoHashView,
+    pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DataReceiverView {
-    pub data_id: CryptoHashView,
+    pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
@@ -697,15 +874,15 @@ pub struct DataReceiverView {
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
-        signer_public_key: PublicKeyView,
+        signer_public_key: PublicKey,
         #[serde(with = "u128_dec_format")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
-        input_data_ids: Vec<CryptoHashView>,
+        input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
     },
     Data {
-        data_id: CryptoHashView,
+        data_id: CryptoHash,
         #[serde(with = "option_base64_format")]
         data: Option<Vec<u8>>,
     },
@@ -716,17 +893,17 @@ impl From<Receipt> for ReceiptView {
         ReceiptView {
             predecessor_id: receipt.predecessor_id,
             receiver_id: receipt.receiver_id,
-            receipt_id: receipt.receipt_id.into(),
+            receipt_id: receipt.receipt_id,
             receipt: match receipt.receipt {
                 ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
                     signer_id: action_receipt.signer_id,
-                    signer_public_key: action_receipt.signer_public_key.into(),
+                    signer_public_key: action_receipt.signer_public_key,
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: action_receipt
                         .output_data_receivers
                         .into_iter()
                         .map(|data_receiver| DataReceiverView {
-                            data_id: data_receiver.data_id.into(),
+                            data_id: data_receiver.data_id,
                             receiver_id: data_receiver.receiver_id,
                         })
                         .collect(),
@@ -737,10 +914,9 @@ impl From<Receipt> for ReceiptView {
                         .collect(),
                     actions: action_receipt.actions.into_iter().map(Into::into).collect(),
                 },
-                ReceiptEnum::Data(data_receipt) => ReceiptEnumView::Data {
-                    data_id: data_receipt.data_id.into(),
-                    data: data_receipt.data,
-                },
+                ReceiptEnum::Data(data_receipt) => {
+                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
+                }
             },
         }
     }
@@ -753,7 +929,7 @@ impl TryFrom<ReceiptView> for Receipt {
         Ok(Receipt {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
-            receipt_id: receipt_view.receipt_id.into(),
+            receipt_id: receipt_view.receipt_id,
             receipt: match receipt_view.receipt {
                 ReceiptEnumView::Action {
                     signer_id,
@@ -764,12 +940,12 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
-                    signer_public_key: signer_public_key.into(),
+                    signer_public_key,
                     gas_price,
                     output_data_receivers: output_data_receivers
                         .into_iter()
                         .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id.into(),
+                            data_id: data_receiver_view.data_id,
                             receiver_id: data_receiver_view.receiver_id,
                         })
                         .collect(),
@@ -780,9 +956,29 @@ impl TryFrom<ReceiptView> for Receipt {
                         .collect::<Result<Vec<_>, _>>()?,
                 }),
                 ReceiptEnumView::Data { data_id, data } => {
-                    ReceiptEnum::Data(DataReceipt { data_id: data_id.into(), data })
+                    ReceiptEnum::Data(DataReceipt { data_id, data })
                 }
             },
         })
     }
+}
+
+/// Information about this epoch validators and next epoch validators
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct EpochValidatorInfo {
+    /// Validators for the current epoch
+    pub current_validators: Vec<CurrentEpochValidatorInfo>,
+    /// Validators for the next epoch
+    pub next_validators: Vec<ValidatorStakeView>,
+    /// Proposals in the current epoch
+    pub current_proposals: Vec<ValidatorStakeView>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct CurrentEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub is_slashed: bool,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub num_missing_blocks: BlockIndex,
 }

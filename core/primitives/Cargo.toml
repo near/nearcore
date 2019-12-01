@@ -7,36 +7,30 @@ edition = "2018"
 [dependencies]
 regex = "1"
 bincode = { version = "1.0", features = ["i128"] }
-bs58 = { git = "https://github.com/ilblackdragon/bs58-rs", rev = "46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b" }
+bs58 = "0.3"
 base64 = "0.10.1"
 byteorder = "1.2"
 chrono = { version = "0.4.4", features = ["serde"] }
-exonum_sodiumoxide = "0.0.20"
-lazy_static = "1.3"
+sodiumoxide = "0.2.5"
+lazy_static = "1.4"
 serde = "1.0"
 serde_derive = "1.0"
-sha2 = "0.8.0"
 serde_json = "1.0"
-serde_cbor = "0.10"
-pairing = { git = "https://github.com/nearprotocol/pairing.git", rev = "f009a9f54c1c1149cea4ee3e6e58ed71d72bb2e9" }
-rand = "0.6"
-rand_xorshift = "0.1"
-env_logger = "0.6.0"
+rand = "0.7"
+env_logger = "0.7"
 log = "0.4"
 reed-solomon-erasure = "3.1.1"
 jemallocator = { version = "0.3.0", optional = true }
 
-borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+borsh = "0.2.9"
+
+near-crypto = { path = "../crypto" }
 
 [features]
 default = ["jemallocator"]
 
 [dev-dependencies]
 bencher = "0.1.5"
-
-[[bench]]
-name = "bls"
-harness = false
 
 [[bench]]
 name = "serialization"

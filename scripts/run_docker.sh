@@ -17,7 +17,9 @@ EOF
 
 fi
 
+ulimit -c unlimited
+
+echo "Telemetry: ${TELEMETRY_URL}"
 echo "Bootnodes: ${BOOT_NODES}"
 
-near --home=${NEAR_HOME} run --boot-nodes=${BOOT_NODES}
-
+near --home=${NEAR_HOME} run --telemetry-url=${TELEMETRY_URL} --boot-nodes=${BOOT_NODES}

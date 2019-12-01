@@ -6,17 +6,23 @@
 use serde::{Deserialize, Serialize};
 pub type Gas = u64;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct Fraction {
+    pub numerator: u64,
+    pub denominator: u64,
+}
+
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
-    send_sir: Gas,
+    pub send_sir: Gas,
     /// Fee for sending an object potentially across the shards.
-    send_not_sir: Gas,
+    pub send_not_sir: Gas,
     /// Fee for executing the object.
-    execution: Gas,
+    pub execution: Gas,
 }
 
 impl Fee {
@@ -42,6 +48,11 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
+    /// Describes fees for storage rent
+    pub storage_usage_config: StorageUsageConfig,
+
+    /// Fraction of the burnt gas to reward to the contract account for execution.
+    pub burnt_gas_reward: Fraction,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -96,30 +107,97 @@ pub struct AccessKeyCreationConfig {
     pub function_call_cost_per_byte: Fee,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct StorageUsageConfig {
+    /// Base storage usage for an account
+    pub account_cost: Gas,
+    /// Base cost for a k/v record
+    pub data_record_cost: Gas,
+    /// Cost per byte of key
+    pub key_cost_per_byte: Gas,
+    /// Cost per byte of value
+    pub value_cost_per_byte: Gas,
+    /// Cost per byte of contract code
+    pub code_cost_per_byte: Gas,
+}
+
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
         Self {
-            action_receipt_creation_config: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+            action_receipt_creation_config: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             data_receipt_creation_config: DataReceiptCreationConfig {
-                base_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                base_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             },
             action_creation_config: ActionCreationConfig {
-                create_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                deploy_contract_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                deploy_contract_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                function_call_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                transfer_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                stake_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                    function_call_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                    function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                create_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                deploy_contract_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                deploy_contract_cost_per_byte: Fee {
+                    send_sir: 10,
+                    send_not_sir: 10,
+                    execution: 10,
                 },
-                delete_key_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                delete_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                function_call_cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                transfer_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                stake_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                    function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                    function_call_cost_per_byte: Fee {
+                        send_sir: 10,
+                        send_not_sir: 10,
+                        execution: 10,
+                    },
+                },
+                delete_key_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                delete_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             },
+            storage_usage_config: StorageUsageConfig {
+                account_cost: 100,
+                data_record_cost: 40,
+                key_cost_per_byte: 1,
+                value_cost_per_byte: 1,
+                code_cost_per_byte: 1,
+            },
+            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+        }
+    }
+}
+
+impl RuntimeFeesConfig {
+    pub fn free() -> Self {
+        let free = Fee { send_sir: 0, send_not_sir: 0, execution: 0 };
+        RuntimeFeesConfig {
+            action_receipt_creation_config: free.clone(),
+            data_receipt_creation_config: DataReceiptCreationConfig {
+                base_cost: free.clone(),
+                cost_per_byte: free.clone(),
+            },
+            action_creation_config: ActionCreationConfig {
+                create_account_cost: free.clone(),
+                deploy_contract_cost: free.clone(),
+                deploy_contract_cost_per_byte: free.clone(),
+                function_call_cost: free.clone(),
+                function_call_cost_per_byte: free.clone(),
+                transfer_cost: free.clone(),
+                stake_cost: free.clone(),
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: free.clone(),
+                    function_call_cost: free.clone(),
+                    function_call_cost_per_byte: free.clone(),
+                },
+                delete_key_cost: free.clone(),
+                delete_account_cost: free.clone(),
+            },
+            storage_usage_config: StorageUsageConfig {
+                account_cost: 0,
+                data_record_cost: 0,
+                key_cost_per_byte: 0,
+                value_cost_per_byte: 0,
+                code_cost_per_byte: 0,
+            },
+            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
         }
     }
 }

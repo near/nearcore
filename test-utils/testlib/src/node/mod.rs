@@ -1,4 +1,6 @@
+use std::fs;
 use std::panic;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -6,15 +8,17 @@ use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_crypto::{InMemorySigner, Signer};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::views::AccountView;
+use node_runtime::StateRecord;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
-use near_primitives::views::AccountView;
 
 mod process_node;
 mod runtime_node;
@@ -24,7 +28,7 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> GenesisConfig {
-    GenesisConfig::test(vec!["alice.near", "bob.near"])
+    GenesisConfig::test(vec!["alice.near", "bob.near"], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.
@@ -42,6 +46,8 @@ pub enum NodeConfig {
 }
 
 pub trait Node: Send + Sync {
+    fn genesis_config(&self) -> &GenesisConfig;
+
     fn account_id(&self) -> Option<AccountId>;
 
     fn start(&mut self);
@@ -64,7 +70,11 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner>;
+    fn signer(&self) -> Arc<dyn Signer>;
+
+    fn block_signer(&self) -> Arc<dyn Signer> {
+        unimplemented!()
+    }
 
     fn is_running(&self) -> bool;
 
@@ -131,26 +141,20 @@ fn near_configs_to_node_configs(
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
     let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(num_nodes, 0, prefix, true);
+        create_testnet_configs(1, num_nodes, 0, prefix, true);
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs_from_seeds(seeds.clone(), 0, true);
-    //    for seed in seeds {
-    //        for records in genesis_config.records.iter_mut() {
-    //            for record in records.iter_mut() {
-    //                if let StateRecord::Account { account_id, account } = record {
-    //                    if account_id == &seed {
-    //                        account.code_hash = hash(&code).into();
-    //                    }
-    //                }
-    //            }
-    //            records
-    //                .push(StateRecord::Contract { account_id: seed.clone(), code: to_base64(&code) });
-    //        }
-    //    }
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    let code = to_base64(&fs::read(path).unwrap());
+    let (configs, signers, network_signers, mut genesis_config) =
+        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
+    genesis_config.gas_price_adjustment_rate = 0;
+    for seed in seeds {
+        genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
+    }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 

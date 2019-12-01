@@ -1,0 +1,30 @@
+[package]
+name = "near-crypto"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+sodiumoxide = "0.2.5"
+parity-secp256k1 = "0.7.0"
+arrayref = "0.3"
+blake2 = "0.8"
+digest = "0.8"
+curve25519-dalek = "1.2"
+rand_core = "0.3"
+subtle = "2.2"
+
+bs58 = "0.3"
+borsh = "0.2.9"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+
+lazy_static = "1.4"
+rand = "0.7"
+libc = "0.2"
+
+[dev-dependencies]
+criterion = "0.3.0"
+dalek-rand = { version = "0.5", package = "rand" }
+serde_json = "1.0"

@@ -2,21 +2,18 @@ use std::sync::Arc;
 
 use futures::Future;
 
+use near_crypto::{PublicKey, Signer};
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransactionResult,
+    DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
-use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
-};
-use near_primitives::views::{FinalTransactionResult, TransactionResultView};
+use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
+use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
 pub use crate::user::runtime_user::RuntimeUser;
 
@@ -39,7 +36,7 @@ pub trait User {
     fn commit_transaction(
         &self,
         signed_transaction: SignedTransaction,
-    ) -> Result<FinalTransactionResult, String>;
+    ) -> Result<FinalExecutionOutcomeView, String>;
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
 
@@ -51,15 +48,15 @@ pub trait User {
 
     fn get_best_block_index(&self) -> Option<u64>;
 
+    fn get_best_block_hash(&self) -> Option<CryptoHash>;
+
     fn get_block(&self, index: u64) -> Option<BlockView>;
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView;
+    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult;
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView;
 
-    fn get_state_root(&self) -> CryptoHashView;
-
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
+    fn get_state_root(&self) -> CryptoHash;
 
     fn get_access_key(
         &self,
@@ -67,24 +64,26 @@ pub trait User {
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, String>;
 
-    fn signer(&self) -> Arc<dyn EDSigner>;
+    fn signer(&self) -> Arc<dyn Signer>;
 
-    fn set_signer(&mut self, signer: Arc<dyn EDSigner>);
+    fn set_signer(&mut self, signer: Arc<dyn Signer>);
 
     fn sign_and_commit_actions(
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
+        let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
-            self.signer(),
+            &*self.signer(),
             actions,
+            block_hash,
         );
-        self.commit_transaction(signed_transaction).unwrap()
+        self.commit_transaction(signed_transaction)
     }
 
     fn send_money(
@@ -92,7 +91,7 @@ pub trait User {
         signer_id: AccountId,
         receiver_id: AccountId,
         amount: Balance,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id,
             receiver_id,
@@ -100,7 +99,11 @@ pub trait User {
         )
     }
 
-    fn deploy_contract(&self, signer_id: AccountId, code: Vec<u8>) -> FinalTransactionResult {
+    fn deploy_contract(
+        &self,
+        signer_id: AccountId,
+        code: Vec<u8>,
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -116,7 +119,7 @@ pub trait User {
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id,
             contract_id,
@@ -135,7 +138,7 @@ pub trait User {
         new_account_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id,
             new_account_id,
@@ -152,7 +155,7 @@ pub trait User {
         signer_id: AccountId,
         public_key: PublicKey,
         access_key: AccessKey,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -160,7 +163,11 @@ pub trait User {
         )
     }
 
-    fn delete_key(&self, signer_id: AccountId, public_key: PublicKey) -> FinalTransactionResult {
+    fn delete_key(
+        &self,
+        signer_id: AccountId,
+        public_key: PublicKey,
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -174,7 +181,7 @@ pub trait User {
         old_public_key: PublicKey,
         new_public_key: PublicKey,
         access_key: AccessKey,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -189,7 +196,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             receiver_id,
@@ -202,7 +209,7 @@ pub trait User {
         signer_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
-    ) -> FinalTransactionResult {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -247,19 +254,14 @@ pub trait AsyncUser: Send + Sync {
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = TransactionResult, Error = String>>;
+    ) -> Box<dyn Future<Item = ExecutionOutcome, Error = String>>;
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = FinalTransactionResult, Error = String>>;
+    ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = String>>;
 
     fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
-
-    fn get_receipt_info(
-        &self,
-        hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
 
     fn get_access_key(
         &self,

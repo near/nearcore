@@ -38,8 +38,9 @@ mod test {
                 nonce_i + 1,
                 account_names[i].clone(),
                 account_names[j].clone(),
-                nodes[i].read().unwrap().signer(),
+                &*nodes[i].read().unwrap().signer(),
                 amount_to_send,
+                nodes[k].read().unwrap().user().get_best_block_hash().unwrap(),
             );
             nodes[k].read().unwrap().add_transaction(transaction).unwrap();
 

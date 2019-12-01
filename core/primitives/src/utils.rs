@@ -1,15 +1,19 @@
 use std::convert::AsRef;
 use std::fmt;
 
+use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 
 use lazy_static::lazy_static;
+use near_crypto::PublicKey;
 
-use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, ShardId};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use crate::types::{AccountId, ShardId, ValidatorId};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use std::cmp::max;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -26,6 +30,8 @@ pub mod col {
     pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
     pub const PENDING_DATA_COUNT: &[u8] = &[5];
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
+    pub const DELAYED_RECEIPT_INDICES: &[u8] = &[7];
+    pub const DELAYED_RECEIPT: &[u8] = &[8];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
@@ -60,7 +66,7 @@ pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
 pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
     key.extend_from_slice(col::ACCESS_KEY);
-    key.extend_from_slice(public_key.as_ref());
+    key.extend_from_slice(&public_key.try_to_vec().expect("Failed to serialize public key"));
     key
 }
 
@@ -96,6 +102,12 @@ pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash
     key
 }
 
+pub fn key_for_delayed_receipt(index: u64) -> Vec<u8> {
+    let mut key = col::DELAYED_RECEIPT.to_vec();
+    key.extend_from_slice(&index.to_le_bytes());
+    key
+}
+
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.append(&mut index_to_bytes(salt));
@@ -108,19 +120,13 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
     bytes
 }
 
-#[allow(unused)]
-pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
-    // TODO: change to real sharding
-    0
-}
-
 lazy_static! {
     /// See NEP#0006
     static ref VALID_ACCOUNT_ID: Regex =
-        Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+[\.@])*([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
-    /// Represents a part of an account ID with a suffix of as a separator `.` or `@`.
+        Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+\.)*([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
+    /// Represents a part of an account ID with a suffix of as a separator `.`.
     static ref VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR: Regex =
-        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+[\.@]$").unwrap();
+        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+\.$").unwrap();
     /// Represents a top level account ID.
     static ref VALID_TOP_LEVEL_ACCOUNT_ID: Regex =
         Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
@@ -195,13 +201,47 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 #[macro_export]
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Unwrap error: {}", err);
-        return $ret;
-    }
-}));
+macro_rules! unwrap_or_return {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return $ret;
+            }
+        }
+    };
+    ($obj: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return;
+            }
+        }
+    };
+}
+
+/// Macro to either return value if the result is Some, or exit function.
+#[macro_export]
+macro_rules! unwrap_option_or_return {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Some(value) => value,
+            None => {
+                return $ret;
+            }
+        }
+    };
+    ($obj: expr) => {
+        match $obj {
+            Some(value) => value,
+            None => {
+                return;
+            }
+        }
+    };
+}
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
@@ -217,6 +257,30 @@ pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
 /// Converts DateTime UTC time into timestamp in ns.
 pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
     time.timestamp_nanos() as u64
+}
+
+/// Compute number of block producers per shard given total number of block producers and number
+/// of shards.
+pub fn get_num_block_producers_per_shard(
+    num_shards: ShardId,
+    num_block_producers: ValidatorId,
+) -> Vec<ValidatorId> {
+    (0..num_shards)
+        .map(|i| {
+            let remainder = num_block_producers % num_shards as usize;
+            let num = if i < remainder as u64 {
+                num_block_producers / num_shards as usize + 1
+            } else {
+                num_block_producers / num_shards as usize
+            };
+            max(num, 1)
+        })
+        .collect()
+}
+
+/// Generate random string of given length
+pub fn generate_random_string(len: usize) -> String {
+    thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
 }
 
 #[cfg(test)]
@@ -240,8 +304,6 @@ mod tests {
             "a.ha",
             "a.b-a.ra",
             "system",
-            "some-complex-address@gmail.com",
-            "sub.buy_d1gitz@atata@b0-rg.c_0_m",
             "over.9000",
             "google.com",
             "illia.cheapaccounts.near",
@@ -285,6 +347,9 @@ mod tests {
             "hello world",
             "abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
             "01234567890123456789012345678901234567890123456789012345678901234",
+            // `@` separators are banned now
+            "some-complex-address@gmail.com",
+            "sub.buy_d1gitz@atata@b0-rg.c_0_m",
         ];
         for account_id in bad_account_ids {
             assert!(
@@ -371,14 +436,11 @@ mod tests {
     fn test_is_valid_sub_account_id() {
         let ok_pairs = vec![
             ("test", "a.test"),
-            ("test", "a@test"),
             ("test-me", "abc.test-me"),
-            ("test_me", "abc@test_me"),
-            ("gmail.com", "abc@gmail.com"),
-            ("gmail@com", "abc.gmail@com"),
-            ("gmail.com", "abc-lol@gmail.com"),
-            ("gmail@com", "abc_lol.gmail@com"),
-            ("gmail@com", "bro-abc_lol.gmail@com"),
+            ("gmail.com", "abc.gmail.com"),
+            ("gmail.com", "abc-lol.gmail.com"),
+            ("gmail.com", "abc_lol.gmail.com"),
+            ("gmail.com", "bro-abc_lol.gmail.com"),
             ("g0", "0g.g0"),
             ("1g", "1g.1g"),
             ("5-3", "4_2.5-3"),
@@ -417,6 +479,13 @@ mod tests {
             ("gmail.com", ".abc@gmail.com"),
             ("gmail.com", ".abc@gmail@com"),
             ("gmail.com", "abc@gmail@com"),
+            ("test", "a@test"),
+            ("test_me", "abc@test_me"),
+            ("gmail.com", "abc@gmail.com"),
+            ("gmail@com", "abc.gmail@com"),
+            ("gmail.com", "abc-lol@gmail.com"),
+            ("gmail@com", "abc_lol.gmail@com"),
+            ("gmail@com", "bro-abc_lol.gmail@com"),
             ("gmail.com", "123456789012345678901234567890123456789012345678901234567890@gmail.com"),
             (
                 "123456789012345678901234567890123456789012345678901234567890",
@@ -432,6 +501,19 @@ mod tests {
                 sub_account_id,
                 signer_id
             );
+        }
+    }
+
+    #[test]
+    fn test_num_chunk_producers() {
+        for num_block_producers in 1..50 {
+            for num_shards in 1..50 {
+                let assignment = get_num_block_producers_per_shard(num_shards, num_block_producers);
+                assert_eq!(
+                    assignment.iter().sum::<usize>(),
+                    max(num_block_producers, num_shards as usize)
+                );
+            }
         }
     }
 }

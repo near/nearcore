@@ -5,3 +5,7 @@ It is not dependent on the specific way the smart contract code is executed, e.g
 therefore can be used for unit tests in smart contracts.
 
 Note, this logic assumes the little endian byte ordering of the memory used by the smart contract.
+
+# Run tests
+
+`cargo test --features mocks`
