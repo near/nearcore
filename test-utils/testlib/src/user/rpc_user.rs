@@ -16,8 +16,8 @@ use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
-    QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -38,7 +38,9 @@ impl RpcUser {
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
-        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(data)))
+        System::new("actix")
+            .block_on(self.client.write().unwrap().query(path, to_base(data)))
+            .map_err(|err| err.to_string())
     }
 }
 
@@ -54,7 +56,8 @@ impl User for RpcUser {
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
+            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
+            .map_err(|err| err.to_string())?;
         Ok(())
     }
 
@@ -70,7 +73,12 @@ impl User for RpcUser {
         while height == self.get_best_block_index().unwrap() {
             thread::sleep(Duration::from_millis(50));
         }
-        result
+        match result {
+            Ok(outcome) => Ok(outcome),
+            Err(err) => Err(serde_json::from_value::<ExecutionErrorView>(err.data.unwrap())
+                .unwrap()
+                .error_message),
+        }
     }
 
     fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
