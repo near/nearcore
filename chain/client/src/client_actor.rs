@@ -445,12 +445,12 @@ impl Handler<Status> for ClientActor {
 
     fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
-        let prev_header = self
+        let header = self
             .client
             .chain
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.inner_lite.timestamp.clone();
+        let latest_block_time = header.inner_lite.timestamp.clone();
         if msg.is_health_check {
             let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
             if elapsed
@@ -481,7 +481,7 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: prev_header.inner_lite.prev_state_root.clone().into(),
+                latest_state_root: header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
