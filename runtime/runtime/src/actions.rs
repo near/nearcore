@@ -243,6 +243,7 @@ pub(crate) fn action_transfer(account: &mut Option<Account>, transfer: &Transfer
 }
 
 pub(crate) fn action_create_account(
+    fee_config: &RuntimeFeesConfig,
     apply_state: &ApplyState,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
@@ -260,12 +261,12 @@ pub(crate) fn action_create_account(
         return;
     }
     *actor_id = receipt.receiver_id.clone();
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
     *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
-    account.as_mut().unwrap().storage_usage = storage_config.account_cost;
+    account.as_mut().unwrap().storage_usage = fee_config.storage_usage_config.account_cost;
 }
 
 pub(crate) fn action_deploy_contract(
+    fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
     account_id: &AccountId,
@@ -275,9 +276,9 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone());
     let prev_code = get_code(state_update, account_id)?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage -= prev_code_length * storage_config.code_cost_per_byte;
-    account.storage_usage += (code.code.len() as u64) * storage_config.code_cost_per_byte;
+    let storage_usage_config = &fee_config.storage_usage_config;
+    account.storage_usage -= prev_code_length * storage_usage_config.code_cost_per_byte;
+    account.storage_usage += (code.code.len() as u64) * storage_usage_config.code_cost_per_byte;
     account.code_hash = code.get_hash();
     set_code(state_update, &account_id, &code);
     Ok(())
@@ -307,6 +308,7 @@ pub(crate) fn action_delete_account(
 }
 
 pub(crate) fn action_delete_key(
+    fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
     result: &mut ActionResult,
@@ -321,18 +323,19 @@ pub(crate) fn action_delete_key(
     }
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    let storage_usage_config = &fee_config.storage_usage_config;
     account.storage_usage -= (delete_key.public_key.try_to_vec().ok().unwrap_or_default().len()
         as u64)
-        * storage_config.key_cost_per_byte;
+        * storage_usage_config.key_cost_per_byte;
     account.storage_usage -= (access_key.unwrap().try_to_vec().ok().unwrap_or_default().len()
         as u64)
-        * storage_config.value_cost_per_byte;
-    account.storage_usage -= storage_config.data_record_cost;
+        * storage_usage_config.value_cost_per_byte;
+    account.storage_usage -= storage_usage_config.data_record_cost;
     Ok(())
 }
 
 pub(crate) fn action_add_key(
+    fees_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
     result: &mut ActionResult,
@@ -345,7 +348,7 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
-    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    let storage_config = &fees_config.storage_usage_config;
     account.storage_usage += (add_key.public_key.try_to_vec().ok().unwrap_or_default().len()
         as u64)
         * storage_config.key_cost_per_byte;
