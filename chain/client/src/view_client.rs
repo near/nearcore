@@ -121,7 +121,18 @@ impl ViewClientActor {
             self.tx_status_requests.cache_remove(&tx_hash);
             return Ok(Some(res));
         }
-        if let Ok(tx_result) = self.chain.get_final_transaction_result(&tx_hash) {
+        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
+            Ok(_) => true,
+            Err(e) => match e.kind() {
+                ErrorKind::DBNotFoundErr(_) => false,
+                _ => {
+                    warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
+                    false
+                }
+            },
+        };
+        if has_tx_result {
+            let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
             return Ok(Some(tx_result));
         }
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);

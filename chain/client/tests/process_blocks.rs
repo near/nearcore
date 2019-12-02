@@ -11,11 +11,14 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter, TestEnv};
 use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
+use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
-use near_primitives::block::{Approval, BlockHeader};
+use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -407,7 +410,8 @@ fn client_sync_headers() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
-        let _ = setup_mock(
+        let peer_info2 = peer_info1.clone();
+        let (client, _) = setup_mock(
             vec!["test"],
             "other",
             false,
@@ -422,6 +426,33 @@ fn client_sync_headers() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
+        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
+            active_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            num_active_peers: 1,
+            peer_max_count: 1,
+            most_weight_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+        }));
         wait_or_panic(2000);
     })
     .unwrap();

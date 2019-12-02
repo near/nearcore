@@ -143,35 +143,34 @@ pub fn setup_mock_with_validity_period(
     >,
     validity_period: BlockIndex,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let view_client_addr = Arc::new(RwLock::new(None));
-    let view_client_addr1 = view_client_addr.clone();
-    let client_addr = ClientActor::create(move |ctx| {
-        let client_addr = ctx.address();
-        let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
-            let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-            let resp = network_mock(msg, ctx, client_addr.clone());
-            Box::new(Some(resp))
-        }))
-        .start();
-        let network_adapter = NetworkRecipient::new();
-        network_adapter.set_recipient(pm.recipient());
-        let (_, client, view_client) = setup(
-            vec![validators],
-            1,
-            1,
-            5,
-            account_id,
-            skip_sync_wait,
-            100,
-            200,
-            Arc::new(network_adapter),
-            validity_period,
-            Utc::now(),
-        );
-        *view_client_addr1.write().unwrap() = Some(view_client.start());
-        client
-    });
-    (client_addr, view_client_addr.clone().read().unwrap().clone().unwrap())
+    let network_adapter = Arc::new(NetworkRecipient::new());
+    let (_, client, view_client) = setup(
+        vec![validators],
+        1,
+        1,
+        5,
+        account_id,
+        skip_sync_wait,
+        100,
+        200,
+        network_adapter.clone(),
+        validity_period,
+        Utc::now(),
+    );
+    let client_addr = client.start();
+    let view_client_addr = view_client.start();
+    let client_addr1 = client_addr.clone();
+
+    let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+        let resp = network_mock(msg, ctx, client_addr1.clone());
+        Box::new(Some(resp))
+    }))
+    .start();
+
+    network_adapter.set_recipient(network_actor.recipient());
+
+    (client_addr, view_client_addr)
 }
 
 fn sample_binary(n: u64, k: u64) -> bool {
