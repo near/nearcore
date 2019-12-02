@@ -20,7 +20,7 @@ mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
 
 from cluster import init_cluster, spin_up_node
-from utils import TxContext
+from utils import TxContext, LogTracker
 
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
@@ -64,6 +64,7 @@ if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+tracker = LogTracker(node2)
 
 catch_up_height = 0
 while catch_up_height < observed_height:
@@ -85,6 +86,11 @@ while catch_up_height < observed_height:
     time.sleep(0.1)
 
 assert catch_up_height in seen_boot_heights, "%s not in %s" % (catch_up_height, seen_boot_heights)
+
+if catch_up_height >= 100:
+    assert tracker.check("State 0")
+elif catch_up_height <= 30:
+    assert not tracker.check("State 0")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

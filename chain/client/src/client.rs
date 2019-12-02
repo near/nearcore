@@ -238,7 +238,7 @@ impl Client {
         let total_approvals =
             total_block_producers - min(if prev_same_bp { 1 } else { 2 }, total_block_producers);
         let num_approvals = self.approvals.cache_get(&prev_hash).map(|h| h.len()).unwrap_or(0);
-        let num_chunks = self.shards_mgr.num_chunks_for_block(prev_hash);
+        let num_chunks = self.shards_mgr.num_chunks_for_block(&prev_hash);
         if head.height > 0
             && num_approvals < min(total_approvals, 2 * total_block_producers / 3)
             && num_chunks < self.runtime_adapter.num_shards()
@@ -249,7 +249,7 @@ impl Client {
             return Ok(None);
         }
 
-        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
+        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -292,7 +292,6 @@ impl Client {
             epoch_id.clone(),
             next_height,
             approvals.clone(),
-            total_block_producers,
             &*self.runtime_adapter,
             self.chain.mut_store(),
         )?
@@ -814,7 +813,7 @@ impl Client {
                 .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
             {
                 if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|v| v.0 == block_producer.account_id)
+                    validators.into_iter().find(|v| v.0.account_id == block_producer.account_id)
                 {
                     if !is_slashed {
                         let reference_hash =
@@ -875,7 +874,7 @@ impl Client {
             .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
-                let position = validators.iter().position(|x| &(x.0) == account_id);
+                let position = validators.iter().position(|x| &(x.0.account_id) == account_id);
                 if let Some(idx) = position {
                     if !validators[idx].1 {
                         idx

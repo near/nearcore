@@ -132,8 +132,10 @@ class LocalNode(BaseNode):
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
 
-        self.stdout = open(os.path.join(self.node_dir, 'stdout'), 'a')
-        self.stderr = open(os.path.join(self.node_dir, 'stderr'), 'a')
+        self.stdout_name = os.path.join(self.node_dir, 'stdout')
+        self.stderr_name = os.path.join(self.node_dir, 'stderr')
+        self.stdout = open(self.stdout_name, 'a')
+        self.stderr = open(self.stderr_name, 'a')
         cmd = self._get_command_line(
             self.near_root, self.node_dir, boot_key, boot_node_addr)
         self.pid.value = subprocess.Popen(
