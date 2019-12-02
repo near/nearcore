@@ -4,12 +4,12 @@ mod tests {
     use near_chain::test_utils::setup;
     use near_chain::FinalityGadget;
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
-    use near_crypto::{Signature, Signer};
+    use near_crypto::{KeyType, PublicKey, Signature, Signer};
     use near_epoch_manager::test_utils::{record_block, setup_default_epoch_manager};
     use near_epoch_manager::EpochManager;
     use near_primitives::block::{Approval, Block, Weight};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::types::{AccountId, BlockIndex, EpochId};
+    use near_primitives::types::{AccountId, BlockIndex, EpochId, ValidatorStake};
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ mod tests {
         chain_store: &mut ChainStore,
         signer: &dyn Signer,
         approvals: Vec<Approval>,
-        total_block_producers: usize,
+        stakes: Vec<ValidatorStake>,
     ) -> Block {
         let is_this_block_epoch_start = em.is_next_block_epoch_start(&prev.hash()).unwrap();
 
@@ -47,7 +47,7 @@ mod tests {
             height,
             approvals.clone(),
             chain_store,
-            total_block_producers,
+            stakes,
         )
         .unwrap()
         .clone();
@@ -176,7 +176,6 @@ mod tests {
                     "test2.6".to_string(),
                     "test2.7".to_string(),
                 ];
-                let total_block_producers = block_producers1.len();
 
                 let mut epoch_to_bps = HashMap::new();
 
@@ -257,6 +256,30 @@ mod tests {
                                     .clone()
                             });
 
+                        let stakes = if rand::thread_rng().gen() {
+                            block_producers
+                                .iter()
+                                .map(|account_id| {
+                                    ValidatorStake::new(
+                                        account_id.clone(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        rand::thread_rng().gen_range(100, 300),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        } else {
+                            block_producers
+                                .iter()
+                                .map(|account_id| {
+                                    ValidatorStake::new(
+                                        account_id.clone(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        1,
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        };
+
                         for (i, block_producer) in block_producers.iter().enumerate() {
                             if rand::thread_rng().gen::<bool>() {
                                 continue;
@@ -330,7 +353,7 @@ mod tests {
                             chain.mut_store(),
                             &*signer,
                             approvals,
-                            total_block_producers,
+                            stakes,
                         );
 
                         let final_block = new_block.header.inner_rest.last_quorum_pre_commit;
