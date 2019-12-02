@@ -124,43 +124,75 @@ pub struct StorageUsageConfig {
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
         Self {
-            action_receipt_creation_config: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+            action_receipt_creation_config: Fee {
+                send_sir: 924119500000,
+                send_not_sir: 924119500000,
+                execution: 924119500000,
+            },
             data_receipt_creation_config: DataReceiptCreationConfig {
-                base_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                base_cost: Fee {
+                    send_sir: 539890689500,
+                    send_not_sir: 539890689500,
+                    execution: 539890689500,
+                },
+                cost_per_byte: Fee {
+                    send_sir: 14234654,
+                    send_not_sir: 14234654,
+                    execution: 14234654,
+                },
             },
             action_creation_config: ActionCreationConfig {
-                create_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                deploy_contract_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                deploy_contract_cost_per_byte: Fee {
-                    send_sir: 10,
-                    send_not_sir: 10,
-                    execution: 10,
+                create_account_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                deploy_contract_cost: Fee {
+                    send_sir: 513359000000,
+                    send_not_sir: 513359000000,
+                    execution: 513359000000,
                 },
-                function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                function_call_cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                transfer_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                stake_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                deploy_contract_cost_per_byte: Fee {
+                    send_sir: 27106233,
+                    send_not_sir: 27106233,
+                    execution: 27106233,
+                },
+                function_call_cost: Fee {
+                    send_sir: 1367372500000,
+                    send_not_sir: 1367372500000,
+                    execution: 1367372500000,
+                },
+                function_call_cost_per_byte: Fee {
+                    send_sir: 2354953,
+                    send_not_sir: 2354953,
+                    execution: 2354953,
+                },
+                transfer_cost: Fee {
+                    send_sir: 13025000000,
+                    send_not_sir: 13025000000,
+                    execution: 13025000000,
+                },
+                stake_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
                 add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                    function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                    full_access_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                    function_call_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
                     function_call_cost_per_byte: Fee {
-                        send_sir: 10,
-                        send_not_sir: 10,
-                        execution: 10,
+                        send_sir: 37538150,
+                        send_not_sir: 37538150,
+                        execution: 37538150,
                     },
                 },
-                delete_key_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
-                delete_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                delete_key_cost: Fee { send_sir: 0, send_not_sir: 0, execution: 0 },
+                delete_account_cost: Fee {
+                    send_sir: 454830000000,
+                    send_not_sir: 454830000000,
+                    execution: 454830000000,
+                },
             },
             storage_usage_config: StorageUsageConfig {
-                account_cost: 100,
-                data_record_cost: 40,
-                key_cost_per_byte: 1,
-                value_cost_per_byte: 1,
-                code_cost_per_byte: 1,
+                account_cost: 0,
+                data_record_cost: 0,
+                key_cost_per_byte: 0,
+                value_cost_per_byte: 0,
+                code_cost_per_byte: 0,
             },
-            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
+            burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
         }
     }
 }

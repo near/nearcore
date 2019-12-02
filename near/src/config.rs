@@ -82,10 +82,10 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = 10u64.pow(15);
 
 /// Initial gas price.
-pub const INITIAL_GAS_PRICE: Balance = 100;
+pub const INITIAL_GAS_PRICE: Balance = 5000;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
