@@ -283,10 +283,6 @@ impl Trie {
             let child_memory_usage = memory.node_ref(*child).memory_usage;
             memory.node_mut(*node).memory_usage += child_memory_usage;
         }
-        #[cfg(test)]
-        {
-            self.memory_usage_verify(memory, NodeHandle::InMemory(root_handle));
-        }
         Ok(root_handle)
     }
 
@@ -433,10 +429,6 @@ impl Trie {
             }
         }
         self.fix_nodes(memory, path)?;
-        #[cfg(test)]
-        {
-            self.memory_usage_verify(memory, NodeHandle::InMemory(root_node));
-        }
         Ok((root_node, deleted))
     }
 
