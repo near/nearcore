@@ -102,4 +102,3 @@ release_build:
     only:
     - staging
     - master
-    - release-binary
