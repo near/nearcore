@@ -64,7 +64,7 @@ pub enum DBCol {
     ColMyLastApprovalsPerChain = 22,
     ColStateParts = 23,
     ColEpochStart = 24,
-    // Map account_id to announce_account
+    /// Map account_id to announce_account
     ColAccountAnnouncements = 25,
 }
 
