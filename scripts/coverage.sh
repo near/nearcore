@@ -26,7 +26,10 @@ do
   fi
 done
 
-rm target
+rm target # In CI, removes the symlink.
 mv target2 target
+# codecov sometimes incorrectly merge report, use kcov to merge before upload
+kcov --merge target/coverage target/cov/*
+rm -rf target/cov
 curl -s https://codecov.io/bash | bash
 echo "Uploaded code coverage"
