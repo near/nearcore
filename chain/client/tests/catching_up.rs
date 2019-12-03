@@ -294,9 +294,7 @@ mod tests {
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
-                                                    if res_inner.is_ok() {
-                                                        let query_response =
-                                                            res_inner.unwrap().unwrap();
+                                                    if let Ok(Some(query_response)) = res_inner {
                                                         if let ViewAccount(view_account_result) =
                                                             query_response
                                                         {
@@ -488,9 +486,8 @@ mod tests {
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
-                                                        if res_inner.is_ok() {
-                                                            let query_response =
-                                                                res_inner.unwrap().unwrap();
+                                                        if let Ok(Some(query_response)) = res_inner
+                                                        {
                                                             if let ViewAccount(
                                                                 view_account_result,
                                                             ) = query_response
