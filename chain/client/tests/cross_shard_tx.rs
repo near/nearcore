@@ -49,9 +49,9 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query { path: "account/".to_owned() + flat_validators[i], data: vec![] })
+                    .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
                     .then(move |res| {
-                        let query_responce = res.unwrap().unwrap();
+                        let query_responce = res.unwrap().unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_responce {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
@@ -152,7 +152,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<QueryResponse, String>, MailboxError>,
+        res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
@@ -166,7 +166,7 @@ mod tests {
         num_iters: usize,
         block_hash: CryptoHash,
     ) {
-        let res = res.unwrap();
+        let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
 
         let query_response = match res {
             Ok(query_response) => query_response,
@@ -187,7 +187,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
+                        .send(Query::new("account/".to_owned() + &account_id, vec![]))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -275,10 +275,10 @@ mod tests {
                                 as usize
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
-                                .send(Query {
-                                    path: "account/".to_owned() + validators[i].clone(),
-                                    data: vec![],
-                                })
+                                .send(Query::new(
+                                    "account/".to_string() + validators[i].clone(),
+                                    vec![],
+                                ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
                                         x,
@@ -324,7 +324,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
+                        .send(Query::new("account/".to_string() + &account_id, vec![]))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -428,10 +428,10 @@ mod tests {
                 actix::spawn(
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
-                        .send(Query {
-                            path: "account/".to_owned() + flat_validators[i].clone(),
-                            data: vec![],
-                        })
+                        .send(Query::new(
+                            "account/".to_string() + flat_validators[i].clone(),
+                            vec![],
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,

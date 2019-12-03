@@ -62,17 +62,22 @@ fn test_tx_propagation() {
                     }
                     futures::future::ok(())
                 }));
-                actix::spawn(view_client.send(TxStatus { tx_hash }).then(move |res| {
-                    match &res {
-                        Ok(Ok(feo))
-                            if feo.status == FinalExecutionStatus::SuccessValue("".to_string()) =>
-                        {
-                            System::current().stop();
-                        }
-                        _ => return futures::future::err(()),
-                    };
-                    futures::future::ok(())
-                }));
+                actix::spawn(
+                    view_client
+                        .send(TxStatus { tx_hash, signer_account_id: "near.1".to_string() })
+                        .then(move |res| {
+                            match &res {
+                                Ok(Ok(Some(feo)))
+                                    if feo.status
+                                        == FinalExecutionStatus::SuccessValue("".to_string()) =>
+                                {
+                                    System::current().stop();
+                                }
+                                _ => return futures::future::err(()),
+                            };
+                            futures::future::ok(())
+                        }),
+                );
             }),
             100,
             20000,
@@ -244,6 +249,47 @@ fn test_rpc_routing() {
                                     }
                                     _ => panic!("wrong query response"),
                                 }),
+                        );
+                    }
+                    futures::future::ok(())
+                }));
+            }),
+            100,
+            20000,
+        )
+        .start();
+
+        system.run().unwrap();
+    });
+}
+
+/// When we call rpc to view an account that does not exist, an error should be routed back.
+#[test]
+fn test_rpc_routing_error() {
+    init_integration_logger();
+    heavy_test(|| {
+        let system = System::new("NEAR");
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("tx_propagation{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let (_, rpc_addrs, clients) = start_nodes(4, &dirs, 2, 2, 10);
+        let view_client = clients[0].1.clone();
+
+        WaitOrTimeout::new(
+            Box::new(move |_ctx| {
+                let rpc_addrs_copy = rpc_addrs.clone();
+                actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+                    if res.unwrap().unwrap().header.height > 1 {
+                        let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                        actix::spawn(
+                            client
+                                .query("account/nonexistent".to_string(), "".to_string())
+                                .map_err(|err| {
+                                    println!("error: {}", err.to_string());
+                                    System::current().stop();
+                                })
+                                .map(|_| panic!("wrong query response")),
                         );
                     }
                     futures::future::ok(())

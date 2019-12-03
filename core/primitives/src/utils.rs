@@ -267,11 +267,11 @@ pub fn get_num_block_producers_per_shard(
 ) -> Vec<ValidatorId> {
     (0..num_shards)
         .map(|i| {
-            let remainder = num_block_producers % num_shards as usize;
+            let remainder = num_block_producers % num_shards;
             let num = if i < remainder as u64 {
-                num_block_producers / num_shards as usize + 1
+                num_block_producers / num_shards + 1
             } else {
-                num_block_producers / num_shards as usize
+                num_block_producers / num_shards
             };
             max(num, 1)
         })
@@ -509,10 +509,7 @@ mod tests {
         for num_block_producers in 1..50 {
             for num_shards in 1..50 {
                 let assignment = get_num_block_producers_per_shard(num_shards, num_block_producers);
-                assert_eq!(
-                    assignment.iter().sum::<usize>(),
-                    max(num_block_producers, num_shards as usize)
-                );
+                assert_eq!(assignment.iter().sum::<u64>(), max(num_block_producers, num_shards));
             }
         }
     }
