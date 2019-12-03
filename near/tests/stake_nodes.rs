@@ -227,16 +227,18 @@ fn test_validator_kickout() {
                                             ),
                                             vec![],
                                         ))
-                                        .then(move |res| match res.unwrap().unwrap().unwrap().kind {
-                                            QueryResponseKind::ViewAccount(result) => {
-                                                if result.locked == 0
-                                                    || result.amount == TESTING_INIT_BALANCE
-                                                {
-                                                    mark.store(true, Ordering::SeqCst);
+                                        .then(move |res| {
+                                            match res.unwrap().unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    if result.locked == 0
+                                                        || result.amount == TESTING_INIT_BALANCE
+                                                    {
+                                                        mark.store(true, Ordering::SeqCst);
+                                                    }
+                                                    futures::future::ok(())
                                                 }
-                                                futures::future::ok(())
+                                                _ => panic!("wrong return result"),
                                             }
-                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                             }
@@ -253,17 +255,19 @@ fn test_validator_kickout() {
                                             ),
                                             vec![],
                                         ))
-                                        .then(move |res| match res.unwrap().unwrap().unwrap().kind {
-                                            QueryResponseKind::ViewAccount(result) => {
-                                                assert_eq!(result.locked, TESTING_INIT_STAKE);
-                                                assert_eq!(
-                                                    result.amount,
-                                                    TESTING_INIT_BALANCE - TESTING_INIT_STAKE
-                                                );
-                                                mark.store(true, Ordering::SeqCst);
-                                                futures::future::ok(())
+                                        .then(move |res| {
+                                            match res.unwrap().unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    assert_eq!(result.locked, TESTING_INIT_STAKE);
+                                                    assert_eq!(
+                                                        result.amount,
+                                                        TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                    );
+                                                    mark.store(true, Ordering::SeqCst);
+                                                    futures::future::ok(())
+                                                }
+                                                _ => panic!("wrong return result"),
                                             }
-                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                             }
