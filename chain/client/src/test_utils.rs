@@ -14,12 +14,12 @@ use rand::{thread_rng, Rng};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::types::AccountOrPeerIdOrHash;
+use near_network::types::{AccountOrPeerIdOrHash, NetworkInfo, PeerChainInfo};
 use near_network::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
+    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, WeightAndScore};
+use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId};
 use near_store::test_utils::create_test_store;
@@ -27,6 +27,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_network::routing::EdgeInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -250,15 +251,18 @@ pub fn setup_mock_all_validators(
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
+        let key_pairs1 = key_pairs.clone();
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
+        let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height_weight1 = last_height_weight.clone();
+        let last_height_weight2 = last_height_weight.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
         let client_addr = ClientActor::create(move |ctx| {
-            let _client_addr = ctx.address();
+            let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
                 let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
 
@@ -280,6 +284,39 @@ pub fn setup_mock_all_validators(
                     let my_key_pair = my_key_pair.unwrap();
                     let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
+
+                    {
+                        let last_height_weight2 = last_height_weight2.read().unwrap();
+                        let peers: Vec<_> = key_pairs1
+                            .iter()
+                            .take(connectors2.read().unwrap().len())
+                            .enumerate()
+                            .map(|(i, peer_info)| FullPeerInfo {
+                                peer_info: peer_info.clone(),
+                                chain_info: PeerChainInfo {
+                                    genesis_id: GenesisId {
+                                        chain_id: "unittest".to_string(),
+                                        hash: Default::default(),
+                                    },
+                                    height: last_height_weight2[i].0,
+                                    weight_and_score: last_height_weight2[i].1,
+                                    tracked_shards: vec![],
+                                },
+                                edge_info: EdgeInfo::default(),
+                            })
+                            .collect();
+                        let peers2 = peers.clone();
+                        let info = NetworkInfo {
+                            active_peers: peers,
+                            num_active_peers: key_pairs1.len(),
+                            peer_max_count: key_pairs1.len() as u32,
+                            most_weight_peers: peers2,
+                            sent_bytes_per_sec: 0,
+                            received_bytes_per_sec: 0,
+                            known_producers: vec![],
+                        };
+                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
+                    }
 
                     match msg {
                         NetworkRequests::Block { block } => {
@@ -591,6 +628,7 @@ pub fn setup_mock_all_validators(
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
+
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
     hash_to_score.write().unwrap().insert(CryptoHash::default(), WeightAndScore::from_ints(0, 0));
