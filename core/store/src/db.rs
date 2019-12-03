@@ -68,6 +68,39 @@ pub enum DBCol {
     ColAccountAnnounceMents = 25,
 }
 
+impl std::fmt::Display for DBCol {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        use self::*;
+        let desc = match self {
+            ColBlockMisc => "miscellaneous block data",
+            ColBlock => "block data",
+            ColBlockHeader => "block header data",
+            ColBlockIndex => "block index",
+            ColState => "blockchain state",
+            ColChunkExtra => "extra information of trunk",
+            ColTransactionResult => "transaction results",
+            ColOutgoingReceipts => "outgoing receipts",
+            ColIncomingReceipts => "incoming receipts",
+            ColPeers => "peer information",
+            ColEpochInfo => "epoch information",
+            ColChunks => "chunks",
+            ColPartialChunks => "partial chunks",
+            ColBlocksToCatchup => "blocks need to apply chunks",
+            ColStateDlInfos => "blocks downloading",
+            ColChallengedBlocks => "challenged blocks",
+            ColStateHeaders => "state headers",
+            ColBlockExtra => "extra block information",
+            ColBlockPerHeight => "hash of block per height",
+            ColLastApprovalPerAccount => "last approval per account",
+            ColMyLastApprovalsPerChain => "my last approval per chain",
+            ColStateParts => "state parts",
+            ColEpochStart => "epoch start",
+            ColAccountAnnounceMents => "account id to account announcement",
+        };
+        write!(formatter, "{}", desc)
+    }
+}
+
 const NUM_COLS: usize = 26;
 
 pub struct DBTransaction {
