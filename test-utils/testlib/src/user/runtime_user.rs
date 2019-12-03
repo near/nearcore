@@ -94,7 +94,12 @@ impl RuntimeUser {
             for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(proofs) {
                 self.transaction_results.borrow_mut().insert(
                     outcome_with_id.id,
-                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof }.into(),
+                    ExecutionOutcomeWithProof {
+                        outcome: outcome_with_id.outcome,
+                        proof,
+                        block_hash: CryptoHash::default(),
+                    }
+                    .into(),
                 );
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();

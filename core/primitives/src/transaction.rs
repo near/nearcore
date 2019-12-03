@@ -222,7 +222,7 @@ struct PartialExecutionOutcome {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq)]
 pub struct ExecutionOutcome {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatus,
@@ -274,14 +274,15 @@ pub struct ExecutionOutcomeWithId {
 }
 
 /// Execution outcome with path from it to the outcome root.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithProof {
     pub outcome: ExecutionOutcome,
     pub proof: MerklePath,
+    pub block_hash: CryptoHash,
 }
 
 /// Execution outcome with path from it to the outcome root and ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithIdAndProof {
     pub id: CryptoHash,
     pub outcome_with_proof: ExecutionOutcomeWithProof,

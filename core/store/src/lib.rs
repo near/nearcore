@@ -62,7 +62,10 @@ pub const COL_STATE_PARTS: Option<u32> = Some(23);
 pub const COL_EPOCH_START: Option<u32> = Some(24);
 // Map account_id to announce_account
 pub const COL_ACCOUNT_ANNOUNCEMENTS: Option<u32> = Some(25);
-const NUM_COLS: u32 = 26;
+pub const COL_RECEIPT_ID_TO_SHARD_ID: Option<u32> = Some(26);
+pub const COL_NEXT_BLOCK_WITH_NEW_CHUNK: Option<u32> = Some(27);
+pub const COL_LAST_BLOCK_WITH_NEW_CHUNK: Option<u32> = Some(28);
+const NUM_COLS: u32 = 29;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

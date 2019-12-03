@@ -560,7 +560,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
                         | NetworkRequests::RequestUpdateNonce(_, _)
-                        | NetworkRequests::ResponseUpdateNonce(_) => {}
+                        | NetworkRequests::ResponseUpdateNonce(_)
+                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
                     };
                 }
                 Box::new(Some(resp))

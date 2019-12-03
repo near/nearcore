@@ -4,12 +4,13 @@
 use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
-use log::warn;
+use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
+    QueryResponse,
 };
 use near_store::Store;
 
@@ -19,6 +20,8 @@ use cached::{Cached, SizedCache};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_path;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -36,6 +39,8 @@ pub struct ViewClientActor {
     pub query_requests: SizedCache<String, ()>,
     /// Query responses from other nodes (can be errors)
     pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
+    /// Receipt outcome requests
+    pub receipt_outcome_requests: SizedCache<CryptoHash, ()>,
 }
 
 impl ViewClientActor {
@@ -55,6 +60,7 @@ impl ViewClientActor {
             tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
+            receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
         })
     }
 
@@ -131,8 +137,32 @@ impl ViewClientActor {
                 }
             },
         };
+        let head = self.chain.head().map_err(|e| e.to_string())?.clone();
         if has_tx_result {
             let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
+            match tx_result.status {
+                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
+                    for receipt_view in tx_result.receipts.iter() {
+                        let dst_shard_id = *self
+                            .chain
+                            .get_shard_id_for_receipt_id(&receipt_view.id)
+                            .map_err(|e| e.to_string())?;
+                        if self.chain.get_chunk_extra(&head.last_block_hash, dst_shard_id).is_err()
+                        {
+                            let validator = self
+                                .chain
+                                .find_validator_for_forwarding(dst_shard_id)
+                                .map_err(|e| e.to_string())?;
+                            self.receipt_outcome_requests.cache_set(receipt_view.id, ());
+                            self.network_adapter.send(NetworkRequests::ReceiptOutComeRequest(
+                                validator,
+                                receipt_view.id,
+                            ));
+                        }
+                    }
+                }
+                FinalExecutionStatus::SuccessValue(_) | FinalExecutionStatus::Failure(_) => {}
+            }
             return Ok(Some(tx_result));
         }
         let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
@@ -250,6 +280,49 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::QueryResponse { response, id } => {
                 if self.query_requests.cache_get(&id).is_some() {
                     self.query_responses.cache_set(id, response);
+                }
+                NetworkViewClientResponses::NoResponse
+            }
+            NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id) => {
+                if let Ok(outcome_with_proof) = self.chain.get_execution_outcome(&receipt_id) {
+                    NetworkViewClientResponses::ReceiptOutcomeResponse(
+                        ExecutionOutcomeWithIdAndProof {
+                            id: receipt_id,
+                            outcome_with_proof: outcome_with_proof.clone(),
+                        },
+                    )
+                } else {
+                    NetworkViewClientResponses::NoResponse
+                }
+            }
+            NetworkViewClientMessages::ReceiptOutcomeResponse(response) => {
+                if self.receipt_outcome_requests.cache_remove(&response.id).is_some() {
+                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(&response.id) {
+                        let block_hash = response.outcome_with_proof.block_hash;
+                        if let Ok(Some(&next_block_hash)) =
+                            self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
+                        {
+                            if let Ok(block) = self.chain.get_block(&next_block_hash) {
+                                let ExecutionOutcomeWithIdAndProof { id, outcome_with_proof } =
+                                    response;
+                                if shard_id < block.chunks.len() as u64 {
+                                    if verify_path(
+                                        block.chunks[shard_id as usize].inner.outcome_root,
+                                        &outcome_with_proof.proof,
+                                        &outcome_with_proof.outcome.to_hashes(),
+                                    ) {
+                                        let mut chain_store_update =
+                                            self.chain.mut_store().store_update();
+                                        chain_store_update
+                                            .save_outcome_with_proof(id, outcome_with_proof);
+                                        if let Err(e) = chain_store_update.commit() {
+                                            error!(target: "view_client", "Error committing to chain store: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 NetworkViewClientResponses::NoResponse
             }
