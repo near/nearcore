@@ -5,10 +5,9 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
+use crate::db::{DBOp, DBTransaction};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
-pub use kvdb::DBValue;
-use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -21,7 +20,7 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{StorageError, Store, StoreUpdate, COL_STATE};
+use crate::{ColState, StorageError, Store, StoreUpdate};
 
 mod insert_delete;
 pub mod iterator;
@@ -467,7 +466,7 @@ impl TrieChanges {
                 .retrieve_rc(&key)
                 .unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
-            store_update.set(COL_STATE, key.as_ref(), &bytes);
+            store_update.set(ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
@@ -488,9 +487,9 @@ impl TrieChanges {
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
                 let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
-                store_update.set(COL_STATE, key.as_ref(), &bytes);
+                store_update.set(ColState, key.as_ref(), &bytes);
             } else {
-                store_update.delete(COL_STATE, key.as_ref());
+                store_update.delete(ColState, key.as_ref());
             }
         }
         Ok(())
@@ -827,14 +826,13 @@ impl Trie {
         let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
         for op in &transaction.ops {
             match op {
-                DBOp::Insert { col, ref key, ref value } if *col == COL_STATE => (*guard)
-                    .cache_set(
-                        CryptoHash::try_from(&key[..]).map_err(|_| {
-                            std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                        })?,
-                        Some(value.to_vec()),
-                    ),
-                DBOp::Delete { col, ref key } if *col == COL_STATE => (*guard).cache_set(
+                DBOp::Insert { col, ref key, ref value } if *col == ColState => (*guard).cache_set(
+                    CryptoHash::try_from(&key[..]).map_err(|_| {
+                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                    })?,
+                    Some(value.to_vec()),
+                ),
+                DBOp::Delete { col, ref key } if *col == ColState => (*guard).cache_set(
                     CryptoHash::try_from(&key[..]).map_err(|_| {
                         std::io::Error::new(ErrorKind::Other, "Key is always a hash")
                     })?,
@@ -1191,7 +1189,7 @@ mod tests {
                         .as_caching_storage()
                         .unwrap()
                         .store
-                        .iter(COL_STATE)
+                        .iter(ColState)
                         .peekable()
                         .peek()
                         .is_none(),
@@ -1294,9 +1292,9 @@ mod tests {
         ];
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
         let dir = TempDir::new("test_dump_load_trie").unwrap();
-        store.save_to_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
         let trie2 = Arc::new(Trie::new(store2.clone()));
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }

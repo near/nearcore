@@ -9,7 +9,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use near_primitives::utils::to_timestamp;
-use near_store::{Store, COL_PEERS};
+use near_store::{ColPeers, Store};
 
 use crate::types::{
     FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerId, PeerInfo, ReasonForBan,
@@ -27,7 +27,7 @@ impl PeerStore {
         boot_nodes: &[PeerInfo],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
-        for (key, value) in store.iter(COL_PEERS) {
+        for (key, value) in store.iter(ColPeers) {
             let key: Vec<u8> = key.into();
             let value: Vec<u8> = value.into();
             let peer_id: PeerId = key.try_into()?;
@@ -65,7 +65,7 @@ impl PeerStore {
         entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
-        store_update.set_ser(COL_PEERS, &peer_info.peer_info.id.try_to_vec()?, entry)?;
+        store_update.set_ser(ColPeers, &peer_info.peer_info.id.try_to_vec()?, entry)?;
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -77,7 +77,7 @@ impl PeerStore {
             peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
+            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -93,7 +93,7 @@ impl PeerStore {
             peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
+            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -104,7 +104,7 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
+            store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -175,7 +175,7 @@ impl PeerStore {
         let mut store_update = self.store.store_update();
         for peer_id in to_remove {
             self.peer_states.remove(&peer_id);
-            store_update.delete(COL_PEERS, &peer_id.try_to_vec()?);
+            store_update.delete(ColPeers, &peer_id.try_to_vec()?);
         }
         store_update.commit().map_err(|err| err.into())
     }
