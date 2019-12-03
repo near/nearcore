@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
+};
 use near_primitives::utils::get_num_block_producers_per_shard;
 use near_store::test_utils::create_test_store;
 
@@ -27,8 +29,8 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 
 pub fn epoch_info(
     mut accounts: Vec<(&str, Balance)>,
-    block_producers: Vec<usize>,
-    chunk_producers: Vec<Vec<usize>>,
+    block_producers: Vec<ValidatorId>,
+    chunk_producers: Vec<Vec<ValidatorId>>,
     fishermen: Vec<ValidatorWeight>,
     stake_change: BTreeMap<AccountId, Balance>,
     validator_reward: HashMap<AccountId, Balance>,
@@ -36,7 +38,7 @@ pub fn epoch_info(
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
-        acc.insert(x.0.to_string(), i);
+        acc.insert(x.0.to_string(), i as u64);
         acc
     });
     let validator_kickout = stake_change
@@ -66,8 +68,8 @@ pub fn epoch_info(
 pub fn epoch_config(
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_block_producers: usize,
-    num_fisherman: usize,
+    num_block_producers: ValidatorId,
+    num_fisherman: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochConfig {
@@ -128,8 +130,8 @@ pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_seats: usize,
-    num_fisherman: usize,
+    num_seats: ValidatorId,
+    num_fisherman: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     reward_calculator: RewardCalculator,
@@ -156,8 +158,8 @@ pub fn setup_default_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_seats: usize,
-    num_fisherman: usize,
+    num_seats: ValidatorId,
+    num_fisherman: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {

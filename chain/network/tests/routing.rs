@@ -9,14 +9,17 @@ use futures::{future, Future};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, StopSignal};
-use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
+use near_network::{
+    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+};
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::ValidatorId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 
@@ -40,7 +43,7 @@ pub fn setup_network_node(
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
 
-    let num_validators = validators.len();
+    let num_validators = validators.len() as ValidatorId;
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -62,20 +65,37 @@ pub fn setup_network_node(
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators);
         client_config.ttl_account_id_router = ttl_account_id_router;
+        let network_adapter = NetworkRecipient::new();
+        network_adapter.set_recipient(ctx.address().recipient());
+        let network_adapter = Arc::new(network_adapter);
         let client_actor = ClientActor::new(
             client_config,
             store.clone(),
-            chain_genesis,
-            runtime,
+            chain_genesis.clone(),
+            runtime.clone(),
             config.public_key.clone().into(),
-            ctx.address().recipient(),
+            network_adapter.clone(),
             Some(block_producer),
             telemetry_actor,
         )
         .unwrap()
         .start();
+        let view_client_actor = ViewClientActor::new(
+            store.clone(),
+            &chain_genesis,
+            runtime.clone(),
+            network_adapter.clone(),
+        )
+        .unwrap()
+        .start();
 
-        PeerManagerActor::new(store.clone(), config, client_actor.recipient()).unwrap()
+        PeerManagerActor::new(
+            store.clone(),
+            config,
+            client_actor.recipient(),
+            view_client_actor.recipient(),
+        )
+        .unwrap()
     });
 
     peer_manager

@@ -12,6 +12,7 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
+use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
 };
@@ -98,8 +99,6 @@ pub struct ClientConfig {
     pub sync_height_threshold: BlockIndex,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
-    /// Period between fetching data from other parts of the system.
-    pub fetch_info_period: Duration,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
     /// Produce empty blocks, use `false` for testing.
@@ -154,7 +153,6 @@ impl ClientConfig {
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
             min_num_peers: 1,
-            fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
@@ -265,13 +263,21 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
+#[derive(Clone)]
 pub struct Query {
     pub path: String,
     pub data: Vec<u8>,
+    pub id: String,
+}
+
+impl Query {
+    pub fn new(path: String, data: Vec<u8>) -> Self {
+        Query { path, data, id: generate_random_string(10) }
+    }
 }
 
 impl Message for Query {
-    type Result = Result<QueryResponse, String>;
+    type Result = Result<Option<QueryResponse>, String>;
 }
 
 pub struct Status {
@@ -302,10 +308,11 @@ pub struct NetworkInfoResponse {
 /// Status of given transaction including all the subsequent receipts.
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
+    pub signer_account_id: AccountId,
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalExecutionOutcomeView, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
 }
 
 pub struct GetValidatorInfo {
