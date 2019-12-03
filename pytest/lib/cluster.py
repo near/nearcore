@@ -16,6 +16,10 @@ import rc
 from rc import gcloud
 import uuid
 
+remote_nodes = []
+remote_nodes_lock = threading.Lock()
+cleanup_remote_nodes_atexit_registered = False
+
 class DownloadException(Exception):
     pass
 
@@ -27,6 +31,12 @@ def atexit_cleanup(node):
     except:
         print("Cleaning failed!")
         pass
+
+
+def atexit_cleanup_remote():
+    with remote_nodes_lock:
+        if remote_nodes:
+            rc.pmap(atexit_cleanup, remote_nodes)
 
 
 class Key(object):
@@ -181,7 +191,11 @@ class GCloudNode(BaseNode):
         self.ip = self.machine.ip
         self._upload_config_files(node_dir)
         self._download_binary(binary)
-        atexit.register(atexit_cleanup, self)
+        with remote_nodes_lock:
+            global cleanup_remote_nodes_atexit_registered
+            if not cleanup_remote_nodes_atexit_registered:
+                atexit.register(atexit_cleanup_remote)
+                cleanup_remote_nodes_atexit_registered = True
 
        
     def _upload_config_files(self, node_dir):
@@ -240,6 +254,8 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
         zones = config['remote']['zones']
         zone = zones[ordinal % len(zones)]
         node = GCloudNode(instance_name, zone, node_dir, config['remote']['binary'])
+        with remote_nodes_lock:
+            remote_nodes.append(node)
         print(f"node {ordinal} machine created")
 
     node.start(boot_key, boot_addr)
