@@ -20,7 +20,7 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{StorageError, Store, StoreUpdate, ColState};
+use crate::{ColState, StorageError, Store, StoreUpdate};
 
 mod insert_delete;
 pub mod iterator;
@@ -807,13 +807,12 @@ impl Trie {
         let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
         for op in &transaction.ops {
             match op {
-                DBOp::Insert { col, ref key, ref value } if *col == ColState => (*guard)
-                    .cache_set(
-                        CryptoHash::try_from(&key[..]).map_err(|_| {
-                            std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                        })?,
-                        Some(value.to_vec()),
-                    ),
+                DBOp::Insert { col, ref key, ref value } if *col == ColState => (*guard).cache_set(
+                    CryptoHash::try_from(&key[..]).map_err(|_| {
+                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                    })?,
+                    Some(value.to_vec()),
+                ),
                 DBOp::Delete { col, ref key } if *col == ColState => (*guard).cache_set(
                     CryptoHash::try_from(&key[..]).map_err(|_| {
                         std::io::Error::new(ErrorKind::Other, "Key is always a hash")
@@ -1171,7 +1170,7 @@ mod tests {
                         .as_caching_storage()
                         .unwrap()
                         .store
-                        .iter(COL_STATE)
+                        .iter(ColState)
                         .peekable()
                         .peek()
                         .is_none(),
