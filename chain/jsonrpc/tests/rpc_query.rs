@@ -4,11 +4,12 @@ use actix::{Actor, System};
 use futures::future;
 use futures::future::Future;
 
-use near_crypto::Signature;
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::{BlockId, ChunkId};
 use near_network::test_utils::WaitOrTimeout;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::ShardId;
@@ -172,6 +173,9 @@ fn test_query_access_keys() {
                             query_response.kind
                         );
                     };
+                assert_eq!(access_keys.keys.len(), 1);
+                assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
+                assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
                 System::current().stop();
                 future::result(Ok(()))
             },
@@ -193,7 +197,7 @@ fn test_query_access_key() {
             |query_response| {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);
-                let access_keys =
+                let access_key =
                     if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
                         access_keys
                     } else {
@@ -202,6 +206,8 @@ fn test_query_access_key() {
                             query_response.kind
                         );
                     };
+                assert_eq!(access_key.nonce, 0);
+                assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
                 System::current().stop();
                 future::result(Ok(()))
             },
