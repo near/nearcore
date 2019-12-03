@@ -1,8 +1,8 @@
 use blake2::VarBlake2b;
 use curve25519_dalek::scalar::Scalar;
 use digest::{BlockInput, FixedOutput, Input, Reset, VariableOutput};
-use generic_array::GenericArray;
-use typenum::U32;
+use generic_array::{ArrayLength, GenericArray};
+use typenum::{U32, U64};
 
 pub use blake2::Blake2b as Blake2b512;
 
@@ -43,18 +43,38 @@ impl Reset for Blake2b256 {
     }
 }
 
+mod to_scalar_size {
+    use super::*;
+
+    pub trait ToScalarSize: Sized + ArrayLength<u8> {
+        fn result_scalar(hash: impl FixedOutput<OutputSize = Self>) -> Scalar;
+    }
+
+    impl ToScalarSize for U32 {
+        fn result_scalar(hash: impl FixedOutput<OutputSize = U32>) -> Scalar {
+            Scalar::from_bytes_mod_order(hash.fixed_result().into())
+        }
+    }
+
+    impl ToScalarSize for U64 {
+        fn result_scalar(hash: impl FixedOutput<OutputSize = U64>) -> Scalar {
+            let r = hash.fixed_result();
+            Scalar::from_bytes_mod_order_wide(array_ref!(r, 0, 64))
+        }
+    }
+}
+
+use self::to_scalar_size::*;
+
 pub trait ToScalar {
     fn result_scalar(self) -> Scalar;
 }
 
-impl ToScalar for Blake2b256 {
+impl<T: FixedOutput> ToScalar for T
+where
+    <T as FixedOutput>::OutputSize: ToScalarSize,
+{
     fn result_scalar(self) -> Scalar {
-        Scalar::from_bytes_mod_order(self.fixed_result().into())
-    }
-}
-
-impl ToScalar for Blake2b512 {
-    fn result_scalar(self) -> Scalar {
-        Scalar::from_hash(self)
+        <T as FixedOutput>::OutputSize::result_scalar(self)
     }
 }
