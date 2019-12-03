@@ -10,8 +10,8 @@ import requests
 import time
 import base58
 import base64
-from retry import retry as retry2
-import retrying as retry
+import retry
+import retrying
 import rc
 from rc import gcloud
 import uuid
@@ -65,7 +65,7 @@ class BaseNode(object):
             return [os.path.join(near_root, 'near'), "--verbose", "", "--home", node_dir, "run", '--boot-nodes', "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])]
 
     def wait_for_rpc(self, timeout=1):
-        retry.retry(lambda: self.get_status(), timeout=timeout)
+        retrying.retry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params, timeout=2):
         j = {
@@ -194,7 +194,7 @@ class GCloudNode(BaseNode):
         self.signer_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
 
-    @retry2(delay=1, tries=3)
+    @retry.retry(delay=1, tries=3)
     def _download_binary(self, binary):
         p = self.machine.run('bash', input=f'''
 /snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
@@ -298,6 +298,9 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
 
 
 def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+    if not config:
+        config = load_config()
+
     if not os.path.exists(os.path.expanduser("~/.near/test0")):
         near_root, node_dirs = init_cluster(
             num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
@@ -327,3 +330,22 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
         handle.join()
 
     return ret
+
+
+DEFAULT_CONFIG = {'local': True, 'near_root': '../target/debug/'}
+CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
+
+
+def load_config():
+    config = DEFAULT_CONFIG
+    config_file = os.environ.get(CONFIG_ENV_VAR, '')
+    if config_file:
+        try:
+            with open(config_file) as f:
+                config = json.load(f)
+                print(f"Load config from {config_file}, config {config}")
+        except:
+            print(f"Failed to load config file, use default config {config}")
+    else:
+        print(f"Use default config {config}")
+    return config
