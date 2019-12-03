@@ -7,8 +7,7 @@ edition = "2018"
 [dependencies]
 actix = "0.8.1"
 byteorder = "1.2"
-kvdb = "0.1"
-kvdb-memorydb = "0.1"
+rocksdb = "0.13"
 log = "0.4"
 env_logger = "0.7"
 chrono = { version = "0.4.4", features = ["serde"] }

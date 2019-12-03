@@ -33,8 +33,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
-    COL_STATE,
+    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
+    WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -138,7 +138,7 @@ impl NightshadeRuntime {
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
         self.store
-            .load_from_file(COL_STATE, state_file.as_path())
+            .load_from_file(ColState, state_file.as_path())
             .expect("Failed to read state dump");
         let mut roots_files = self.home_dir.clone();
         roots_files.push(GENESIS_ROOTS_FILE);

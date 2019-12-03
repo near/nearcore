@@ -16,12 +16,12 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithP
 use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
-    read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
-    COL_BLOCK_EXTRA, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_BLOCK_PER_HEIGHT,
-    COL_CHALLENGED_BLOCKS, COL_CHUNKS, COL_CHUNK_EXTRA, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
-    COL_LAST_APPROVALS_PER_ACCOUNT, COL_LAST_BLOCK_WITH_NEW_CHUNK, COL_MY_LAST_APPROVALS_PER_CHAIN,
-    COL_NEXT_BLOCK_WITH_NEW_CHUNK, COL_OUTGOING_RECEIPTS, COL_PARTIAL_CHUNKS,
-    COL_RECEIPT_ID_TO_SHARD_ID, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockIndex, ColBlockMisc,
+    ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
+    ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColMyLastApprovalsPerChain, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
+    ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult, Store, StoreUpdate,
+    WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -389,7 +389,7 @@ impl ChainStore {
 
     pub fn iterate_state_sync_infos(&self) -> Vec<(CryptoHash, StateSyncInfo)> {
         self.store
-            .iter(COL_STATE_DL_INFOS)
+            .iter(ColStateDlInfos)
             .map(|(k, v)| {
                 (
                     CryptoHash::try_from(k.as_ref()).unwrap(),
@@ -507,17 +507,17 @@ impl ChainStoreAccess for ChainStore {
     }
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEAD_KEY), "HEAD")
+        option_to_not_found(self.store.get_ser(ColBlockMisc, HEAD_KEY), "HEAD")
     }
 
     /// The chain tail (as far as chain goes).
     fn tail(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, TAIL_KEY), "TAIL")
+        option_to_not_found(self.store.get_ser(ColBlockMisc, TAIL_KEY), "TAIL")
     }
 
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY), "SYNC_HEAD")
+        option_to_not_found(self.store.get_ser(ColBlockMisc, SYNC_HEAD_KEY), "SYNC_HEAD")
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -528,7 +528,7 @@ impl ChainStoreAccess for ChainStore {
     /// Largest weight for which the approval was ever created
     fn largest_approved_weight(&self) -> Result<Weight, Error> {
         option_to_not_found(
-            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY),
+            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_WEIGHT_KEY),
             "LARGEST_APPROVED_WEIGHT_KEY",
         )
     }
@@ -536,27 +536,27 @@ impl ChainStoreAccess for ChainStore {
     /// Largest score for which the approval was ever created
     fn largest_approved_score(&self) -> Result<Weight, Error> {
         option_to_not_found(
-            self.store.get_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY),
+            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_SCORE_KEY),
             "LARGEST_APPROVED_SCORE_KEY",
         )
     }
 
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY), "HEADER_HEAD")
+        option_to_not_found(self.store.get_ser(ColBlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
     }
 
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
         option_to_not_found(
-            read_with_cache(&*self.store, COL_BLOCK, &mut self.blocks, h.as_ref()),
+            read_with_cache(&*self.store, ColBlock, &mut self.blocks, h.as_ref()),
             &format!("BLOCK: {}", h),
         )
     }
 
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        match read_with_cache(&*self.store, COL_CHUNKS, &mut self.chunks, chunk_hash.as_ref()) {
+        match read_with_cache(&*self.store, ColChunks, &mut self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
@@ -566,7 +566,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
         match read_with_cache(
             &*self.store,
-            COL_PARTIAL_CHUNKS,
+            ColPartialChunks,
             &mut self.partial_chunks,
             chunk_hash.as_ref(),
         ) {
@@ -577,7 +577,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
+        self.store.exists(ColBlock, h.as_ref()).map_err(|e| e.into())
     }
 
     /// Get previous header.
@@ -590,7 +590,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_BLOCK_EXTRA,
+                ColBlockExtra,
                 &mut self.block_extras,
                 block_hash.as_ref(),
             ),
@@ -607,7 +607,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_CHUNK_EXTRA,
+                ColChunkExtra,
                 &mut self.chunk_extras,
                 &get_block_shard_id(block_hash, shard_id),
             ),
@@ -618,7 +618,7 @@ impl ChainStoreAccess for ChainStore {
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
         option_to_not_found(
-            read_with_cache(&*self.store, COL_BLOCK_HEADER, &mut self.headers, h.as_ref()),
+            read_with_cache(&*self.store, ColBlockHeader, &mut self.headers, h.as_ref()),
             &format!("BLOCK HEADER: {}", h),
         )
     }
@@ -626,14 +626,14 @@ impl ChainStoreAccess for ChainStore {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.get_ser(COL_BLOCK_INDEX, &index_to_bytes(height)),
+            self.store.get_ser(ColBlockIndex, &index_to_bytes(height)),
             &format!("BLOCK INDEX: {}", height),
         )
         // TODO: cache needs to be deleted when things get updated.
         //        option_to_not_found(
         //            read_with_cache(
         //                &*self.store,
-        //                COL_BLOCK_INDEX,
+        //                ColBlockIndex,
         //                &mut self.block_index,
         //                &index_to_bytes(height),
         //            ),
@@ -648,7 +648,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_BLOCK_PER_HEIGHT,
+                ColBlockPerHeight,
                 &mut self.block_hash_per_height,
                 &index_to_bytes(height),
             ),
@@ -660,7 +660,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_MY_LAST_APPROVALS_PER_CHAIN,
+                ColMyLastApprovalsPerChain,
                 &mut self.my_last_approvals,
                 block_hash.as_ref(),
             ),
@@ -675,7 +675,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_LAST_APPROVALS_PER_ACCOUNT,
+                ColLastApprovalPerAccount,
                 &mut self.last_approvals_per_account,
                 account_id.as_ref(),
             ),
@@ -691,7 +691,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_OUTGOING_RECEIPTS,
+                ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
@@ -707,7 +707,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_INCOMING_RECEIPTS,
+                ColIncomingReceipts,
                 &mut self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
@@ -720,24 +720,19 @@ impl ChainStoreAccess for ChainStore {
         hash: &CryptoHash,
     ) -> Result<&ExecutionOutcomeWithProof, Error> {
         option_to_not_found(
-            read_with_cache(
-                &*self.store,
-                COL_TRANSACTION_RESULT,
-                &mut self.outcomes,
-                hash.as_ref(),
-            ),
+            read_with_cache(&*self.store, ColTransactionResult, &mut self.outcomes, hash.as_ref()),
             &format!("TRANSACTION: {}", hash),
         )
     }
 
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self.store.get_ser(COL_BLOCKS_TO_CATCHUP, hash.as_ref())?.unwrap_or_else(|| vec![]))
+        Ok(self.store.get_ser(ColBlocksToCatchup, hash.as_ref())?.unwrap_or_else(|| vec![]))
     }
 
     fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
         if self.latest_known.is_none() {
             self.latest_known = Some(option_to_not_found(
-                self.store.get_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY),
+                self.store.get_ser(ColBlockMisc, LATEST_KNOWN_KEY),
                 "LATEST_KNOWN_KEY",
             )?);
         }
@@ -746,7 +741,7 @@ impl ChainStoreAccess for ChainStore {
 
     fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
-        store_update.set_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY, &latest_known)?;
+        store_update.set_ser(ColBlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = Some(latest_known);
         store_update.commit().map_err(|err| err.into())
     }
@@ -754,7 +749,7 @@ impl ChainStoreAccess for ChainStore {
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
         return Ok(self
             .store
-            .get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?
+            .get_ser(ColChallengedBlocks, hash.as_ref())?
             .unwrap_or_else(|| false));
     }
 
@@ -764,7 +759,7 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<Option<&EncodedShardChunk>, Error> {
         read_with_cache(
             &*self.store,
-            COL_INVALID_CHUNKS,
+            ColInvalidChunks,
             &mut self.invalid_chunks,
             chunk_hash.as_ref(),
         )
@@ -775,7 +770,7 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_RECEIPT_ID_TO_SHARD_ID,
+                ColReceiptIdToShardId,
                 &mut self.receipt_id_to_shard_id,
                 receipt_id.as_ref(),
             ),
@@ -790,7 +785,7 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<Option<&CryptoHash>, Error> {
         read_with_cache(
             &*self.store,
-            COL_NEXT_BLOCK_WITH_NEW_CHUNK,
+            ColNextBlockWithNewChunk,
             &mut self.next_block_with_new_chunk,
             &get_block_shard_id(block_hash, shard_id),
         )
@@ -803,7 +798,7 @@ impl ChainStoreAccess for ChainStore {
     ) -> Result<Option<&CryptoHash>, Error> {
         read_with_cache(
             &*self.store,
-            COL_LAST_BLOCK_WITH_NEW_CHUNK,
+            ColLastBlockWithNewChunk,
             &mut self.last_block_with_new_chunk,
             &index_to_bytes(shard_id),
         )
@@ -1475,38 +1470,38 @@ impl<'a> ChainStoreUpdate<'a> {
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         if let Some(t) = self.head.take() {
-            store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
+            store_update.set_ser(ColBlockMisc, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.tail.take() {
-            store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, &t).map_err::<Error, _>(|e| e.into())?;
+            store_update.set_ser(ColBlockMisc, TAIL_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.header_head.take() {
             store_update
-                .set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, &t)
+                .set_ser(ColBlockMisc, HEADER_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.sync_head.take() {
             store_update
-                .set_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY, &t)
+                .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.largest_approved_weight {
             store_update
-                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_WEIGHT_KEY, &t)
+                .set_ser(ColBlockMisc, LARGEST_APPROVED_WEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.largest_approved_score {
             store_update
-                .set_ser(COL_BLOCK_MISC, LARGEST_APPROVED_SCORE_KEY, &t)
+                .set_ser(ColBlockMisc, LARGEST_APPROVED_SCORE_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             store_update
-                .set_ser(COL_BLOCK, hash.as_ref(), block)
+                .set_ser(ColBlock, hash.as_ref(), block)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for hash in self.chain_store_cache_update.deleted_blocks.iter() {
-            store_update.delete(COL_BLOCK, hash.as_ref());
+            store_update.delete(ColBlock, hash.as_ref());
         }
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
             let map = match self.chain_store.get_any_block_hash_by_height(header.inner_lite.height)
@@ -1523,64 +1518,60 @@ impl<'a> ChainStoreUpdate<'a> {
             if let Some(mut new_map) = map {
                 new_map.insert(header.inner_lite.epoch_id.clone(), *hash);
                 store_update
-                    .set_ser(
-                        COL_BLOCK_PER_HEIGHT,
-                        &index_to_bytes(header.inner_lite.height),
-                        &new_map,
-                    )
+                    .set_ser(ColBlockPerHeight, &index_to_bytes(header.inner_lite.height), &new_map)
                     .map_err::<Error, _>(|e| e.into())?;
                 self.chain_store_cache_update
                     .block_hash_per_height
                     .insert(header.inner_lite.height, new_map);
             }
             store_update
-                .set_ser(COL_BLOCK_HEADER, hash.as_ref(), header)
+                .set_ser(ColBlockHeader, hash.as_ref(), header)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for ((block_hash, shard_id), chunk_extra) in
             self.chain_store_cache_update.chunk_extras.iter()
         {
             store_update
-                .set_ser(COL_CHUNK_EXTRA, &get_block_shard_id(block_hash, *shard_id), chunk_extra)
+                .set_ser(ColChunkExtra, &get_block_shard_id(block_hash, *shard_id), chunk_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
             store_update
-                .set_ser(COL_BLOCK_EXTRA, block_hash.as_ref(), block_extra)
+                .set_ser(ColBlockExtra, block_hash.as_ref(), block_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
             store_update
-                .set_ser(COL_CHUNKS, chunk_hash.as_ref(), chunk)
+                .set_ser(ColChunks, chunk_hash.as_ref(), chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update
-                .set_ser(COL_PARTIAL_CHUNKS, chunk_hash.as_ref(), partial_chunk)
+                .set_ser(ColPartialChunks, chunk_hash.as_ref(), partial_chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.chain_store_cache_update.block_index.iter() {
             if let Some(hash) = hash {
                 store_update
-                    .set_ser(COL_BLOCK_INDEX, &index_to_bytes(*height), hash)
+                    .set_ser(ColBlockIndex, &index_to_bytes(*height), hash)
                     .map_err::<Error, _>(|e| e.into())?;
             } else {
-                store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(*height));
+                store_update.delete(ColBlockIndex, &index_to_bytes(*height));
             }
         }
         for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
-            store_update.set_ser(COL_MY_LAST_APPROVALS_PER_CHAIN, block_hash.as_ref(), approval)?;
+            store_update.set_ser(ColMyLastApprovalsPerChain, block_hash.as_ref(), approval)?;
         }
         for (account_id, approval) in
             self.chain_store_cache_update.last_approvals_per_account.iter()
         {
-            store_update.set_ser(COL_LAST_APPROVALS_PER_ACCOUNT, account_id.as_ref(), approval)?;
+            store_update.set_ser(ColLastApprovalPerAccount, account_id.as_ref(), approval)?;
         }
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.outgoing_receipts.iter()
         {
             store_update.set_ser(
-                COL_OUTGOING_RECEIPTS,
+                ColOutgoingReceipts,
                 &get_block_shard_id(block_hash, *shard_id),
                 receipt,
             )?;
@@ -1589,22 +1580,22 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.incoming_receipts.iter()
         {
             store_update.set_ser(
-                COL_INCOMING_RECEIPTS,
+                ColIncomingReceipts,
                 &get_block_shard_id(block_hash, *shard_id),
                 receipt,
             )?;
         }
         for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
-            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), outcome)?;
+            store_update.set_ser(ColTransactionResult, hash.as_ref(), outcome)?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
-            store_update.set_ser(COL_RECEIPT_ID_TO_SHARD_ID, receipt_id.as_ref(), shard_id)?;
+            store_update.set_ser(ColReceiptIdToShardId, receipt_id.as_ref(), shard_id)?;
         }
         for ((block_hash, shard_id), next_block_hash) in
             self.chain_store_cache_update.next_block_with_new_chunk.iter()
         {
             store_update.set_ser(
-                COL_NEXT_BLOCK_WITH_NEW_CHUNK,
+                ColNextBlockWithNewChunk,
                 &get_block_shard_id(block_hash, *shard_id),
                 next_block_hash,
             )?;
@@ -1612,7 +1603,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (shard_id, block_hash) in self.chain_store_cache_update.last_block_with_new_chunk.iter()
         {
             store_update.set_ser(
-                COL_LAST_BLOCK_WITH_NEW_CHUNK,
+                ColLastBlockWithNewChunk,
                 &index_to_bytes(*shard_id),
                 block_hash,
             )?;
@@ -1648,9 +1639,9 @@ impl<'a> ChainStoreUpdate<'a> {
             prev_table.swap_remove(remove_idx);
 
             if prev_table.len() > 0 {
-                store_update.set_ser(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref(), &prev_table)?;
+                store_update.set_ser(ColBlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
             } else {
-                store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
+                store_update.delete(ColBlocksToCatchup, prev_hash.as_ref());
             }
         }
         for prev_hash in self.remove_prev_blocks_to_catchup.drain(..) {
@@ -1663,7 +1654,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             affected_catchup_blocks.insert(prev_hash);
 
-            store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
+            store_update.delete(ColBlocksToCatchup, prev_hash.as_ref());
         }
         for (prev_hash, new_hash) in self.add_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
@@ -1678,23 +1669,23 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut prev_table =
                 self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
             prev_table.push(new_hash);
-            store_update.set_ser(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref(), &prev_table)?;
+            store_update.set_ser(ColBlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
         }
         for state_dl_info in self.add_state_dl_infos.drain(..) {
             store_update.set_ser(
-                COL_STATE_DL_INFOS,
+                ColStateDlInfos,
                 state_dl_info.epoch_tail_hash.as_ref(),
                 &state_dl_info,
             )?;
         }
         for hash in self.remove_state_dl_infos.drain(..) {
-            store_update.delete(COL_STATE_DL_INFOS, hash.as_ref());
+            store_update.delete(ColStateDlInfos, hash.as_ref());
         }
         for hash in self.challenged_blocks.drain() {
-            store_update.set_ser(COL_CHALLENGED_BLOCKS, hash.as_ref(), &true)?;
+            store_update.set_ser(ColChallengedBlocks, hash.as_ref(), &true)?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
-            store_update.set_ser(COL_INVALID_CHUNKS, chunk_hash.as_ref(), chunk)?;
+            store_update.set_ser(ColInvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);

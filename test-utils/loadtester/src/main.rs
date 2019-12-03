@@ -16,7 +16,7 @@ use near::config::create_testnet_configs;
 use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::Version;
-use near_store::{create_store, COL_STATE};
+use near_store::{create_store, ColState};
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
@@ -196,7 +196,7 @@ fn load_state_dump(matches: &clap::ArgMatches) {
     let dir = dir_buf.as_path();
     let state_dump = state_dump_path.as_path();
     let store = create_store(&get_store_path(dir));
-    store.load_from_file(COL_STATE, state_dump).expect("Failed to read state dump");
+    store.load_from_file(ColState, state_dump).expect("Failed to read state dump");
 }
 
 fn run(matches: &clap::ArgMatches) {
