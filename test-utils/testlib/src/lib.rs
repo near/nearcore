@@ -10,7 +10,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockIndex, ShardId, ValidatorId};
 use near_store::test_utils::create_test_store;
 
 pub mod actix_utils;
@@ -70,7 +70,7 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
 pub fn start_nodes(
     num_shards: usize,
     dirs: &[TempDir],
-    num_validators: usize,
+    num_validators: ValidatorId,
     num_lightclient: usize,
     epoch_length: BlockIndex,
 ) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
@@ -92,7 +92,7 @@ pub fn start_nodes(
     let mut rpc_addrs = vec![];
     for i in 0..num_nodes {
         let mut near_config = load_test_config(
-            if i < num_validators { &validators[i] } else { "" },
+            if i < num_validators as usize { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
             &genesis_config,
         );
@@ -103,11 +103,11 @@ pub fn start_nodes(
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
         // if non validator, add some shards to track.
-        if i >= num_validators && i < num_tracking_nodes {
-            let shards_per_node = num_shards / (num_tracking_nodes - num_validators);
+        if i >= (num_validators as usize) && i < num_tracking_nodes {
+            let shards_per_node = num_shards / (num_tracking_nodes - num_validators as usize);
             let (from, to) = (
-                ((i - num_validators) * shards_per_node) as ShardId,
-                ((i - num_validators + 1) * shards_per_node) as ShardId,
+                ((i - num_validators as usize) * shards_per_node) as ShardId,
+                ((i - (num_validators as usize) + 1) * shards_per_node) as ShardId,
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }
