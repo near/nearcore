@@ -33,8 +33,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
-    COL_STATE,
+    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
+    WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -138,7 +138,7 @@ impl NightshadeRuntime {
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
         self.store
-            .load_from_file(COL_STATE, state_file.as_path())
+            .load_from_file(ColState, state_file.as_path())
             .expect("Failed to read state dump");
         let mut roots_files = self.home_dir.clone();
         roots_files.push(GENESIS_ROOTS_FILE);
@@ -1096,7 +1096,8 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorId,
+        ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -1190,11 +1191,11 @@ mod test {
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });
-            let validators_len = all_validators.len();
+            let validators_len = all_validators.len() as ValidatorId;
             let mut genesis_config = GenesisConfig::test_sharded(
                 all_validators.into_iter().collect(),
                 validators_len,
-                validators.iter().map(|x| x.len()).collect(),
+                validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();

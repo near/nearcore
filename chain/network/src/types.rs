@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message};
+use actix::{Actor, Addr, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
@@ -31,6 +31,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use std::sync::RwLock;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -279,13 +280,13 @@ pub enum HandshakeFailureReason {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
-    pub nonce: usize,
+    pub nonce: u64,
     pub source: PeerId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
-    pub nonce: usize,
+    pub nonce: u64,
     pub source: PeerId,
 }
 
@@ -304,7 +305,7 @@ pub enum RoutedMessageBody {
         id: String,
     },
     QueryResponse {
-        response: QueryResponse,
+        response: Result<QueryResponse, String>,
         id: String,
     },
     StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
@@ -685,6 +686,41 @@ impl PeerMessage {
             }
         }
     }
+
+    pub fn is_client_message(&self) -> bool {
+        match self {
+            PeerMessage::Block(_)
+            | PeerMessage::BlockHeaderAnnounce(_)
+            | PeerMessage::BlockHeaders(_)
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::BlockRequest(_)
+            | PeerMessage::Transaction(_)
+            | PeerMessage::Challenge(_) => true,
+            PeerMessage::Routed(r) => match r.body {
+                RoutedMessageBody::BlockApproval(_)
+                | RoutedMessageBody::ForwardTx(_)
+                | RoutedMessageBody::PartialEncodedChunk(_)
+                | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::StateRequest(_, _, _, _)
+                | RoutedMessageBody::StateResponse(_) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    pub fn is_view_client_message(&self) -> bool {
+        match self {
+            PeerMessage::Routed(r) => match r.body {
+                RoutedMessageBody::QueryRequest { .. }
+                | RoutedMessageBody::QueryResponse { .. }
+                | RoutedMessageBody::TxStatusRequest(_, _)
+                | RoutedMessageBody::TxStatusResponse(_) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
 }
 
 /// Configuration for the peer-to-peer manager.
@@ -714,6 +750,8 @@ pub struct NetworkConfig {
     /// Height horizon for most weighted peers. For example if one peer is 1 block ahead of 100s of others,
     /// we still want to use the rest to query for state/headers/blocks.
     pub most_weighted_peer_height_horizon: BlockIndex,
+    /// Period between pushing network info to client
+    pub push_info_period: Duration,
 }
 
 /// Status of the known peers.
@@ -890,8 +928,6 @@ pub struct Ban {
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
-    /// Fetch information from the network.
-    FetchInfo,
     /// Sends block, either when block was just produced or when requested.
     Block {
         block: Block,
@@ -1004,10 +1040,21 @@ pub struct NetworkInfo {
     pub known_producers: Vec<AccountId>,
 }
 
+impl<A, M> MessageResponse<A, M> for NetworkInfo
+where
+    A: Actor,
+    M: Message<Result = NetworkInfo>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum NetworkResponses {
     NoResponse,
-    Info(NetworkInfo),
     RoutingTableInfo(RoutingTableInfo),
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
@@ -1043,14 +1090,6 @@ pub struct StateResponseInfo {
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
-    /// Transaction status query
-    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
-    /// Transaction status response
-    TxStatusResponse(FinalExecutionOutcomeView),
-    /// General query
-    Query { path: String, data: Vec<u8>, id: String },
-    /// Query response
-    QueryResponse { response: QueryResponse, id: String },
     /// Received block header.
     BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
@@ -1081,6 +1120,8 @@ pub enum NetworkClientMessages {
 
     /// A challenge to invalidate the block.
     Challenge(Challenge),
+
+    NetworkInfo(NetworkInfo),
 }
 
 // TODO(#1313): Use Box
@@ -1112,10 +1153,6 @@ pub enum NetworkClientResponses {
     StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// Transaction execution outcome
-    TxStatus(FinalExecutionOutcomeView),
-    /// Response to general queries
-    QueryResponse { response: QueryResponse, id: String },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -1132,6 +1169,42 @@ where
 
 impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
+}
+
+pub enum NetworkViewClientMessages {
+    /// Transaction status query
+    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
+    /// Transaction status response
+    TxStatusResponse(FinalExecutionOutcomeView),
+    /// General query
+    Query { path: String, data: Vec<u8>, id: String },
+    /// Query response
+    QueryResponse { response: Result<QueryResponse, String>, id: String },
+}
+
+pub enum NetworkViewClientResponses {
+    /// Transaction execution outcome
+    TxStatus(FinalExecutionOutcomeView),
+    /// Response to general queries
+    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    /// Response not needed
+    NoResponse,
+}
+
+impl<A, M> MessageResponse<A, M> for NetworkViewClientResponses
+where
+    A: Actor,
+    M: Message<Result = NetworkViewClientResponses>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+impl Message for NetworkViewClientMessages {
+    type Result = NetworkViewClientResponses;
 }
 
 /// Peer stats query.
@@ -1177,6 +1250,40 @@ pub struct PartialEncodedChunkRequestMsg {
 
 #[derive(Message)]
 pub struct StopSignal {}
+
+/// Adapter to break dependency of sub-components on the network requests.
+/// For tests use MockNetworkAdapter that accumulates the requests to network.
+pub trait NetworkAdapter: Sync + Send {
+    fn send(&self, msg: NetworkRequests);
+}
+
+pub struct NetworkRecipient {
+    network_recipient: RwLock<Option<Recipient<NetworkRequests>>>,
+}
+
+unsafe impl Sync for NetworkRecipient {}
+
+impl NetworkRecipient {
+    pub fn new() -> Self {
+        Self { network_recipient: RwLock::new(None) }
+    }
+
+    pub fn set_recipient(&self, network_recipient: Recipient<NetworkRequests>) {
+        *self.network_recipient.write().unwrap() = Some(network_recipient);
+    }
+}
+
+impl NetworkAdapter for NetworkRecipient {
+    fn send(&self, msg: NetworkRequests) {
+        let _ = self
+            .network_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .do_send(msg);
+    }
+}
 
 #[cfg(test)]
 mod tests {

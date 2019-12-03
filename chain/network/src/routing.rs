@@ -13,7 +13,7 @@ use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
-use near_store::{Store, COL_ACCOUNT_ANNOUNCEMENTS};
+use near_store::{ColAccountAnnouncements, Store};
 
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
@@ -353,7 +353,7 @@ impl RoutingTable {
         // Add account to store
         let mut update = self.store.store_update();
         if let Err(e) = update
-            .set_ser(COL_ACCOUNT_ANNOUNCEMENTS, account_id.as_bytes(), &announce_account)
+            .set_ser(ColAccountAnnouncements, account_id.as_bytes(), &announce_account)
             .and_then(|_| update.commit())
         {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
@@ -453,7 +453,7 @@ impl RoutingTable {
         }
 
         if let Some(ping_info) = self.ping_info.as_mut() {
-            ping_info.entry(ping.nonce).or_insert(ping);
+            ping_info.entry(ping.nonce as usize).or_insert(ping);
         }
     }
 
@@ -463,7 +463,7 @@ impl RoutingTable {
         }
 
         if let Some(pong_info) = self.pong_info.as_mut() {
-            pong_info.entry(pong.nonce).or_insert(pong);
+            pong_info.entry(pong.nonce as usize).or_insert(pong);
         }
     }
 
@@ -519,7 +519,7 @@ impl RoutingTable {
             Some(announce_account.clone())
         } else {
             self.store
-                .get_ser(COL_ACCOUNT_ANNOUNCEMENTS, account_id.as_bytes())
+                .get_ser(ColAccountAnnouncements, account_id.as_bytes())
                 .and_then(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
                         self.add_account(announce_account.clone());
