@@ -49,6 +49,9 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
+/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
+pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
+
 enum ApplyChunksMode {
     ThisEpoch,
     NextEpoch,
@@ -1650,6 +1653,13 @@ impl Chain {
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
         Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
+    }
+
+    /// Find a validator that is responsible for a given shard to forward requests to
+    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
+        let head = self.head()?;
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
     }
 }
 

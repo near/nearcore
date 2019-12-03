@@ -13,18 +13,16 @@ fn query_client() {
     init_test_logger();
     System::run(|| {
         let (_, view_client) = setup_no_network(vec!["test"], "other", true);
-        actix::spawn(
-            view_client.send(Query { path: "account/test".to_string(), data: vec![] }).then(
-                |res| {
-                    match res {
-                        Ok(Ok(QueryResponse::ViewAccount(_))) => (),
-                        _ => panic!("Invalid response"),
-                    }
-                    System::current().stop();
-                    future::result(Ok(()))
-                },
-            ),
-        );
+        actix::spawn(view_client.send(Query::new("account/test".to_string(), vec![])).then(
+            |res| {
+                match res {
+                    Ok(Ok(Some(QueryResponse::ViewAccount(_)))) => (),
+                    _ => panic!("Invalid response"),
+                }
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
     })
     .unwrap();
 }

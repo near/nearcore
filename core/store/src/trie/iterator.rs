@@ -1,7 +1,7 @@
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize};
+use crate::trie::{NodeHandle, TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
 
 #[derive(Debug)]
@@ -169,15 +169,20 @@ impl<'a> Iterator for TrieIterator<'a> {
                         }
                         IterStep::PopTrail
                     }
-                    (CrumbStatus::At, TrieNode::Branch(_, value)) => {
-                        if let Some(value) = value {
-                            return Some(Ok((self.key(), value.clone())));
-                        } else {
-                            IterStep::Continue
-                        }
+                    (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
+                        let value = match value {
+                            ValueHandle::HashAndSize(_, hash) => self.trie.retrieve_raw_bytes(hash),
+                            ValueHandle::InMemory(_node) => unreachable!(),
+                        };
+                        return Some(value.map(|value| (self.key(), value.clone())));
                     }
+                    (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
-                        return Some(Ok((self.key(), value.clone())));
+                        let value = match value {
+                            ValueHandle::HashAndSize(_, hash) => self.trie.retrieve_raw_bytes(hash),
+                            ValueHandle::InMemory(_node) => unreachable!(),
+                        };
+                        return Some(value.map(|value| (self.key(), value.clone())));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {

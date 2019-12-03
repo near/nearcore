@@ -7,7 +7,9 @@ use near_primitives::types::StateRoot;
 
 use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
+use crate::trie::{
+    NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle, POISONED_LOCK_ERR,
+};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -89,12 +91,24 @@ impl Trie {
     ) -> Result<bool, StorageError> {
         match &node.node {
             TrieNode::Empty => Ok(false),
-            TrieNode::Leaf(key, _value) => {
+            TrieNode::Leaf(key, value) => {
+                match value {
+                    ValueHandle::HashAndSize(_, hash) => {
+                        self.retrieve_raw_bytes(hash)?;
+                    }
+                    ValueHandle::InMemory(_) => unreachable!("only possible while mutating"),
+                }
                 let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
                 Ok(false)
             }
-            TrieNode::Branch(children, _value) => {
+            TrieNode::Branch(children, value) => {
+                match value {
+                    Some(ValueHandle::HashAndSize(_, hash)) => {
+                        self.retrieve_raw_bytes(hash)?;
+                    }
+                    _ => {}
+                }
                 let mut skipped_children = 0u64;
                 for child_index in 0..children.len() {
                     let child = match &children[child_index] {
@@ -171,6 +185,7 @@ impl Trie {
         Ok(())
     }
 
+    /// on_enter is applied for nodes as well as values
     fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
         &self,
         root: &CryptoHash,
@@ -190,11 +205,23 @@ impl Trie {
                 TrieNode::Empty => {
                     continue;
                 }
-                TrieNode::Leaf(_, _) => {
+                TrieNode::Leaf(_, value) => {
+                    match value {
+                        ValueHandle::HashAndSize(_, hash) => {
+                            on_enter(hash)?;
+                        }
+                        ValueHandle::InMemory(_) => unreachable!("only possible while mutating"),
+                    }
                     continue;
                 }
-                TrieNode::Branch(children, _value) => match position {
+                TrieNode::Branch(children, value) => match position {
                     CrumbStatus::Entering => {
+                        match value {
+                            Some(ValueHandle::HashAndSize(_, hash)) => {
+                                on_enter(hash)?;
+                            }
+                            _ => {}
+                        }
                         stack.push((hash, node, CrumbStatus::AtChild(0)));
                         continue;
                     }

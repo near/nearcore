@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use actix::Recipient;
 use log::{debug, error};
 use rand::seq::SliceRandom;
 
@@ -14,7 +13,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_crypto::Signer;
-use near_network::types::PartialEncodedChunkRequestMsg;
+use near_network::types::{NetworkAdapter, PartialEncodedChunkRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::hash::CryptoHash;
@@ -39,30 +38,6 @@ const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
-
-/// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
-pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
-}
-
-pub struct NetworkRecipient {
-    network_recipient: Recipient<NetworkRequests>,
-}
-
-unsafe impl Sync for NetworkRecipient {}
-
-impl NetworkRecipient {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
-        Self { network_recipient }
-    }
-}
-
-impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
-        let _ = self.network_recipient.do_send(msg);
-    }
-}
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
