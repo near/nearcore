@@ -16,7 +16,7 @@ FIRST_STEP_WAIT = 20
 SECOND_STEP_WAIT = 30
 FINAL_HEIGHT_THRESHOLD = 80
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
+nodes = start_cluster(4, 0, 4, None, [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
 
 cur_height = 0
 fork1_height = 0
