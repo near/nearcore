@@ -236,7 +236,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
         node = LocalNode(24567 + 10 + ordinal, 3030 +
                          10 + ordinal, near_root, node_dir)
     else:
-        instance_name = '{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal)
+        instance_name = '{}-{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal, uuid.uuid4())
         zones = config['remote']['zones']
         zone = zones[ordinal % len(zones)]
         node = GCloudNode(instance_name, zone, node_dir, config['remote']['binary'])
