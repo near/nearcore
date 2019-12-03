@@ -65,7 +65,7 @@ pub enum DBCol {
     ColStateParts = 23,
     ColEpochStart = 24,
     // Map account_id to announce_account
-    ColAccountAnnounceMents = 25,
+    ColAccountAnnouncements = 25,
 }
 
 impl std::fmt::Display for DBCol {
@@ -96,7 +96,7 @@ impl std::fmt::Display for DBCol {
             Self::ColMyLastApprovalsPerChain => "my last approval per chain",
             Self::ColStateParts => "state parts",
             Self::ColEpochStart => "epoch start",
-            Self::ColAccountAnnounceMents => "account id to account announcement",
+            Self::ColAccountAnnouncements => "account id to account announcement",
         };
         write!(formatter, "{}", desc)
     }
