@@ -21,8 +21,9 @@ env_logger = "0.7"
 log = "0.4"
 reed-solomon-erasure = "3.1.1"
 jemallocator = { version = "0.3.0", optional = true }
+actix = "0.8.1"
 
-borsh = "0.2.9"
+borsh = "0.2.10"
 
 near-crypto = { path = "../crypto" }
 

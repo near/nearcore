@@ -1096,7 +1096,8 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorId,
+        ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -1190,11 +1191,11 @@ mod test {
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });
-            let validators_len = all_validators.len();
+            let validators_len = all_validators.len() as ValidatorId;
             let mut genesis_config = GenesisConfig::test_sharded(
                 all_validators.into_iter().collect(),
                 validators_len,
-                validators.iter().map(|x| x.len()).collect(),
+                validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
