@@ -227,7 +227,9 @@ impl External for MockedExternal {
     }
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
     }
 

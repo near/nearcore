@@ -331,7 +331,8 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        use sha2::Digest;
+        let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
     }
 
