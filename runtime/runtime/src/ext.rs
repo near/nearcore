@@ -149,7 +149,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_iter_next(&mut self, iterator_idx: u64) -> ExtResult<Option<(Vec<u8>, Vec<u8>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex.into()),
+            None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
         };
         if result.is_none() {
             self.iters.remove(&iterator_idx);
@@ -176,7 +176,11 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .expect("receipt index should be present")
+                .ok_or_else(|| {
+                    HostErrorOrStorageError::HostError(
+                        HostError::InvalidReceiptIndex(receipt_index).into(),
+                    )
+                })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
