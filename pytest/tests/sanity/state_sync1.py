@@ -10,9 +10,10 @@ sys.path.append('lib')
 from cluster import start_cluster
 
 BLOCK_WAIT = 40
+EPOCH_LENGTH = 80
 
 consensus_config = {"consensus": {"block_fetch_horizon": 10, "block_header_fetch_horizon": 10}}
-nodes = start_cluster(2, 0, 1, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 80], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config, 1: consensus_config})
+nodes = start_cluster(2, 0, 1, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {0: consensus_config, 1: consensus_config})
 time.sleep(2)
 nodes[1].kill()
 
@@ -27,7 +28,7 @@ time.sleep(2)
 
 print("step 2")
 synced = False
-while cur_height <= 80:
+while cur_height <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()
     block_height0 = status0['sync_info']['latest_block_height']
     block_hash0 = status0['sync_info']['latest_block_hash']
