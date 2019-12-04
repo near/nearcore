@@ -15,7 +15,6 @@ use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
-use near_primitives::block::Block;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -400,8 +399,8 @@ pub enum StateSyncResult {
     /// At least one shard has changed its status
     /// Boolean parameter specifies whether the client needs to start fetching the block
     Changed(bool),
-    /// The state for all shards was downloaded. Returns the block with sync hash if it exists.
-    Completed(Option<Block>),
+    /// The state for all shards was downloaded.
+    Completed,
 }
 
 /// Helper to track state sync.
@@ -410,7 +409,6 @@ pub struct StateSync {
 
     state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
-    sync_hash_block: Option<Block>,
 }
 
 impl StateSync {
@@ -419,7 +417,6 @@ impl StateSync {
             network_adapter,
             state_sync_time: Default::default(),
             last_time_block_requested: None,
-            sync_hash_block: None,
         }
     }
 
@@ -430,10 +427,6 @@ impl StateSync {
         // several parts to make sure that partitioning always works.
         // TODO #1708
         state_size / (1024 * 1024) + 3
-    }
-
-    pub fn save_sync_hash_block(&mut self, block: &Block) {
-        self.sync_hash_block = Some(block.clone());
     }
 
     pub fn sync_block_status(
@@ -710,7 +703,7 @@ impl StateSync {
             return if !have_block {
                 Ok(StateSyncResult::Changed(request_block))
             } else {
-                Ok(StateSyncResult::Completed(None))
+                Ok(StateSyncResult::Completed)
             };
         }
 
@@ -726,8 +719,7 @@ impl StateSync {
 
         if have_block && all_done {
             self.state_sync_time.clear();
-            let sync_hash_block = self.sync_hash_block.take();
-            return Ok(StateSyncResult::Completed(sync_hash_block));
+            return Ok(StateSyncResult::Completed);
         }
 
         Ok(if update_sync_status || request_block {

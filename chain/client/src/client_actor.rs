@@ -172,8 +172,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                             return NetworkClientResponses::NoResponse;
                         } else if &block.hash() == sync_hash {
-                            println!("receive sync hash block, {}", sync_hash);
-                            self.client.state_sync.save_sync_hash_block(&block);
+                            self.client.chain.save_orphan(&block);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -1100,7 +1099,7 @@ impl ClientActor {
                             }
                         }
                     }
-                    StateSyncResult::Completed(sync_hash_block) => {
+                    StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
@@ -1110,7 +1109,6 @@ impl ClientActor {
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
                             sync_hash,
-                            sync_hash_block,
                             |accepted_block| {
                                 accepted_blocks.write().unwrap().push(accepted_block);
                             },

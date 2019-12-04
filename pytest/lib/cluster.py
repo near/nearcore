@@ -186,7 +186,7 @@ class GCloudNode(BaseNode):
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
-            preemptible=True 
+            preemptible=True
         )
         self.ip = self.machine.ip
         self._upload_config_files(node_dir)
@@ -197,7 +197,7 @@ class GCloudNode(BaseNode):
                 atexit.register(atexit_cleanup_remote)
                 cleanup_remote_nodes_atexit_registered = True
 
-       
+
     def _upload_config_files(self, node_dir):
         self.machine.run('bash', input='mkdir -p ~/.near')
         self.machine.upload(os.path.join(node_dir, '*.json'), f'/home/{self.machine.username}/.near/')
@@ -229,7 +229,7 @@ chmod +x near
 
     def kill(self):
         self.machine.kill_detach_tmux()
-    
+
     def destroy_machine(self):
         self.machine.delete()
 

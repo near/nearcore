@@ -1048,7 +1048,7 @@ impl Client {
                 StateSyncResult::Changed(fetch_block) => {
                     assert!(!fetch_block);
                 }
-                StateSyncResult::Completed(_) => {
+                StateSyncResult::Completed => {
                     let accepted_blocks = Arc::new(RwLock::new(vec![]));
                     let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                     let challenges = Arc::new(RwLock::new(vec![]));
