@@ -43,6 +43,7 @@ fn add_blocks(
             epoch_id,
             vec![],
             0,
+            0,
             Some(0),
             vec![],
             vec![],

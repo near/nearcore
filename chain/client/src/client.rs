@@ -38,11 +38,6 @@ use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
-/// Block economics config taken from genesis config
-struct BlockEconomicsConfig {
-    gas_price_adjustment_rate: u8,
-}
-
 pub struct Client {
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
@@ -66,8 +61,6 @@ pub struct Client {
     pub block_sync: BlockSync,
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
-    /// Block economics, relevant to changes when new block must be produced.
-    block_economics_config: BlockEconomicsConfig,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
 }
@@ -106,9 +99,6 @@ impl Client {
             header_sync,
             block_sync,
             state_sync,
-            block_economics_config: BlockEconomicsConfig {
-                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-            },
             challenges: Default::default(),
         })
     }
@@ -285,6 +275,9 @@ impl Client {
             self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
         };
 
+        let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
+        let min_gas_price = self.chain.block_economics_config.min_gas_price;
+
         // Get block extra from previous block.
         let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
@@ -317,7 +310,8 @@ impl Client {
             chunks,
             epoch_id,
             approvals,
-            self.block_economics_config.gas_price_adjustment_rate,
+            gas_price_adjustment_rate,
+            min_gas_price,
             inflation,
             prev_block_extra.challenges_result,
             challenges,

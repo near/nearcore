@@ -162,6 +162,7 @@ impl Block {
             epoch_id,
             approvals,
             0,
+            0,
             Some(0),
             vec![],
             vec![],

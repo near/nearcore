@@ -52,6 +52,12 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 
+/// Block economics config taken from genesis config
+pub struct BlockEconomicsConfig {
+    pub gas_price_adjustment_rate: u8,
+    pub min_gas_price: Balance,
+}
+
 enum ApplyChunksMode {
     ThisEpoch,
     NextEpoch,
@@ -152,6 +158,7 @@ pub struct ChainGenesis {
     pub time: DateTime<Utc>,
     pub gas_limit: Gas,
     pub gas_price: Balance,
+    pub min_gas_price: Balance,
     pub total_supply: Balance,
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
@@ -164,6 +171,7 @@ impl ChainGenesis {
         time: DateTime<Utc>,
         gas_limit: Gas,
         gas_price: Balance,
+        min_gas_price: Balance,
         total_supply: Balance,
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
@@ -174,6 +182,7 @@ impl ChainGenesis {
             time,
             gas_limit,
             gas_price,
+            min_gas_price,
             total_supply,
             max_inflation_rate,
             gas_price_adjustment_rate,
@@ -193,7 +202,8 @@ pub struct Chain {
     genesis: BlockHeader,
     pub transaction_validity_period: BlockIndex,
     pub epoch_length: BlockIndex,
-    gas_price_adjustment_rate: u8,
+    /// Block economics, relevant to changes when new block must be produced.
+    pub block_economics_config: BlockEconomicsConfig,
 }
 
 impl Chain {
@@ -314,7 +324,10 @@ impl Chain {
             genesis: genesis.header,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
-            gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+            block_economics_config: BlockEconomicsConfig {
+                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+                min_gas_price: chain_genesis.min_gas_price,
+            },
         })
     }
 
@@ -407,7 +420,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
@@ -425,7 +438,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
@@ -486,7 +499,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
@@ -536,7 +549,7 @@ impl Chain {
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
                     self.epoch_length,
-                    self.gas_price_adjustment_rate,
+                    &self.block_economics_config,
                 );
 
                 match chain_update.check_header_known(header) {
@@ -574,7 +587,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
 
         if let Some(header) = headers.last() {
@@ -758,7 +771,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
 
@@ -1439,7 +1452,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -1455,7 +1468,7 @@ impl Chain {
                 &self.blocks_with_missing_chunks,
                 self.transaction_validity_period,
                 self.epoch_length,
-                self.gas_price_adjustment_rate,
+                &self.block_economics_config,
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
@@ -1511,7 +1524,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
@@ -1542,7 +1555,7 @@ impl Chain {
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
                     self.epoch_length,
-                    self.gas_price_adjustment_rate,
+                    &self.block_economics_config,
                 );
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
@@ -1848,7 +1861,7 @@ pub struct ChainUpdate<'a> {
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,
     epoch_length: BlockIndex,
-    gas_price_adjustment_rate: u8,
+    block_economics_config: &'a BlockEconomicsConfig,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -1859,7 +1872,7 @@ impl<'a> ChainUpdate<'a> {
         blocks_with_missing_chunks: &'a OrphanBlockPool,
         transaction_validity_period: BlockIndex,
         epoch_length: BlockIndex,
-        gas_price_adjustment_rate: u8,
+        block_economics_config: &'a BlockEconomicsConfig,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();
         ChainUpdate {
@@ -1869,7 +1882,7 @@ impl<'a> ChainUpdate<'a> {
             blocks_with_missing_chunks,
             transaction_validity_period,
             epoch_length,
-            gas_price_adjustment_rate,
+            block_economics_config,
         }
     }
 
@@ -2340,7 +2353,11 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Other("Invalid block".into()).into());
         }
 
-        if !block.verify_gas_price(prev_gas_price, self.gas_price_adjustment_rate) {
+        if !block.verify_gas_price(
+            prev_gas_price,
+            self.block_economics_config.min_gas_price,
+            self.block_economics_config.gas_price_adjustment_rate,
+        ) {
             byzantine_assert!(false);
             return Err(ErrorKind::InvalidGasPrice.into());
         }

@@ -86,6 +86,9 @@ pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 /// Initial gas price.
 pub const INITIAL_GAS_PRICE: Balance = 100;
 
+/// Minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 10;
+
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
 /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
@@ -389,6 +392,8 @@ pub struct GenesisConfig {
     pub gas_limit: Gas,
     /// Initial gas price.
     pub gas_price: Balance,
+    /// Minimum gas price.
+    pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
@@ -433,6 +438,7 @@ impl From<GenesisConfig> for ChainGenesis {
             genesis_config.genesis_time,
             genesis_config.gas_limit,
             genesis_config.gas_price,
+            genesis_config.min_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
@@ -521,6 +527,7 @@ impl GenesisConfig {
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            min_gas_price: MIN_GAS_PRICE,
         }
     }
 
@@ -732,6 +739,7 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                min_gas_price: MIN_GAS_PRICE,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
