@@ -9,6 +9,8 @@ RUN apt-get update -qq && apt-get install -y \
     pkg-config \
     libssl-dev \
     curl \
+    llvm \
+    clang \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ./rust-toolchain /tmp/rust-toolchain
