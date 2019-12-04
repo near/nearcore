@@ -14,13 +14,13 @@ use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
+use near_primitives::utils::index_to_bytes;
 use near_store::{
     ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, LastComponentNonce, Store,
 };
 
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
-use crate::utils::u64_as_bytes;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: usize = 10_000;
@@ -398,7 +398,7 @@ impl RoutingTable {
             self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id.clone()).as_ref())
         {
             let mut update = self.store.store_update();
-            let enc_nonce = u64_as_bytes(nonce);
+            let enc_nonce = index_to_bytes(nonce);
 
             if let Ok(Some(edges)) =
                 self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref())
@@ -597,7 +597,7 @@ impl RoutingTable {
             self.peer_last_time_reachable.remove(peer_id);
         }
 
-        let component_nonce = u64_as_bytes(component_nonce);
+        let component_nonce = index_to_bytes(component_nonce);
         let mut edges_in_component = vec![];
 
         self.edges_info.retain(|(peer0, peer1), edge| {

@@ -13,8 +13,8 @@ use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 
 use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo};
-use crate::utils::u64_as_bytes;
 use crate::PeerManagerActor;
+use near_primitives::utils::index_to_bytes;
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -154,7 +154,7 @@ pub fn random_peer_id() -> PeerId {
 }
 
 pub fn random_epoch_id() -> EpochId {
-    EpochId(hash(u64_as_bytes(thread_rng().next_u64()).as_ref()))
+    EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
 
 pub fn expected_routing_tables(
