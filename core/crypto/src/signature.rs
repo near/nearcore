@@ -286,11 +286,12 @@ impl TryFrom<&str> for PublicKey {
 
 #[derive(Clone)]
 // This is actually a keypair, because ed25519_dalek api only has keypair.sign
+// From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
+// The last PUBLIC_KEY_LENGTH of bytes is the public key, in total it's KEYPAIR_LENGTH
 pub struct ED25519SecretKey(pub [u8; ed25519_dalek::KEYPAIR_LENGTH]);
 
 impl PartialEq for ED25519SecretKey {
     fn eq(&self, other: &Self) -> bool {
-        // From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
         self.0[..ed25519_dalek::SECRET_KEY_LENGTH] == other.0[..ed25519_dalek::SECRET_KEY_LENGTH]
     }
 }
