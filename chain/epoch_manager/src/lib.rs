@@ -9,7 +9,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
-use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO, COL_EPOCH_START};
+use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
@@ -800,7 +800,7 @@ impl EpochManager {
         if !self.epochs_info.cache_get(epoch_id).is_some() {
             let epoch_info = self
                 .store
-                .get_ser(COL_EPOCH_INFO, epoch_id.as_ref())
+                .get_ser(ColEpochInfo, epoch_id.as_ref())
                 .map_err(|err| err.into())
                 .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
             self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
@@ -823,7 +823,7 @@ impl EpochManager {
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
+            .set_ser(ColEpochInfo, epoch_id.as_ref(), &epoch_info)
             .map_err(EpochError::from)?;
         self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         Ok(())
@@ -841,7 +841,7 @@ impl EpochManager {
         if self.blocks_info.cache_get(hash).is_none() {
             let block_info = self
                 .store
-                .get_ser(COL_BLOCK_INFO, hash.as_ref())
+                .get_ser(ColBlockInfo, hash.as_ref())
                 .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
             self.blocks_info.cache_set(*hash, block_info);
@@ -856,7 +856,7 @@ impl EpochManager {
         block_info: BlockInfo,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_BLOCK_INFO, block_hash.as_ref(), &block_info)
+            .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.cache_set(*block_hash, block_info);
         Ok(())
@@ -869,7 +869,7 @@ impl EpochManager {
         epoch_start: BlockIndex,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_EPOCH_START, epoch_id.as_ref(), &epoch_start)
+            .set_ser(ColEpochStart, epoch_id.as_ref(), &epoch_start)
             .map_err(EpochError::from)?;
         self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
         Ok(())
@@ -882,7 +882,7 @@ impl EpochManager {
         if self.epoch_id_to_start.cache_get(epoch_id).is_none() {
             let epoch_start = self
                 .store
-                .get_ser(COL_EPOCH_START, epoch_id.as_ref())
+                .get_ser(ColEpochStart, epoch_id.as_ref())
                 .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
             self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
