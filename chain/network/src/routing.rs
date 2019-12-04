@@ -14,7 +14,9 @@ use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
-use near_store::{ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, Store};
+use near_store::{
+    ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, LastComponentNonce, Store,
+};
 
 use crate::metrics;
 use crate::types::{AnnounceAccount, PeerId, PeerIdOrHash, Ping, Pong};
@@ -274,13 +276,10 @@ pub enum FindRouteError {
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
-        let component_nonce =
-            store.iter(ColComponentEdges).fold(0, |mut nonce, (component_nonce, _)| {
-                if let Ok(y) = u64::try_from_slice(component_nonce.as_ref()) {
-                    nonce = std::cmp::max(nonce, y + 1);
-                }
-                nonce
-            });
+        let component_nonce = store
+            .get_ser::<u64>(LastComponentNonce, &[])
+            .unwrap_or(None)
+            .map_or(0, |nonce| nonce + 1);
 
         Self {
             account_peers: SizedCache::with_size(ANNOUNCE_ACCOUNT_CACHE_SIZE),
@@ -419,10 +418,8 @@ impl RoutingTable {
                                     peer_id.clone(),
                                     Instant::now().sub(Duration::from_secs(SAVE_PEERS_MAX_TIME)),
                                 );
-                                update.delete(
-                                    ColPeerComponent,
-                                    Vec::from(peer_id.clone()).as_ref(),
-                                );
+                                update
+                                    .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
                             }
                         }
                     }
@@ -588,6 +585,7 @@ impl RoutingTable {
         self.component_nonce += 1;
 
         let mut update = self.store.store_update();
+        let _ = update.set_ser(LastComponentNonce, &[], &component_nonce);
 
         for peer_id in to_save.iter() {
             let _ = update.set_ser(

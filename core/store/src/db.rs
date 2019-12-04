@@ -77,6 +77,9 @@ pub enum DBCol {
     ColPeerComponent = 31,
     // Map component id with all edges in this component.
     ColComponentEdges = 32,
+    ColComponentEdges = 33,
+    // Biggest nonce used.
+    LastComponentNonce = 34,
 }
 
 impl std::fmt::Display for DBCol {
@@ -115,13 +118,14 @@ impl std::fmt::Display for DBCol {
             Self::ColLastBlockWithNewChunk => "last block with new chunk",
             Self::ColAccountAnnouncements => "account announcements",
             Self::ColPeerComponent => "peer components",
-            Self::ColComponentEdges => "component edges"
+            Self::ColComponentEdges => "component edges",
+            Self::LastComponentNonce => "last component nonce",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 33;
+const NUM_COLS: usize = 35;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
