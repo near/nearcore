@@ -8,9 +8,8 @@ use rand::{thread_rng, Rng};
 
 use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
-use near_chunks::NetworkAdapter;
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkRequests};
+use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
@@ -623,14 +622,14 @@ impl StateSync {
             Ok(shard_sync_download)
         )
         .iter()
-        .filter_map(|(account_id, _slashed)| {
+        .filter_map(|(validator_stake, _slashed)| {
             if runtime_adapter.cares_about_shard(
-                Some(account_id),
+                Some(&validator_stake.account_id),
                 &prev_block_hash,
                 shard_id,
                 false,
             ) {
-                Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
+                Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
             } else {
                 None
             }

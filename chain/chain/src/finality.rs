@@ -2,7 +2,7 @@ use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::{Approval, BlockHeader, BlockHeaderInnerRest, Weight};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, EpochId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
 use std::collections::{HashMap, HashSet};
 
 // How many blocks back to search for a new reference hash when the chain switches and the block
@@ -178,17 +178,24 @@ impl FinalityGadget {
         mut height: BlockIndex,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
-        total_block_producers: usize,
+        stakes: Vec<ValidatorStake>,
     ) -> Result<FinalityGadgetQuorums, Error> {
         let mut quorum_pre_vote = None;
         let mut quorum_pre_commit = None;
 
         let mut surrounding_approvals = HashSet::new();
+        let mut surrounding_stake = 0 as Balance;
         let mut height_to_accounts_to_remove: HashMap<u64, HashSet<_>> = HashMap::new();
+        let mut height_to_stake: HashMap<u64, Balance> = HashMap::new();
         let mut accounts_to_height_to_remove = HashMap::new();
 
         let mut highest_height_no_quorum = height as i64;
-        let mut accounts_surrounding_no_quroum = 0;
+        let mut stake_surrounding_no_quorum = 0 as Balance;
+
+        let account_id_to_stake =
+            stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+        assert!(account_id_to_stake.len() == stakes.len());
+        let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
         while quorum_pre_commit.is_none() {
             // If this is genesis, set quorum pre-vote and quorum pre-commit to the default hash
@@ -205,34 +212,35 @@ impl FinalityGadget {
             // Update surrounding approvals
             for approval in approvals {
                 let account_id = approval.account_id.clone();
-
-                let was_surrounding_no_quroum =
-                    if let Some(current_height) = accounts_to_height_to_remove.get(&account_id) {
-                        height_to_accounts_to_remove
-                            .get_mut(current_height)
-                            .unwrap()
-                            .remove(&account_id);
-
-                        *current_height as i64 <= highest_height_no_quorum
-                    } else {
-                        false
-                    };
+                let cur_account_stake = match account_id_to_stake.get(&account_id) {
+                    Some(stake) => *stake,
+                    None => continue,
+                };
 
                 let reference_height =
                     chain_store.get_block_header(&approval.reference_hash)?.inner_lite.height;
 
-                if let Some(old_height) = accounts_to_height_to_remove.get(&account_id) {
+                let was_surrounding_no_quroum = if let Some(old_height) =
+                    accounts_to_height_to_remove.get(&account_id)
+                {
                     if *old_height < reference_height {
                         // If the approval is fully surrounded by the previous known approval from
                         //    the same block producer, disregard it (the existence of two such approvals
                         //    is a slashable behavior, and we can safely ignore either or both here)
                         continue;
                     }
-                }
+
+                    height_to_accounts_to_remove.get_mut(old_height).unwrap().remove(&account_id);
+                    *height_to_stake.get_mut(old_height).unwrap() -= cur_account_stake;
+
+                    *old_height as i64 <= highest_height_no_quorum
+                } else {
+                    false
+                };
 
                 if reference_height as i64 <= highest_height_no_quorum && !was_surrounding_no_quroum
                 {
-                    accounts_surrounding_no_quroum += 1;
+                    stake_surrounding_no_quorum += cur_account_stake;
                 }
 
                 height_to_accounts_to_remove
@@ -240,14 +248,23 @@ impl FinalityGadget {
                     .or_insert_with(|| HashSet::new())
                     .insert(account_id.clone());
 
+                *height_to_stake.entry(reference_height).or_insert_with(|| 0 as Balance) +=
+                    cur_account_stake;
+
                 accounts_to_height_to_remove.insert(account_id.clone(), reference_height);
 
-                surrounding_approvals.insert(account_id);
+                if !surrounding_approvals.contains(&account_id) {
+                    surrounding_stake += cur_account_stake;
+                    surrounding_approvals.insert(account_id);
+                }
             }
 
             if let Some(remove_accounts) = height_to_accounts_to_remove.get(&height) {
                 for account_id in remove_accounts {
-                    surrounding_approvals.remove(account_id);
+                    if surrounding_approvals.contains(account_id) {
+                        surrounding_stake -= *account_id_to_stake.get(account_id).unwrap();
+                        surrounding_approvals.remove(account_id);
+                    }
                     accounts_to_height_to_remove.remove(account_id);
                 }
             }
@@ -275,16 +292,14 @@ impl FinalityGadget {
             }
 
             // Move `highest_height_no_quorum` if needed
-            while accounts_surrounding_no_quroum > total_block_producers * 2 / 3 {
-                accounts_surrounding_no_quroum -= height_to_accounts_to_remove
-                    .get(&(highest_height_no_quorum as u64))
-                    .map(|v| v.len())
-                    .unwrap_or(0);
+            while stake_surrounding_no_quorum > threshold {
+                stake_surrounding_no_quorum -=
+                    *height_to_stake.get(&(highest_height_no_quorum as u64)).unwrap_or(&0);
 
                 highest_height_no_quorum -= 1;
             }
 
-            if surrounding_approvals.len() > total_block_producers * 2 / 3 {
+            if surrounding_stake > threshold {
                 if quorum_pre_vote.is_none() {
                     quorum_pre_vote = Some(last_block_header.hash())
                 }

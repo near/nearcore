@@ -27,7 +27,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_store::{Store, COL_STATE_HEADERS, COL_STATE_PARTS};
+use near_store::{ColStateHeaders, ColStateParts, Store};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
@@ -52,6 +52,9 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
+
+/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
+pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 
 enum ApplyChunksMode {
     ThisEpoch,
@@ -346,17 +349,21 @@ impl Chain {
         epoch_id: EpochId,
         height: BlockIndex,
         approvals: Vec<Approval>,
-        total_block_producers: usize,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
     ) -> Result<FinalityGadgetQuorums, Error> {
+        let stakes = runtime_adapter
+            .get_epoch_block_producers(&epoch_id, &prev_hash)?
+            .iter()
+            .map(|x| x.0.clone())
+            .collect();
         let mut ret = FinalityGadget::compute_quorums(
             prev_hash,
             epoch_id,
             height,
             approvals,
             chain_store,
-            total_block_producers,
+            stakes,
         )?;
         ret.last_quorum_pre_commit = runtime_adapter
             .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
@@ -1362,7 +1369,7 @@ impl Chain {
         // Saving the header data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        store_update.set_ser(COL_STATE_HEADERS, &key, &shard_state_header)?;
+        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(())
@@ -1374,13 +1381,13 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        /*self.store.store().get_ser(COL_STATE_HEADERS, sync_hash.as_ref())?.unwrap_or(
+        /*self.store.store().get_ser(ColStateHeaders, sync_hash.as_ref())?.unwrap_or(
             return Err(
             ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
                 .into(),
         ));*/
         // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.owned_store().get_ser(COL_STATE_HEADERS, &key)?.unwrap())
+        Ok(self.store.owned_store().get_ser(ColStateHeaders, &key)?.unwrap())
     }
 
     pub fn set_state_part(
@@ -1405,7 +1412,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(COL_STATE_PARTS, &key, data)?;
+        store_update.set_ser(ColStateParts, &key, data)?;
         store_update.commit()?;
         Ok(())
     }
@@ -1422,7 +1429,7 @@ impl Chain {
         let mut parts = vec![];
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            parts.push(self.store.owned_store().get_ser(COL_STATE_PARTS, &key)?.unwrap());
+            parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
         }
 
         // Confirm that state matches the parts we received
@@ -1474,7 +1481,7 @@ impl Chain {
         let mut store_update = self.store.owned_store().store_update();
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            store_update.delete(COL_STATE_PARTS, &key);
+            store_update.delete(ColStateParts, &key);
         }
         Ok(store_update.commit()?)
     }
@@ -1650,6 +1657,13 @@ impl Chain {
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
         Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
+    }
+
+    /// Find a validator that is responsible for a given shard to forward requests to
+    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
+        let head = self.head()?;
+        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
     }
 }
 
@@ -2519,9 +2533,6 @@ impl<'a> ChainUpdate<'a> {
                 header.inner_lite.epoch_id.clone(),
                 header.inner_lite.height,
                 header.inner_rest.approvals.clone(),
-                self.runtime_adapter
-                    .get_epoch_block_producers(&header.inner_lite.epoch_id, &header.prev_hash)?
-                    .len(),
                 &*self.runtime_adapter,
                 &mut self.chain_store_update,
             )?;

@@ -33,8 +33,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges,
-    COL_STATE,
+    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
+    WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -138,7 +138,7 @@ impl NightshadeRuntime {
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
         self.store
-            .load_from_file(COL_STATE, state_file.as_path())
+            .load_from_file(ColState, state_file.as_path())
             .expect("Failed to read state dump");
         let mut roots_files = self.home_dir.clone();
         roots_files.push(GENESIS_ROOTS_FILE);
@@ -483,7 +483,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
     }
@@ -557,7 +557,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
-        Ok(block_producers[part_id as usize % block_producers.len()].0.clone())
+        Ok(block_producers[part_id as usize % block_producers.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(
@@ -1096,7 +1096,8 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorId,
+        ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -1190,11 +1191,11 @@ mod test {
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });
-            let validators_len = all_validators.len();
+            let validators_len = all_validators.len() as ValidatorId;
             let mut genesis_config = GenesisConfig::test_sharded(
                 all_validators.into_iter().collect(),
                 validators_len,
-                validators.iter().map(|x| x.len()).collect(),
+                validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
@@ -1396,7 +1397,12 @@ mod test {
 
         let epoch_id = env.runtime.get_epoch_id_from_prev_block(&env.head.last_block_hash).unwrap();
         assert_eq!(
-            env.runtime.get_epoch_block_producers(&epoch_id, &env.head.last_block_hash).unwrap(),
+            env.runtime
+                .get_epoch_block_producers(&epoch_id, &env.head.last_block_hash)
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test3".to_string(), false), ("test1".to_string(), false)]
         );
 
@@ -1967,7 +1973,10 @@ mod test {
         assert_eq!(
             env.runtime
                 .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap(),
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), true), ("test1".to_string(), false)]
         );
         let msg = vec![0, 1, 2];

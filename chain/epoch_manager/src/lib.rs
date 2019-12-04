@@ -9,7 +9,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
-use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO, COL_EPOCH_START};
+use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
@@ -105,7 +105,7 @@ impl EpochManager {
                 continue;
             }
             let (num_blocks, expected_blocks) =
-                *block_validator_tracker.get(&i).unwrap_or_else(|| &(0, 0));
+                *block_validator_tracker.get(&(i as u64)).unwrap_or_else(|| &(0, 0));
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
             if num_blocks * 100 < u64::from(block_producer_kickout_threshold) * expected_blocks {
                 validator_kickout.insert(account_id.clone());
@@ -113,11 +113,11 @@ impl EpochManager {
             let mut total_chunks_expected = 0;
             let mut total_chunks_produced = 0;
             for (shard_id, tracker) in num_expected_chunks.iter() {
-                if tracker.contains_key(&i) {
-                    let num_expected = *tracker.get(&i).unwrap();
+                if tracker.contains_key(&(i as u64)) {
+                    let num_expected = *tracker.get(&(i as u64)).unwrap();
                     let num_produced = *chunk_validator_tracker
                         .get(shard_id)
-                        .and_then(|t| t.get(&i))
+                        .and_then(|t| t.get(&(i as u64)))
                         .unwrap_or(&0);
                     total_chunks_expected += num_expected;
                     total_chunks_produced += num_produced;
@@ -411,7 +411,8 @@ impl EpochManager {
         index: BlockIndex,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        Ok(epoch_info.validators[Self::block_producer_from_info(&epoch_info, index)].clone())
+        let validator_id = Self::block_producer_from_info(&epoch_info, index) as usize;
+        Ok(epoch_info.validators[validator_id].clone())
     }
 
     pub fn get_all_block_producer_info(
@@ -424,7 +425,7 @@ impl EpochManager {
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
         for validator_id in epoch_info.block_producers.iter() {
-            let validator_stake = epoch_info.validators[*validator_id].clone();
+            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
             if !validators.contains(&validator_stake.account_id) {
                 let is_slashed = slashed.contains(&validator_stake.account_id);
                 validators.insert(validator_stake.account_id.clone());
@@ -439,11 +440,11 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, EpochError> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         Ok(self
             .get_all_block_producer_info(epoch_id, last_known_block_hash)?
             .into_iter()
-            .map(|(v, is_slashed)| (v.account_id, is_slashed))
+            .map(|(v, is_slashed)| (v, is_slashed))
             .collect())
     }
 
@@ -455,8 +456,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        Ok(epoch_info.validators[self.chunk_producer_from_info(&epoch_info, index, shard_id)]
-            .clone())
+        let validator_id = self.chunk_producer_from_info(&epoch_info, index, shard_id) as usize;
+        Ok(epoch_info.validators[validator_id].clone())
     }
 
     /// Returns validator for given account id for given epoch.
@@ -468,7 +469,7 @@ impl EpochManager {
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         if let Some(idx) = epoch_info.validator_to_index.get(account_id) {
-            return Ok(Some(epoch_info.validators[*idx].clone()));
+            return Ok(Some(epoch_info.validators[*idx as usize].clone()));
         }
         Ok(None)
     }
@@ -686,7 +687,7 @@ impl EpochManager {
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         for validator_id in epoch_info.chunk_producers[shard_id as usize].iter() {
-            if &epoch_info.validators[*validator_id].account_id == account_id {
+            if &epoch_info.validators[*validator_id as usize].account_id == account_id {
                 return Ok(true);
             }
         }
@@ -799,7 +800,7 @@ impl EpochManager {
         if !self.epochs_info.cache_get(epoch_id).is_some() {
             let epoch_info = self
                 .store
-                .get_ser(COL_EPOCH_INFO, epoch_id.as_ref())
+                .get_ser(ColEpochInfo, epoch_id.as_ref())
                 .map_err(|err| err.into())
                 .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
             self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
@@ -822,7 +823,7 @@ impl EpochManager {
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
+            .set_ser(ColEpochInfo, epoch_id.as_ref(), &epoch_info)
             .map_err(EpochError::from)?;
         self.epochs_info.cache_set(epoch_id.clone(), epoch_info);
         Ok(())
@@ -840,7 +841,7 @@ impl EpochManager {
         if self.blocks_info.cache_get(hash).is_none() {
             let block_info = self
                 .store
-                .get_ser(COL_BLOCK_INFO, hash.as_ref())
+                .get_ser(ColBlockInfo, hash.as_ref())
                 .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
             self.blocks_info.cache_set(*hash, block_info);
@@ -855,7 +856,7 @@ impl EpochManager {
         block_info: BlockInfo,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_BLOCK_INFO, block_hash.as_ref(), &block_info)
+            .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.cache_set(*block_hash, block_info);
         Ok(())
@@ -868,7 +869,7 @@ impl EpochManager {
         epoch_start: BlockIndex,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(COL_EPOCH_START, epoch_id.as_ref(), &epoch_start)
+            .set_ser(ColEpochStart, epoch_id.as_ref(), &epoch_start)
             .map_err(EpochError::from)?;
         self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
         Ok(())
@@ -881,7 +882,7 @@ impl EpochManager {
         if self.epoch_id_to_start.cache_get(epoch_id).is_none() {
             let epoch_start = self
                 .store
-                .get_ser(COL_EPOCH_START, epoch_id.as_ref())
+                .get_ser(ColEpochStart, epoch_id.as_ref())
                 .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
             self.epoch_id_to_start.cache_set(epoch_id.clone(), epoch_start);
@@ -1027,7 +1028,12 @@ mod tests {
 
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch1, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch1, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![
                 ("test3".to_string(), false),
                 ("test2".to_string(), false),
@@ -1037,13 +1043,23 @@ mod tests {
 
         let epoch2_1 = epoch_manager.get_epoch_id(&h[13]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_1, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch2_1, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), false), ("test4".to_string(), false)]
         );
 
         let epoch2_2 = epoch_manager.get_epoch_id(&h[11]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_2, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch2_2, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test1".to_string(), false), ("test3".to_string(), false),]
         );
 
@@ -1231,7 +1247,12 @@ mod tests {
 
         let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch_id, &h[1]).unwrap(),
+            epoch_manager
+                .get_all_block_producers(&epoch_id, &h[1])
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
             vec![("test2".to_string(), false), ("test1".to_string(), true)]
         );
 

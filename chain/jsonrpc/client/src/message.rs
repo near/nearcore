@@ -117,6 +117,12 @@ impl RpcError {
     }
 }
 
+impl std::string::ToString for RpcError {
+    fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
 /// A response to an RPC.
 ///
 /// It is created by the methods on [Request](struct.Request.html).

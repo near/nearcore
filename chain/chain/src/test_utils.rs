@@ -32,7 +32,7 @@ use near_primitives::types::{
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::test_utils::create_test_store;
 use near_store::{
-    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+    ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
@@ -160,7 +160,7 @@ impl KeyValueRuntime {
         if headers_cache.get(hash).is_some() {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
-        if let Some(result) = self.store.get_ser(COL_BLOCK_HEADER, hash.as_ref())? {
+        if let Some(result) = self.store.get_ser(ColBlockHeader, hash.as_ref())? {
             headers_cache.insert(hash.clone(), result);
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
@@ -305,9 +305,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
+        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
     }
 
     fn get_block_producer(
@@ -861,7 +861,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(ColBlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

@@ -5,24 +5,19 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    WrapFuture,
-};
-use cached::Cached;
+use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
 use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
+    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
 };
-use near_chunks::{NetworkAdapter, NetworkRecipient};
 use near_crypto::Signature;
 use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -48,7 +43,6 @@ const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
 pub struct ClientActor {
     client: Client,
-    network_actor: Recipient<NetworkRequests>,
     network_adapter: Arc<dyn NetworkAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
@@ -81,7 +75,7 @@ impl ClientActor {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
-        network_actor: Recipient<NetworkRequests>,
+        network_adapter: Arc<dyn NetworkAdapter>,
         block_producer: Option<BlockProducer>,
         telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
@@ -90,7 +84,6 @@ impl ClientActor {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
         let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
-        let network_adapter = Arc::new(NetworkRecipient::new(network_actor.clone()));
         let client = Client::new(
             config,
             store,
@@ -102,7 +95,6 @@ impl ClientActor {
 
         Ok(ClientActor {
             client,
-            network_actor,
             network_adapter,
             node_id,
             network_info: NetworkInfo {
@@ -157,9 +149,6 @@ impl Actor for ClientActor {
         // Start catchup job.
         self.catchup(ctx);
 
-        // Start fetching information from network.
-        self.fetch_network_info(ctx);
-
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
     }
@@ -171,25 +160,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
-            NetworkClientMessages::TxStatus { tx_hash, signer_account_id } => {
-                self.client.get_tx_status(tx_hash, signer_account_id)
-            }
-            NetworkClientMessages::TxStatusResponse(tx_result) => {
-                let tx_hash = tx_result.transaction.id;
-                if self.client.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    self.client.tx_status_response.cache_set(tx_hash, tx_result);
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::Query { path, data, id } => {
-                self.client.handle_query(path, data, id)
-            }
-            NetworkClientMessages::QueryResponse { response, id } => {
-                if self.client.query_requests.cache_remove(&id).is_some() {
-                    self.client.query_responses.cache_set(id, response);
-                }
-                NetworkClientResponses::NoResponse
-            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -462,6 +432,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::NetworkInfo(network_info) => {
+                self.network_info = network_info;
+                NetworkClientResponses::NoResponse
+            }
         }
     }
 }
@@ -471,12 +445,12 @@ impl Handler<Status> for ClientActor {
 
     fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
-        let prev_header = self
+        let header = self
             .client
             .chain
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.inner_lite.timestamp.clone();
+        let latest_block_time = header.inner_lite.timestamp.clone();
         if msg.is_health_check {
             let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
             if elapsed
@@ -494,7 +468,10 @@ impl Handler<Status> for ClientActor {
             .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
             .map_err(|err| err.to_string())?
             .into_iter()
-            .map(|(account_id, is_slashed)| ValidatorInfo { account_id, is_slashed })
+            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                account_id: validator_stake.account_id,
+                is_slashed,
+            })
             .collect();
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
@@ -504,7 +481,7 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: prev_header.inner_lite.prev_state_root.clone().into(),
+                latest_state_root: header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
@@ -598,7 +575,9 @@ impl ClientActor {
         if let Ok(validators) =
             self.client.runtime_adapter.get_epoch_block_producers(&next_epoch_id, &prev_block_hash)
         {
-            if validators.iter().any(|(account_id, _)| (account_id == &block_producer.account_id)) {
+            if validators.iter().any(|(validator_stake, _)| {
+                (validator_stake.account_id == block_producer.account_id)
+            }) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
@@ -837,12 +816,17 @@ impl ClientActor {
                 return NetworkClientResponses::NoResponse;
             }
             Err(ref e) if e.is_bad_data() => {
-                debug!(target: "client", "Error on receival of header: {}", e);
+                error!(target: "client", "Error on receival of header: {}", e);
                 return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of header: {}", e);
+                match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {}
+                    _ => {
+                        error!(target: "client", "Error on receival of header: {}", e);
+                    }
+                }
                 return NetworkClientResponses::NoResponse;
             }
             // Got an error when trying to process the block header, but it's not due to
@@ -1152,34 +1136,6 @@ impl ClientActor {
         });
     }
 
-    /// Periodically fetch network info.
-    fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
-        // TODO: replace with push from network?
-        self.network_actor
-            .send(NetworkRequests::FetchInfo)
-            .into_actor(self)
-            .then(move |res, act, _ctx| match res {
-                Ok(NetworkResponses::Info(network_info)) => {
-                    act.network_info = network_info;
-                    actix::fut::ok(())
-                }
-                Err(_)
-                | Ok(NetworkResponses::BanPeer(_))
-                | Ok(NetworkResponses::RoutingTableInfo(_))
-                | Ok(NetworkResponses::PingPongInfo { .. })
-                | Ok(NetworkResponses::NoResponse)
-                | Ok(NetworkResponses::EdgeUpdate(_)) => {
-                    error!(target: "client", "Sync: received error or incorrect result.");
-                    actix::fut::err(())
-                }
-            })
-            .wait(ctx);
-
-        ctx.run_later(self.client.config.fetch_info_period, move |act, ctx| {
-            act.fetch_network_info(ctx);
-        });
-    }
-
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
@@ -1191,7 +1147,7 @@ impl ClientActor {
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.client.block_producer {
                 if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|x| x.0 == block_producer.account_id)
+                    validators.into_iter().find(|x| x.0.account_id == block_producer.account_id)
                 {
                     !is_slashed
                 } else {

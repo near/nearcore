@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, Recipient};
+use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
 use futures::future;
 use futures::future::Future;
@@ -13,13 +13,11 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, Provenance, RuntimeAdapter};
-use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::routing::EdgeInfo;
 use near_network::types::{AccountOrPeerIdOrHash, NetworkInfo, PeerChainInfo};
 use near_network::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerInfo, PeerManagerActor,
+    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
+    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
@@ -29,6 +27,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_network::routing::EdgeInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -61,12 +60,12 @@ pub fn setup(
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
-    recipient: Recipient<NetworkRequests>,
+    network_adapter: Arc<dyn NetworkAdapter>,
     tx_validity_period: BlockIndex,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
-    let num_validators = validators.iter().map(|x| x.len()).sum();
+    let num_validators = validators.iter().map(|x| x.len()).sum::<usize>() as ValidatorId;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
@@ -89,7 +88,13 @@ pub fn setup(
 
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
-    let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
+    let view_client = ViewClientActor::new(
+        store.clone(),
+        &chain_genesis,
+        runtime.clone(),
+        network_adapter.clone(),
+    )
+    .unwrap();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
@@ -102,7 +107,7 @@ pub fn setup(
         chain_genesis,
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
-        recipient,
+        network_adapter,
         Some(signer.into()),
         telemetry,
     )
@@ -139,33 +144,34 @@ pub fn setup_mock_with_validity_period(
     >,
     validity_period: BlockIndex,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    let view_client_addr = Arc::new(RwLock::new(None));
-    let view_client_addr1 = view_client_addr.clone();
-    let client_addr = ClientActor::create(move |ctx| {
-        let client_addr = ctx.address();
-        let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
-            let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-            let resp = network_mock(msg, ctx, client_addr.clone());
-            Box::new(Some(resp))
-        }))
-        .start();
-        let (_, client, view_client) = setup(
-            vec![validators],
-            1,
-            1,
-            5,
-            account_id,
-            skip_sync_wait,
-            100,
-            200,
-            pm.recipient(),
-            validity_period,
-            Utc::now(),
-        );
-        *view_client_addr1.write().unwrap() = Some(view_client.start());
-        client
-    });
-    (client_addr, view_client_addr.clone().read().unwrap().clone().unwrap())
+    let network_adapter = Arc::new(NetworkRecipient::new());
+    let (_, client, view_client) = setup(
+        vec![validators],
+        1,
+        1,
+        5,
+        account_id,
+        skip_sync_wait,
+        100,
+        200,
+        network_adapter.clone(),
+        validity_period,
+        Utc::now(),
+    );
+    let client_addr = client.start();
+    let view_client_addr = view_client.start();
+    let client_addr1 = client_addr.clone();
+
+    let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+        let resp = network_mock(msg, ctx, client_addr1.clone());
+        Box::new(Some(resp))
+    }))
+    .start();
+
+    network_adapter.set_recipient(network_actor.recipient());
+
+    (client_addr, view_client_addr)
 }
 
 fn sample_binary(n: u64, k: u64) -> bool {
@@ -245,20 +251,23 @@ pub fn setup_mock_all_validators(
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
+        let key_pairs1 = key_pairs.clone();
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
+        let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height_weight1 = last_height_weight.clone();
+        let last_height_weight2 = last_height_weight.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
         let client_addr = ClientActor::create(move |ctx| {
-            let _client_addr = ctx.address();
+            let client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
                 let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
-                let (mut resp, perform_default) = guard.deref_mut()(account_id.to_string(), msg);
+                let (resp, perform_default) = guard.deref_mut()(account_id.to_string(), msg);
                 drop(guard);
 
                 if perform_default {
@@ -276,38 +285,40 @@ pub fn setup_mock_all_validators(
                     let my_address = my_address.unwrap();
                     let my_ord = my_ord.unwrap();
 
-                    match msg {
-                        NetworkRequests::FetchInfo { .. } => {
-                            let last_height_weight1 = last_height_weight1.read().unwrap();
-                            let peers: Vec<_> = key_pairs
-                                .iter()
-                                .take(connectors1.read().unwrap().len())
-                                .enumerate()
-                                .map(|(i, peer_info)| FullPeerInfo {
-                                    peer_info: peer_info.clone(),
-                                    chain_info: PeerChainInfo {
-                                        genesis_id: GenesisId {
-                                            chain_id: "unittest".to_string(),
-                                            hash: Default::default(),
-                                        },
-                                        height: last_height_weight1[i].0,
-                                        weight_and_score: last_height_weight1[i].1,
-                                        tracked_shards: vec![],
+                    {
+                        let last_height_weight2 = last_height_weight2.read().unwrap();
+                        let peers: Vec<_> = key_pairs1
+                            .iter()
+                            .take(connectors2.read().unwrap().len())
+                            .enumerate()
+                            .map(|(i, peer_info)| FullPeerInfo {
+                                peer_info: peer_info.clone(),
+                                chain_info: PeerChainInfo {
+                                    genesis_id: GenesisId {
+                                        chain_id: "unittest".to_string(),
+                                        hash: Default::default(),
                                     },
-                                    edge_info: EdgeInfo::default(),
-                                })
-                                .collect();
-                            let peers2 = peers.clone();
-                            resp = NetworkResponses::Info(NetworkInfo {
-                                active_peers: peers,
-                                num_active_peers: key_pairs.len(),
-                                peer_max_count: key_pairs.len() as u32,
-                                most_weight_peers: peers2,
-                                sent_bytes_per_sec: 0,
-                                received_bytes_per_sec: 0,
-                                known_producers: vec![],
+                                    height: last_height_weight2[i].0,
+                                    weight_and_score: last_height_weight2[i].1,
+                                    tracked_shards: vec![],
+                                },
+                                edge_info: EdgeInfo::default(),
                             })
-                        }
+                            .collect();
+                        let peers2 = peers.clone();
+                        let info = NetworkInfo {
+                            active_peers: peers,
+                            num_active_peers: key_pairs1.len(),
+                            peer_max_count: key_pairs1.len() as u32,
+                            most_weight_peers: peers2,
+                            sent_bytes_per_sec: 0,
+                            received_bytes_per_sec: 0,
+                            known_producers: vec![],
+                        };
+                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
+                    }
+
+                    match msg {
                         NetworkRequests::Block { block } => {
                             for (client, _) in connectors1.read().unwrap().iter() {
                                 client.do_send(NetworkClientMessages::Block(
@@ -592,6 +603,8 @@ pub fn setup_mock_all_validators(
                 Box::new(Some(resp))
             }))
             .start();
+            let network_adapter = NetworkRecipient::new();
+            network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client) = setup(
                 validators_clone1.clone(),
                 validator_groups,
@@ -607,7 +620,7 @@ pub fn setup_mock_all_validators(
                 // When not tampering with fg, make the relationship between constants closer to the
                 //     actual relationship.
                 if tamper_with_fg { block_prod_time } else { block_prod_time * 2 },
-                pm.recipient(),
+                Arc::new(network_adapter),
                 10000,
                 genesis_time,
             );
@@ -615,6 +628,7 @@ pub fn setup_mock_all_validators(
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
+
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
     hash_to_score.write().unwrap().insert(CryptoHash::default(), WeightAndScore::from_ints(0, 0));
@@ -646,18 +660,7 @@ pub fn setup_no_network_with_validity_period(
         validators,
         account_id,
         skip_sync_wait,
-        Box::new(|req, _, _| match req {
-            NetworkRequests::FetchInfo { .. } => NetworkResponses::Info(NetworkInfo {
-                active_peers: vec![],
-                num_active_peers: 0,
-                peer_max_count: 0,
-                most_weight_peers: vec![],
-                received_bytes_per_sec: 0,
-                sent_bytes_per_sec: 0,
-                known_producers: vec![],
-            }),
-            _ => NetworkResponses::NoResponse,
-        }),
+        Box::new(|_, _, _| NetworkResponses::NoResponse),
         validity_period,
     )
 }
@@ -693,7 +696,7 @@ pub fn setup_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
-    let num_validators = validators.iter().map(|x| x.len()).sum();
+    let num_validators = validators.iter().map(|x| x.len()).sum::<usize>() as ValidatorId;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
@@ -744,7 +747,7 @@ impl TestEnv {
     pub fn new_with_runtime(
         chain_genesis: ChainGenesis,
         num_clients: usize,
-        num_validators: usize,
+        num_validators: ValidatorId,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
     ) -> Self {
         let network_adapters: Vec<Arc<MockNetworkAdapter>> =
@@ -761,7 +764,7 @@ impl TestEnv {
     pub fn new_with_runtime_and_network_adapter(
         chain_genesis: ChainGenesis,
         num_clients: usize,
-        num_validators: usize,
+        num_validators: ValidatorId,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
     ) -> Self {
