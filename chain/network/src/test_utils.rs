@@ -3,7 +3,6 @@ use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-use byteorder::{ByteOrder, LittleEndian};
 use futures::future;
 use futures::future::Future;
 use rand::{thread_rng, RngCore};
