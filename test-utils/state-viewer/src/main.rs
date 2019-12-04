@@ -18,7 +18,7 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockIndex, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
-use near_store::{create_store, DBValue, Store, TrieIterator};
+use near_store::{create_store, Store, TrieIterator};
 use node_runtime::StateRecord;
 use std::collections::HashMap;
 
@@ -37,7 +37,7 @@ fn to_printable(blob: &[u8]) -> String {
     }
 }
 
-fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
+fn kv_to_state_record(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
     let column = &key[0..1];
     match column {
         col::ACCOUNT => {
@@ -82,7 +82,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
     }
 }
 
-fn print_state_entry(key: Vec<u8>, value: DBValue) {
+fn print_state_entry(key: Vec<u8>, value: Vec<u8>) {
     match kv_to_state_record(key, value) {
         Some(StateRecord::Account { account_id, account }) => {
             println!("Account {:?}: {:?}", account_id, account)

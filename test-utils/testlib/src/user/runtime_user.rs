@@ -2,7 +2,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use near::config::INITIAL_GAS_PRICE;
+use near_chain::types::ApplyTransactionResult;
 use near_crypto::{PublicKey, Signer};
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
@@ -17,9 +20,6 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near::config::INITIAL_GAS_PRICE;
-use near_chain::types::ApplyTransactionResult;
-use near_primitives::errors::RuntimeError;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
