@@ -17,6 +17,7 @@ use near_primitives::types::AccountId;
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     ColAccountAnnouncements, ColComponentEdges, ColPeerComponent, LastComponentNonce, Store,
+    StoreUpdate,
 };
 
 use crate::metrics;
@@ -386,6 +387,33 @@ impl RoutingTable {
         })
     }
 
+    /// Get the nonce of the component where the peer was stored
+    fn component_nonce_from_peer(&mut self, peer_id: PeerId) -> Result<u64, ()> {
+        match self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id).as_ref()) {
+            Ok(Some(nonce)) => Ok(nonce),
+            _ => Err(()),
+        }
+    }
+
+    /// Get all edges in the component with `nonce`
+    /// Remove those edges from the store.
+    fn get_component_edges(
+        &mut self,
+        nonce: u64,
+        update: &mut StoreUpdate,
+    ) -> Result<Vec<Edge>, ()> {
+        let enc_nonce = index_to_bytes(nonce);
+
+        let result = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+            Ok(Some(edges)) => Ok(edges),
+            _ => Err(()),
+        };
+
+        update.delete(ColComponentEdges, enc_nonce.as_ref());
+
+        result
+    }
+
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
     fn touch(&mut self, peer_id: &PeerId) {
         if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
@@ -394,25 +422,17 @@ impl RoutingTable {
 
         let me = self.peer_id().clone();
 
-        if let Ok(Some(nonce)) =
-            self.store.get_ser::<u64>(ColPeerComponent, Vec::from(peer_id.clone()).as_ref())
-        {
+        if let Ok(nonce) = self.component_nonce_from_peer(peer_id.clone()) {
             let mut update = self.store.store_update();
-            let enc_nonce = index_to_bytes(nonce);
 
-            if let Ok(Some(edges)) =
-                self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref())
-            {
+            if let Ok(edges) = self.get_component_edges(nonce, &mut update) {
                 for edge in edges.into_iter() {
                     for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
                         if peer_id == &me || self.peer_last_time_reachable.contains_key(peer_id) {
                             continue;
                         }
 
-                        if let Ok(Some(cur_nonce)) = self
-                            .store
-                            .get_ser::<u64>(ColPeerComponent, Vec::from(peer_id.clone()).as_ref())
-                        {
+                        if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
                             if cur_nonce == nonce {
                                 self.peer_last_time_reachable.insert(
                                     peer_id.clone(),
@@ -426,8 +446,6 @@ impl RoutingTable {
                     self.add_edge(edge);
                 }
             }
-
-            update.delete(ColComponentEdges, enc_nonce.as_ref());
 
             if let Err(e) = update.commit() {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
