@@ -46,6 +46,7 @@ fn create_block() -> Block {
         EpochId::default(),
         vec![],
         0,
+        0,
         Some(0),
         vec![],
         vec![],
