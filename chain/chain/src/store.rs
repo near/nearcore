@@ -18,9 +18,9 @@ use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockIndex, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
-    ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount, ColMyLastApprovalsPerChain,
-    ColOutgoingReceipts, ColPartialChunks, ColStateDlInfos, ColTransactionResult, Store,
-    StoreUpdate, WrappedTrieChanges,
+    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
+    ColMyLastApprovalsPerChain, ColNextBlockHashes, ColOutgoingReceipts, ColPartialChunks,
+    ColStateDlInfos, ColTransactionResult, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -29,6 +29,7 @@ use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, Receip
 use near_primitives::block::{Approval, Weight};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::merkle::MerklePath;
+use near_primitives::views::LightClientBlockView;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -221,6 +222,11 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error>;
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error>;
     /// Check if we have block header at given height across any chain.
     /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
     /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
@@ -308,6 +314,10 @@ pub struct ChainStore {
     block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with index to hash on any chain.
     block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    /// Next block hashes for each block on the canonical chain
+    next_block_hashes: SizedCache<Vec<u8>, CryptoHash>,
+    /// Light client blocks corresponding to the last finalized block of each epoch
+    epoch_light_client_blocks: SizedCache<Vec<u8>, LightClientBlockView>,
     /// Cache of my last approvals
     my_last_approvals: SizedCache<Vec<u8>, Approval>,
     /// Cache of last approvals for each account
@@ -344,6 +354,8 @@ impl ChainStore {
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             block_index: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            next_block_hashes: SizedCache::with_size(CACHE_SIZE),
+            epoch_light_client_blocks: SizedCache::with_size(CACHE_SIZE),
             my_last_approvals: SizedCache::with_size(CACHE_SIZE),
             last_approvals_per_account: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
@@ -615,6 +627,33 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColNextBlockHashes,
+                &mut self.next_block_hashes,
+                hash.as_ref(),
+            ),
+            &format!("NEXT BLOCK HASH: {}", hash),
+        )
+    }
+
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColEpochLightClientBlocks,
+                &mut self.epoch_light_client_blocks,
+                hash.as_ref(),
+            ),
+            &format!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
+        )
+    }
+
     fn get_any_block_hash_by_height(
         &mut self,
         height: BlockIndex,
@@ -752,6 +791,8 @@ struct ChainStoreCacheUpdate {
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    next_block_hashes: HashMap<CryptoHash, CryptoHash>,
+    epoch_light_client_blocks: HashMap<CryptoHash, LightClientBlockView>,
     my_last_approvals: HashMap<CryptoHash, Approval>,
     last_approvals_per_account: HashMap<AccountId, Approval>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
@@ -772,6 +813,8 @@ impl ChainStoreCacheUpdate {
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             block_index: Default::default(),
+            next_block_hashes: HashMap::default(),
+            epoch_light_client_blocks: HashMap::default(),
             my_last_approvals: HashMap::default(),
             last_approvals_per_account: HashMap::default(),
             outgoing_receipts: HashMap::default(),
@@ -996,6 +1039,27 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
 
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+        if let Some(next_hash) = self.chain_store_cache_update.next_block_hashes.get(hash) {
+            Ok(next_hash)
+        } else {
+            self.chain_store.get_next_block_hash(hash)
+        }
+    }
+
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error> {
+        if let Some(light_client_block) =
+            self.chain_store_cache_update.epoch_light_client_blocks.get(hash)
+        {
+            Ok(light_client_block)
+        } else {
+            self.chain_store.get_epoch_light_client_block(hash)
+        }
+    }
+
     fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
         if let Some(approval) = self.chain_store_cache_update.my_last_approvals.get(block_hash) {
             Ok(approval)
@@ -1163,6 +1227,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.chain_store_cache_update
                         .block_index
                         .insert(header_height, Some(header_hash));
+                    self.chain_store_cache_update
+                        .next_block_hashes
+                        .insert(header_prev_hash, header_hash);
                     prev_hash = header_prev_hash;
                     prev_height = header_height;
                 }
@@ -1192,6 +1259,9 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         self.chain_store_cache_update.block_index.insert(t.height, Some(t.last_block_hash));
+        self.chain_store_cache_update
+            .next_block_hashes
+            .insert(t.prev_block_hash, t.last_block_hash);
         self.header_head = Some(t.clone());
         Ok(())
     }
@@ -1256,6 +1326,20 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_block_header(&mut self, header: BlockHeader) {
         self.chain_store_cache_update.headers.insert(header.hash(), header);
+    }
+
+    pub fn save_next_block_hash(&mut self, hash: &CryptoHash, next_hash: CryptoHash) {
+        self.chain_store_cache_update.next_block_hashes.insert(hash.clone(), next_hash);
+    }
+
+    pub fn save_epoch_light_client_block(
+        &mut self,
+        epoch_hash: &CryptoHash,
+        light_client_block: LightClientBlockView,
+    ) {
+        self.chain_store_cache_update
+            .epoch_light_client_blocks
+            .insert(epoch_hash.clone(), light_client_block);
     }
 
     pub fn save_my_last_approval(&mut self, block_hash: &CryptoHash, approval: Approval) {
@@ -1428,6 +1512,18 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(ColBlockIndex, &index_to_bytes(*height));
             }
         }
+        for (block_hash, next_hash) in self.chain_store_cache_update.next_block_hashes.iter() {
+            store_update.set_ser(ColNextBlockHashes, block_hash.as_ref(), next_hash)?;
+        }
+        for (epoch_hash, light_client_block) in
+            self.chain_store_cache_update.epoch_light_client_blocks.iter()
+        {
+            store_update.set_ser(
+                ColEpochLightClientBlocks,
+                epoch_hash.as_ref(),
+                light_client_block,
+            )?;
+        }
         for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
             store_update.set_ser(ColMyLastApprovalsPerChain, block_hash.as_ref(), approval)?;
         }
@@ -1555,6 +1651,8 @@ impl<'a> ChainStoreUpdate<'a> {
             partial_chunks,
             block_hash_per_height,
             block_index,
+            next_block_hashes,
+            epoch_light_client_blocks,
             last_approvals_per_account,
             my_last_approvals,
             outgoing_receipts,
@@ -1599,6 +1697,14 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (account_id, approval) in last_approvals_per_account {
             self.chain_store.last_approvals_per_account.cache_set(account_id.into(), approval);
+        }
+        for (block_hash, next_hash) in next_block_hashes {
+            self.chain_store.next_block_hashes.cache_set(block_hash.into(), next_hash);
+        }
+        for (epoch_hash, light_client_block) in epoch_light_client_blocks {
+            self.chain_store
+                .epoch_light_client_blocks
+                .cache_set(epoch_hash.into(), light_client_block);
         }
         for (block_hash, approval) in my_last_approvals {
             self.chain_store.my_last_approvals.cache_set(block_hash.into(), approval);

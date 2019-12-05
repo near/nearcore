@@ -66,6 +66,10 @@ pub enum DBCol {
     ColEpochStart = 24,
     /// Map account_id to announce_account
     ColAccountAnnouncements = 25,
+    /// Next block hashes in the sequence of the canonical chain blocks
+    ColNextBlockHashes = 26,
+    /// `LightClientBlock`s corresponding to the last final block of each completed epoch
+    ColEpochLightClientBlocks = 27,
 }
 
 impl std::fmt::Display for DBCol {
@@ -97,12 +101,14 @@ impl std::fmt::Display for DBCol {
             Self::ColStateParts => "state parts",
             Self::ColEpochStart => "epoch start",
             Self::ColAccountAnnouncements => "account id to account announcement",
+            Self::ColNextBlockHashes => "next block hash",
+            Self::ColEpochLightClientBlocks => "epoch light client block",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 26;
+const NUM_COLS: usize = 28;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

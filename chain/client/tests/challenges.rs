@@ -38,6 +38,7 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.chunks.clone(),
         b1.header.inner_lite.epoch_id.clone(),
+        b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -47,6 +48,7 @@ fn test_verify_block_double_sign_challenge() {
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        b1.header.inner_lite.next_bp_hash.clone(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -138,6 +140,7 @@ fn create_invalid_proofs_chunk(
         2,
         vec![chunk.header.clone()],
         last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -147,6 +150,7 @@ fn create_invalid_proofs_chunk(
         0.into(),
         last_block.header.prev_hash,
         CryptoHash::default(),
+        last_block.header.inner_lite.next_bp_hash,
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -250,6 +254,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.height + 1,
         vec![invalid_chunk.header.clone()],
         last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -259,6 +264,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         0.into(),
         last_block.header.prev_hash,
         prev_to_last_block.header.prev_hash,
+        last_block.header.inner_lite.next_bp_hash,
     );
 
     let challenge_body = {

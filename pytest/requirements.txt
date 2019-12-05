@@ -2,6 +2,7 @@ boto3
 fabric
 tornado
 requests
+retry
 ed25519
 base58
 google-api-python-client

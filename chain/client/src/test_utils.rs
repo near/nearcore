@@ -26,7 +26,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use crate::{BlockProducer, Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
 use near_network::routing::EdgeInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use std::ops::Bound::{Excluded, Included, Unbounded};
@@ -683,8 +683,11 @@ pub fn setup_client_with_runtime(
         account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
     let mut config = ClientConfig::test(true, 10, 20, num_validators);
     config.epoch_length = chain_genesis.epoch_length;
-    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
-        .unwrap()
+    let mut client =
+        Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
+            .unwrap();
+    client.sync_status = SyncStatus::NoSync;
+    client
 }
 
 pub fn setup_client(
