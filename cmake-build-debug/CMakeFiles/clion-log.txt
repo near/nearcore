@@ -1,0 +1,6 @@
+/Applications/CLion.app/Contents/bin/cmake/mac/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/akashnildutta/Documents/Code/nearcore
+-- Configuring done
+CMake Error: Cannot determine link language for target "nearcore".
+CMake Error: CMake can not determine linker language for target: nearcore
+-- Generating done
+CMake Generate step failed.  Build files cannot be regenerated correctly.
