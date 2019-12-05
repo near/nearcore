@@ -465,6 +465,14 @@ impl Chain {
         Ok(())
     }
 
+    pub fn save_orphan(&mut self, block: &Block) {
+        self.orphans.add(Orphan {
+            block: block.clone(),
+            provenance: Provenance::NONE,
+            added: Instant::now(),
+        });
+    }
+
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header<F>(
         &mut self,

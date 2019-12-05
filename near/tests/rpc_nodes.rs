@@ -190,7 +190,7 @@ fn test_tx_status_with_light_client() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| panic!("{:?}", err))
                                 .map(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 }),
