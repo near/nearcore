@@ -1,5 +1,5 @@
 use crate::types::{AccountId, Balance, Gas, PublicKey};
-use crate::External;
+use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::btree_map::Range;
@@ -21,6 +21,29 @@ pub struct MockedExternal {
     receipts: Vec<Receipt>,
 }
 
+pub struct MockedValuePtr {
+    value: Vec<u8>,
+}
+
+impl MockedValuePtr {
+    pub fn new<T>(value: T) -> Self
+    where
+        T: AsRef<[u8]>,
+    {
+        MockedValuePtr { value: value.as_ref().to_vec() }
+    }
+}
+
+impl ValuePtr for MockedValuePtr {
+    fn len(&self) -> u32 {
+        self.value.len() as u32
+    }
+
+    fn deref_box(self: Box<Self>) -> crate::dependencies::Result<Vec<u8>> {
+        Ok(self.value.clone())
+    }
+}
+
 impl MockedExternal {
     pub fn new() -> Self {
         Self::default()
@@ -35,16 +58,21 @@ impl MockedExternal {
 use crate::dependencies::Result;
 
 impl External for MockedExternal {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.fake_trie.insert(key.to_vec(), value.to_vec()))
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.fake_trie.insert(key.to_vec(), value.to_vec());
+        Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.fake_trie.get(key).cloned())
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr>>> {
+        Ok(self
+            .fake_trie
+            .get(key)
+            .map(|value| Box::new(MockedValuePtr { value: value.clone() }) as Box<_>))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.fake_trie.remove(key))
+    fn storage_remove(&mut self, key: &[u8]) -> Result<()> {
+        self.fake_trie.remove(key);
+        Ok(())
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool> {
@@ -76,18 +104,21 @@ impl External for MockedExternal {
         Ok(res)
     }
 
-    fn storage_iter_next(&mut self, iterator_idx: u64) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    fn storage_iter_next(
+        &mut self,
+        iterator_idx: u64,
+    ) -> Result<Option<(Vec<u8>, Box<dyn ValuePtr>)>> {
         match self.iterators.get_mut(&iterator_idx) {
             Some(FakeIterator { iterator, prefix }) => match iterator.next() {
                 Some((k, v)) => {
                     if let Some(prefix) = prefix {
                         if k.starts_with(prefix) {
-                            Ok(Some((k.clone(), v.clone())))
+                            Ok(Some((k.clone(), Box::new(MockedValuePtr { value: v.clone() }))))
                         } else {
                             Ok(None)
                         }
                     } else {
-                        Ok(Some((k.clone(), v.clone())))
+                        Ok(Some((k.clone(), Box::new(MockedValuePtr { value: v.clone() }))))
                     }
                 }
                 None => Ok(None),

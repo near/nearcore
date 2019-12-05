@@ -32,10 +32,14 @@ pub trait MemoryLike {
 
 pub type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
+pub trait ValuePtr {
+    fn len(&self) -> u32;
+    fn deref_box(self: Box<Self>) -> Result<Vec<u8>>;
+}
+
 /// An external blockchain interface for the Runtime logic
 pub trait External {
     /// Write to the storage trie of the current account
-    /// If there is a value with this key in a storage returns the old value.
     ///
     /// # Arguments
     ///
@@ -52,11 +56,11 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// assert_eq!(external.storage_set(b"key42", b"value1337"), Ok(None));
+    /// assert_eq!(external.storage_set(b"key42", b"value1337"), Ok(()));
     /// // Should return an old value if the key exists
-    /// assert_eq!(external.storage_set(b"key42", b"new_value"), Ok(Some(b"value1337".to_vec())));
+    /// assert_eq!(external.storage_set(b"key42", b"new_value"), Ok(()));
     /// ```
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
 
     /// Reads from the storage trie of the current account
     ///
@@ -70,18 +74,18 @@ pub trait External {
     ///
     /// # Example
     /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
+    /// # use near_vm_logic::mocks::mock_external::{MockedExternal};
+    /// # use near_vm_logic::{External, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42"), Ok(Some(b"value1337".to_vec())));
+    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref_box().unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key"), Ok(None));
+    /// assert_eq!(external.storage_get(b"no_key").unwrap().map(|ptr| ptr.deref_box().unwrap()), None);
     /// ```
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn storage_get<'a>(&'a self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
-    /// Removes the key from the storage and returns the removed value (if exists)
+    /// Removes the key from the storage
     ///
     /// # Arguments
     ///
@@ -99,11 +103,11 @@ pub trait External {
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
     /// // Returns value if exists
-    /// assert_eq!(external.storage_remove(b"key42"), Ok(Some(b"value1337".to_vec())));
+    /// assert_eq!(external.storage_remove(b"key42"), Ok(()));
     /// // Returns None if there was no value
-    /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(None));
+    /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(()));
     /// ```
-    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
 
     /// Check whether key exists. Returns Ok(true) if key exists or Ok(false) otherwise
     ///
@@ -150,8 +154,8 @@ pub trait External {
     /// // Creates iterator and returns index
     /// let index = external.storage_iter(b"key42").unwrap();
     ///
-    /// assert_eq!(external.storage_iter_next(index), Ok(Some((b"key42".to_vec(), b"value1337".to_vec()))));
-    /// assert_eq!(external.storage_iter_next(index), Ok(None));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), None);
     ///
     /// external.storage_iter(b"not_existing_key").expect("should be ok");
     /// ```
@@ -182,9 +186,9 @@ pub trait External {
     /// // Creates iterator and returns index
     /// let index = external.storage_iter_range(b"key42", b"key43").unwrap();
     ///
-    /// assert_eq!(external.storage_iter_next(index), Ok(Some((b"key42".to_vec(), b"value1337".to_vec()))));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
     /// // The second key is `key43`. Returns Ok(None), since the `end` parameter is exclusive
-    /// assert_eq!(external.storage_iter_next(index), Ok(None));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), None);
     /// ```
     fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<IteratorIndex>;
 
@@ -202,10 +206,10 @@ pub trait External {
     /// This function could return:
     /// - HostErrorOrStorageError::StorageError on underlying DB failure
     /// ```
-    fn storage_iter_next(
-        &mut self,
+    fn storage_iter_next<'a>(
+        &'a mut self,
         iterator_idx: IteratorIndex,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>>;
+    ) -> Result<Option<(Vec<u8>, Box<dyn ValuePtr + 'a>)>>;
 
     /// Removes iterator index added with `storage_iter` and `storage_iter_range`
     fn storage_iter_drop(&mut self, iterator_idx: IteratorIndex) -> Result<()>;

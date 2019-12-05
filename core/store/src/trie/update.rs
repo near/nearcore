@@ -17,6 +17,27 @@ pub struct TrieUpdate {
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
+pub enum ValuePointer<'a> {
+    HashAndSize(&'a Trie, u32, CryptoHash),
+    MemoryRef(&'a Vec<u8>),
+}
+
+impl<'a> ValuePointer<'a> {
+    pub fn len(&self) -> u32 {
+        match self {
+            ValuePointer::MemoryRef(value) => value.len() as u32,
+            ValuePointer::HashAndSize(_, length, _) => *length,
+        }
+    }
+
+    pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
+        match self {
+            ValuePointer::MemoryRef(value) => Ok((*value).clone()),
+            ValuePointer::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
+        }
+    }
+}
+
 /// For each prefix, the value is a <key, value> map that records the changes in the
 /// trie update.
 pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
@@ -27,11 +48,23 @@ impl TrieUpdate {
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Ok(value.as_ref().map(|val| val.clone()))
+            Ok(value.as_ref().map(<Vec<u8>>::clone))
         } else if let Some(value) = self.committed.get(key) {
-            Ok(value.as_ref().map(|val| val.clone()))
+            Ok(value.as_ref().map(<Vec<u8>>::clone))
         } else {
             self.trie.get(&self.root, key)
+        }
+    }
+
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValuePointer>, StorageError> {
+        if let Some(value) = self.prospective.get(key) {
+            Ok(value.as_ref().map(ValuePointer::MemoryRef))
+        } else if let Some(value) = self.committed.get(key) {
+            Ok(value.as_ref().map(ValuePointer::MemoryRef))
+        } else {
+            self.trie.get_ref(&self.root, key).map(|option| {
+                option.map(|(length, hash)| ValuePointer::HashAndSize(&self.trie, length, hash))
+            })
         }
     }
 

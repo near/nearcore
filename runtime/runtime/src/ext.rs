@@ -13,8 +13,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{TrieUpdate, TrieUpdateIterator};
-use near_vm_logic::{External, HostError, HostErrorOrStorageError};
+use near_store::{TrieUpdate, TrieUpdateIterator, ValuePointer};
+use near_vm_logic::{External, HostError, HostErrorOrStorageError, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -27,6 +27,20 @@ pub struct RuntimeExt<'a> {
     gas_price: Balance,
     base_data_id: &'a CryptoHash,
     data_count: u64,
+}
+
+pub struct RuntimeExtValuePtr<'a> {
+    ptr: ValuePointer<'a>,
+}
+
+impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
+    fn len(&self) -> u32 {
+        self.ptr.len()
+    }
+
+    fn deref_box(self: Box<Self>) -> ExtResult<Vec<u8>> {
+        self.ptr.deref_value().map_err(wrap_error)
+    }
 }
 
 impl<'a> RuntimeExt<'a> {
@@ -95,27 +109,29 @@ fn wrap_error(error: StorageError) -> HostErrorOrStorageError {
 type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.set(storage_key, Vec::from(value));
-        Ok(evicted)
+        Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_get<'b>(&'b self, key: &[u8]) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get(&storage_key).map_err(wrap_error)
+        self.trie_update
+            .get_ref(&storage_key)
+            .map_err(wrap_error)
+            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr { ptr }) as Box<_>))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
         let storage_key = self.create_storage_key(key);
-        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.remove(&storage_key);
-        Ok(evicted)
+        Ok(())
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
-        Ok(self.storage_get(key)?.is_some())
+        let storage_key = self.create_storage_key(key);
+        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_error)
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u64> {
@@ -146,7 +162,10 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_iter_next(&mut self, iterator_idx: u64) -> ExtResult<Option<(Vec<u8>, Vec<u8>)>> {
+    fn storage_iter_next<'b>(
+        &'b mut self,
+        iterator_idx: u64,
+    ) -> ExtResult<Option<(Vec<u8>, Box<dyn ValuePtr + 'b>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
             None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
@@ -158,13 +177,13 @@ impl<'a> External for RuntimeExt<'a> {
             }
             Some(key) => {
                 let key = key.map_err(wrap_error)?;
-                Ok(Some((
-                    key[self.storage_prefix.len()..].to_vec(),
-                    self.trie_update
-                        .get(&key)
-                        .expect("error cannot happen")
-                        .expect("key is guaranteed to be there"),
-                )))
+                let ptr = self
+                    .trie_update
+                    .get_ref(&key)
+                    .expect("error cannot happen")
+                    .expect("key is guaranteed to be there");
+                let result = Box::new(RuntimeExtValuePtr { ptr }) as Box<_>;
+                Ok(Some((key[self.storage_prefix.len()..].to_vec(), result)))
             }
         }
     }

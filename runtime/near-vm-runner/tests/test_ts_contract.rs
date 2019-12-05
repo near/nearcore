@@ -60,7 +60,8 @@ pub fn test_ts_contract() {
     .unwrap();
     // Verify by looking directly into the storage of the host.
     let res = fake_external.storage_get(b"foo");
-    let value = res.unwrap().unwrap();
+    let value_ptr = res.unwrap().unwrap();
+    let value = value_ptr.deref_box().unwrap();
     let value = String::from_utf8(value).unwrap();
     assert_eq!(value.as_str(), "bar");
 
