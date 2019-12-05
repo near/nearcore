@@ -171,6 +171,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 error!(target: "client", "Failed to save a block during state sync");
                             }
                             return NetworkClientResponses::NoResponse;
+                        } else if &block.hash() == sync_hash {
+                            self.client.chain.save_orphan(&block);
+                            return NetworkClientResponses::NoResponse;
                         }
                     }
                 }
@@ -769,7 +772,7 @@ impl ClientActor {
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    info!(target: "client", "Error on receival of block: {}", err);
+                    debug!(target: "client", "Error on receival of block: {}", err);
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }

@@ -59,6 +59,21 @@ pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 /// Reduce wait time for every missing block in ms.
 const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
 
+/// Horizon at which instead of fetching block, fetch full state.
+const BLOCK_FETCH_HORIZON: u64 = 50;
+
+/// Horizon to step from the latest block when fetching state.
+const STATE_FETCH_HORIZON: u64 = 5;
+
+/// Behind this horizon header fetch kicks in.
+const BLOCK_HEADER_FETCH_HORIZON: u64 = 50;
+
+/// Time between check to perform catchup.
+const CATCHUP_STEP_PERIOD: u64 = 100;
+
+/// Time between checking to re-request chunks.
+const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
+
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 
@@ -176,6 +191,16 @@ pub struct Consensus {
     pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
+    /// Horizon at which instead of fetching block, fetch full state.
+    pub block_fetch_horizon: BlockIndex,
+    /// Horizon to step from the latest block when fetching state.
+    pub state_fetch_horizon: BlockIndex,
+    /// Behind this horizon header fetch kicks in.
+    pub block_header_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
 }
 
 impl Default for Consensus {
@@ -188,6 +213,11 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
             reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
             produce_empty_blocks: true,
+            block_fetch_horizon: BLOCK_FETCH_HORIZON,
+            state_fetch_horizon: STATE_FETCH_HORIZON,
+            block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
+            catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+            chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
         }
     }
 }
@@ -288,11 +318,11 @@ impl NearConfig {
                 announce_account_horizon: genesis_config.epoch_length / 2,
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: 50,
-                state_fetch_horizon: 5,
-                block_header_fetch_horizon: 50,
-                catchup_step_period: Duration::from_millis(100),
-                chunk_request_retry_period: Duration::from_millis(200),
+                block_fetch_horizon: config.consensus.block_fetch_horizon,
+                state_fetch_horizon: config.consensus.state_fetch_horizon,
+                block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
+                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },
