@@ -487,6 +487,9 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
     ));
 }
 
+const DEFAULT_TEST_CONTRACT: &'static [u8] =
+    include_bytes!("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+
 impl GenesisConfig {
     fn test_with_seeds(
         seeds: Vec<&str>,
@@ -495,11 +498,8 @@ impl GenesisConfig {
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
-        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-        let default_test_contract = std::fs::read(path).unwrap();
-        let encoded_test_contract = to_base64(&default_test_contract);
-        let code_hash = hash(&default_test_contract);
+        let encoded_test_contract = to_base64(&DEFAULT_TEST_CONTRACT);
+        let code_hash = hash(&DEFAULT_TEST_CONTRACT);
         for (i, &account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             let i = i as u64;
