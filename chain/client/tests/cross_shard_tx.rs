@@ -51,7 +51,7 @@ fn test_keyvalue_runtime_balances() {
                     .1
                     .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
                     .then(move |res| {
-                        let query_responce = res.unwrap().unwrap().unwrap();
+                        let query_response = res.unwrap().unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
