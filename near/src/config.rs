@@ -793,8 +793,8 @@ pub fn create_testnet_configs_from_seeds(
     let first_node_port = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
-        config.consensus.min_block_production_delay = Duration::from_millis(100);
-        config.consensus.max_block_production_delay = Duration::from_millis(200);
+        config.consensus.min_block_production_delay = Duration::from_millis(1000);
+        config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
