@@ -3,10 +3,10 @@
     "near_root": "../target/debug/",
     "remote": {
         "instance_name": "near-pytest",
-        "binary": "near-release-binary-09c5aa59630e3d6ca725276ed5119f968d9a9c24-debug",
+        "binary": "near-staging-latest-debug",
         "zones": [
             "us-west2-a",
-            "us-central1-c",
+            "us-central1-f",
             "us-east1-b"
         ]
     }

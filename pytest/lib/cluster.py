@@ -182,7 +182,7 @@ class GCloudNode(BaseNode):
             name=instance_name,
             machine_type='n1-standard-2',
             disk_size='50G',
-            image_project='ubuntu-os-cloud',
+            image_project='gce-uefi-images',
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
