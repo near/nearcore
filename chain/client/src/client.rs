@@ -717,7 +717,7 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC {
+            if provenance != Provenance::SYNC && self.sync_status == SyncStatus::NoSync {
                 // Produce new chunks
                 for shard_id in 0..self.runtime_adapter.num_shards() {
                     let epoch_id = self
