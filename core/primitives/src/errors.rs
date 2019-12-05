@@ -26,13 +26,6 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-/// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct GasOverflowError;
-/// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct BalanceOverflowError;
-
 /// External
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidTxError {
@@ -119,18 +112,6 @@ impl Display for InvalidTxError {
 impl From<InvalidAccessKeyError> for InvalidTxError {
     fn from(error: InvalidAccessKeyError) -> Self {
         InvalidTxError::InvalidAccessKey(error)
-    }
-}
-
-impl From<GasOverflowError> for InvalidTxError {
-    fn from(_: GasOverflowError) -> Self {
-        InvalidTxError::CostOverflow
-    }
-}
-
-impl From<BalanceOverflowError> for InvalidTxError {
-    fn from(_: BalanceOverflowError) -> Self {
-        InvalidTxError::CostOverflow
     }
 }
 
