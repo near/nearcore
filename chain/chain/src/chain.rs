@@ -17,14 +17,16 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, ExecutionStatus};
+use near_primitives::transaction::{
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+};
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus,
 };
 use near_store::{ColStateHeaders, ColStateParts, Store};
 
@@ -1588,14 +1590,17 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeView, String> {
+    ) -> Result<ExecutionOutcomeWithIdView, String> {
         match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithProof {
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::Unknown,
-                        ..Default::default()
+                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *hash,
+                        outcome: ExecutionOutcome {
+                            status: ExecutionStatus::Unknown,
+                            ..Default::default()
+                        },
                     },
                     ..Default::default()
                 }
@@ -1610,8 +1615,8 @@ impl Chain {
         hash: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
         let outcome = self.get_transaction_execution_result(hash)?;
-        let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        let receipt_ids = outcome.outcome.receipt_ids.clone();
+        let mut transactions = vec![outcome];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
@@ -1778,7 +1783,7 @@ impl Chain {
     pub fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.store.get_execution_outcome(hash)
     }
 

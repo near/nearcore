@@ -266,26 +266,33 @@ impl fmt::Debug for ExecutionOutcome {
 /// Execution outcome with the identifier.
 /// For a signed transaction, the ID is the hash of the transaction.
 /// For a receipt, the ID is the receipt ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
     pub outcome: ExecutionOutcome,
 }
 
-/// Execution outcome with path from it to the outcome root.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
-pub struct ExecutionOutcomeWithProof {
-    pub outcome: ExecutionOutcome,
-    pub proof: MerklePath,
-    pub block_hash: CryptoHash,
+impl ExecutionOutcomeWithId {
+    pub fn to_hashes(&self) -> Vec<CryptoHash> {
+        let mut result = vec![self.id];
+        result.extend(self.outcome.to_hashes());
+        result
+    }
 }
 
 /// Execution outcome with path from it to the outcome root and ID.
 #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithIdAndProof {
-    pub id: CryptoHash,
-    pub outcome_with_proof: ExecutionOutcomeWithProof,
+    pub outcome_with_id: ExecutionOutcomeWithId,
+    pub proof: MerklePath,
+    pub block_hash: CryptoHash,
+}
+
+impl ExecutionOutcomeWithIdAndProof {
+    pub fn id(&self) -> &CryptoHash {
+        &self.outcome_with_id.id
+    }
 }
 
 pub fn verify_transaction_signature(

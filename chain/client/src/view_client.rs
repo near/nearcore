@@ -21,10 +21,13 @@ use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses}
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use std::hash::Hash;
+use std::time::{Duration, Instant};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
+/// Waiting time between requests, in ms
+const REQUEST_WAIT_TIME: u64 = 1000;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -32,15 +35,15 @@ pub struct ViewClientActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
     /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, ()>,
+    pub tx_status_requests: SizedCache<CryptoHash, Instant>,
     /// Transaction status response
     pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
     /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, ()>,
+    pub query_requests: SizedCache<String, Instant>,
     /// Query responses from other nodes (can be errors)
     pub query_responses: SizedCache<String, Result<QueryResponse, String>>,
     /// Receipt outcome requests
-    pub receipt_outcome_requests: SizedCache<CryptoHash, ()>,
+    pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
 }
 
 impl ViewClientActor {
@@ -62,6 +65,18 @@ impl ViewClientActor {
             query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
         })
+    }
+
+    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
+        let now = Instant::now();
+        let need_request = match cache.cache_get(&key) {
+            Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
+            None => true,
+        };
+        if need_request {
+            cache.cache_set(key, now);
+        }
+        need_request
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
@@ -102,17 +117,19 @@ impl ViewClientActor {
                     }
                 }
                 // route request
-                let validator = self
-                    .chain
-                    .find_validator_for_forwarding(shard_id)
-                    .map_err(|e| e.to_string())?;
-                self.query_requests.cache_set(msg.id.clone(), ());
-                self.network_adapter.send(NetworkRequests::Query {
-                    account_id: validator,
-                    path: msg.path.clone(),
-                    data: msg.data.clone(),
-                    id: msg.id.clone(),
-                });
+                if Self::need_request(msg.id.clone(), &mut self.query_requests) {
+                    let validator = self
+                        .chain
+                        .find_validator_for_forwarding(shard_id)
+                        .map_err(|e| e.to_string())?;
+                    self.network_adapter.send(NetworkRequests::Query {
+                        account_id: validator,
+                        path: msg.path.clone(),
+                        data: msg.data.clone(),
+                        id: msg.id.clone(),
+                    });
+                }
+
                 Ok(None)
             }
         }
@@ -149,15 +166,19 @@ impl ViewClientActor {
                             .map_err(|e| e.to_string())?;
                         if self.chain.get_chunk_extra(&head.last_block_hash, dst_shard_id).is_err()
                         {
-                            let validator = self
-                                .chain
-                                .find_validator_for_forwarding(dst_shard_id)
-                                .map_err(|e| e.to_string())?;
-                            self.receipt_outcome_requests.cache_set(receipt_view.id, ());
-                            self.network_adapter.send(NetworkRequests::ReceiptOutComeRequest(
-                                validator,
+                            if Self::need_request(
                                 receipt_view.id,
-                            ));
+                                &mut self.receipt_outcome_requests,
+                            ) {
+                                let validator = self
+                                    .chain
+                                    .find_validator_for_forwarding(dst_shard_id)
+                                    .map_err(|e| e.to_string())?;
+                                self.network_adapter.send(NetworkRequests::ReceiptOutComeRequest(
+                                    validator,
+                                    receipt_view.id,
+                                ));
+                            }
                         }
                     }
                 }
@@ -165,12 +186,20 @@ impl ViewClientActor {
             }
             return Ok(Some(tx_result));
         }
-        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
-        let validator =
-            self.chain.find_validator_for_forwarding(target_shard_id).map_err(|e| e.to_string())?;
 
-        self.tx_status_requests.cache_set(tx_hash, ());
-        self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
+        if Self::need_request(tx_hash, &mut self.tx_status_requests) {
+            let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+            let validator = self
+                .chain
+                .find_validator_for_forwarding(target_shard_id)
+                .map_err(|e| e.to_string())?;
+            self.network_adapter.send(NetworkRequests::TxStatus(
+                validator,
+                signer_account_id,
+                tx_hash,
+            ));
+        }
+
         Ok(None)
     }
 }
@@ -285,36 +314,31 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id) => {
                 if let Ok(outcome_with_proof) = self.chain.get_execution_outcome(&receipt_id) {
-                    NetworkViewClientResponses::ReceiptOutcomeResponse(
-                        ExecutionOutcomeWithIdAndProof {
-                            id: receipt_id,
-                            outcome_with_proof: outcome_with_proof.clone(),
-                        },
-                    )
+                    NetworkViewClientResponses::ReceiptOutcomeResponse(outcome_with_proof.clone())
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
             }
             NetworkViewClientMessages::ReceiptOutcomeResponse(response) => {
-                if self.receipt_outcome_requests.cache_remove(&response.id).is_some() {
-                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(&response.id) {
-                        let block_hash = response.outcome_with_proof.block_hash;
+                if self.receipt_outcome_requests.cache_remove(response.id()).is_some() {
+                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(response.id()) {
+                        let block_hash = response.block_hash;
                         if let Ok(Some(&next_block_hash)) =
                             self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
                         {
                             if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                                let ExecutionOutcomeWithIdAndProof { id, outcome_with_proof } =
-                                    response;
                                 if shard_id < block.chunks.len() as u64 {
                                     if verify_path(
                                         block.chunks[shard_id as usize].inner.outcome_root,
-                                        &outcome_with_proof.proof,
-                                        &outcome_with_proof.outcome.to_hashes(),
+                                        &response.proof,
+                                        &response.outcome_with_id.to_hashes(),
                                     ) {
                                         let mut chain_store_update =
                                             self.chain.mut_store().store_update();
-                                        chain_store_update
-                                            .save_outcome_with_proof(id, outcome_with_proof);
+                                        chain_store_update.save_outcome_with_proof(
+                                            response.outcome_with_id.id,
+                                            response,
+                                        );
                                         if let Err(e) = chain_store_update.commit() {
                                             error!(target: "view_client", "Error committing to chain store: {}", e);
                                         }

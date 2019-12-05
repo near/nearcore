@@ -101,7 +101,7 @@ impl ApplyTransactionResult {
     ) -> (MerkleHash, Vec<MerklePath>) {
         let mut result = vec![];
         for outcome_with_id in outcomes.iter() {
-            result.push(outcome_with_id.outcome.to_hashes());
+            result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
     }
@@ -554,7 +554,7 @@ mod tests {
         let outcomes = vec![outcome1, outcome2];
         let (outcome_root, paths) = ApplyTransactionResult::compute_outcomes_proof(&outcomes);
         for (outcome_with_id, path) in outcomes.into_iter().zip(paths.into_iter()) {
-            assert!(verify_path(outcome_root, &path, &outcome_with_id.outcome.to_hashes()));
+            assert!(verify_path(outcome_root, &path, &outcome_with_id.to_hashes()));
         }
     }
 }

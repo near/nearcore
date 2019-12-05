@@ -12,7 +12,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
 use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -267,7 +267,7 @@ pub trait ChainStoreAccess {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error>;
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -333,7 +333,7 @@ pub struct ChainStore {
     /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
-    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithProof>,
+    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithIdAndProof>,
     /// Invalid chunks.
     invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
     /// Mapping from receipt id to destination shard id
@@ -718,7 +718,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, ColTransactionResult, &mut self.outcomes, hash.as_ref()),
             &format!("TRANSACTION: {}", hash),
@@ -821,7 +821,7 @@ struct ChainStoreCacheUpdate {
     last_approvals_per_account: HashMap<AccountId, Approval>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
-    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
+    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>,
     invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
@@ -1121,7 +1121,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.chain_store.get_execution_outcome(hash)
     }
 
@@ -1400,11 +1400,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             self.chain_store_cache_update.outcomes.insert(
                 outcome_with_id.id,
-                ExecutionOutcomeWithProof {
-                    outcome: outcome_with_id.outcome,
-                    proof,
-                    block_hash: *block_hash,
-                },
+                ExecutionOutcomeWithIdAndProof { outcome_with_id, proof, block_hash: *block_hash },
             );
         }
     }
@@ -1412,7 +1408,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_outcome_with_proof(
         &mut self,
         id: CryptoHash,
-        outcome_with_proof: ExecutionOutcomeWithProof,
+        outcome_with_proof: ExecutionOutcomeWithIdAndProof,
     ) {
         self.chain_store_cache_update.outcomes.insert(id, outcome_with_proof);
     }
