@@ -14,7 +14,8 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, LightClientBlockView,
+    QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -286,6 +287,14 @@ pub struct Status {
 
 impl Message for Status {
     type Result = Result<StatusResponse, String>;
+}
+
+pub struct GetNextLightClientBlock {
+    pub last_block_hash: CryptoHash,
+}
+
+impl Message for GetNextLightClientBlock {
+    type Result = Result<Option<LightClientBlockView>, String>;
 }
 
 pub struct GetNetworkInfo {}

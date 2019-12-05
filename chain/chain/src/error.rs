@@ -97,6 +97,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    #[fail(display = "Invalid Next BP Hash")]
+    InvalidNextBPHash,
     /// Invalid quorum_pre_vote or quorum_pre_commit
     #[fail(display = "Invalid Finality Info")]
     InvalidFinalityInfo,
@@ -216,6 +219,7 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidNextBPHash
             | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
