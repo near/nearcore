@@ -525,6 +525,7 @@ impl Runtime {
         Ok(result)
     }
 
+    // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
         state_update: &mut TrieUpdate,
