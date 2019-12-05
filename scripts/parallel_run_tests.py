@@ -8,6 +8,7 @@ from multiprocessing import cpu_count
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 target_debug = os.path.abspath(os.path.join(current_path, '../target/debug'))
+# test_wasm = os.path.abspath(os.path.join(current_path, '../runtime/near-vm-runner/tests/res/test_contract_rs.wasm'))
 
 # Clean binary tests
 for f in glob.glob(f'{target_debug}/*'):
@@ -27,10 +28,12 @@ for f in glob.glob(f'{target_debug}/*'):
 
 # Run a single test by copying to docker, save exitcode, stdout and stderr
 def run_test(test_binary):
-    binary_file = f'/tmp/{test_binary.split("/")[-1]}'
-    p = subprocess.Popen(['docker', 'run', '-v', f'{test_binary}:{binary_file}', 'ailisp/near-test-runtime',
-     'bash', '-c', f'chmod +x {binary_file} && RUST_BACKTRACE=1 {binary_file}'], 
-    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    p = subprocess.Popen(['docker', 'run',
+    '-v', f'{test_binary}:{test_binary}', 
+    # '-v', f'{test_wasm}:{test_wasm}',
+    'ailisp/near-test-runtime',
+    'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}'], 
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
 
