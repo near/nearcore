@@ -261,6 +261,7 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => &chunk.header,
     };
     let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
+    let account_to_slash_for_valid_challenge = Ok((block_header.hash(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
         &chunk_header,
         &block_header.inner_rest.chunk_headers_root,
@@ -282,7 +283,7 @@ fn validate_chunk_proofs_challenge(
                 }
                 Err(_) => {
                     // Chunk can't be decoded. Good challenge.
-                    return Ok((block_header.hash(), vec![chunk_producer]));
+                    return account_to_slash_for_valid_challenge;
                 }
             }
         }
@@ -291,7 +292,7 @@ fn validate_chunk_proofs_challenge(
 
     if !validate_chunk_proofs(chunk_ref, &*runtime_adapter) {
         // Chunk proofs are invalid. Good challenge.
-        return Ok((block_header.hash(), vec![chunk_producer]));
+        return account_to_slash_for_valid_challenge;
     }
 
     if !validate_chunk_transactions(
@@ -301,10 +302,10 @@ fn validate_chunk_proofs_challenge(
         transaction_validity_period,
     ) {
         // Chunk transactions are invalid. Good challenge.
-        return Ok((block_header.hash(), vec![chunk_producer]));
+        return account_to_slash_for_valid_challenge;
     }
 
-    // Everything is fine. It's a malicious challenge.
+    // The chunk is fine. It's a malicious challenge.
     return Err(ErrorKind::MaliciousChallenge.into());
 }
 
