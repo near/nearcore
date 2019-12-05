@@ -800,9 +800,9 @@ impl ShardsManager {
         prev_block_hash.hash(&mut s);
         for _ in 1..NUM_PARTS_TO_BE_SAMPLED {
             if part_ord == s.finish() % num_total_parts {
-                s.write_i8(0); // Just advance the prng's state forward to get another value.
                 return Ok(true)
             }
+            s.write_i8(0); // Just advance the prng's state forward to get another value.
         }
         Ok(false)
     }
