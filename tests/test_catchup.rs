@@ -60,6 +60,7 @@ fn test_catchup() {
     }
 
     heavy_test(|| {
-        run_multiple_nodes(4, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
+        // `num_min_peers` defaults to 3, and since the last node is not initially up and running, we need 5 peers total (4 to have 3 peers each launching initially + 1 launching later)
+        run_multiple_nodes(5, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
     });
 }
