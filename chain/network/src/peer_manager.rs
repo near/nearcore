@@ -839,6 +839,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ReceiptOutComeRequest(account_id, receipt_id) => {
+                self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id),
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }

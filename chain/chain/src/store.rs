@@ -12,15 +12,16 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
 use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockIndex, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
-    ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount, ColMyLastApprovalsPerChain,
-    ColOutgoingReceipts, ColPartialChunks, ColStateDlInfos, ColTransactionResult, Store,
-    StoreUpdate, WrappedTrieChanges,
+    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
+    ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain, ColNextBlockHashes,
+    ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
+    ColStateDlInfos, ColTransactionResult, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -29,6 +30,7 @@ use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, Receip
 use near_primitives::block::{Approval, Weight};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::merkle::MerklePath;
+use near_primitives::views::LightClientBlockView;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -221,6 +223,11 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error>;
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error>;
     /// Check if we have block header at given height across any chain.
     /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
     /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
@@ -266,7 +273,7 @@ pub trait ChainStoreAccess {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error>;
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -283,6 +290,21 @@ pub trait ChainStoreAccess {
         &mut self,
         chunk_hash: &ChunkHash,
     ) -> Result<Option<&EncodedShardChunk>, Error>;
+
+    /// Get destination shard id for receipt id.
+    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error>;
+
+    /// For a given block and a given shard, get the next block hash where a new chunk for the shard is included.
+    fn get_next_block_hash_with_new_chunk(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<&CryptoHash>, Error>;
+
+    fn get_last_block_with_new_chunk(
+        &mut self,
+        shard_id: ShardId,
+    ) -> Result<Option<&CryptoHash>, Error>;
 }
 
 /// All chain-related database operations.
@@ -308,6 +330,10 @@ pub struct ChainStore {
     block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with index to hash on any chain.
     block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    /// Next block hashes for each block on the canonical chain
+    next_block_hashes: SizedCache<Vec<u8>, CryptoHash>,
+    /// Light client blocks corresponding to the last finalized block of each epoch
+    epoch_light_client_blocks: SizedCache<Vec<u8>, LightClientBlockView>,
     /// Cache of my last approvals
     my_last_approvals: SizedCache<Vec<u8>, Approval>,
     /// Cache of last approvals for each account
@@ -317,9 +343,16 @@ pub struct ChainStore {
     /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
-    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithProof>,
+    outcomes: SizedCache<Vec<u8>, ExecutionOutcomeWithIdAndProof>,
     /// Invalid chunks.
     invalid_chunks: SizedCache<Vec<u8>, EncodedShardChunk>,
+    /// Mapping from receipt id to destination shard id
+    receipt_id_to_shard_id: SizedCache<Vec<u8>, ShardId>,
+    /// Mapping from block to a map of shard id to the next block hash where a new chunk for the
+    /// shard is included.
+    next_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
+    /// Shard id to last block that contains a new chunk for this shard.
+    last_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -344,12 +377,17 @@ impl ChainStore {
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             block_index: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            next_block_hashes: SizedCache::with_size(CACHE_SIZE),
+            epoch_light_client_blocks: SizedCache::with_size(CACHE_SIZE),
             my_last_approvals: SizedCache::with_size(CACHE_SIZE),
             last_approvals_per_account: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             outcomes: SizedCache::with_size(CACHE_SIZE),
             invalid_chunks: SizedCache::with_size(CACHE_SIZE),
+            receipt_id_to_shard_id: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            next_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            last_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
         }
     }
 
@@ -615,6 +653,33 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColNextBlockHashes,
+                &mut self.next_block_hashes,
+                hash.as_ref(),
+            ),
+            &format!("NEXT BLOCK HASH: {}", hash),
+        )
+    }
+
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColEpochLightClientBlocks,
+                &mut self.epoch_light_client_blocks,
+                hash.as_ref(),
+            ),
+            &format!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
+        )
+    }
+
     fn get_any_block_hash_by_height(
         &mut self,
         height: BlockIndex,
@@ -692,7 +757,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, ColTransactionResult, &mut self.outcomes, hash.as_ref()),
             &format!("TRANSACTION: {}", hash),
@@ -739,6 +804,45 @@ impl ChainStoreAccess for ChainStore {
         )
         .map_err(|err| err.into())
     }
+
+    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColReceiptIdToShardId,
+                &mut self.receipt_id_to_shard_id,
+                receipt_id.as_ref(),
+            ),
+            &format!("RECEIPT ID: {}", receipt_id),
+        )
+    }
+
+    fn get_next_block_hash_with_new_chunk(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: u64,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        read_with_cache(
+            &*self.store,
+            ColNextBlockWithNewChunk,
+            &mut self.next_block_with_new_chunk,
+            &get_block_shard_id(block_hash, shard_id),
+        )
+        .map_err(|e| e.into())
+    }
+
+    fn get_last_block_with_new_chunk(
+        &mut self,
+        shard_id: u64,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        read_with_cache(
+            &*self.store,
+            ColLastBlockWithNewChunk,
+            &mut self.last_block_with_new_chunk,
+            &index_to_bytes(shard_id),
+        )
+        .map_err(|e| e.into())
+    }
 }
 
 /// Cache update for ChainStore
@@ -752,12 +856,17 @@ struct ChainStoreCacheUpdate {
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    next_block_hashes: HashMap<CryptoHash, CryptoHash>,
+    epoch_light_client_blocks: HashMap<CryptoHash, LightClientBlockView>,
     my_last_approvals: HashMap<CryptoHash, Approval>,
     last_approvals_per_account: HashMap<AccountId, Approval>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
-    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithProof>,
+    outcomes: HashMap<CryptoHash, ExecutionOutcomeWithIdAndProof>,
     invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
+    receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
+    next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
+    last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -772,12 +881,17 @@ impl ChainStoreCacheUpdate {
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
             block_index: Default::default(),
+            next_block_hashes: HashMap::default(),
+            epoch_light_client_blocks: HashMap::default(),
             my_last_approvals: HashMap::default(),
             last_approvals_per_account: HashMap::default(),
             outgoing_receipts: HashMap::default(),
             incoming_receipts: HashMap::default(),
             outcomes: Default::default(),
             invalid_chunks: Default::default(),
+            receipt_id_to_shard_id: Default::default(),
+            next_block_with_new_chunk: Default::default(),
+            last_block_with_new_chunk: Default::default(),
         }
     }
 }
@@ -996,6 +1110,27 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
 
+    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+        if let Some(next_hash) = self.chain_store_cache_update.next_block_hashes.get(hash) {
+            Ok(next_hash)
+        } else {
+            self.chain_store.get_next_block_hash(hash)
+        }
+    }
+
+    fn get_epoch_light_client_block(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&LightClientBlockView, Error> {
+        if let Some(light_client_block) =
+            self.chain_store_cache_update.epoch_light_client_blocks.get(hash)
+        {
+            Ok(light_client_block)
+        } else {
+            self.chain_store.get_epoch_light_client_block(hash)
+        }
+    }
+
     fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
         if let Some(approval) = self.chain_store_cache_update.my_last_approvals.get(block_hash) {
             Ok(approval)
@@ -1050,7 +1185,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.chain_store.get_execution_outcome(hash)
     }
 
@@ -1115,6 +1250,40 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.is_invalid_chunk(chunk_hash)
         }
     }
+
+    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&u64, Error> {
+        if let Some(shard_id) = self.chain_store_cache_update.receipt_id_to_shard_id.get(receipt_id)
+        {
+            Ok(shard_id)
+        } else {
+            self.chain_store.get_shard_id_for_receipt_id(receipt_id)
+        }
+    }
+
+    fn get_next_block_hash_with_new_chunk(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: u64,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        if let Some(hash) =
+            self.chain_store_cache_update.next_block_with_new_chunk.get(&(*block_hash, shard_id))
+        {
+            Ok(Some(hash))
+        } else {
+            self.chain_store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
+        }
+    }
+
+    fn get_last_block_with_new_chunk(
+        &mut self,
+        shard_id: u64,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        if let Some(hash) = self.chain_store_cache_update.last_block_with_new_chunk.get(&shard_id) {
+            Ok(Some(hash))
+        } else {
+            self.chain_store.get_last_block_with_new_chunk(shard_id)
+        }
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1163,6 +1332,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.chain_store_cache_update
                         .block_index
                         .insert(header_height, Some(header_hash));
+                    self.chain_store_cache_update
+                        .next_block_hashes
+                        .insert(header_prev_hash, header_hash);
                     prev_hash = header_prev_hash;
                     prev_height = header_height;
                 }
@@ -1192,6 +1364,9 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         self.chain_store_cache_update.block_index.insert(t.height, Some(t.last_block_hash));
+        self.chain_store_cache_update
+            .next_block_hashes
+            .insert(t.prev_block_hash, t.last_block_hash);
         self.header_head = Some(t.clone());
         Ok(())
     }
@@ -1258,6 +1433,20 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.headers.insert(header.hash(), header);
     }
 
+    pub fn save_next_block_hash(&mut self, hash: &CryptoHash, next_hash: CryptoHash) {
+        self.chain_store_cache_update.next_block_hashes.insert(hash.clone(), next_hash);
+    }
+
+    pub fn save_epoch_light_client_block(
+        &mut self,
+        epoch_hash: &CryptoHash,
+        light_client_block: LightClientBlockView,
+    ) {
+        self.chain_store_cache_update
+            .epoch_light_client_blocks
+            .insert(epoch_hash.clone(), light_client_block);
+    }
+
     pub fn save_my_last_approval(&mut self, block_hash: &CryptoHash, approval: Approval) {
         self.chain_store_cache_update.my_last_approvals.insert(block_hash.clone(), approval);
     }
@@ -1288,15 +1477,24 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_outcomes_with_proofs(
         &mut self,
+        block_hash: &CryptoHash,
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             self.chain_store_cache_update.outcomes.insert(
                 outcome_with_id.id,
-                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                ExecutionOutcomeWithIdAndProof { outcome_with_id, proof, block_hash: *block_hash },
             );
         }
+    }
+
+    pub fn save_outcome_with_proof(
+        &mut self,
+        id: CryptoHash,
+        outcome_with_proof: ExecutionOutcomeWithIdAndProof,
+    ) {
+        self.chain_store_cache_update.outcomes.insert(id, outcome_with_proof);
     }
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
@@ -1329,6 +1527,19 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
         self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), chunk);
+    }
+
+    pub fn save_receipt_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
+        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
+    }
+
+    pub fn save_block_hash_with_new_chunk(&mut self, block_hash: CryptoHash, shard_id: ShardId) {
+        if let Ok(Some(&last_block_hash)) = self.get_last_block_with_new_chunk(shard_id) {
+            self.chain_store_cache_update
+                .next_block_with_new_chunk
+                .insert((last_block_hash, shard_id), block_hash);
+        }
+        self.chain_store_cache_update.last_block_with_new_chunk.insert(shard_id, block_hash);
     }
 
     /// Merge another StoreUpdate into this one
@@ -1428,6 +1639,18 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(ColBlockIndex, &index_to_bytes(*height));
             }
         }
+        for (block_hash, next_hash) in self.chain_store_cache_update.next_block_hashes.iter() {
+            store_update.set_ser(ColNextBlockHashes, block_hash.as_ref(), next_hash)?;
+        }
+        for (epoch_hash, light_client_block) in
+            self.chain_store_cache_update.epoch_light_client_blocks.iter()
+        {
+            store_update.set_ser(
+                ColEpochLightClientBlocks,
+                epoch_hash.as_ref(),
+                light_client_block,
+            )?;
+        }
         for (block_hash, approval) in self.chain_store_cache_update.my_last_approvals.iter() {
             store_update.set_ser(ColMyLastApprovalsPerChain, block_hash.as_ref(), approval)?;
         }
@@ -1456,6 +1679,26 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (hash, outcome) in self.chain_store_cache_update.outcomes.iter() {
             store_update.set_ser(ColTransactionResult, hash.as_ref(), outcome)?;
+        }
+        for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
+            store_update.set_ser(ColReceiptIdToShardId, receipt_id.as_ref(), shard_id)?;
+        }
+        for ((block_hash, shard_id), next_block_hash) in
+            self.chain_store_cache_update.next_block_with_new_chunk.iter()
+        {
+            store_update.set_ser(
+                ColNextBlockWithNewChunk,
+                &get_block_shard_id(block_hash, *shard_id),
+                next_block_hash,
+            )?;
+        }
+        for (shard_id, block_hash) in self.chain_store_cache_update.last_block_with_new_chunk.iter()
+        {
+            store_update.set_ser(
+                ColLastBlockWithNewChunk,
+                &index_to_bytes(*shard_id),
+                block_hash,
+            )?;
         }
         for trie_changes in self.trie_changes.drain(..) {
             trie_changes
@@ -1555,12 +1798,17 @@ impl<'a> ChainStoreUpdate<'a> {
             partial_chunks,
             block_hash_per_height,
             block_index,
+            next_block_hashes,
+            epoch_light_client_blocks,
             last_approvals_per_account,
             my_last_approvals,
             outgoing_receipts,
             incoming_receipts,
             outcomes,
             invalid_chunks,
+            receipt_id_to_shard_id,
+            next_block_with_new_chunk,
+            last_block_with_new_chunk,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -1600,6 +1848,14 @@ impl<'a> ChainStoreUpdate<'a> {
         for (account_id, approval) in last_approvals_per_account {
             self.chain_store.last_approvals_per_account.cache_set(account_id.into(), approval);
         }
+        for (block_hash, next_hash) in next_block_hashes {
+            self.chain_store.next_block_hashes.cache_set(block_hash.into(), next_hash);
+        }
+        for (epoch_hash, light_client_block) in epoch_light_client_blocks {
+            self.chain_store
+                .epoch_light_client_blocks
+                .cache_set(epoch_hash.into(), light_client_block);
+        }
         for (block_hash, approval) in my_last_approvals {
             self.chain_store.my_last_approvals.cache_set(block_hash.into(), approval);
         }
@@ -1616,6 +1872,19 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (hash, invalid_chunk) in invalid_chunks {
             self.chain_store.invalid_chunks.cache_set(hash.into(), invalid_chunk);
+        }
+        for (receipt_id, shard_id) in receipt_id_to_shard_id {
+            self.chain_store.receipt_id_to_shard_id.cache_set(receipt_id.into(), shard_id);
+        }
+        for ((block_hash, shard_id), next_block_hash) in next_block_with_new_chunk {
+            self.chain_store
+                .next_block_with_new_chunk
+                .cache_set(get_block_shard_id(&block_hash, shard_id), next_block_hash);
+        }
+        for (shard_id, block_hash) in last_block_with_new_chunk {
+            self.chain_store
+                .last_block_with_new_chunk
+                .cache_set(index_to_bytes(shard_id), block_hash);
         }
 
         Ok(())

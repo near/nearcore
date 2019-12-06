@@ -186,7 +186,7 @@ class GCloudNode(BaseNode):
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
-            preemptible=True 
+            preemptible=True
         )
         self.ip = self.machine.ip
         self._upload_config_files(node_dir)
@@ -197,7 +197,7 @@ class GCloudNode(BaseNode):
                 atexit.register(atexit_cleanup_remote)
                 cleanup_remote_nodes_atexit_registered = True
 
-       
+
     def _upload_config_files(self, node_dir):
         self.machine.run('bash', input='mkdir -p ~/.near')
         self.machine.upload(os.path.join(node_dir, '*.json'), f'/home/{self.machine.username}/.near/')
@@ -229,7 +229,7 @@ chmod +x near
 
     def kill(self):
         self.machine.kill_detach_tmux()
-    
+
     def destroy_machine(self):
         self.machine.delete()
 
@@ -305,7 +305,12 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
         if i in client_config_changes:
             for k, v in client_config_changes[i].items():
                 assert k in config_json
-                config_json[k] = v
+                if isinstance(v, dict):
+                    for key, value in v.items():
+                        assert key in config_json[k]
+                        config_json[k][key] = value
+                else:
+                    config_json[k] = v
 
         with open(fname, 'w') as f:
             f.write(json.dumps(config_json, indent=2))

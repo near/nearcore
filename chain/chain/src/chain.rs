@@ -17,20 +17,22 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, ExecutionStatus};
+use near_primitives::transaction::{
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+};
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId,
+    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus, LightClientBlockView,
 };
 use near_store::{ColStateHeaders, ColStateParts, Store};
 
-use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
+use crate::lightclient::get_epoch_block_producers_view;
 use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
@@ -39,6 +41,7 @@ use crate::types::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
 };
 use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
+use crate::{byzantine_assert, create_light_client_block_view};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -216,6 +219,7 @@ impl Chain {
             chain_genesis.time,
             chain_genesis.gas_price,
             chain_genesis.total_supply,
+            Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -340,6 +344,30 @@ impl Chain {
         FinalityGadget::get_my_approval_reference_hash(last_hash, &mut self.store)
     }
 
+    pub fn compute_bp_hash_inner(bps: &Vec<ValidatorStake>) -> Result<CryptoHash, Error> {
+        let mut arr = vec![];
+        for bp in bps.iter() {
+            arr.append(&mut hash(bp.account_id.as_bytes()).into());
+            arr.append(&mut hash(bp.public_key.try_to_vec()?.as_ref()).into());
+            arr.append(&mut hash(bp.amount.try_to_vec()?.as_ref()).into());
+        }
+
+        Ok(hash(&arr))
+    }
+
+    pub fn compute_bp_hash(
+        runtime_adapter: &dyn RuntimeAdapter,
+        epoch_id: EpochId,
+        last_known_hash: &CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        let bps = runtime_adapter
+            .get_epoch_block_producers(&epoch_id, last_known_hash)?
+            .iter()
+            .map(|x| x.0.clone())
+            .collect();
+        Chain::compute_bp_hash_inner(&bps)
+    }
+
     pub fn compute_quorums(
         prev_hash: CryptoHash,
         epoch_id: EpochId,
@@ -347,6 +375,7 @@ impl Chain {
         approvals: Vec<Approval>,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
+        push_back_if_needed: bool,
     ) -> Result<FinalityGadgetQuorums, Error> {
         let stakes = runtime_adapter
             .get_epoch_block_producers(&epoch_id, &prev_hash)?
@@ -359,11 +388,59 @@ impl Chain {
             height,
             approvals,
             chain_store,
-            stakes,
+            &stakes,
         )?;
-        ret.last_quorum_pre_commit = runtime_adapter
-            .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
+        if push_back_if_needed {
+            ret.last_quorum_pre_commit = runtime_adapter
+                .push_final_block_back_if_needed(prev_hash, ret.last_quorum_pre_commit)?;
+        }
         Ok(ret)
+    }
+
+    /// Creates a light client block for the last final block from perspective of some other block
+    ///
+    /// # Arguments
+    ///  * `header` - the last finalized block seen from `header` (not pushed back) will be used to
+    ///               compute the light client block
+    pub fn create_light_client_block(
+        header: &BlockHeader,
+        runtime_adapter: &dyn RuntimeAdapter,
+        chain_store: &mut dyn ChainStoreAccess,
+    ) -> Result<LightClientBlockView, Error> {
+        // Compute actual, not pushed back, quorum_pre_commit
+        let actual_quorum = Chain::compute_quorums(
+            header.prev_hash,
+            header.inner_lite.epoch_id.clone(),
+            header.inner_lite.height,
+            header.inner_rest.approvals.clone(),
+            runtime_adapter,
+            chain_store,
+            false,
+        )?;
+
+        // Get the actual, not pushed, back, final block
+        let final_block_header =
+            chain_store.get_block_header(&actual_quorum.last_quorum_pre_commit)?.clone();
+
+        let block_producers = get_epoch_block_producers_view(
+            &final_block_header.inner_lite.epoch_id,
+            &header.prev_hash,
+            runtime_adapter,
+        )?;
+
+        let next_block_producers = get_epoch_block_producers_view(
+            &final_block_header.inner_lite.next_epoch_id,
+            &header.prev_hash,
+            runtime_adapter,
+        )?;
+
+        create_light_client_block_view(
+            &final_block_header,
+            &header.inner_rest.last_quorum_pre_commit,
+            chain_store,
+            &block_producers,
+            Some(next_block_producers),
+        )
     }
 
     /// Reset "sync" head to current header head.
@@ -388,6 +465,14 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
+    }
+
+    pub fn save_orphan(&mut self, block: &Block) {
+        self.orphans.add(Orphan {
+            block: block.clone(),
+            provenance: Provenance::NONE,
+            added: Instant::now(),
+        });
     }
 
     /// Process a block header received during "header first" propagation.
@@ -1588,14 +1673,17 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeView, String> {
+    ) -> Result<ExecutionOutcomeWithIdView, String> {
         match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithProof {
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::Unknown,
-                        ..Default::default()
+                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *hash,
+                        outcome: ExecutionOutcome {
+                            status: ExecutionStatus::Unknown,
+                            ..Default::default()
+                        },
                     },
                     ..Default::default()
                 }
@@ -1610,8 +1698,8 @@ impl Chain {
         hash: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
         let outcome = self.get_transaction_execution_result(hash)?;
-        let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        let receipt_ids = outcome.outcome.receipt_ids.clone();
+        let mut transactions = vec![outcome];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
@@ -1773,13 +1861,32 @@ impl Chain {
         self.store.get_chunk_extra(&self.head()?.last_block_hash, shard_id)
     }
 
-    /// Get transaction result for given hash of transaction.
+    /// Get transaction result for given hash of transaction or receipt id.
     #[inline]
     pub fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.store.get_execution_outcome(hash)
+    }
+
+    /// Get destination shard id for a given receipt id.
+    #[inline]
+    pub fn get_shard_id_for_receipt_id(
+        &mut self,
+        receipt_id: &CryptoHash,
+    ) -> Result<&ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id)
+    }
+
+    /// Get next block hash for which there is a new chunk for the shard.
+    #[inline]
+    pub fn get_next_block_hash_with_new_chunk(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        self.store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
     }
 
     /// Returns underlying ChainStore.
@@ -2213,11 +2320,15 @@ impl<'a> ChainUpdate<'a> {
                     );
                     // Save resulting receipts.
                     let mut outgoing_receipts = vec![];
-                    for (_receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
+                    for (receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
                         //    since they are later retrieved by the chunk producer of the source
                         //    shard to be distributed to the recipients.
-                        outgoing_receipts.extend(receipts);
+                        for receipt in receipts {
+                            self.chain_store_update
+                                .save_receipt_shard_id(receipt.receipt_id, receipt_shard_id);
+                            outgoing_receipts.push(receipt);
+                        }
                     }
                     self.chain_store_update.save_outgoing_receipt(
                         &block.hash(),
@@ -2225,8 +2336,11 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    self.chain_store_update
-                        .save_outcomes_with_proofs(apply_result.outcomes, outcome_paths);
+                    self.chain_store_update.save_outcomes_with_proofs(
+                        &block.hash(),
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
                 } else {
                     let mut new_extra = self
                         .chain_store_update
@@ -2289,6 +2403,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = prev.hash();
         let prev_prev_hash = prev.prev_hash;
         let prev_gas_price = prev.inner_rest.gas_price;
+        let prev_epoch_id = prev.inner_lite.epoch_id.clone();
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
@@ -2405,12 +2520,66 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner_rest.total_supply,
         )?;
 
-        // Add validated block to the db, even if it's not the selected fork.
+        // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
+            if chunk_headers.height_included == block.header.inner_lite.height {
+                self.chain_store_update
+                    .save_block_hash_with_new_chunk(block.hash(), shard_id as ShardId);
+            }
+        }
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;
+
+        if res.is_some() {
+            // Some tests do not set finality-related fields, make them also not create the light
+            // client block.
+            if block.header.inner_rest.last_quorum_pre_commit != CryptoHash::default() {
+                // On the epoch switch record the epoch light client block
+                // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
+                // This is necessary because the computation of the light client block relies on
+                // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+                // chain. We need to be careful to avoid a situation when the first block of the epoch
+                // never becomes a tip of the canonical chain. E.g consider the following diagram:
+                //
+                //          / C0 - D0
+                //  A0 - B0 - E1 - F1
+                //
+                // Where the number indicates the epoch. Say C0 and D0 are produced first, and then E1
+                // is produced. If after processing E1 the chain ending in D0 is still canonical, we
+                // would miss the moment to save the epoch light block, since when we process E1 the
+                // condition `res.is_some()` is not met, and by the time we process F1 the below
+                // condition is not met.
+                // Currently the situation above is impossible, because we only switch to the new epoch
+                // when a block at a particular height gets finalized, and once it is finalized we
+                // always switch the epoch. Thus, the last final block from perspective of E1 has higher
+                // score that the last final block from perspective of D0, and thus E1 would be the tip
+                // of the canonical chain when it is processed, not D0.
+                if block.header.inner_lite.epoch_id != prev_epoch_id {
+                    let prev = self.get_previous_header(&block.header)?.clone();
+                    let light_client_block = self.create_light_client_block(&prev)?;
+                    self.chain_store_update
+                        .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
+                }
+            }
+        }
+
         Ok((res, needs_to_start_fetching_state))
+    }
+
+    pub fn create_light_client_block(
+        &mut self,
+        header: &BlockHeader,
+    ) -> Result<LightClientBlockView, Error> {
+        // First update the last next_block, since it might not be set yet
+        self.chain_store_update.save_next_block_hash(&header.prev_hash, header.hash());
+
+        Chain::create_light_client_block(
+            header,
+            &*self.runtime_adapter,
+            &mut self.chain_store_update,
+        )
     }
 
     fn prev_block_is_caught_up(
@@ -2493,6 +2662,29 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidEpochHash.into());
         }
 
+        // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
+        if self.runtime_adapter.get_next_epoch_id_from_prev_block(&header.prev_hash).unwrap()
+            != header.inner_lite.next_epoch_id
+        {
+            return Err(ErrorKind::InvalidEpochHash.into());
+        }
+
+        if header.inner_lite.epoch_id == prev_header.inner_lite.epoch_id {
+            if header.inner_lite.next_bp_hash != prev_header.inner_lite.next_bp_hash {
+                return Err(ErrorKind::InvalidNextBPHash.into());
+            }
+        } else {
+            if header.inner_lite.next_bp_hash
+                != Chain::compute_bp_hash(
+                    &*self.runtime_adapter,
+                    header.inner_lite.next_epoch_id.clone(),
+                    &header.prev_hash,
+                )?
+            {
+                return Err(ErrorKind::InvalidNextBPHash.into());
+            }
+        }
+
         if header.inner_rest.chunk_mask.len() as u64 != self.runtime_adapter.num_shards() {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
@@ -2530,6 +2722,7 @@ impl<'a> ChainUpdate<'a> {
                 header.inner_rest.approvals.clone(),
                 &*self.runtime_adapter,
                 &mut self.chain_store_update,
+                true,
             )?;
 
             if header.inner_rest.last_quorum_pre_commit != quorums.last_quorum_pre_commit
@@ -2795,7 +2988,11 @@ impl<'a> ChainUpdate<'a> {
             outgoing_receipts,
         );
         // Saving transaction results.
-        self.chain_store_update.save_outcomes_with_proofs(apply_result.outcomes, outcome_proofs);
+        self.chain_store_update.save_outcomes_with_proofs(
+            &block_header.hash,
+            apply_result.outcomes,
+            outcome_proofs,
+        );
         // Saving all incoming receipts.
         for receipt_proof_response in incoming_receipts_proofs {
             self.chain_store_update.save_incoming_receipt(

@@ -4,10 +4,18 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
+
+#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
+pub struct Digest(pub [u8; 32]);
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 #[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
@@ -161,7 +169,8 @@ impl Eq for CryptoHash {}
 /// let hash = near_primitives::hash::hash(&data);
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
-    CryptoHash(sodiumoxide::crypto::hash::sha256::hash(data))
+    use sha2::Digest;
+    CryptoHash(Digest(sha2::Sha256::digest(data).into()))
 }
 
 #[cfg(test)]

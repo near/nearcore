@@ -103,7 +103,7 @@ def run_test(outdir, test):
         handle.communicate()
 
     if test[0] == 'pytest':
-        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0 || true", shell=True).decode('utf-8').strip().split('\n')
         for node_dir in node_dirs:
             shutil.copytree(node_dir, os.path.join(dir_name, os.path.basename(node_dir)))
 
