@@ -17,14 +17,16 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, ExecutionStatus};
+use near_primitives::transaction::{
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+};
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, LightClientBlockView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    FinalExecutionStatus, LightClientBlockView,
 };
 use near_store::{ColStateHeaders, ColStateParts, Store};
 
@@ -1671,14 +1673,17 @@ impl Chain {
     pub fn get_transaction_execution_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<ExecutionOutcomeView, String> {
+    ) -> Result<ExecutionOutcomeWithIdView, String> {
         match self.get_execution_outcome(hash) {
             Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithProof {
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::Unknown,
-                        ..Default::default()
+                ErrorKind::DBNotFoundErr(_) => Ok(ExecutionOutcomeWithIdAndProof {
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *hash,
+                        outcome: ExecutionOutcome {
+                            status: ExecutionStatus::Unknown,
+                            ..Default::default()
+                        },
                     },
                     ..Default::default()
                 }
@@ -1693,8 +1698,8 @@ impl Chain {
         hash: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
         let outcome = self.get_transaction_execution_result(hash)?;
-        let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        let receipt_ids = outcome.outcome.receipt_ids.clone();
+        let mut transactions = vec![outcome];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
@@ -1856,13 +1861,32 @@ impl Chain {
         self.store.get_chunk_extra(&self.head()?.last_block_hash, shard_id)
     }
 
-    /// Get transaction result for given hash of transaction.
+    /// Get transaction result for given hash of transaction or receipt id.
     #[inline]
     pub fn get_execution_outcome(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&ExecutionOutcomeWithProof, Error> {
+    ) -> Result<&ExecutionOutcomeWithIdAndProof, Error> {
         self.store.get_execution_outcome(hash)
+    }
+
+    /// Get destination shard id for a given receipt id.
+    #[inline]
+    pub fn get_shard_id_for_receipt_id(
+        &mut self,
+        receipt_id: &CryptoHash,
+    ) -> Result<&ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id)
+    }
+
+    /// Get next block hash for which there is a new chunk for the shard.
+    #[inline]
+    pub fn get_next_block_hash_with_new_chunk(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<&CryptoHash>, Error> {
+        self.store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
     }
 
     /// Returns underlying ChainStore.
@@ -2296,11 +2320,15 @@ impl<'a> ChainUpdate<'a> {
                     );
                     // Save resulting receipts.
                     let mut outgoing_receipts = vec![];
-                    for (_receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
+                    for (receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
                         //    since they are later retrieved by the chunk producer of the source
                         //    shard to be distributed to the recipients.
-                        outgoing_receipts.extend(receipts);
+                        for receipt in receipts {
+                            self.chain_store_update
+                                .save_receipt_shard_id(receipt.receipt_id, receipt_shard_id);
+                            outgoing_receipts.push(receipt);
+                        }
                     }
                     self.chain_store_update.save_outgoing_receipt(
                         &block.hash(),
@@ -2308,8 +2336,11 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    self.chain_store_update
-                        .save_outcomes_with_proofs(apply_result.outcomes, outcome_paths);
+                    self.chain_store_update.save_outcomes_with_proofs(
+                        &block.hash(),
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
                 } else {
                     let mut new_extra = self
                         .chain_store_update
@@ -2491,6 +2522,12 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
+        for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
+            if chunk_headers.height_included == block.header.inner_lite.height {
+                self.chain_store_update
+                    .save_block_hash_with_new_chunk(block.hash(), shard_id as ShardId);
+            }
+        }
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;
@@ -2951,7 +2988,11 @@ impl<'a> ChainUpdate<'a> {
             outgoing_receipts,
         );
         // Saving transaction results.
-        self.chain_store_update.save_outcomes_with_proofs(apply_result.outcomes, outcome_proofs);
+        self.chain_store_update.save_outcomes_with_proofs(
+            &block_header.hash,
+            apply_result.outcomes,
+            outcome_proofs,
+        );
         // Saving all incoming receipts.
         for receipt_proof_response in incoming_receipts_proofs {
             self.chain_store_update.save_incoming_receipt(

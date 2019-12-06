@@ -292,6 +292,12 @@ impl Peer {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkViewClientMessages::TxStatusResponse(tx_result)
                     }
+                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
+                        NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
+                    }
+                    RoutedMessageBody::ReceiptOutComeResponse(response) => {
+                        NetworkViewClientMessages::ReceiptOutcomeResponse(response)
+                    }
                     body => {
                         error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
                         return;
@@ -316,6 +322,10 @@ impl Peer {
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { response, id }) => {
                         let body = RoutedMessageBody::QueryResponse { response, id };
+                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash));
+                    }
+                    Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
+                        let body = RoutedMessageBody::ReceiptOutComeResponse(response);
                         act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, msg_hash));
                     }
                     Err(err) => {
@@ -410,7 +420,9 @@ impl Peer {
                     | RoutedMessageBody::TxStatusRequest(_, _)
                     | RoutedMessageBody::TxStatusResponse(_)
                     | RoutedMessageBody::QueryRequest { .. }
-                    | RoutedMessageBody::QueryResponse { .. } => {
+                    | RoutedMessageBody::QueryResponse { .. }
+                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::ReceiptOutComeResponse(_) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type");
                         return;
                     }
