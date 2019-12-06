@@ -775,6 +775,9 @@ impl EpochManager {
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+        if block_info.prev_hash == CryptoHash::default() {
+            return Ok(true);
+        }
         let estimated_next_epoch_start =
             self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length;
         // Say the epoch length is 10, and say all the blocks have all the approvals.

@@ -88,7 +88,7 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exists", contract_id))?;
+            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
         let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
             format!("cannot find contract code for account {}", contract_id.clone())
         })?;

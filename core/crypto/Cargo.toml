@@ -5,7 +5,9 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-sodiumoxide = "0.2.5"
+ed25519-dalek = "0.9.1"
+rand_os = "0.1"
+sha2 = "0.8"
 parity-secp256k1 = "0.7.0"
 arrayref = "0.3"
 blake2 = "0.8"
