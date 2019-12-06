@@ -399,7 +399,7 @@ pub enum StateSyncResult {
     /// At least one shard has changed its status
     /// Boolean parameter specifies whether the client needs to start fetching the block
     Changed(bool),
-    /// The state for all shards was downloaded
+    /// The state for all shards was downloaded.
     Completed,
 }
 

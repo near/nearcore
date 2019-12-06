@@ -6,16 +6,16 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
-use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
 use near_primitives::types::AccountId;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    QueryResponse,
+    LightClientBlockView, QueryResponse,
 };
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
-use crate::{GetChunk, GetValidatorInfo};
+use crate::{GetChunk, GetNextLightClientBlock, GetValidatorInfo};
 use cached::{Cached, SizedCache};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkAdapter, NetworkRequests};
@@ -274,6 +274,57 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Context<Self>) -> Self::Result {
         self.runtime_adapter.get_validator_info(&msg.last_block_hash).map_err(|e| e.to_string())
+    }
+}
+
+/// Returns the next light client block, given the hash of the last block known to the light client.
+/// There are three cases:
+///  1. The last block known to the light client is in the same epoch as the tip:
+///     - Then return the last known final block, as long as it's more recent that the last known
+///  2. The last block known to the light client is in the epoch preceding that of the tip:
+///     - Same as above
+///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
+///     to the light client
+impl Handler<GetNextLightClientBlock> for ViewClientActor {
+    type Result = Result<Option<LightClientBlockView>, String>;
+
+    fn handle(&mut self, request: GetNextLightClientBlock, _: &mut Context<Self>) -> Self::Result {
+        let last_block_header =
+            self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
+        let last_epoch_id = last_block_header.inner_lite.epoch_id.clone();
+        let last_next_epoch_id = last_block_header.inner_lite.next_epoch_id.clone();
+        let last_height = last_block_header.inner_lite.height;
+        let head = self.chain.head().map_err(|err| err.to_string())?;
+
+        if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
+            let head_header = self
+                .chain
+                .get_block_header(&head.last_block_hash)
+                .map_err(|err| err.to_string())?;
+            let ret = Chain::create_light_client_block(
+                &head_header.clone(),
+                &*self.runtime_adapter,
+                self.chain.mut_store(),
+            )
+            .map_err(|err| err.to_string())?;
+
+            if ret.inner_lite.height <= last_height {
+                Ok(None)
+            } else {
+                Ok(Some(ret))
+            }
+        } else {
+            match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
+                Ok(light_block) => Ok(Some(light_block.clone())),
+                Err(e) => {
+                    if let ErrorKind::DBNotFoundErr(_) = e.kind() {
+                        Ok(None)
+                    } else {
+                        Err(e.to_string())
+                    }
+                }
+            }
+        }
     }
 }
 

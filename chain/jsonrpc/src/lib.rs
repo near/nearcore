@@ -18,8 +18,8 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetValidatorInfo, Query, Status, TxStatus,
-    ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetNextLightClientBlock, GetValidatorInfo,
+    Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
@@ -157,6 +157,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
+            "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
@@ -313,6 +314,13 @@ impl JsonRpcHandler {
                 })
                 .compat()
                 .await,
+        )
+    }
+
+    async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (last_block_hash,) = parse_params::<(CryptoHash,)>(params)?;
+        jsonify(
+            self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).compat().await,
         )
     }
 
