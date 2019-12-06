@@ -516,7 +516,7 @@ impl Client {
         transactions
     }
 
-    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
+    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) {
         if let Some(block_producer) = self.block_producer.as_ref() {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(
@@ -1103,7 +1103,7 @@ impl Client {
         }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
-        if self.runtime_adapter.verify_validator_signature(
+        if self.runtime_adapter.verify_validator_or_fisherman_signature(
             &head.epoch_id,
             &head.prev_block_hash,
             &challenge.account_id,

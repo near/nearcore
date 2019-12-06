@@ -80,9 +80,10 @@ impl NightshadeRuntime {
             num_shards,
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
-            avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
+            avg_hidden_validators_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
             block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
+            fishermen_threshold: genesis_config.fishermen_threshold,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: genesis_config.max_inflation_rate,
@@ -407,6 +408,45 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(signature.verify(data, &validator.public_key))
         } else {
             Err(EpochError::EpochOutOfBounds.into())
+        }
+    }
+
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, Error> {
+        match self.verify_validator_signature(
+            epoch_id,
+            last_known_block_hash,
+            account_id,
+            data,
+            signature,
+        ) {
+            Err(e) if e.kind() == ErrorKind::EpochOutOfBounds => {
+                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                if let Some(fisherman) =
+                    epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?
+                {
+                    let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash)
+                    {
+                        Ok(slashed) => slashed,
+                        Err(_) => {
+                            return Err(EpochError::MissingBlock(*last_known_block_hash).into())
+                        }
+                    };
+                    if slashed.contains(&fisherman.account_id) {
+                        return Ok(false);
+                    }
+                    Ok(signature.verify(data, &fisherman.public_key))
+                } else {
+                    Err(EpochError::EpochOutOfBounds.into())
+                }
+            }
+            other => other,
         }
     }
 
@@ -1106,7 +1146,7 @@ mod test {
     use node_runtime::config::RuntimeConfig;
     use node_runtime::ApplyState;
 
-    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
@@ -1326,11 +1366,16 @@ mod test {
                 * self.runtime.genesis_config.total_supply
                 * self.runtime.genesis_config.epoch_length as u128
                 / (100 * self.runtime.genesis_config.num_blocks_per_year as u128);
-            let per_epoch_protocol_treasury = per_epoch_total_reward
-                * self.runtime.genesis_config.protocol_reward_percentage as u128
-                / 100;
-            let per_epoch_per_validator_reward =
-                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+            let per_epoch_per_validator_reward = per_epoch_total_reward
+                * (100 - self.runtime.genesis_config.protocol_reward_percentage) as u128
+                / (100 * num_validators as u128);
+            //let per_epoch_protocol_treasury = per_epoch_total_reward
+            //    * self.runtime.genesis_config.protocol_reward_percentage as u128
+            //    / 100;
+            //let per_epoch_per_validator_reward =
+            //    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
+            let per_epoch_protocol_treasury =
+                per_epoch_total_reward - per_epoch_per_validator_reward;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
         }
     }
@@ -2038,5 +2083,69 @@ mod test {
             )
             .unwrap();
         assert!(!apply_result.key_value_changes.is_empty());
+    }
+
+    /// Run 4 validators. Two of them first change their stake to below validator threshold but above
+    /// fishermen threshold. Make sure their balance is correct. Then one fisherman increases their
+    /// stake to become a validator again while the other one decreases to below fishermen threshold.
+    /// Check that the first one becomes a validator and the second one gets unstaked completely.
+    #[test]
+    fn test_fishermen_stake() {
+        init_test_logger();
+        let num_nodes = 4;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_validator_stake_change_multiple_times",
+            vec![validators.clone()],
+            4,
+            vec![],
+            vec![],
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
+        let (per_epoch_per_validator_reward1, _) = env.compute_reward(num_nodes);
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+
+        let staking_transaction = stake(1, &signers[0], &block_producers[0], FISHERMEN_THRESHOLD);
+        let staking_transaction1 = stake(1, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD);
+        env.step_default(vec![staking_transaction, staking_transaction1]);
+        let account = env.view_account(&block_producers[0].account_id);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+        assert_eq!(account.locked, TESTING_INIT_STAKE);
+        for _ in 2..=13 {
+            env.step_default(vec![]);
+        }
+        let account0 = env.view_account(&block_producers[0].account_id);
+        assert_eq!(account0.locked, FISHERMEN_THRESHOLD + per_epoch_per_validator_reward1);
+        assert_eq!(
+            account0.amount,
+            TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD + per_epoch_per_validator_reward1
+        );
+        let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
+        let staking_transaction2 =
+            stake(2, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD / 2);
+        env.step_default(vec![staking_transaction, staking_transaction2]);
+
+        for _ in 13..=25 {
+            env.step_default(vec![]);
+        }
+        let (per_epoch_per_validator_reward2, _) = env.compute_reward(3);
+
+        let account0 = env.view_account(&block_producers[0].account_id);
+        assert_eq!(account0.locked, TESTING_INIT_STAKE + per_epoch_per_validator_reward2);
+        let (per_epoch_per_validator_reward3, _) = env.compute_reward(2);
+        assert_eq!(
+            account0.amount,
+            TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward3
+        );
+
+        let account1 = env.view_account(&block_producers[1].account_id);
+        assert_eq!(account1.locked, 0);
+        assert_eq!(account1.amount, TESTING_INIT_BALANCE + per_epoch_per_validator_reward1 * 2);
     }
 }

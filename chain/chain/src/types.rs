@@ -166,6 +166,16 @@ pub trait RuntimeAdapter: Send + Sync {
         signature: &Signature,
     ) -> Result<bool, Error>;
 
+    /// Verify signature for validator or fisherman. Used for validating challenges.
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<bool, Error>;
+
     /// Verify header signature.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 

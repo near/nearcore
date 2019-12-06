@@ -823,6 +823,17 @@ impl RuntimeAdapter for KeyValueRuntime {
             _ => Err(ErrorKind::EpochOutOfBounds.into()),
         }
     }
+
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
