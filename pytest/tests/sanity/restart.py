@@ -13,7 +13,7 @@ TIMEOUT = 150
 BLOCKS1 = 20
 BLOCKS2 = 40
 
-nodes = start_cluster(2, 0, 2, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(2, 0, 2, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 
@@ -67,6 +67,9 @@ while max_height < BLOCKS2:
     assert time.time() - started < TIMEOUT
     for i, node in enumerate(nodes):
         status = node.get_status()
+        print(i)
+        print(node)
+        print(status)
         height = status['sync_info']['latest_block_height']
         hash_ = status['sync_info']['latest_block_hash']
 
