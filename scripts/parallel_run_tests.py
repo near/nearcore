@@ -24,7 +24,7 @@ if p.returncode != 0:
     os._exit(p.returncode)
 binaries = []
 for f in glob.glob(f'{target_debug}/*'):
-    fname = f.split('/')[-1]
+    fname = os.path.basename(f)
     if os.path.isfile(f) and fname != 'near' and not f.endswith('.d') and not fname.startswith('test_regression'):
         binaries.append(f)
 
@@ -43,6 +43,9 @@ def run_test(test_binary):
 
 # Run tests in runners
 cpu = cpu_count()
+if os.environ.get('GITLAB_CI'):
+    cpu -= 1
+
 with ThreadPoolExecutor(max_workers=cpu) as executor:
     future_to_binary = {executor.submit(run_test, binary): binary for binary in binaries}
     for future in as_completed(future_to_binary):
