@@ -540,7 +540,7 @@ pub fn test_swap_key(node: impl Node) {
 
     assert!(node_user
         .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
-        .is_ok());
+        .is_err());
     assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key).is_ok());
 }
 
@@ -580,6 +580,10 @@ pub fn test_delete_key(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     let node_user = node.user();
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
+
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
@@ -588,7 +592,7 @@ pub fn test_delete_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_err());
     assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
 }
 
@@ -596,8 +600,11 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     let node_user = node.user();
-    let root = node_user.get_state_root();
 
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_err());
+
+    let root = node_user.get_state_root();
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
     assert_eq!(
@@ -611,7 +618,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     assert_ne!(new_root, root);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_err());
 }
 
 pub fn test_delete_key_last(node: impl Node) {
@@ -619,6 +626,7 @@ pub fn test_delete_key_last(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
 
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
@@ -626,7 +634,7 @@ pub fn test_delete_key_last(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_err());
 }
 
 pub fn test_add_access_key_function_call(node: impl Node) {
@@ -663,6 +671,9 @@ pub fn test_delete_access_key(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
@@ -672,7 +683,7 @@ pub fn test_delete_access_key(node: impl Node) {
     assert_ne!(new_root, root);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_err());
 }
 
 pub fn test_add_access_key_with_allowance(node: impl Node) {
@@ -719,6 +730,9 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let add_access_key_cost = fee_helper.add_key_cost(0);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+
     let root = node_user.get_state_root();
     let delete_access_key_cost = fee_helper.delete_key_cost();
     let transaction_result =
@@ -732,7 +746,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     assert_eq!(account.amount, initial_balance - add_access_key_cost - delete_access_key_cost);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).is_err());
 }
 
 pub fn test_access_key_smart_contract(node: impl Node) {
