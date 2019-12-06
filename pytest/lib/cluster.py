@@ -186,7 +186,7 @@ class GCloudNode(BaseNode):
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
-            preemptible=True
+            preemptible=False,
         )
         self.ip = self.machine.ip
         self._upload_config_files(node_dir)
