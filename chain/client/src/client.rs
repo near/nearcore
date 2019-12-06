@@ -990,14 +990,15 @@ impl Client {
                 });
 
                 // If I'm not an active validator I should forward tx to next validators.
+                debug!(
+                    target: "client",
+                    "Recording a transaction. I'm {:?}, {}",
+                    me,
+                    shard_id
+                );
+                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+
                 if active_validator {
-                    debug!(
-                        target: "client",
-                        "Recording a transaction. I'm {:?}, {}",
-                        me,
-                        shard_id
-                    );
-                    self.shards_mgr.insert_transaction(shard_id, tx);
                     NetworkClientResponses::ValidTx
                 } else {
                     self.forward_tx(tx)
