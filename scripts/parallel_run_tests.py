@@ -25,7 +25,8 @@ if p.returncode != 0:
 binaries = []
 for f in glob.glob(f'{target_debug}/*'):
     fname = os.path.basename(f)
-    if os.path.isfile(f) and fname != 'near' and not f.endswith('.d') and not fname.startswith('test_regression'):
+    ext = os.path.splitext(fname)
+    if os.path.isfile(f) and fname != 'near' and ext == '' and not fname.startswith('test_regression'):
         binaries.append(f)
 
 
