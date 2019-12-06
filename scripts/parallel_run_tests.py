@@ -25,7 +25,7 @@ if p.returncode != 0:
 binaries = []
 for f in glob.glob(f'{target_debug}/*'):
     fname = os.path.basename(f)
-    ext = os.path.splitext(fname)
+    ext = os.path.splitext(fname)[1]
     if os.path.isfile(f) and fname != 'near' and ext == '' and not fname.startswith('test_regression'):
         binaries.append(f)
 
@@ -34,7 +34,6 @@ for f in glob.glob(f'{target_debug}/*'):
 def run_test(test_binary):
     p = subprocess.Popen(['docker', 'run',
     '-v', f'{test_binary}:{test_binary}', 
-    # '-v', f'{test_wasm}:{test_wasm}',
     'ailisp/near-test-runtime',
     'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}'], 
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
