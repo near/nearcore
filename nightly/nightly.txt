@@ -18,6 +18,7 @@ pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=600 sanity/fork_sync.py
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/lightclnt.py
+pytest --timeout=240 sanity/rpc_query.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
