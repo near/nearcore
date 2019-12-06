@@ -193,7 +193,7 @@ impl Default for RuntimeFeesConfig {
                 value_cost_per_byte: 1,
                 code_cost_per_byte: 1,
             },
-            burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
+            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
         }
     }
 }
