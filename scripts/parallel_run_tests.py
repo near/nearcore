@@ -5,6 +5,9 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
+import fcntl
+
+fcntl.fcntl(1, fcntl.F_SETFL, 0)
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 target_debug = os.path.abspath(os.path.join(current_path, '../target/debug'))
