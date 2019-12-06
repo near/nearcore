@@ -426,7 +426,7 @@ impl RoutingTable {
             let mut update = self.store.store_update();
 
             if let Ok(edges) = self.get_component_edges(nonce, &mut update) {
-                for edge in edges.into_iter() {
+                for edge in edges {
                     for &peer_id in vec![&edge.peer0, &edge.peer1].iter() {
                         if peer_id == &me || self.peer_last_time_reachable.contains_key(peer_id) {
                             continue;
