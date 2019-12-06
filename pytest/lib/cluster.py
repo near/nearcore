@@ -228,6 +228,8 @@ chmod +x near
         self.wait_for_rpc(timeout=30)
 
     def kill(self):
+        self.machine.run('tmux send-keys -t python-rc C-c')
+        time.sleep(3)
         self.machine.kill_detach_tmux()
 
     def destroy_machine(self):
