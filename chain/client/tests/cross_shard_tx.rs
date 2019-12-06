@@ -453,8 +453,11 @@ mod tests {
                 );
             }
 
-            // After recent slow downs, on X1 it takes ~15m
-            near_network::test_utils::wait_or_panic(1000 * 60 * 15 * 2);
+            near_network::test_utils::wait_or_panic(if rotate_validators {
+                1000 * 60 * 15 * 4
+            } else {
+                1000 * 60 * 15 * 2
+            });
         })
         .unwrap();
     }
