@@ -27,8 +27,6 @@ use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
 const GAS_IN_NANOS: f64 = 1_000_000f64;
-///// The block limit is
-//const GAS_IN_BLOCK: u64 = 1_000_000_000_000_000u64;
 
 fn measure_function(
     metric: Metric,

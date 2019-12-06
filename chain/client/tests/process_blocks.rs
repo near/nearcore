@@ -13,9 +13,10 @@ use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
+use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
 use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
 use near_primitives::errors::InvalidTxError;
@@ -139,6 +140,11 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 None,
@@ -148,6 +154,7 @@ fn receive_network_block() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -194,6 +201,11 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 None,
@@ -203,6 +215,7 @@ fn receive_network_block_header() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -258,6 +271,11 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 Some(0),
@@ -267,6 +285,7 @@ fn produce_block_with_approvals() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
@@ -319,6 +338,11 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 Some(0),
@@ -328,6 +352,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             block.header.inner_lite.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -341,6 +366,11 @@ fn invalid_blocks() {
                 block.header.inner_lite.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 Some(0),
@@ -350,6 +380,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -358,6 +389,11 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 Some(0),
@@ -367,6 +403,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -409,38 +446,12 @@ fn client_sync_headers() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
-        let _ = setup_mock(
+        let peer_info2 = peer_info1.clone();
+        let (client, _) = setup_mock(
             vec!["test"],
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo => NetworkResponses::Info(NetworkInfo {
-                    active_peers: vec![FullPeerInfo {
-                        peer_info: peer_info1.clone(),
-                        chain_info: PeerChainInfo {
-                            genesis_id: Default::default(),
-                            height: 5,
-                            weight_and_score: WeightAndScore::from_ints(100, 100),
-                            tracked_shards: vec![],
-                        },
-                        edge_info: EdgeInfo::default(),
-                    }],
-                    num_active_peers: 1,
-                    peer_max_count: 1,
-                    most_weight_peers: vec![FullPeerInfo {
-                        peer_info: peer_info1.clone(),
-                        chain_info: PeerChainInfo {
-                            genesis_id: Default::default(),
-                            height: 5,
-                            weight_and_score: WeightAndScore::from_ints(100, 100),
-                            tracked_shards: vec![],
-                        },
-                        edge_info: EdgeInfo::default(),
-                    }],
-                    sent_bytes_per_sec: 0,
-                    received_bytes_per_sec: 0,
-                    known_producers: vec![],
-                }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
                     assert_eq!(hashes.len(), 1);
@@ -451,6 +462,33 @@ fn client_sync_headers() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
+        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
+            active_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            num_active_peers: 1,
+            peer_max_count: 1,
+            most_weight_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+        }));
         wait_or_panic(2000);
     })
     .unwrap();

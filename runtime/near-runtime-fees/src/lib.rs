@@ -107,6 +107,7 @@ pub struct AccessKeyCreationConfig {
     pub function_call_cost_per_byte: Fee,
 }
 
+/// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfig {
     /// Base storage usage for an account

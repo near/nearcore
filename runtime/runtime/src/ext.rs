@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
 
-use kvdb::DBValue;
-
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -99,21 +97,19 @@ type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
-        self.trie_update.set(storage_key, DBValue::from_slice(value));
+        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
+        self.trie_update.set(storage_key, Vec::from(value));
         Ok(evicted)
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get(&storage_key).map_err(wrap_error).map(|opt| opt.map(DBValue::into_vec))
+        self.trie_update.get(&storage_key).map_err(wrap_error)
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        let evicted =
-            self.trie_update.get(&storage_key).map_err(wrap_error)?.map(DBValue::into_vec);
+        let evicted = self.trie_update.get(&storage_key).map_err(wrap_error)?;
         self.trie_update.remove(&storage_key);
         Ok(evicted)
     }
@@ -153,7 +149,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_iter_next(&mut self, iterator_idx: u64) -> ExtResult<Option<(Vec<u8>, Vec<u8>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex.into()),
+            None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
         };
         if result.is_none() {
             self.iters.remove(&iterator_idx);
@@ -164,8 +160,7 @@ impl<'a> External for RuntimeExt<'a> {
                 self.trie_update
                     .get(&key)
                     .expect("error cannot happen")
-                    .expect("key is guaranteed to be there")
-                    .into_vec(),
+                    .expect("key is guaranteed to be there"),
             )
         }))
     }
@@ -181,7 +176,11 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .expect("receipt index should be present")
+                .ok_or_else(|| {
+                    HostErrorOrStorageError::HostError(
+                        HostError::InvalidReceiptIndex(receipt_index).into(),
+                    )
+                })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
@@ -336,7 +335,8 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        use sha2::Digest;
+        let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
     }
 

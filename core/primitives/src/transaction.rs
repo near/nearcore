@@ -16,17 +16,23 @@ pub type LogEntry = String;
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
+    /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
+    /// An access key which has been used to sign the original transaction
     pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid.
     pub block_hash: CryptoHash,
-
+    /// A list of actions to be applied
     pub actions: Vec<Action>,
 }
 
 impl Transaction {
+    /// Computes a hash for the transaction
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
@@ -101,20 +107,26 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
+/// An action which stakes singer_id tokens and setup's validator public key
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
+    /// Amount of tokens to stake.
     pub stake: Balance,
+    /// Validator key which will be used to sign transactions on behalf of singer_id
     pub public_key: PublicKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
+    /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
+    /// An access key with the permission
     pub access_key: AccessKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
+    ///
     pub public_key: PublicKey,
 }
 

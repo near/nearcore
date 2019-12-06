@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -59,6 +58,21 @@ pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 
 /// Reduce wait time for every missing block in ms.
 const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
+
+/// Horizon at which instead of fetching block, fetch full state.
+const BLOCK_FETCH_HORIZON: u64 = 50;
+
+/// Horizon to step from the latest block when fetching state.
+const STATE_FETCH_HORIZON: u64 = 5;
+
+/// Behind this horizon header fetch kicks in.
+const BLOCK_HEADER_FETCH_HORIZON: u64 = 50;
+
+/// Time between check to perform catchup.
+const CATCHUP_STEP_PERIOD: u64 = 100;
+
+/// Time between checking to re-request chunks.
+const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -177,6 +191,16 @@ pub struct Consensus {
     pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
+    /// Horizon at which instead of fetching block, fetch full state.
+    pub block_fetch_horizon: BlockIndex,
+    /// Horizon to step from the latest block when fetching state.
+    pub state_fetch_horizon: BlockIndex,
+    /// Behind this horizon header fetch kicks in.
+    pub block_header_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
 }
 
 impl Default for Consensus {
@@ -189,6 +213,11 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
             reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
             produce_empty_blocks: true,
+            block_fetch_horizon: BLOCK_FETCH_HORIZON,
+            state_fetch_horizon: STATE_FETCH_HORIZON,
+            block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
+            catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+            chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
         }
     }
 }
@@ -282,7 +311,6 @@ impl NearConfig {
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
                 min_num_peers: config.consensus.min_num_peers,
-                fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
@@ -290,11 +318,11 @@ impl NearConfig {
                 announce_account_horizon: genesis_config.epoch_length / 2,
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: 50,
-                state_fetch_horizon: 5,
-                block_header_fetch_horizon: 50,
-                catchup_step_period: Duration::from_millis(100),
-                chunk_request_retry_period: Duration::from_millis(200),
+                block_fetch_horizon: config.consensus.block_fetch_horizon,
+                state_fetch_horizon: config.consensus.state_fetch_horizon,
+                block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
+                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },
@@ -328,6 +356,7 @@ impl NearConfig {
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
@@ -458,21 +487,22 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
     ));
 }
 
+const DEFAULT_TEST_CONTRACT: &'static [u8] =
+    include_bytes!("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+
 impl GenesisConfig {
     fn test_with_seeds(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
-        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-        let default_test_contract = std::fs::read(path).unwrap();
-        let encoded_test_contract = to_base64(&default_test_contract);
-        let code_hash = hash(&default_test_contract);
+        let encoded_test_contract = to_base64(&DEFAULT_TEST_CONTRACT);
+        let code_hash = hash(&DEFAULT_TEST_CONTRACT);
         for (i, &account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
+            let i = i as u64;
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
@@ -524,11 +554,11 @@ impl GenesisConfig {
         }
     }
 
-    pub fn test(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         Self::test_with_seeds(seeds, num_validators, vec![num_validators])
     }
 
-    pub fn test_free(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test_free(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         let mut config = Self::test_with_seeds(seeds, num_validators, vec![num_validators]);
         config.runtime_config = RuntimeConfig::free();
         config
@@ -536,8 +566,8 @@ impl GenesisConfig {
 
     pub fn test_sharded(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         Self::test_with_seeds(seeds, num_validators, validators_per_shard)
     }
@@ -569,14 +599,6 @@ impl From<&str> for GenesisConfig {
             panic!(format!(
                 "Incorrect version of genesis config {} expected {}",
                 config.protocol_version, PROTOCOL_VERSION
-            ));
-        }
-        let num_shards = config.block_producers_per_shard.len();
-        let num_chunk_producers: ValidatorId = config.block_producers_per_shard.iter().sum();
-        if num_chunk_producers != max(config.num_block_producers, num_shards) {
-            panic!(format!(
-                "Number of chunk producers {} does not match number of block producers {}",
-                num_chunk_producers, config.num_block_producers
             ));
         }
         let total_supply = get_initial_supply(&config.records);
@@ -753,7 +775,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validators: usize,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
-    let num_validators = seeds.len() - num_non_validators;
+    let num_validators = (seeds.len() - num_non_validators) as ValidatorId;
     let signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
@@ -771,6 +793,8 @@ pub fn create_testnet_configs_from_seeds(
     let first_node_port = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::from_millis(1000);
+        config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
@@ -783,7 +807,7 @@ pub fn create_testnet_configs_from_seeds(
             config.network.skip_sync_wait = num_validators == 1;
         }
         config.consensus.min_num_peers =
-            cmp::min(num_validators - 1, config.consensus.min_num_peers);
+            cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
     (configs, signers, network_signers, genesis_config)

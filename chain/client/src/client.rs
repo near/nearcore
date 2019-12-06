@@ -12,11 +12,11 @@ use log::{debug, error, info, warn};
 
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter, Tip,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter, Tip,
 };
-use near_chunks::{NetworkAdapter, ProcessPartialEncodedChunkResult, ShardsManager};
+use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{PeerId, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkClientResponses, NetworkRequests};
+use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -27,22 +27,16 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use near_store::Store;
 
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
-
-/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
-
-/// Max number of transaction status query that we keep.
-const TX_STATUS_REQUEST_LIMIT: usize = 500;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -74,14 +68,6 @@ pub struct Client {
     pub state_sync: StateSync,
     /// Block economics, relevant to changes when new block must be produced.
     block_economics_config: BlockEconomicsConfig,
-    /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: SizedCache<CryptoHash, ()>,
-    /// Transaction status response
-    pub tx_status_response: SizedCache<CryptoHash, FinalExecutionOutcomeView>,
-    /// Query requests that need to be forwarded to other shards
-    pub query_requests: SizedCache<String, ()>,
-    /// Query responses
-    pub query_responses: SizedCache<String, QueryResponse>,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
 }
@@ -105,7 +91,7 @@ impl Client {
         let header_sync = HeaderSync::new(network_adapter.clone());
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
-        let num_block_producers = config.num_block_producers;
+        let num_block_producers = config.num_block_producers as usize;
         Ok(Self {
             config,
             sync_status,
@@ -123,10 +109,6 @@ impl Client {
             block_economics_config: BlockEconomicsConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
-            tx_status_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
-            tx_status_response: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
-            query_requests: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
-            query_responses: SizedCache::with_size(TX_STATUS_REQUEST_LIMIT),
             challenges: Default::default(),
         })
     }
@@ -211,6 +193,8 @@ impl Client {
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.prev_hash;
+        let prev_epoch_id = prev.inner_lite.epoch_id.clone();
+        let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
 
         debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
@@ -282,6 +266,11 @@ impl Client {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
+        let next_epoch_id = self
+            .runtime_adapter
+            .get_next_epoch_id_from_prev_block(&head.last_block_hash)
+            .expect("Epoch hash should exist at this point");
+
         // Here `total_block_producers` is the number of block producers in the epoch of the previous
         // block. It would be more correct to pass the number of block producers in the current epoch.
         // However, in the case when the epochs differ the `compute_quorums` will exit on the very
@@ -294,6 +283,7 @@ impl Client {
             approvals.clone(),
             &*self.runtime_adapter,
             self.chain.mut_store(),
+            true,
         )?
         .clone();
 
@@ -301,6 +291,12 @@ impl Client {
             0.into()
         } else {
             self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
+        };
+
+        let next_bp_hash = if prev_epoch_id != epoch_id {
+            Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
+        } else {
+            prev_next_bp_hash
         };
 
         // Get block extra from previous block.
@@ -334,6 +330,7 @@ impl Client {
             next_height,
             chunks,
             epoch_id,
+            next_epoch_id,
             approvals,
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
@@ -343,6 +340,7 @@ impl Client {
             score,
             quorums.last_quorum_pre_vote,
             quorums.last_quorum_pre_commit,
+            next_bp_hash,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -735,7 +733,7 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC {
+            if provenance != Provenance::SYNC && self.sync_status == SyncStatus::NoSync {
                 // Produce new chunks
                 for shard_id in 0..self.runtime_adapter.num_shards() {
                     let epoch_id = self
@@ -913,21 +911,11 @@ impl Client {
         true
     }
 
-    /// Find a validator that is responsible for a given shard to forward requests to
-    fn find_validator_for_forwarding(
-        &self,
-        shard_id: ShardId,
-    ) -> Result<AccountId, near_chain::Error> {
-        let head = self.chain.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
-    }
-
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, tx: SignedTransaction) -> NetworkClientResponses {
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let validator = unwrap_or_return!(self.find_validator_for_forwarding(shard_id), {
+        let validator = unwrap_or_return!(self.chain.find_validator_for_forwarding(shard_id), {
             warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
             NetworkClientResponses::NoResponse
         });
@@ -941,105 +929,6 @@ impl Client {
 
         // Send message to network to actually forward transaction.
         self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
-
-        NetworkClientResponses::RequestRouted
-    }
-
-    pub fn get_tx_status(
-        &mut self,
-        tx_hash: CryptoHash,
-        signer_account_id: AccountId,
-    ) -> NetworkClientResponses {
-        if let Some(res) = self.tx_status_response.cache_remove(&tx_hash) {
-            self.tx_status_requests.cache_remove(&tx_hash);
-            return NetworkClientResponses::TxStatus(res);
-        }
-        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let has_tx_result = match self.chain.get_execution_outcome(&tx_hash) {
-            Ok(_) => true,
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => false,
-                _ => {
-                    warn!(target: "client", "Error trying to get transaction result: {}", e.to_string());
-                    return NetworkClientResponses::NoResponse;
-                }
-            },
-        };
-        if has_tx_result {
-            let tx_result = unwrap_or_return!(
-                self.chain.get_final_transaction_result(&tx_hash),
-                NetworkClientResponses::NoResponse
-            );
-            return NetworkClientResponses::TxStatus(tx_result);
-        }
-        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
-        let validator = unwrap_or_return!(self.find_validator_for_forwarding(target_shard_id), {
-            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx_hash);
-            NetworkClientResponses::NoResponse
-        });
-
-        if let Some(account_id) = me {
-            if account_id == &validator {
-                // this probably means that we are crossing epoch boundary and the current node
-                // does not have state for the next epoch. TODO: figure out what to do in this case
-                return NetworkClientResponses::NoResponse;
-            }
-        }
-        self.tx_status_requests.cache_set(tx_hash, ());
-        self.network_adapter.send(NetworkRequests::TxStatus(validator, signer_account_id, tx_hash));
-        NetworkClientResponses::RequestRouted
-    }
-
-    pub fn handle_query(
-        &mut self,
-        path: String,
-        data: Vec<u8>,
-        id: String,
-    ) -> NetworkClientResponses {
-        if let Some(response) = self.query_responses.cache_remove(&id) {
-            return NetworkClientResponses::QueryResponse { response, id };
-        }
-        let header =
-            unwrap_or_return!(self.chain.head_header(), NetworkClientResponses::NoResponse).clone();
-        let path_parts: Vec<&str> = path.split('/').collect();
-        let account_id = AccountId::from(path_parts[1].clone());
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-        match self.chain.get_chunk_extra(&header.hash, shard_id) {
-            Ok(chunk_extra) => {
-                let state_root = chunk_extra.state_root.clone();
-                if let Ok(response) = self.runtime_adapter.query(
-                    &state_root,
-                    header.inner_lite.height,
-                    header.inner_lite.timestamp,
-                    &header.hash,
-                    path_parts.clone(),
-                    &data,
-                ) {
-                    return NetworkClientResponses::QueryResponse { response, id };
-                }
-            }
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => {}
-                _ => {
-                    warn!(target: "client", "Getting chunk extra failed: {}", e.to_string());
-                    return NetworkClientResponses::NoResponse;
-                }
-            },
-        }
-
-        // route request
-        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
-        let validator = unwrap_or_return!(self.find_validator_for_forwarding(shard_id), {
-            warn!(target: "client", "Me: {:?} Dropping query: {:?}", me, path);
-            NetworkClientResponses::NoResponse
-        });
-        self.query_requests.cache_set(id.clone(), ());
-        self.network_adapter.send(NetworkRequests::Query {
-            account_id: validator,
-            path: path.clone(),
-            data: data.clone(),
-            id: id.clone(),
-        });
 
         NetworkClientResponses::RequestRouted
     }

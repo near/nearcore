@@ -9,7 +9,7 @@ pub type AccountId = String;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.
-pub type ValidatorId = usize;
+pub type ValidatorId = u64;
 /// Mask which validators participated in multi sign.
 pub type ValidatorMask = Vec<bool>;
 /// StorageUsage is used to count the amount of storage used by a contract.

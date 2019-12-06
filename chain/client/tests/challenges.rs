@@ -38,6 +38,7 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.chunks.clone(),
         b1.header.inner_lite.epoch_id.clone(),
+        b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -47,6 +48,7 @@ fn test_verify_block_double_sign_challenge() {
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        b1.header.inner_lite.next_bp_hash.clone(),
     );
     let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
@@ -138,6 +140,7 @@ fn create_invalid_proofs_chunk(
         2,
         vec![chunk.header.clone()],
         last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -147,6 +150,7 @@ fn create_invalid_proofs_chunk(
         0.into(),
         last_block.header.prev_hash,
         CryptoHash::default(),
+        last_block.header.inner_lite.next_bp_hash,
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -250,6 +254,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.height + 1,
         vec![invalid_chunk.header.clone()],
         last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
         None,
@@ -259,6 +264,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         0.into(),
         last_block.header.prev_hash,
         prev_to_last_block.header.prev_hash,
+        last_block.header.inner_lite.next_bp_hash,
     );
 
     let challenge_body = {
@@ -292,18 +298,17 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 54, 35, 25, 236, 254, 223, 178, 21, 126, 128, 90, 220, 113, 148, 98,
-                    170, 10, 132, 196, 225, 254, 113, 142, 127, 70, 11, 237, 232, 9, 235, 151, 182,
-                    235, 217, 45, 97, 107, 149, 56, 40, 110, 74, 92, 207, 197, 223, 145, 15, 224,
-                    171, 209, 143, 188, 13, 150, 92, 173, 30, 158, 111, 33, 240, 72, 207, 145, 53,
-                    243, 62, 68, 133, 149, 26, 124, 103, 244, 149, 119, 73, 162, 6, 36, 96, 152,
-                    42, 151, 132, 135, 99, 142, 123, 210, 222, 132, 40, 77, 188, 25, 133, 2, 0, 0,
-                    0, 0, 0
+                    1, 7, 0, 20, 155, 199, 55, 40, 218, 150, 222, 64, 132, 213, 252, 78, 132, 13,
+                    31, 108, 106, 36, 32, 241, 213, 207, 255, 230, 98, 36, 34, 59, 131, 51, 40, 83,
+                    252, 63, 177, 215, 80, 204, 201, 233, 89, 151, 192, 80, 3, 13, 123, 166, 78,
+                    235, 195, 174, 220, 16, 53, 121, 47, 85, 152, 199, 25, 129, 208, 171, 30, 7,
+                    228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148, 128,
+                    55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 83, 135, 2, 0, 0, 0, 0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 145, 197, 164, 9, 176, 3, 85, 162, 73, 143, 222, 62, 17, 69,
-                    37, 191, 194, 153, 103, 173, 152, 212, 234, 124, 100, 172, 26, 55, 247, 61, 55,
-                    183, 67, 133, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 30, 154, 189, 77, 49, 215, 102, 143, 121, 33, 102, 196, 53,
+                    104, 108, 227, 91, 238, 36, 249, 118, 30, 237, 85, 140, 16, 179, 219, 180, 118,
+                    20, 226, 135, 135, 2, 0, 0, 0, 0, 0
                 ]
             ],
         );

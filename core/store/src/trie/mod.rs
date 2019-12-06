@@ -5,10 +5,9 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
+use crate::db::{DBOp, DBTransaction};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
-pub use kvdb::DBValue;
-use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -21,7 +20,7 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{StorageError, Store, StoreUpdate, COL_STATE};
+use crate::{ColState, StorageError, Store, StoreUpdate};
 
 mod insert_delete;
 pub mod iterator;
@@ -50,7 +49,7 @@ pub struct TrieCosts {
     pub node_cost: u64,
 }
 
-const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 40 };
+const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
@@ -190,15 +189,30 @@ impl TrieNode {
         buf
     }
 
-    fn memory_usage_value(value: &ValueHandle, memory: &NodesStorage) -> u64 {
+    fn memory_usage_for_value_length(value_length: u64) -> u64 {
+        value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
+    }
+
+    fn memory_usage_value(value: &ValueHandle, memory: Option<&NodesStorage>) -> u64 {
         let value_length = match value {
-            ValueHandle::InMemory(handle) => memory.value_ref(*handle).len() as u64,
+            ValueHandle::InMemory(handle) => memory
+                .expect("InMemory nodes exist, but storage is not provided")
+                .value_ref(*handle)
+                .len() as u64,
             ValueHandle::HashAndSize(value_length, _value_hash) => *value_length as u64,
         };
-        value_length * TRIE_COSTS.byte_of_value
+        Self::memory_usage_for_value_length(value_length)
+    }
+
+    fn memory_usage_direct_no_memory(&self) -> u64 {
+        self.memory_usage_direct_internal(None)
     }
 
     fn memory_usage_direct(&self, memory: &NodesStorage) -> u64 {
+        self.memory_usage_direct_internal(Some(memory))
+    }
+
+    fn memory_usage_direct_internal(&self, memory: Option<&NodesStorage>) -> u64 {
         match self {
             TrieNode::Empty => {
                 // DEVNOTE: empty nodes don't exist in storage.
@@ -268,7 +282,9 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
         let mut cursor = Cursor::new(out);
+        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
+            // size <= 1 + 4 + 4 + 32 + key_length + value_length
             RawTrieNode::Leaf(key, value_length, value_hash) => {
                 cursor.write_u8(LEAF_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -276,6 +292,7 @@ impl RawTrieNode {
                 cursor.write_u32::<LittleEndian>(*value_length)?;
                 cursor.write_all(value_hash.as_ref())?;
             }
+            // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
                 if let Some((value_length, value_hash)) = value {
                     cursor.write_u8(BRANCH_NODE_WITH_VALUE)?;
@@ -299,6 +316,7 @@ impl RawTrieNode {
                     }
                 }
             }
+            // size <= 1 + 4 + key_length + 32
             RawTrieNode::Extension(key, child) => {
                 cursor.write_u8(EXTENSION_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -448,7 +466,7 @@ impl TrieChanges {
                 .retrieve_rc(&key)
                 .unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
-            store_update.set(COL_STATE, key.as_ref(), &bytes);
+            store_update.set(ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
@@ -469,9 +487,9 @@ impl TrieChanges {
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
                 let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
-                store_update.set(COL_STATE, key.as_ref(), &bytes);
+                store_update.set(ColState, key.as_ref(), &bytes);
             } else {
-                store_update.delete(COL_STATE, key.as_ref());
+                store_update.delete(ColState, key.as_ref());
             }
         }
         Ok(())
@@ -808,14 +826,13 @@ impl Trie {
         let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
         for op in &transaction.ops {
             match op {
-                DBOp::Insert { col, ref key, ref value } if *col == COL_STATE => (*guard)
-                    .cache_set(
-                        CryptoHash::try_from(&key[..]).map_err(|_| {
-                            std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                        })?,
-                        Some(value.to_vec()),
-                    ),
-                DBOp::Delete { col, ref key } if *col == COL_STATE => (*guard).cache_set(
+                DBOp::Insert { col, ref key, ref value } if *col == ColState => (*guard).cache_set(
+                    CryptoHash::try_from(&key[..]).map_err(|_| {
+                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                    })?,
+                    Some(value.to_vec()),
+                ),
+                DBOp::Delete { col, ref key } if *col == ColState => (*guard).cache_set(
                     CryptoHash::try_from(&key[..]).map_err(|_| {
                         std::io::Error::new(ErrorKind::Other, "Key is always a hash")
                     })?,
@@ -1172,7 +1189,7 @@ mod tests {
                         .as_caching_storage()
                         .unwrap()
                         .store
-                        .iter(COL_STATE)
+                        .iter(ColState)
                         .peekable()
                         .peek()
                         .is_none(),
@@ -1275,9 +1292,9 @@ mod tests {
         ];
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
         let dir = TempDir::new("test_dump_load_trie").unwrap();
-        store.save_to_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
         let trie2 = Arc::new(Trie::new(store2.clone()));
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }

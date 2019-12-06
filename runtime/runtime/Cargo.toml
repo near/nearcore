@@ -11,12 +11,12 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 log = "0.4"
-kvdb = "0.1"
+rocksdb = "0.13"
 rand = "0.7"
-sodiumoxide = "0.2.5"
+sha2 = "0.8"
 lazy_static = "1.4"
 
-borsh = "0.2.9"
+borsh = "0.2.10"
 cached = "0.11.0"
 
 near-crypto = { path = "../../core/crypto" }

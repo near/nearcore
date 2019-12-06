@@ -11,15 +11,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use kvdb::DBValue;
 
-use crate::actions::*;
-use crate::balance_checker::check_balance;
-use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, tx_cost, RuntimeConfig,
-};
-pub use crate::store::StateRecord;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
@@ -41,7 +33,6 @@ use near_primitives::utils::{
     key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
     key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
     set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
@@ -49,6 +40,16 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
+#[cfg(feature = "costs_counting")]
+pub use near_vm_runner::EXT_COSTS_COUNTER;
+
+use crate::actions::*;
+use crate::balance_checker::check_balance;
+use crate::config::{
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    total_prepaid_gas, tx_cost, RuntimeConfig,
+};
+pub use crate::store::StateRecord;
 
 mod actions;
 pub mod adapter;
@@ -59,9 +60,6 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod store;
-
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -527,6 +525,7 @@ impl Runtime {
         Ok(result)
     }
 
+    // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
         state_update: &mut TrieUpdate,
@@ -1180,7 +1179,7 @@ impl Runtime {
                 StateRecord::Data { key, value } => {
                     state_update.set(
                         from_base64(&key).expect("Failed to decode key"),
-                        DBValue::from_vec(from_base64(&value).expect("Failed to decode value")),
+                        from_base64(&value).expect("Failed to decode value"),
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
@@ -1267,14 +1266,14 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use near_crypto::KeyType;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    use super::*;
 
     const GAS_PRICE: Balance = 100;
 

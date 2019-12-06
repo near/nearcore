@@ -703,7 +703,6 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
     let add_access_key_cost = fee_helper.add_key_cost(0);
-    println!("{}", add_access_key_cost);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let account = node_user.view_account(account_id).unwrap();
