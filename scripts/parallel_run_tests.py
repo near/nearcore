@@ -44,7 +44,7 @@ def run_test(test_binary):
 # Run tests in runners
 cpu = cpu_count()
 if os.environ.get('GITLAB_CI'):
-    cpu -= 1
+    cpu -= 2
 
 with ThreadPoolExecutor(max_workers=cpu) as executor:
     future_to_binary = {executor.submit(run_test, binary): binary for binary in binaries}
