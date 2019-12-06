@@ -45,10 +45,10 @@ impl Default for VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 3856371,
-            max_gas_burnt: 500_000_000, // with 10**15 block gas limit this will allow 5 calls.
-            max_stack_height: 16 * 1024, // 16Kib of stack.
+            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
+            max_stack_height: 16 * 1024,      // 16Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
-            max_memory_pages: 2u32.pow(11), // 128Mib of memory.
+            max_memory_pages: 2u32.pow(11),   // 128Mib of memory.
             // By default registers are limited by 1GiB of memory.
             registers_memory_limit: 2u64.pow(30),
             // By default each register is limited by 100MiB of memory.
@@ -75,7 +75,7 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
-            max_gas_burnt: 10u64.pow(9),
+            max_gas_burnt: std::u64::MAX,
             max_stack_height: 16 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,

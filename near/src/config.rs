@@ -36,8 +36,8 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
-/// One NEAR, divisible by 10^18.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
@@ -82,7 +82,7 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 10u64.pow(15);
+pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
 /// Initial gas price.
 pub const INITIAL_GAS_PRICE: Balance = 5000;

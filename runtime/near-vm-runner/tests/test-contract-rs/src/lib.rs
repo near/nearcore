@@ -487,7 +487,7 @@ fn call_promise() {
                 let account_id = create["account_id"].as_str().unwrap().as_bytes();
                 let method_name = create["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&create["arguments"]).unwrap();
-                let amount = create["amount"].as_i64().unwrap() as u128;
+                let amount = create["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 let gas = create["gas"].as_i64().unwrap() as u64;
                 promise_create(
                     account_id.len() as u64,
@@ -504,7 +504,7 @@ fn call_promise() {
                 let account_id = then["account_id"].as_str().unwrap().as_bytes();
                 let method_name = then["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&then["arguments"]).unwrap();
-                let amount = then["amount"].as_i64().unwrap() as u128;
+                let amount = then["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 let gas = then["gas"].as_i64().unwrap() as u64;
                 promise_then(
                     promise_index,
@@ -552,7 +552,7 @@ fn call_promise() {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let method_name = action["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&action["arguments"]).unwrap();
-                let amount = action["amount"].as_i64().unwrap() as u128;
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 let gas = action["gas"].as_i64().unwrap() as u64;
                 promise_batch_action_function_call(
                     promise_index,
@@ -566,7 +566,7 @@ fn call_promise() {
                 promise_index
             } else if let Some(action) = arg.get("action_transfer") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
-                let amount = action["amount"].as_i64().unwrap() as u128;
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 promise_batch_action_transfer(
                     promise_index,
                     &amount as *const u128 as *const u64 as u64,
@@ -574,7 +574,7 @@ fn call_promise() {
                 promise_index
             } else if let Some(action) = arg.get("action_stake") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
-                let amount = action["amount"].as_i64().unwrap() as u128;
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 let public_key = from_base64(action["public_key"].as_str().unwrap());
                 promise_batch_action_stake(
                     promise_index,
@@ -598,7 +598,7 @@ fn call_promise() {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let public_key = from_base64(action["public_key"].as_str().unwrap());
                 let nonce = action["nonce"].as_i64().unwrap() as u64;
-                let allowance = action["allowance"].as_i64().unwrap() as u128;
+                let allowance = action["allowance"].as_str().unwrap().parse::<u128>().unwrap();
                 let receiver_id = action["receiver_id"].as_str().unwrap().as_bytes();
                 let method_names = action["method_names"].as_str().unwrap().as_bytes();
                 promise_batch_action_add_key_with_function_call(

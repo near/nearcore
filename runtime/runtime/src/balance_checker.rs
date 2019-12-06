@@ -234,6 +234,15 @@ mod tests {
 
     use assert_matches::assert_matches;
 
+    /// Initial balance used in tests.
+    pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+
+    /// Validator's stake used in tests.
+    pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+
+    /// One NEAR, divisible by 10^24.
+    pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
     #[test]
     fn test_check_balance_no_op() {
         let trie = create_trie();
@@ -281,7 +290,7 @@ mod tests {
         let root = MerkleHash::default();
         let account_id = alice_account();
 
-        let initial_balance = 1_000_000;
+        let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
@@ -314,7 +323,7 @@ mod tests {
         let root = MerkleHash::default();
         let account_id = alice_account();
 
-        let initial_balance = 1_000_000_000;
+        let initial_balance = TESTING_INIT_BALANCE / 2;
         let deposit = 500_000_000;
         let gas_price = 100;
         let cfg = RuntimeFeesConfig::default();

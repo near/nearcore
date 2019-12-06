@@ -669,6 +669,11 @@ impl Runtime {
             safe_add_balance(stats.total_validator_reward, validator_reward)?;
 
         // Generating outgoing data
+        // A {
+        // B().then(C())}  B--data receipt->C
+
+        // A {
+        // B(); 42}
         if !action_receipt.output_data_receivers.is_empty() {
             if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result {
                 // Modifying a new receipt instead of sending data

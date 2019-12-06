@@ -186,11 +186,11 @@ impl Default for RuntimeFeesConfig {
                 },
             },
             storage_usage_config: StorageUsageConfig {
-                account_cost: 0,
-                data_record_cost: 0,
-                key_cost_per_byte: 0,
-                value_cost_per_byte: 0,
-                code_cost_per_byte: 0,
+                account_cost: 100,
+                data_record_cost: 40,
+                key_cost_per_byte: 1,
+                value_cost_per_byte: 1,
+                code_cost_per_byte: 1,
             },
             burnt_gas_reward: Fraction { numerator: 1, denominator: 3 },
         }
