@@ -449,6 +449,7 @@ pub struct GenesisConfig {
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
+    #[serde(with = "u128_dec_format")]
     pub fishermen_threshold: Balance,
 }
 

@@ -1366,16 +1366,11 @@ mod test {
                 * self.runtime.genesis_config.total_supply
                 * self.runtime.genesis_config.epoch_length as u128
                 / (100 * self.runtime.genesis_config.num_blocks_per_year as u128);
-            let per_epoch_per_validator_reward = per_epoch_total_reward
-                * (100 - self.runtime.genesis_config.protocol_reward_percentage) as u128
-                / (100 * num_validators as u128);
-            //let per_epoch_protocol_treasury = per_epoch_total_reward
-            //    * self.runtime.genesis_config.protocol_reward_percentage as u128
-            //    / 100;
-            //let per_epoch_per_validator_reward =
-            //    (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
-            let per_epoch_protocol_treasury =
-                per_epoch_total_reward - per_epoch_per_validator_reward;
+            let per_epoch_protocol_treasury = per_epoch_total_reward
+                * self.runtime.genesis_config.protocol_reward_percentage as u128
+                / 100;
+            let per_epoch_per_validator_reward =
+                (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
         }
     }
@@ -1464,10 +1459,13 @@ mod test {
             )
         );
         let test2_acc = env.view_account("test2");
-        // Got money back after being kicked out.
+        // Become fishermen instead
         assert_eq!(
             (test2_acc.amount, test2_acc.locked),
-            (TESTING_INIT_BALANCE + 3 * per_epoch_per_validator_reward, 0)
+            (
+                TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward
+            )
         );
         let test3_acc = env.view_account("test3");
         // Got 3 * X, staking 2 * X of them.
@@ -2138,10 +2136,9 @@ mod test {
 
         let account0 = env.view_account(&block_producers[0].account_id);
         assert_eq!(account0.locked, TESTING_INIT_STAKE + per_epoch_per_validator_reward2);
-        let (per_epoch_per_validator_reward3, _) = env.compute_reward(2);
         assert_eq!(
             account0.amount,
-            TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward3
+            TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward1 * 2
         );
 
         let account1 = env.view_account(&block_producers[1].account_id);
