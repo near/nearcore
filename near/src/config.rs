@@ -83,11 +83,8 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 
-/// Initial gas price.
-pub const INITIAL_GAS_PRICE: Balance = 100;
-
 /// Minimum gas price.
-pub const MIN_GAS_PRICE: Balance = 10;
+pub const MIN_GAS_PRICE: Balance = 100;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
@@ -390,9 +387,7 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: Gas,
-    /// Initial gas price.
-    pub gas_price: Balance,
-    /// Minimum gas price.
+    /// Minimum gas price. It is also the initial gas price.
     pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -437,7 +432,6 @@ impl From<GenesisConfig> for ChainGenesis {
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
-            genesis_config.gas_price,
             genesis_config.min_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
@@ -513,7 +507,6 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
@@ -721,7 +714,6 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),

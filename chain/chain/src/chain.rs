@@ -157,7 +157,6 @@ impl OrphanBlockPool {
 pub struct ChainGenesis {
     pub time: DateTime<Utc>,
     pub gas_limit: Gas,
-    pub gas_price: Balance,
     pub min_gas_price: Balance,
     pub total_supply: Balance,
     pub max_inflation_rate: u8,
@@ -170,7 +169,6 @@ impl ChainGenesis {
     pub fn new(
         time: DateTime<Utc>,
         gas_limit: Gas,
-        gas_price: Balance,
         min_gas_price: Balance,
         total_supply: Balance,
         max_inflation_rate: u8,
@@ -181,7 +179,6 @@ impl ChainGenesis {
         Self {
             time,
             gas_limit,
-            gas_price,
             min_gas_price,
             total_supply,
             max_inflation_rate,
@@ -224,7 +221,7 @@ impl Chain {
         let genesis = Block::genesis(
             genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
             chain_genesis.time,
-            chain_genesis.gas_price,
+            chain_genesis.min_gas_price,
             chain_genesis.total_supply,
         );
 

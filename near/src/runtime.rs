@@ -1265,7 +1265,7 @@ mod test {
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
                     self.last_shard_proposals.get(&i).unwrap_or(&vec![]),
-                    self.runtime.genesis_config.gas_price,
+                    self.runtime.genesis_config.min_gas_price,
                     u64::max_value(),
                     &challenges_result,
                 );

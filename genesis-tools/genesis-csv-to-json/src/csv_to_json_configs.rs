@@ -4,9 +4,8 @@ use std::path::Path;
 use near::config::{
     get_initial_supply, Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
-    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, INITIAL_GAS_PRICE, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
-    TRANSACTION_VALIDITY_PERIOD,
+    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE,
+    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
@@ -46,7 +45,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     let (records, validators, peer_info, treasury, genesis_time) =
         crate::csv_parser::keys_to_state_records(
             File::open(home.join(ACCOUNTS_FILE)).expect("Error opening accounts file."),
-            INITIAL_GAS_PRICE,
+            MIN_GAS_PRICE,
         )
         .expect("Error parsing accounts file.");
     config.network.boot_nodes =
@@ -66,7 +65,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         dynamic_resharding: false,
         epoch_length: EXPECTED_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
-        gas_price: INITIAL_GAS_PRICE,
         gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
         block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
