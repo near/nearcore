@@ -29,7 +29,7 @@ for i in range(4):
             if 'error' in result:
                 assert False, result
 
-
+time.sleep(2)
 for i in range(4):
     query_result1 = nodes[-2].get_account("test%s" % i)
     query_result2 = nodes[-1].get_account("test%s" % i)

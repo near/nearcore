@@ -186,6 +186,7 @@ class GCloudNode(BaseNode):
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
+            min_cpu_platform='Intel Skylake',
             preemptible=False,
         )
         self.ip = self.machine.ip
