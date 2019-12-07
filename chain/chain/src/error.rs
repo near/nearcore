@@ -130,6 +130,9 @@ pub enum ErrorKind {
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Someone is not a validator. Usually happens in signature verification
+    #[fail(display = "Not A Validator")]
+    NotAValidator,
     /// Validator error.
     #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
@@ -229,7 +232,8 @@ impl Error {
             | ErrorKind::InvalidGasUsed
             | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
-            | ErrorKind::InvalidRent => true,
+            | ErrorKind::InvalidRent
+            | ErrorKind::NotAValidator => true,
         }
     }
 
