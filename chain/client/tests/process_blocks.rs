@@ -649,7 +649,8 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let chain_genesis = ChainGenesis::test();
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = 100;
     let mut client = setup_client(
         store,
         vec![vec!["test1"]],
