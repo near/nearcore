@@ -798,6 +798,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(EpochValidatorInfo {
             current_validators: vec![],
             next_validators: vec![],
+            current_fishermen: vec![],
+            next_fishermen: vec![],
             current_proposals: vec![],
         })
     }
@@ -822,6 +824,35 @@ impl RuntimeAdapter for KeyValueRuntime {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
             _ => Err(ErrorKind::EpochOutOfBounds.into()),
         }
+    }
+
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn get_validator_by_account_id(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        Err(ErrorKind::NotAValidator.into())
+    }
+
+    fn get_fisherman_by_account_id(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        Err(ErrorKind::NotAValidator.into())
     }
 }
 

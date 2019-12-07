@@ -3,9 +3,10 @@ use std::path::Path;
 
 use near::config::{
     get_initial_supply, Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE,
-    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE,
-    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT, TRANSACTION_VALIDITY_PERIOD,
+    CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
@@ -18,7 +19,11 @@ const NUM_SHARDS: usize = 8;
 
 fn verify_total_supply(total_supply: Balance, chain_id: &String) {
     if chain_id == "mainnet" {
-        assert_eq!(total_supply, 1_000_000_000, "Total supply should be exactly 1 billion");
+        assert_eq!(
+            total_supply,
+            1_000_000_000 * NEAR_BASE,
+            "Total supply should be exactly 1 billion"
+        );
     } else if total_supply > 10_000_000_000 * NEAR_BASE
         && (chain_id == "testnet" || chain_id == "stakewars")
     {
@@ -79,6 +84,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         protocol_treasury_account: treasury,
         chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
         min_gas_price: MIN_GAS_PRICE,
+        fishermen_threshold: FISHERMEN_THRESHOLD,
     };
 
     // Write all configs to files.

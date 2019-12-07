@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use near_chain::types::ApplyTransactionResult;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
