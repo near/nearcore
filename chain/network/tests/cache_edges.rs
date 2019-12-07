@@ -12,7 +12,7 @@ use near_network::routing::{
 use near_network::test_utils::random_peer_id;
 use near_network::types::PeerId;
 use near_store::test_utils::create_test_store;
-use near_store::{Store, ColComponentEdges, ColPeerComponent};
+use near_store::{ColComponentEdges, ColPeerComponent, Store};
 
 #[derive(Eq, PartialEq, Hash)]
 struct EdgeDescription(usize, usize, EdgeType);
