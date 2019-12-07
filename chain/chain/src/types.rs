@@ -213,6 +213,20 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<AccountId, Error>;
 
+    fn get_validator_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error>;
+
+    fn get_fisherman_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error>;
+
     /// Number of missed blocks for given block producer.
     fn get_num_missing_blocks(
         &self,

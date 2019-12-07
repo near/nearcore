@@ -396,19 +396,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
         signature: &Signature,
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Some(validator) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)? {
-            let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
-                Ok(slashed) => slashed,
-                Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
-            };
-            if slashed.contains(&validator.account_id) {
-                return Ok(false);
-            }
-            Ok(signature.verify(data, &validator.public_key))
-        } else {
-            Err(EpochError::EpochOutOfBounds.into())
+        let (validator, is_slashed) =
+            self.get_validator_by_account_id(epoch_id, last_known_block_hash, account_id)?;
+        if is_slashed {
+            return Ok(false);
         }
+        Ok(signature.verify(data, &validator.public_key))
     }
 
     fn verify_validator_or_fisherman_signature(
@@ -426,25 +419,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             data,
             signature,
         ) {
-            Err(e) if e.kind() == ErrorKind::EpochOutOfBounds => {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                if let Some(fisherman) =
-                    epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?
-                {
-                    let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash)
-                    {
-                        Ok(slashed) => slashed,
-                        Err(_) => {
-                            return Err(EpochError::MissingBlock(*last_known_block_hash).into())
-                        }
-                    };
-                    if slashed.contains(&fisherman.account_id) {
-                        return Ok(false);
-                    }
-                    Ok(signature.verify(data, &fisherman.public_key))
-                } else {
-                    Err(EpochError::EpochOutOfBounds.into())
+            Err(e) if e.kind() == ErrorKind::NotAValidator => {
+                let (fisherman, is_slashed) =
+                    self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
+                if is_slashed {
+                    return Ok(false);
                 }
+                Ok(signature.verify(data, &fisherman.public_key))
             }
             other => other,
         }
@@ -475,14 +456,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)
             {
                 Ok(slashed) => slashed,
-                Err(_) => return Ok(false),
+                Err(_) => return Err(EpochError::MissingBlock(header.inner.prev_block_hash).into()),
             };
             if slashed.contains(&chunk_producer.account_id) {
                 return Ok(false);
             }
             Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
         } else {
-            Ok(false)
+            Err(ErrorKind::NotAValidator.into())
         }
     }
 
@@ -557,6 +538,46 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager
             .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
             .map_err(Error::from)
+    }
+
+    fn get_validator_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
+            Ok(Some(validator)) => {
+                let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
+                    Ok(slashed) => slashed,
+                    Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
+                };
+                Ok((validator, slashed.contains(account_id)))
+            }
+            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn get_fisherman_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
+            Ok(Some(fisherman)) => {
+                let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
+                    Ok(slashed) => slashed,
+                    Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
+                };
+                Ok((fisherman, slashed.contains(account_id)))
+            }
+            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -1906,6 +1927,8 @@ mod test {
             EpochValidatorInfo {
                 current_validators: current_epoch_validator_info.clone(),
                 next_validators: current_validators.clone().into_iter().map(Into::into).collect(),
+                current_fishermen: vec![],
+                next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake {
                     account_id: "test1".to_string(),
                     public_key: block_producers[0].signer.public_key(),
@@ -2124,6 +2147,16 @@ mod test {
             account0.amount,
             TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD + per_epoch_per_validator_reward1
         );
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        println!("response: {:?}", response);
+        assert_eq!(
+            response
+                .current_fishermen
+                .into_iter()
+                .map(|fishermen| fishermen.account_id)
+                .collect::<Vec<_>>(),
+            vec!["test1", "test2"]
+        );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
         let staking_transaction2 =
             stake(2, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD / 2);
@@ -2144,5 +2177,7 @@ mod test {
         let account1 = env.view_account(&block_producers[1].account_id);
         assert_eq!(account1.locked, 0);
         assert_eq!(account1.amount, TESTING_INIT_BALANCE + per_epoch_per_validator_reward1 * 2);
+        let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
+        assert!(response.current_fishermen.is_empty());
     }
 }

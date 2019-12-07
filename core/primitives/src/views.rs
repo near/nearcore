@@ -987,6 +987,10 @@ pub struct EpochValidatorInfo {
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStakeView>,
+    /// Fishermen for the current epoch
+    pub current_fishermen: Vec<ValidatorStakeView>,
+    /// Fishermen for the next epoch
+    pub next_fishermen: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
 }

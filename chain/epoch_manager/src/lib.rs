@@ -468,10 +468,10 @@ impl EpochManager {
         account_id: &AccountId,
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        if let Some(idx) = epoch_info.validator_to_index.get(account_id) {
-            return Ok(Some(epoch_info.validators[*idx as usize].clone()));
-        }
-        Ok(None)
+        Ok(epoch_info
+            .validator_to_index
+            .get(account_id)
+            .map(|idx| epoch_info.validators[*idx as usize].clone()))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -481,10 +481,10 @@ impl EpochManager {
         account_id: &AccountId,
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        if let Some(idx) = epoch_info.fishermen_to_index.get(account_id) {
-            return Ok(Some(epoch_info.fishermen[*idx as usize].clone()));
-        }
-        Ok(None)
+        Ok(epoch_info
+            .validator_to_index
+            .get(account_id)
+            .map(|idx| epoch_info.validators[*idx as usize].clone()))
     }
 
     pub fn get_slashed_validators(
@@ -638,10 +638,9 @@ impl EpochManager {
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let slashed = self.get_slashed_validators(block_hash)?.clone();
-        let current_validators = self
-            .get_epoch_info(&epoch_id)?
+        let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let current_validators = cur_epoch_info
             .validators
-            .clone()
             .into_iter()
             .map(|info| {
                 let num_missing_blocks =
@@ -654,12 +653,17 @@ impl EpochManager {
                 })
             })
             .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+        let current_fishermen = cur_epoch_info.fishermen;
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
-        let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
+        let next_validators = next_epoch_info.validators.clone();
+        let next_fishermen = next_epoch_info.fishermen.clone();
         let current_proposals = self.get_block_info(block_hash)?.all_proposals.clone();
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators: next_validators.into_iter().map(Into::into).collect(),
+            current_fishermen: current_fishermen.into_iter().map(Into::into).collect(),
+            next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
             current_proposals: current_proposals.into_iter().map(Into::into).collect(),
         })
     }
