@@ -843,7 +843,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _last_known_block_hash: &CryptoHash,
         _account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
-        unimplemented!()
+        Err(ErrorKind::NotAValidator.into())
     }
 
     fn get_fisherman_by_account_id(
@@ -852,7 +852,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _last_known_block_hash: &CryptoHash,
         _account_id: &String,
     ) -> Result<(ValidatorStake, bool), Error> {
-        unimplemented!()
+        Err(ErrorKind::NotAValidator.into())
     }
 }
 

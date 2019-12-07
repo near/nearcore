@@ -2148,7 +2148,6 @@ mod test {
             TESTING_INIT_BALANCE - FISHERMEN_THRESHOLD + per_epoch_per_validator_reward1
         );
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
-        println!("response: {:?}", response);
         assert_eq!(
             response
                 .current_fishermen

@@ -164,7 +164,6 @@ pub fn proposals_to_epoch_info(
     // TODO(1050): implement fishermen allocation.
 
     let final_stake_change = stake_change.into_iter().map(|(k, (v, _))| (k, v)).collect();
-    println!("fishermen: {:?}", fishermen);
 
     Ok(EpochInfo {
         validators: final_proposals,
