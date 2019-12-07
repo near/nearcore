@@ -453,11 +453,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             header.inner.height_created,
             header.inner.shard_id,
         ) {
-            let slashed = match epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)
-            {
-                Ok(slashed) => slashed,
-                Err(_) => return Err(EpochError::MissingBlock(header.inner.prev_block_hash).into()),
-            };
+            let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
             if slashed.contains(&chunk_producer.account_id) {
                 return Ok(false);
             }
@@ -549,10 +545,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
             Ok(Some(validator)) => {
-                let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
-                    Ok(slashed) => slashed,
-                    Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
-                };
+                let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
                 Ok((validator, slashed.contains(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
@@ -569,10 +562,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
             Ok(Some(fisherman)) => {
-                let slashed = match epoch_manager.get_slashed_validators(&last_known_block_hash) {
-                    Ok(slashed) => slashed,
-                    Err(_) => return Err(EpochError::MissingBlock(*last_known_block_hash).into()),
-                };
+                let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
                 Ok((fisherman, slashed.contains(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),

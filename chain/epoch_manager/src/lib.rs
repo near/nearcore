@@ -482,9 +482,9 @@ impl EpochManager {
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         Ok(epoch_info
-            .validator_to_index
+            .fishermen_to_index
             .get(account_id)
-            .map(|idx| epoch_info.validators[*idx as usize].clone()))
+            .map(|idx| epoch_info.fishermen[*idx as usize].clone()))
     }
 
     pub fn get_slashed_validators(
