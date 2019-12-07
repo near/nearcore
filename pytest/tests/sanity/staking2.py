@@ -64,7 +64,7 @@ def doit(seq = []):
     global nodes, all_stakes, sequence
     sequence = seq
 
-    config = {'local': True, 'near_root': '../target/debug/'}
+    config = None
     nodes = start_cluster(2, 1, 1, config, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]], {2: {"tracked_shards": [0]}})
 
     started = time.time()

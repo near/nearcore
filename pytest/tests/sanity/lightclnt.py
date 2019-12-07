@@ -11,7 +11,7 @@ from lightclient import compute_block_hash, validate_light_client_block
 
 TIMEOUT = 150
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(4, 0, 4, None, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 
@@ -93,6 +93,7 @@ while True:
     iter_ += 1
 
 res = get_light_client_block(height_to_hash[26], last_known_block)
+print(res)
 assert res['result']['inner_lite']['height'] == 27
 
 get_up_to(30, 31)
