@@ -114,6 +114,9 @@ pub const DEVELOPER_PERCENT: u8 = 30;
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
+/// Fishermen stake threshold.
+pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
+
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
 
@@ -445,6 +448,9 @@ pub struct GenesisConfig {
     pub num_blocks_per_year: u64,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
+    /// Fishermen stake threshold.
+    #[serde(with = "u128_dec_format")]
+    pub fishermen_threshold: Balance,
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
@@ -551,6 +557,7 @@ impl GenesisConfig {
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            fishermen_threshold: FISHERMEN_THRESHOLD,
         }
     }
 
@@ -762,6 +769,7 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                fishermen_threshold: FISHERMEN_THRESHOLD,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());

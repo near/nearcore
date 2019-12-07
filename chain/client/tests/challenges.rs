@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use borsh::BorshSerialize;
 
-use near::GenesisConfig;
+use near::config::FISHERMEN_THRESHOLD;
+use near::{GenesisConfig, NightshadeRuntime};
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
@@ -435,6 +436,67 @@ fn test_block_challenge() {
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
     assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges, vec![challenge]);
+    assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+}
+
+/// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
+/// a validator cannot.
+#[test]
+fn test_fishermen_challenge() {
+    init_test_logger();
+    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
+    genesis_config.epoch_length = 5;
+    let create_runtime = || -> Arc<NightshadeRuntime> {
+        Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            genesis_config.clone(),
+            vec![],
+            vec![],
+        ))
+    };
+    let runtime1 = create_runtime();
+    let runtime2 = create_runtime();
+    let runtime3 = create_runtime();
+    let mut env =
+        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let stake_transaction = SignedTransaction::stake(
+        1,
+        "test1".to_string(),
+        &signer,
+        FISHERMEN_THRESHOLD,
+        env.clients[1].block_producer.as_ref().unwrap().signer.public_key(),
+        genesis_hash,
+    );
+    env.clients[0].process_tx(stake_transaction);
+    for i in 1..=11 {
+        env.produce_block(0, i);
+    }
+
+    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+
+    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+    let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
+        block_header: block.header.try_to_vec().unwrap(),
+        chunk: chunk.clone(),
+        merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
+    });
+    let challenge = Challenge::produce(
+        challenge_body.clone(),
+        env.clients[1].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[1].block_producer.as_ref().unwrap().signer,
+    );
+    let challenge1 = Challenge::produce(
+        challenge_body,
+        env.clients[2].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[2].block_producer.as_ref().unwrap().signer,
+    );
+    assert!(env.clients[0].process_challenge(challenge1).is_err());
+    env.clients[0].process_challenge(challenge.clone()).unwrap();
+    env.produce_block(0, 12);
+    assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }
 

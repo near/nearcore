@@ -468,10 +468,23 @@ impl EpochManager {
         account_id: &AccountId,
     ) -> Result<Option<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        if let Some(idx) = epoch_info.validator_to_index.get(account_id) {
-            return Ok(Some(epoch_info.validators[*idx as usize].clone()));
-        }
-        Ok(None)
+        Ok(epoch_info
+            .validator_to_index
+            .get(account_id)
+            .map(|idx| epoch_info.validators[*idx as usize].clone()))
+    }
+
+    /// Returns fisherman for given account id for given epoch.
+    pub fn get_fisherman_by_account_id(
+        &mut self,
+        epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<Option<ValidatorStake>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        Ok(epoch_info
+            .fishermen_to_index
+            .get(account_id)
+            .map(|idx| epoch_info.fishermen[*idx as usize].clone()))
     }
 
     pub fn get_slashed_validators(
@@ -625,10 +638,9 @@ impl EpochManager {
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let slashed = self.get_slashed_validators(block_hash)?.clone();
-        let current_validators = self
-            .get_epoch_info(&epoch_id)?
+        let cur_epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+        let current_validators = cur_epoch_info
             .validators
-            .clone()
             .into_iter()
             .map(|info| {
                 let num_missing_blocks =
@@ -641,12 +653,17 @@ impl EpochManager {
                 })
             })
             .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+        let current_fishermen = cur_epoch_info.fishermen;
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
-        let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
+        let next_validators = next_epoch_info.validators.clone();
+        let next_fishermen = next_epoch_info.fishermen.clone();
         let current_proposals = self.get_block_info(block_hash)?.all_proposals.clone();
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators: next_validators.into_iter().map(Into::into).collect(),
+            current_fishermen: current_fishermen.into_iter().map(Into::into).collect(),
+            next_fishermen: next_fishermen.into_iter().map(Into::into).collect(),
             current_proposals: current_proposals.into_iter().map(Into::into).collect(),
         })
     }
@@ -921,6 +938,7 @@ mod tests {
             vec![0, 0],
             vec![vec![0, 0]],
             vec![],
+            vec![],
             change_stake(vec![("test1", amount_staked)]),
             reward(vec![("near", 0)]),
             0,
@@ -945,6 +963,7 @@ mod tests {
             vec![0, 1],
             vec![vec![0, 1]],
             vec![],
+            vec![],
             change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
             // only the validator who produced the block in this epoch gets the reward since epoch length is 1
             reward(vec![("test1", 0), ("near", 0)]),
@@ -968,8 +987,10 @@ mod tests {
     #[test]
     fn test_validator_change_of_stake() {
         let amount_staked = 1_000_000;
+        let fishermen_threshold = 100;
         let validators = vec![("test1", amount_staked), ("test2", amount_staked)];
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
+        epoch_manager.config.fishermen_threshold = fishermen_threshold;
 
         let h = hash_range(4);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -984,6 +1005,7 @@ mod tests {
                 vec![("test2", amount_staked)],
                 vec![0, 0],
                 vec![vec![0, 0]],
+                vec![],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
@@ -1101,6 +1123,7 @@ mod tests {
                 vec![0],
                 vec![vec![0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", amount_staked)]),
                 reward(vec![("near", 0)]),
                 0
@@ -1113,7 +1136,7 @@ mod tests {
     #[test]
     fn test_validator_kickout() {
         let store = create_test_store();
-        let config = epoch_config(4, 1, 2, 0, 90, 60);
+        let config = epoch_config(4, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1146,6 +1169,7 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", amount_staked)]),
                 reward(vec![("test2", 0), ("near", 0)]),
                 0
@@ -1156,7 +1180,7 @@ mod tests {
     #[test]
     fn test_validator_unstake() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1181,6 +1205,7 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
                 0
@@ -1195,6 +1220,7 @@ mod tests {
                 vec![("test2", amount_staked)],
                 vec![0, 0],
                 vec![vec![0, 0]],
+                vec![],
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
@@ -1211,6 +1237,7 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 reward(vec![("test2", 0), ("near", 0)]),
                 0
@@ -1221,7 +1248,7 @@ mod tests {
     #[test]
     fn test_slashing() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1273,6 +1300,7 @@ mod tests {
                 vec![("test2", amount_staked)],
                 vec![0, 0],
                 vec![vec![0, 0]],
+                vec![],
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 reward(vec![("test2", 0), ("near", 0)]),
@@ -1339,6 +1367,7 @@ mod tests {
             0,
             90,
             60,
+            100,
             reward_calculator.clone(),
         );
         let rng_seed = [0; 32];
@@ -1421,7 +1450,8 @@ mod tests {
                 vec![0],
                 vec![vec![0]],
                 vec![],
-                change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
+                vec![("test1", stake_amount)],
+                change_stake(vec![("test1", stake_amount), ("test2", stake_amount + test2_reward)]),
                 reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)]),
                 inflation,
             )
@@ -1450,6 +1480,7 @@ mod tests {
             0,
             90,
             60,
+            0,
             reward_calculator.clone(),
         );
         let rng_seed = [0; 32];
@@ -1530,6 +1561,7 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0], vec![0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
                 inflation
@@ -1540,7 +1572,7 @@ mod tests {
     #[test]
     fn test_unstake_and_then_change_stake() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1564,6 +1596,7 @@ mod tests {
                 vec![("test1", amount_staked), ("test2", amount_staked)],
                 vec![1, 0],
                 vec![vec![1, 0]],
+                vec![],
                 vec![],
                 change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
@@ -1589,6 +1622,7 @@ mod tests {
             0,
             90,
             60,
+            0,
             default_reward_calculator(),
         );
         let rng_seed = [0; 32];
@@ -1663,6 +1697,7 @@ mod tests {
                 vec![0, 1, 0],
                 vec![vec![0], vec![1], vec![0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount), ("test3", stake_amount)]),
                 reward(vec![("test2", 0), ("test3", 0), ("near", 0)]),
                 0
@@ -1683,6 +1718,7 @@ mod tests {
             0,
             10,
             10,
+            0,
             default_reward_calculator(),
         );
         let h = hash_range(5);
@@ -1713,6 +1749,7 @@ mod tests {
             0,
             10,
             10,
+            0,
             default_reward_calculator(),
         );
         let h = hash_range(8);
@@ -1751,6 +1788,7 @@ mod tests {
             0,
             90,
             70,
+            0,
             default_reward_calculator(),
         );
         let rng_seed = [0; 32];
@@ -1823,6 +1861,7 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0], vec![0], vec![0], vec![0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount)]),
                 reward(vec![("test2", 0), ("near", 0)]),
                 0
@@ -1833,7 +1872,7 @@ mod tests {
     #[test]
     fn test_compare_epoch_id() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1858,5 +1897,46 @@ mod tests {
         assert_eq!(epoch_manager.compare_epoch_id(&epoch_id3, &epoch_id1), Ok(Ordering::Greater));
         let random_epoch_id = EpochId(hash(&[100]));
         assert!(epoch_manager.compare_epoch_id(&epoch_id3, &random_epoch_id).is_err());
+    }
+
+    #[test]
+    fn test_fishermen() {
+        let stake_amount = 1_000_000;
+        let fishermen_threshold = 100;
+        let validators = vec![
+            ("test1", stake_amount),
+            ("test2", stake_amount),
+            ("test3", fishermen_threshold),
+            ("test4", fishermen_threshold / 2),
+        ];
+        let epoch_length = 4;
+        let mut em = setup_epoch_manager(
+            validators,
+            epoch_length,
+            1,
+            4,
+            0,
+            90,
+            70,
+            fishermen_threshold,
+            default_reward_calculator(),
+        );
+        let mut epoch_info = epoch_info(
+            vec![("test1", stake_amount), ("test2", stake_amount)],
+            vec![0, 1, 0, 1],
+            vec![vec![0, 1, 0, 1]],
+            vec![],
+            vec![("test3", fishermen_threshold)],
+            change_stake(vec![
+                ("test1", stake_amount),
+                ("test2", stake_amount),
+                ("test3", fishermen_threshold),
+                ("test4", 0),
+            ]),
+            reward(vec![("near", 0)]),
+            0,
+        );
+        epoch_info.validator_kickout = HashSet::default();
+        assert_eq!(em.get_epoch_info(&EpochId(CryptoHash::default())).unwrap(), &epoch_info)
     }
 }
