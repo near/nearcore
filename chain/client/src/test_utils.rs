@@ -805,7 +805,7 @@ impl TestEnv {
     }
 
     pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
-        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+        let block = self.clients[id].produce_block(height, Duration::from_millis(20)).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }
 

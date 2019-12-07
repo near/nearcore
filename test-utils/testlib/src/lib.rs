@@ -41,7 +41,7 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
     let chain_genesis = ChainGenesis::new(
         genesis_time,
         genesis_config.gas_limit,
-        genesis_config.gas_price,
+        genesis_config.min_gas_price,
         genesis_config.total_supply,
         genesis_config.max_inflation_rate,
         genesis_config.gas_price_adjustment_rate,

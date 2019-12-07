@@ -7,6 +7,7 @@ use borsh::BorshSerialize;
 
 use near::config::FISHERMEN_THRESHOLD;
 use near::{GenesisConfig, NightshadeRuntime};
+use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
@@ -41,6 +42,7 @@ fn test_verify_block_double_sign_challenge() {
         b1.header.inner_lite.epoch_id.clone(),
         b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         None,
         vec![],
@@ -143,6 +145,7 @@ fn create_invalid_proofs_chunk(
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         None,
         vec![],
@@ -258,6 +261,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
+        0,
         None,
         vec![],
         vec![],
@@ -283,7 +287,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             validity_period,
             epoch_length,
-            0,
+            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
         );
 
         chain_update
