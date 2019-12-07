@@ -1290,7 +1290,7 @@ dependencies = [
  "chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-crypto 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
@@ -1308,7 +1308,7 @@ dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-chain 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
@@ -1657,7 +1657,7 @@ name = "keypair-generator"
 version = "0.1.0"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-crypto 0.1.0",
 ]
 
@@ -1713,7 +1713,7 @@ dependencies = [
  "git-version 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-primitives 0.1.0",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "near"
-version = "0.4.5"
+version = "0.4.9"
 dependencies = [
  "actix 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "borsh 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1977,7 +1977,7 @@ dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-chain 0.1.0",
  "near-chunks 0.1.0",
  "near-crypto 0.1.0",
@@ -2253,7 +2253,7 @@ dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-network 0.1.0",
@@ -2959,7 +2959,7 @@ dependencies = [
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gnuplot 0.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
  "near-runtime-fees 0.4.0",
@@ -3224,7 +3224,7 @@ dependencies = [
  "borsh 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-chain 0.1.0",
  "near-crypto 0.1.0",
  "near-network 0.1.0",
@@ -3354,7 +3354,7 @@ dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "near 0.4.5",
+ "near 0.4.9",
  "near-chain 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
