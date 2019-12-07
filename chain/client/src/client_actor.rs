@@ -1148,13 +1148,27 @@ impl ClientActor {
                 .runtime_adapter
                 .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
-            let is_validator = if let Some(block_producer) = &act.client.block_producer {
-                if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|x| x.0.account_id == block_producer.account_id)
-                {
-                    !is_slashed
-                } else {
-                    false
+            let account_id = act.client.block_producer.as_ref().map(|x| x.account_id.clone());
+            let is_validator = if let Some(ref account_id) = account_id {
+                match act.client.runtime_adapter.get_validator_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+            let is_fishermen = if let Some(ref account_id) = account_id {
+                match act.client.runtime_adapter.get_fisherman_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
                 }
             } else {
                 false
@@ -1166,6 +1180,7 @@ impl ClientActor {
                 &act.node_id,
                 &act.network_info,
                 is_validator,
+                is_fishermen,
                 num_validators,
             );
 

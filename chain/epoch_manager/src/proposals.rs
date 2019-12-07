@@ -43,6 +43,9 @@ pub fn proposals_to_epoch_info(
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
     let mut stake_change = BTreeMap::new();
+    let mut fishermen = vec![];
+    let mut fishermen_to_index = HashMap::new();
+
     for p in proposals {
         if validator_kickout.contains(&p.account_id) {
             stake_change.insert(p.account_id, (0, p.amount));
@@ -71,19 +74,34 @@ pub fn proposals_to_epoch_info(
         }
     }
 
+    for r in epoch_info.fishermen.iter() {
+        if !ordered_proposals.contains_key(&r.account_id) {
+            // safe to do this here because fishermen from previous epoch is guaranteed to have no
+            // duplicates.
+            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
+            fishermen.push(r.clone())
+        }
+    }
+
     // Get the threshold given current number of seats and stakes.
-    let num_fisherman_seats: u64 = epoch_config.avg_fisherman_per_shard.iter().sum();
-    let num_seats = epoch_config.num_block_producers + num_fisherman_seats;
+    let num_hidden_validator_seats: u64 = epoch_config.avg_hidden_validators_per_shard.iter().sum();
+    let num_seats = epoch_config.num_block_producers + num_hidden_validator_seats;
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
     let threshold = find_threshold(&stakes, num_seats)?;
     // Remove proposals under threshold.
     let mut final_proposals = vec![];
+
     for (account_id, p) in ordered_proposals {
         if p.amount >= threshold {
             if !stake_change.contains_key(&account_id) {
                 stake_change.insert(account_id, (p.amount, 0));
             }
             final_proposals.push(p);
+        } else if p.amount >= epoch_config.fishermen_threshold {
+            // Do not return stake back since they will become fishermen
+            stake_change.entry(account_id.clone()).or_insert((p.amount, 0));
+            fishermen_to_index.insert(account_id, fishermen.len() as ValidatorId);
+            fishermen.push(p);
         } else {
             stake_change
                 .entry(account_id.clone())
@@ -149,14 +167,16 @@ pub fn proposals_to_epoch_info(
 
     Ok(EpochInfo {
         validators: final_proposals,
+        fishermen,
         validator_to_index,
         block_producers,
         chunk_producers,
-        fishermen: vec![],
+        hidden_validators: vec![],
         stake_change: final_stake_change,
         validator_reward,
         inflation,
         validator_kickout,
+        fishermen_to_index,
     })
 }
 
@@ -178,7 +198,7 @@ mod tests {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 1, 90, 60),
+                &epoch_config(2, 2, 1, 1, 90, 60, 0),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
@@ -192,6 +212,7 @@ mod tests {
                 vec![0],
                 vec![vec![0], vec![0]],
                 vec![],
+                vec![],
                 change_stake(vec![("test1", 1_000_000)]),
                 HashMap::default(),
                 0
@@ -204,16 +225,18 @@ mod tests {
                     num_shards: 5,
                     num_block_producers: 6,
                     block_producers_per_shard: vec![6, 2, 2, 2, 2],
-                    avg_fisherman_per_shard: vec![6, 2, 2, 2, 2],
+                    avg_hidden_validators_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
-                    chunk_producer_kickout_threshold: 60
+                    chunk_producer_kickout_threshold: 60,
+                    fishermen_threshold: 10
                 },
                 [0; 32],
                 &EpochInfo::default(),
                 vec![
                     stake("test1", 1_000_000),
                     stake("test2", 1_000_000),
-                    stake("test3", 1_000_000)
+                    stake("test3", 1_000_000),
+                    stake("test4", 100),
                 ],
                 HashSet::default(),
                 HashMap::default(),
@@ -232,10 +255,12 @@ mod tests {
                     vec![0, 1]
                 ],
                 vec![],
+                vec![("test4", 100)],
                 change_stake(vec![
                     ("test1", 1_000_000),
                     ("test2", 1_000_000),
-                    ("test3", 1_000_000)
+                    ("test3", 1_000_000),
+                    ("test4", 100),
                 ]),
                 HashMap::default(),
                 0
