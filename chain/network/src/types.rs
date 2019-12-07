@@ -23,7 +23,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
@@ -308,6 +308,8 @@ pub enum RoutedMessageBody {
         response: Result<QueryResponse, String>,
         id: String,
     },
+    ReceiptOutcomeRequest(CryptoHash),
+    ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
     StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
@@ -409,7 +411,8 @@ impl RoutedMessage {
             | RoutedMessageBody::TxStatusRequest(_, _)
             | RoutedMessageBody::StateRequest(_, _, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
-            | RoutedMessageBody::QueryRequest { .. } => true,
+            | RoutedMessageBody::QueryRequest { .. }
+            | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
             _ => false,
         }
     }
@@ -507,6 +510,12 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
                 RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
+                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
+                    f.write_str("Receipt outcome request")
+                }
+                RoutedMessageBody::ReceiptOutComeResponse(_) => {
+                    f.write_str("Receipt outcome response")
+                }
                 RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                     f.write_str("PartialEncodedChunkRequest")
                 }
@@ -637,6 +646,24 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
+                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_RECEIPT_OUTCOME_REQUEST_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_RECEIPT_OUTCOME_REQUEST_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::ReceiptOutComeResponse(_) => {
+                    near_metrics::inc_counter(
+                        &metrics::ROUTED_RECEIPT_OUTCOME_RESPONSE_RECEIVED_TOTAL,
+                    );
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_RECEIPT_OUTCOME_RESPONSE_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
                 RoutedMessageBody::StateRequest(_, _, _, _) => {
                     near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
@@ -715,7 +742,9 @@ impl PeerMessage {
                 RoutedMessageBody::QueryRequest { .. }
                 | RoutedMessageBody::QueryResponse { .. }
                 | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::TxStatusResponse(_) => true,
+                | RoutedMessageBody::TxStatusResponse(_)
+                | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                | RoutedMessageBody::ReceiptOutComeResponse(_) => true,
                 _ => false,
             },
             _ => false,
@@ -991,6 +1020,8 @@ pub enum NetworkRequests {
         data: Vec<u8>,
         id: String,
     },
+    /// Request for receipt execution outcome
+    ReceiptOutComeRequest(AccountId, CryptoHash),
 
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// Fetch current routing table.
@@ -1180,6 +1211,10 @@ pub enum NetworkViewClientMessages {
     Query { path: String, data: Vec<u8>, id: String },
     /// Query response
     QueryResponse { response: Result<QueryResponse, String>, id: String },
+    /// Request for receipt outcome
+    ReceiptOutcomeRequest(CryptoHash),
+    /// Receipt outcome response
+    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
 }
 
 pub enum NetworkViewClientResponses {
@@ -1187,6 +1222,8 @@ pub enum NetworkViewClientResponses {
     TxStatus(FinalExecutionOutcomeView),
     /// Response to general queries
     QueryResponse { response: Result<QueryResponse, String>, id: String },
+    /// Receipt outcome response
+    ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
     /// Response not needed
     NoResponse,
 }

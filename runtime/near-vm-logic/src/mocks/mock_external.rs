@@ -92,21 +92,21 @@ impl External for MockedExternal {
                 }
                 None => Ok(None),
             },
-            None => Err(HostError::InvalidIteratorIndex.into()),
+            None => Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
         }
     }
 
     fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<()> {
         if self.iterators.remove(&iterator_idx).is_none() {
-            Err(HostError::InvalidIteratorIndex.into())
+            Err(HostError::InvalidIteratorIndex(iterator_idx).into())
         } else {
             Ok(())
         }
     }
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
-        if receipt_indices.iter().any(|el| *el >= self.receipts.len() as u64) {
-            return Err(HostError::InvalidReceiptIndex.into());
+        if let Some(index) = receipt_indices.iter().find(|&&el| el >= self.receipts.len() as u64) {
+            return Err(HostError::InvalidReceiptIndex(*index).into());
         }
         let res = self.receipts.len() as u64;
         self.receipts.push(Receipt { receipt_indices, receiver_id, actions: vec![] });
@@ -227,7 +227,9 @@ impl External for MockedExternal {
     }
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
     }
 

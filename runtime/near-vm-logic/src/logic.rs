@@ -203,7 +203,7 @@ impl<'a> VMLogic<'a> {
             self.gas_counter.pay_per_byte(read_register_byte, data.len() as _)?;
             Ok(data.clone())
         } else {
-            Err(HostError::InvalidRegisterId.into())
+            Err(HostError::InvalidRegisterId(register_id).into())
         }
     }
 
@@ -635,8 +635,8 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
-    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
+    /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
+    /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
         self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
     }
@@ -814,8 +814,10 @@ impl<'a> VMLogic<'a> {
 
         let mut receipt_dependencies = vec![];
         for promise_idx in &promise_indices {
-            let promise =
-                self.promises.get(*promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+            let promise = self
+                .promises
+                .get(*promise_idx as usize)
+                .ok_or(HostError::InvalidPromiseIndex(*promise_idx))?;
             match &promise.promise_to_receipt {
                 PromiseToReceipts::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
@@ -901,8 +903,10 @@ impl<'a> VMLogic<'a> {
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         // Update the DAG and return new promise idx.
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
         let receipt_dependencies = match &promise.promise_to_receipt {
             PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
             PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
@@ -935,8 +939,10 @@ impl<'a> VMLogic<'a> {
         &self,
         promise_idx: u64,
     ) -> Result<(ReceiptIndex, bool)> {
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
         let receipt_idx = match &promise.promise_to_receipt {
             PromiseToReceipts::Receipt(receipt_idx) => Ok(*receipt_idx),
             PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
@@ -1416,7 +1422,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `result_id` does not correspond to an existing result returns `InvalidResultIndex`;
+    /// * If `result_id` does not correspond to an existing result returns `InvalidPromiseResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
@@ -1431,7 +1437,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promise_results
             .get(result_idx as usize)
-            .ok_or(HostError::InvalidPromiseResultIndex)?
+            .ok_or(HostError::InvalidPromiseResultIndex(result_idx))?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
@@ -1462,7 +1468,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promises
             .get(promise_idx as usize)
-            .ok_or(HostError::InvalidPromiseIndex)?
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?
             .promise_to_receipt
         {
             PromiseToReceipts::Receipt(receipt_idx) => {
@@ -1904,9 +1910,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_iter_next_base)?;
         if self.invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated.into());
+            return Err(HostError::IteratorWasInvalidated(iterator_id).into());
         } else if !self.valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex.into());
+            return Err(HostError::InvalidIteratorIndex(iterator_id).into());
         }
 
         let nodes_before = self.ext.get_touched_nodes_count();

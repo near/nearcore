@@ -140,6 +140,11 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -150,6 +155,7 @@ fn receive_network_block() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -196,6 +202,11 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -206,6 +217,7 @@ fn receive_network_block_header() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -261,6 +273,11 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -271,6 +288,7 @@ fn produce_block_with_approvals() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
@@ -323,6 +341,11 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -333,6 +356,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             block.header.inner_lite.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -346,6 +370,11 @@ fn invalid_blocks() {
                 block.header.inner_lite.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -356,6 +385,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -364,6 +394,11 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
                 0,
                 0,
@@ -374,6 +409,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))

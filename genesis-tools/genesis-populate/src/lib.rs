@@ -11,14 +11,14 @@ use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
+use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, ShardId, StateRoot};
+use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
@@ -192,6 +192,7 @@ impl GenesisBuilder {
             self.config.genesis_time,
             self.config.min_gas_price,
             self.config.total_supply,
+            Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
         let mut store = ChainStore::new(self.store.clone());

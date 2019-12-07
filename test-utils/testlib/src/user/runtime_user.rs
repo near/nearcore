@@ -7,7 +7,7 @@ use near_crypto::{PublicKey, Signer};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
@@ -89,13 +89,10 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error")
                     }
                 })?;
-            let (_, proofs) =
-                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-            for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(proofs) {
-                self.transaction_results.borrow_mut().insert(
-                    outcome_with_id.id,
-                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof }.into(),
-                );
+            for outcome_with_id in apply_result.outcomes {
+                self.transaction_results
+                    .borrow_mut()
+                    .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
@@ -127,7 +124,8 @@ impl RuntimeUser {
     ) -> Vec<ExecutionOutcomeWithIdView> {
         let outcome = self.get_transaction_result(hash);
         let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        let mut transactions =
+            vec![ExecutionOutcomeWithIdView { id: *hash, outcome, proof: vec![] }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());

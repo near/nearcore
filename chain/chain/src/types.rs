@@ -101,7 +101,7 @@ impl ApplyTransactionResult {
     ) -> (MerkleHash, Vec<MerklePath>) {
         let mut result = vec![];
         for outcome_with_id in outcomes.iter() {
-            result.extend(outcome_with_id.outcome.to_hashes());
+            result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
     }
@@ -493,6 +493,9 @@ mod tests {
     use near_primitives::block::genesis_chunks;
 
     use super::*;
+    use crate::Chain;
+    use near_primitives::merkle::verify_path;
+    use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
 
     #[test]
     fn test_block_produce() {
@@ -503,6 +506,7 @@ mod tests {
             Utc::now(),
             100,
             1_000_000_000,
+            Chain::compute_bp_hash_inner(&vec![]).unwrap(),
         );
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
@@ -522,10 +526,39 @@ mod tests {
             &b1,
             2,
             b1.header.inner_lite.epoch_id.clone(),
+            EpochId(genesis.hash()),
             approvals,
             &signer,
+            genesis.header.inner_lite.next_bp_hash,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
+    }
+
+    #[test]
+    fn test_execution_outcome_merklization() {
+        let outcome1 = ExecutionOutcomeWithId {
+            id: Default::default(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::Unknown,
+                logs: vec!["outcome1".to_string()],
+                receipt_ids: vec![hash(&[1])],
+                gas_burnt: 100,
+            },
+        };
+        let outcome2 = ExecutionOutcomeWithId {
+            id: Default::default(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::SuccessValue(vec![1]),
+                logs: vec!["outcome2".to_string()],
+                receipt_ids: vec![],
+                gas_burnt: 0,
+            },
+        };
+        let outcomes = vec![outcome1, outcome2];
+        let (outcome_root, paths) = ApplyTransactionResult::compute_outcomes_proof(&outcomes);
+        for (outcome_with_id, path) in outcomes.into_iter().zip(paths.into_iter()) {
+            assert!(verify_path(outcome_root, &path, &outcome_with_id.to_hashes()));
+        }
     }
 }

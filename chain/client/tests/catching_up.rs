@@ -103,7 +103,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_receipts_sync_last_block() {
         test_catchup_receipts_sync_common(13, 5, false)
     }
@@ -352,7 +351,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_random_single_part_sync_send_15() {
         test_catchup_random_single_part_sync_common(false, false, 15)
     }
