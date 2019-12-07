@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 240
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
+nodes = start_cluster(4, 0, 4, None, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
 
 started = time.time()
 
