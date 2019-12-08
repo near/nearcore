@@ -1078,6 +1078,13 @@ impl Chain {
             let mut all_parents_known = true;
             let mut prev_hash = orphan.block.header.prev_hash;
             for _ in 0..NUM_ORPHAN_PARENTS_CHECK {
+                if prev_hash == CryptoHash::default() {
+                    // TODO This is very suspicious.
+                    // Technically, it's correct and also helps in testing.
+                    // In reality it show never happen except maybe first seconds
+                    // of creating Universe.
+                    break;
+                }
                 // 1. Look into store
                 match self.store.get_block(&prev_hash) {
                     Ok(block) => {
@@ -1112,6 +1119,9 @@ impl Chain {
                 orphan_hashes.push((accepted_parent_hash, orphan_hash));
             }
         }
+        if self.orphans.orphans.len() > 0 {
+            debug!(target: "chain", "Orphans total: {:?}, orphans to get chunks: {:?}", self.orphans.orphans.len(), orphan_hashes.len());
+        }
 
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
@@ -1120,11 +1130,11 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         for (parent_hash, orphan_hash) in orphan_hashes.into_iter() {
             let orphan = self.orphans.orphans.get(&orphan_hash).unwrap();
-            // TODO Alex check here: match chain_update.ping_missing_chunks(me, orphan.block.header.prev_hash, &orphan.block)
+            // TODO check is it okay to use parent_hash here?
             match chain_update.ping_missing_chunks(me, parent_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {
@@ -2156,9 +2166,6 @@ impl<'a> ChainUpdate<'a> {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
-        if !self.care_about_any_shard_or_part(me, parent_hash)? {
-            return Ok(());
-        }
         let mut missing = vec![];
         let height = block.header.inner_lite.height;
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
@@ -2587,7 +2594,9 @@ impl<'a> ChainUpdate<'a> {
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
-        self.ping_missing_chunks(me, prev_hash, &block)?;
+        if self.care_about_any_shard_or_part(me, prev_hash)? {
+            self.ping_missing_chunks(me, prev_hash, &block)?;
+        }
         self.save_incoming_receipts_from_block(me, &block)?;
 
         // Do basic validation of chunks before applying the transactions
