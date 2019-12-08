@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -371,18 +371,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error> {
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let validator = epoch_manager
             .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
+        Ok(())
     }
 
     fn verify_validator_signature(

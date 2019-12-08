@@ -40,9 +40,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block weight.
-    #[fail(display = "Invalid Block Weight")]
-    InvalidBlockWeight,
+    /// Invalid block weight or score.
+    #[fail(display = "Invalid Block Weight Or Score")]
+    InvalidBlockWeightOrScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -204,7 +204,7 @@ impl Error {
             | ErrorKind::InvalidBlockHeight
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidBlockWeightOrScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)

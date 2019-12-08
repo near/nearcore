@@ -14,6 +14,7 @@ use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
@@ -44,17 +45,25 @@ fn add_blocks(
             &prev.header,
             prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
-            epoch_id,
+            epoch_id.clone(),
             next_epoch_id,
-            vec![],
+            vec![Approval::new(prev.hash(), prev.hash(), signer, "other".to_string())],
             0,
             0,
             Some(0),
             vec![],
             vec![],
             signer,
-            0.into(),
-            CryptoHash::default(),
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
+                prev.header.inner_rest.total_weight
+            } else {
+                prev.header.inner_rest.score
+            },
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
+                prev.hash()
+            } else {
+                prev.header.inner_rest.last_quorum_pre_vote
+            },
             CryptoHash::default(),
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {
                 account_id: "other".to_string(),
