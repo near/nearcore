@@ -799,6 +799,7 @@ impl Client {
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
@@ -807,11 +808,14 @@ impl Client {
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
         self.chain.check_orphans_with_missing_chunks(&me, |missing_chunks| {
-            blocks_missing_chunks.write().unwrap().push(missing_chunks)
+            orphans_missing_chunks.write().unwrap().push(missing_chunks)
         });
         self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
+        }
+        for (parent_hash, missing_chunks) in orphans_missing_chunks.write().unwrap().drain(..) {
+            self.shards_mgr.request_chunks_for_orphan(parent_hash, missing_chunks).unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         unwrapped_accepted_blocks

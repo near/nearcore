@@ -641,4 +641,153 @@ mod tests {
         })
         .unwrap();
     }
+
+    enum OrphansPhases {
+        WaitingForSendingTx,
+        HoldingBlock,
+        ValidatingOrphans,
+    }
+
+    #[test]
+    fn test_catchup_orphans_2_to_5() {
+        test_catchup_orphans_common(2, 5)
+    }
+
+    #[test]
+    fn test_catchup_orphans_2_to_10() {
+        test_catchup_orphans_common(2, 10)
+    }
+
+    fn test_catchup_orphans_common(height_hold: u64, height_release: u64) {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
+        assert!(height_hold > 1);
+        let validator_groups = 1;
+        init_integration_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+
+            let phase = Arc::new(RwLock::new(OrphansPhases::WaitingForSendingTx));
+
+            let connectors1 = connectors.clone();
+            let block_prod_time: u64 = 1200;
+            let (_, conn) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                block_prod_time,
+                false,
+                false,
+                5,
+                Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
+                    let account_from = "test3.3".to_string();
+                    let account_to = "test1.1".to_string();
+                    let source_shard_id = account_id_to_shard_id(&account_from, 4);
+                    let destination_shard_id = account_id_to_shard_id(&account_to, 4);
+
+                    let mut phase = phase.write().unwrap();
+                    match *phase {
+                        OrphansPhases::WaitingForSendingTx => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header.inner_lite.height <= height_hold - 1);
+                                if block.header.inner_lite.height == height_hold - 1 {
+                                    println!(
+                                        "From shard: {}, to shard: {}",
+                                        source_shard_id, destination_shard_id,
+                                    );
+                                    for i in 0..16 {
+                                        send_tx(
+                                            &connectors1.write().unwrap()[i].0,
+                                            account_from.clone(),
+                                            account_to.clone(),
+                                            111,
+                                            1,
+                                            block.header.prev_hash,
+                                        );
+                                    }
+                                    *phase = OrphansPhases::HoldingBlock;
+                                }
+                            }
+                        }
+                        OrphansPhases::HoldingBlock => {
+                            // We don't allow to get any chunks from height `height_hold` - 1.
+                            // It means all blocks with higher height will be put into orphans.
+                            if let NetworkRequests::PartialEncodedChunkRequest { .. } = msg {
+                                if from_whom == "test1.2" {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
+                            }
+                            if let NetworkRequests::PartialEncodedChunkMessage {
+                                account_id, ..
+                            } = msg
+                            {
+                                if account_id == "test1.2" {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
+                            }
+                            if let NetworkRequests::Block { block } = msg {
+                                println!(
+                                    "HOLDING PHASE, HEIGHT = {:?}",
+                                    block.header.inner_lite.height
+                                );
+                                if block.header.inner_lite.height >= height_release {
+                                    *phase = OrphansPhases::ValidatingOrphans;
+                                }
+                            }
+                        }
+                        OrphansPhases::ValidatingOrphans => {
+                            if let NetworkRequests::Block { block } = msg {
+                                println!(
+                                    "VALIDATING PHASE, HEIGHT = {:?}",
+                                    block.header.inner_lite.height
+                                );
+                                assert!(block.header.inner_lite.height >= height_release);
+                                assert!(block.header.inner_lite.height <= height_release + 10);
+                                if block.header.inner_lite.height == height_release + 10 {
+                                    System::current().stop();
+                                }
+                                if block.header.inner_lite.height >= height_release + 5 {
+                                    for i in 0..16 {
+                                        actix::spawn(
+                                            connectors1.write().unwrap()[i]
+                                                .1
+                                                .send(Query::new(
+                                                    "account/".to_string() + &account_to,
+                                                    vec![],
+                                                ))
+                                                .then(move |res| {
+                                                    let res_inner = res.unwrap();
+                                                    if let Ok(Some(query_response)) = res_inner {
+                                                        if let ViewAccount(view_account_result) =
+                                                            query_response
+                                                        {
+                                                            assert_eq!(
+                                                                view_account_result.amount,
+                                                                1111
+                                                            );
+                                                        }
+                                                    }
+                                                    future::result(Ok(()))
+                                                }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    };
+                    (NetworkResponses::NoResponse, true)
+                })),
+            );
+            *connectors.write().unwrap() = conn;
+            let max_wait_ms = 240000;
+
+            near_network::test_utils::wait_or_panic(max_wait_ms);
+        })
+        .unwrap();
+    }
 }

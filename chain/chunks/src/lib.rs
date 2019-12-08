@@ -312,6 +312,40 @@ impl ShardsManager {
             .collect::<HashSet<_>>()
     }
 
+    fn request_chunk(
+        &mut self,
+        parent_hash: CryptoHash,
+        chunk_hash: ChunkHash,
+        shard_id: ShardId,
+        height: BlockIndex,
+        chunk_header: ShardChunkHeader,
+    ) -> Result<(), Error> {
+        if self.requested_partial_encoded_chunks.contains_key(&chunk_hash) {
+            return Ok(());
+        }
+
+        self.encoded_chunks.get_or_insert_from_header(chunk_hash.clone(), Some(&chunk_header));
+
+        self.requested_partial_encoded_chunks.insert(
+            chunk_hash.clone(),
+            ChunkRequestInfo {
+                height,
+                parent_hash,
+                shard_id,
+                last_requested: Instant::now(),
+                added: Instant::now(),
+            },
+        );
+        self.request_partial_encoded_chunk(
+            height,
+            &parent_hash,
+            shard_id,
+            &chunk_hash,
+            false,
+            false,
+        )
+    }
+
     pub fn request_chunks(
         &mut self,
         chunks_to_request: Vec<ShardChunkHeader>,
@@ -328,31 +362,23 @@ impl ShardsManager {
                 ..
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
+            self.request_chunk(parent_hash, chunk_hash, shard_id, height, chunk_header)?;
+        }
+        Ok(())
+    }
 
-            if self.requested_partial_encoded_chunks.contains_key(&chunk_hash) {
-                continue;
-            }
-
-            self.encoded_chunks.get_or_insert_from_header(chunk_hash.clone(), Some(&chunk_header));
-
-            self.requested_partial_encoded_chunks.insert(
-                chunk_hash.clone(),
-                ChunkRequestInfo {
-                    height,
-                    parent_hash,
-                    shard_id,
-                    last_requested: Instant::now(),
-                    added: Instant::now(),
-                },
-            );
-            self.request_partial_encoded_chunk(
-                height,
-                &parent_hash,
-                shard_id,
-                &chunk_hash,
-                false,
-                false,
-            )?;
+    pub fn request_chunks_for_orphan(
+        &mut self,
+        parent_hash: CryptoHash,
+        chunks_to_request: Vec<ShardChunkHeader>,
+    ) -> Result<(), Error> {
+        for chunk_header in chunks_to_request {
+            let ShardChunkHeader {
+                inner: ShardChunkHeaderInner { shard_id, height_created: height, .. },
+                ..
+            } = chunk_header;
+            let chunk_hash = chunk_header.chunk_hash();
+            self.request_chunk(parent_hash, chunk_hash, shard_id, height, chunk_header)?;
         }
         Ok(())
     }

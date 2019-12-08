@@ -1067,13 +1067,14 @@ impl Chain {
     pub fn check_orphans_with_missing_chunks<F>(
         &mut self,
         me: &Option<AccountId>,
-        mut block_misses_chunks: F,
+        mut orphans_missing_chunks: F,
     ) where
-        F: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
+        F: Copy + FnMut((CryptoHash, Vec<ShardChunkHeader>)) -> (),
     {
         let mut orphan_hashes = vec![];
         for (orphan_hash, orphan) in self.orphans.orphans.iter() {
             let mut accepted_parent = false;
+            let mut accepted_parent_hash = CryptoHash::default();
             let mut all_parents_known = true;
             let mut prev_hash = orphan.block.header.prev_hash;
             for _ in 0..NUM_ORPHAN_PARENTS_CHECK {
@@ -1081,6 +1082,7 @@ impl Chain {
                 match self.store.get_block(&prev_hash) {
                     Ok(block) => {
                         accepted_parent = true;
+                        accepted_parent_hash = prev_hash;
                         prev_hash = block.header.prev_hash;
                         continue;
                     }
@@ -1107,7 +1109,7 @@ impl Chain {
             // 1. At least one of the parents is accepted (is in store)
             // 2. All of the parents_to_check should be known (in store, missing chunks or orphans)
             if accepted_parent && all_parents_known {
-                orphan_hashes.push(orphan_hash);
+                orphan_hashes.push((accepted_parent_hash, orphan_hash));
             }
         }
 
@@ -1120,13 +1122,13 @@ impl Chain {
             self.epoch_length,
             self.gas_price_adjustment_rate,
         );
-        for orphan_hash in orphan_hashes.into_iter() {
+        for (parent_hash, orphan_hash) in orphan_hashes.into_iter() {
             let orphan = self.orphans.orphans.get(&orphan_hash).unwrap();
-            match chain_update.ping_missing_chunks(me, orphan.block.header.prev_hash, &orphan.block)
-            {
+            // TODO Alex check here: match chain_update.ping_missing_chunks(me, orphan.block.header.prev_hash, &orphan.block)
+            match chain_update.ping_missing_chunks(me, parent_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {
-                        block_misses_chunks(missing.clone());
+                        orphans_missing_chunks((parent_hash, missing.clone()));
                     }
                     _ => {
                         error!(target: "chain", "Cannot get missing chunks from orphan {:?}: {:?}", orphan.block.header, e);
