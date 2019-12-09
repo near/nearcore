@@ -86,8 +86,8 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasure account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
-    /// Accounts to slash.
-    pub slashed_accounts: HashSet<AccountId>,
+    /// Accounts to slash and the slashed amount (None means everything)
+    pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
 #[derive(Debug)]
@@ -945,10 +945,12 @@ impl Runtime {
             }
         }
 
-        for account_id in validator_accounts_update.slashed_accounts.iter() {
+        for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
             if let Some(mut account) = get_account(state_update, &account_id)? {
-                stats.total_balance_slashed += account.locked;
-                account.locked = 0;
+                let amount_to_slash = stake.unwrap_or(account.locked);
+                assert!(account.locked >= amount_to_slash, "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}", account.locked, amount_to_slash);
+                stats.total_balance_slashed += amount_to_slash;
+                account.locked -= amount_to_slash;
                 set_account(state_update, &account_id, &account);
             }
         }
@@ -1351,7 +1353,7 @@ mod tests {
             validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
-            slashed_accounts: HashSet::default(),
+            slashing_info: HashMap::default(),
         };
 
         runtime

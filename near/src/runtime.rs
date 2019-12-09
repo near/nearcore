@@ -17,7 +17,7 @@ use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, Rewar
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -219,8 +219,9 @@ impl NightshadeRuntime {
                    block_index,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
+
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward) =
+                let (stake_info, validator_reward, slashing_info) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
@@ -237,34 +238,40 @@ impl NightshadeRuntime {
                         acc.insert(v.account_id.clone(), v.amount);
                         acc
                     });
+                let slashing_info = slashing_info
+                    .into_iter()
+                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .map(|(account_id, stake)| (account_id, Some(stake)))
+                    .collect();
                 Some(ValidatorAccountsUpdate {
                     stake_info,
                     validator_rewards,
                     last_proposals,
                     protocol_treasury_account_id: Some(
                         self.genesis_config.protocol_treasury_account.clone(),
-                    )
-                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
-                    slashed_accounts: challenges_result
-                        .iter()
-                        .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id)
-                        .map(Clone::clone)
-                        .collect(),
+                    ),
+                    slashing_info,
                 })
             } else {
+                let slashing_info = challenges_result
+                    .iter()
+                    .filter_map(|s| {
+                        if self.account_id_to_shard_id(&s.account_id) == shard_id
+                            && !s.is_double_sign
+                        {
+                            Some((s.account_id.clone(), None))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 if !challenges_result.is_empty() {
                     Some(ValidatorAccountsUpdate {
                         stake_info: Default::default(),
                         validator_rewards: Default::default(),
                         last_proposals: Default::default(),
                         protocol_treasury_account_id: None,
-                        slashed_accounts: challenges_result
-                            .iter()
-                            .filter(|account_id| {
-                                self.account_id_to_shard_id(account_id) == shard_id
-                            })
-                            .map(Clone::clone)
-                            .collect(),
+                        slashing_info,
                     })
                 } else {
                     None
@@ -439,7 +446,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(slashed) => slashed,
             Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
         };
-        if slashed.contains(&block_producer.account_id) {
+        if slashed.contains_key(&block_producer.account_id) {
             return Ok(false);
         }
         Ok(header.signature.verify(header.hash.as_ref(), &block_producer.public_key))
@@ -454,7 +461,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             header.inner.shard_id,
         ) {
             let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
-            if slashed.contains(&chunk_producer.account_id) {
+            if slashed.contains_key(&chunk_producer.account_id) {
                 return Ok(false);
             }
             Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
@@ -546,7 +553,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
             Ok(Some(validator)) => {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
-                Ok((validator, slashed.contains(account_id)))
+                Ok((validator, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -563,7 +570,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
             Ok(Some(fisherman)) => {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
-                Ok((fisherman, slashed.contains(account_id)))
+                Ok((fisherman, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -773,7 +780,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<AccountId>,
+        slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -784,17 +791,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let mut slashed = HashSet::default();
-        for validator in slashed_validators {
-            slashed.insert(validator);
-        }
         let block_info = BlockInfo::new(
             block_index,
             last_finalized_height,
             parent_hash,
             proposals,
             chunk_mask,
-            slashed,
+            slashed_validators,
             rent_paid,
             validator_reward,
             total_supply,
@@ -1139,7 +1142,7 @@ mod test {
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::WeightAndScore;
-    use near_primitives::challenge::ChallengesResult;
+    use near_primitives::challenge::{ChallengesResult, SlashedValidator};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::init_test_logger;
@@ -2024,7 +2027,7 @@ mod test {
             vec![],
             vec![],
         );
-        env.step(vec![vec![]], vec![true], vec!["test2".to_string()]);
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), false)]);
         assert_eq!(env.view_account("test2").locked, 0);
         assert_eq!(
             env.runtime
@@ -2052,6 +2055,48 @@ mod test {
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
+    }
+
+    #[test]
+    fn test_double_sign_challenge() {
+        let mut env = TestEnv::new(
+            "test_challenges",
+            vec![vec!["test1".to_string(), "test2".to_string()]],
+            2,
+            vec![],
+            vec![],
+        );
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), true)]);
+        assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
+        assert_eq!(
+            env.runtime
+                .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
+            vec![("test2".to_string(), true), ("test1".to_string(), false)]
+        );
+        let msg = vec![0, 1, 2];
+        let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
+        let signature = signer.sign(&msg);
+        assert!(!env
+            .runtime
+            .verify_validator_signature(
+                &env.head.epoch_id,
+                &env.head.last_block_hash,
+                &"test2".to_string(),
+                &msg,
+                &signature,
+            )
+            .unwrap());
+        // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
+        for _ in 0..6 {
+            env.step(vec![vec![]], vec![true], vec![]);
+        }
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     }
 
     #[test]
