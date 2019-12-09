@@ -30,7 +30,8 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse, ViewStateResult,
+    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::{
     get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
@@ -265,18 +266,16 @@ impl NightshadeRuntime {
                     .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
                     slashing_info,
                 })
+            } else if !challenges_result.is_empty() {
+                Some(ValidatorAccountsUpdate {
+                    stake_info: Default::default(),
+                    validator_rewards: Default::default(),
+                    last_proposals: Default::default(),
+                    protocol_treasury_account_id: None,
+                    slashing_info,
+                })
             } else {
-                if !challenges_result.is_empty() {
-                    Some(ValidatorAccountsUpdate {
-                        stake_info: Default::default(),
-                        validator_rewards: Default::default(),
-                        last_proposals: Default::default(),
-                        protocol_treasury_account_id: None,
-                        slashing_info,
-                    })
-                } else {
-                    None
-                }
+                None
             }
         };
 
@@ -893,7 +892,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        height: BlockIndex,
+        block_height: BlockIndex,
         block_timestamp: u64,
         _block_hash: &CryptoHash,
         path_parts: Vec<&str>,
@@ -904,46 +903,62 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         match path_parts[0] {
             "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
-                Ok(r) => Ok(QueryResponse::ViewAccount(r.into())),
+                Ok(r) => Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewAccount(r.into()),
+                    block_height,
+                }),
                 Err(e) => Err(e),
             },
             "call" => {
                 let mut logs = vec![];
                 match self.call_function(
                     *state_root,
-                    height,
+                    block_height,
                     block_timestamp,
                     &AccountId::from(path_parts[1]),
                     path_parts[2],
                     &data,
                     &mut logs,
                 ) {
-                    Ok(result) => Ok(QueryResponse::CallResult(CallResult { result, logs })),
-                    Err(err) => {
-                        Ok(QueryResponse::Error(QueryError { error: err.to_string(), logs }))
-                    }
+                    Ok(result) => Ok(QueryResponse {
+                        kind: QueryResponseKind::CallResult(CallResult { result, logs }),
+                        block_height,
+                    }),
+                    Err(err) => Ok(QueryResponse {
+                        kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
+                        block_height,
+                    }),
                 }
             }
             "contract" => {
                 match self.view_state(*state_root, &AccountId::from(path_parts[1]), data) {
-                    Ok(result) => Ok(QueryResponse::ViewState(result)),
-                    Err(err) => Ok(QueryResponse::Error(QueryError {
-                        error: err.to_string(),
-                        logs: vec![],
-                    })),
+                    Ok(result) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewState(result),
+                        block_height,
+                    }),
+                    Err(err) => Ok(QueryResponse {
+                        kind: QueryResponseKind::Error(QueryError {
+                            error: err.to_string(),
+                            logs: vec![],
+                        }),
+                        block_height,
+                    }),
                 }
             }
             "access_key" => {
                 let result = if path_parts.len() == 2 {
                     self.view_access_keys(*state_root, &AccountId::from(path_parts[1])).map(|r| {
-                        QueryResponse::AccessKeyList(
-                            r.into_iter()
-                                .map(|(public_key, access_key)| AccessKeyInfoView {
-                                    public_key,
-                                    access_key: access_key.into(),
-                                })
-                                .collect(),
-                        )
+                        QueryResponse {
+                            kind: QueryResponseKind::AccessKeyList(
+                                r.into_iter()
+                                    .map(|(public_key, access_key)| AccessKeyInfoView {
+                                        public_key,
+                                        access_key: access_key.into(),
+                                    })
+                                    .collect(),
+                            ),
+                            block_height,
+                        }
                     })
                 } else {
                     self.view_access_key(
@@ -951,14 +966,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &AccountId::from(path_parts[1]),
                         &PublicKey::try_from(path_parts[2])?,
                     )
-                    .map(|r| QueryResponse::AccessKey(r.map(|access_key| access_key.into())))
+                    .map(|access_key| QueryResponse {
+                        kind: QueryResponseKind::AccessKey(access_key.into()),
+                        block_height,
+                    })
                 };
                 match result {
                     Ok(result) => Ok(result),
-                    Err(err) => Ok(QueryResponse::Error(QueryError {
-                        error: err.to_string(),
-                        logs: vec![],
-                    })),
+                    Err(err) => Ok(QueryResponse {
+                        kind: QueryResponseKind::Error(QueryError {
+                            error: err.to_string(),
+                            logs: vec![],
+                        }),
+                        block_height,
+                    }),
                 }
             }
             _ => Err(format!("Unknown path {}", path_parts[0]).into()),
@@ -1095,7 +1116,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
