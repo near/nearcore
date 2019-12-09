@@ -178,6 +178,7 @@ class GCloudNode(BaseNode):
         self.instance_name = instance_name
         self.port = 24567
         self.rpc_port = 3030
+        self.node_dir = node_dir
         self.machine = gcloud.create(
             name=instance_name,
             machine_type='n1-standard-2',
@@ -239,9 +240,18 @@ chmod +x near
     def cleanup(self):
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
+        target_path = self.node_dir + '_finished'
+        if os.path.exists(target_path) and os.path.isdir(target_path):
+            shutil.rmtree(target_path)
+        os.rename(self.node_dir, target_path)
+
+        # Get log and delete machine
         rc.run(f'mkdir -p /tmp/pytest_remote_log')
         self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
+    
+    def json_rpc(self, method, params, timeout=5):
+        return super().json_rpc(method, params, timeout=timeout)
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -331,6 +341,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     else:
         near_root = config['near_root']
         node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = list(node_dirs.filter(lambda n: not n.endswith('_finished'), node_dirs))
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
