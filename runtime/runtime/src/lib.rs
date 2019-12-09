@@ -11,15 +11,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use kvdb::DBValue;
 
-use crate::actions::*;
-use crate::balance_checker::check_balance;
-use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, tx_cost, RuntimeConfig,
-};
-pub use crate::store::StateRecord;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
@@ -41,7 +33,6 @@ use near_primitives::utils::{
     key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
     key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
-use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
     set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
@@ -49,6 +40,16 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
+#[cfg(feature = "costs_counting")]
+pub use near_vm_runner::EXT_COSTS_COUNTER;
+
+use crate::actions::*;
+use crate::balance_checker::check_balance;
+use crate::config::{
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    total_prepaid_gas, tx_cost, RuntimeConfig,
+};
+pub use crate::store::StateRecord;
 
 mod actions;
 pub mod adapter;
@@ -59,9 +60,6 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod store;
-
-#[cfg(feature = "costs_counting")]
-pub use near_vm_runner::EXT_COSTS_COUNTER;
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -445,11 +443,24 @@ impl Runtime {
         match action {
             Action::CreateAccount(_) => {
                 near_metrics::inc_counter(&metrics::ACTION_CREATE_ACCOUNT_TOTAL);
-                action_create_account(apply_state, account, actor_id, receipt, &mut result);
+                action_create_account(
+                    &self.config.transaction_costs,
+                    apply_state,
+                    account,
+                    actor_id,
+                    receipt,
+                    &mut result,
+                );
             }
             Action::DeployContract(deploy_contract) => {
                 near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
-                action_deploy_contract(state_update, account, &account_id, deploy_contract)?;
+                action_deploy_contract(
+                    &self.config.transaction_costs,
+                    state_update,
+                    account,
+                    &account_id,
+                    deploy_contract,
+                )?;
             }
             Action::FunctionCall(function_call) => {
                 near_metrics::inc_counter(&metrics::ACTION_FUNCTION_CALL_TOTAL);
@@ -478,11 +489,25 @@ impl Runtime {
             }
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
-                action_add_key(state_update, account, &mut result, account_id, add_key)?;
+                action_add_key(
+                    &self.config.transaction_costs,
+                    state_update,
+                    account,
+                    &mut result,
+                    account_id,
+                    add_key,
+                )?;
             }
             Action::DeleteKey(delete_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_DELETE_KEY_TOTAL);
-                action_delete_key(state_update, account, &mut result, account_id, delete_key)?;
+                action_delete_key(
+                    &self.config.transaction_costs,
+                    state_update,
+                    account,
+                    &mut result,
+                    account_id,
+                    delete_key,
+                )?;
             }
             Action::DeleteAccount(delete_account) => {
                 near_metrics::inc_counter(&metrics::ACTION_DELETE_ACCOUNT_TOTAL);
@@ -500,6 +525,7 @@ impl Runtime {
         Ok(result)
     }
 
+    // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
         state_update: &mut TrieUpdate,
@@ -1088,7 +1114,7 @@ impl Runtime {
 
     pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
-        let config = RuntimeFeesConfig::default().storage_usage_config;
+        let config = &self.config.transaction_costs.storage_usage_config;
         for record in records {
             let account_and_storage = match record {
                 StateRecord::Account { account_id, .. } => {
@@ -1148,7 +1174,7 @@ impl Runtime {
                 StateRecord::Data { key, value } => {
                     state_update.set(
                         from_base64(&key).expect("Failed to decode key"),
-                        DBValue::from_vec(from_base64(&value).expect("Failed to decode value")),
+                        from_base64(&value).expect("Failed to decode value"),
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
@@ -1235,14 +1261,14 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use near_crypto::KeyType;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    use super::*;
 
     const GAS_PRICE: Balance = 100;
 

@@ -97,6 +97,7 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
         filename = os.path.join(home_dir, 'genesis.json')
         genesis_config = json.load(open(filename))
         genesis_config['gas_price'] = 0
+        genesis_config['min_gas_price'] = 0
         json.dump(genesis_config, open(filename, 'w'))
 
 

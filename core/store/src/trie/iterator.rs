@@ -1,5 +1,3 @@
-use kvdb::DBValue;
-
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
@@ -41,7 +39,7 @@ pub struct TrieIterator<'a> {
     root: CryptoHash,
 }
 
-pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), StorageError>;
+pub type TrieItem<'a> = Result<(Vec<u8>, Vec<u8>), StorageError>;
 
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
@@ -176,7 +174,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                             ValueHandle::HashAndSize(_, hash) => self.trie.retrieve_raw_bytes(hash),
                             ValueHandle::InMemory(_node) => unreachable!(),
                         };
-                        return Some(value.map(|value| (self.key(), DBValue::from_vec(value))));
+                        return Some(value.map(|value| (self.key(), value.clone())));
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
                     (CrumbStatus::At, TrieNode::Leaf(_, value)) => {
@@ -184,7 +182,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                             ValueHandle::HashAndSize(_, hash) => self.trie.retrieve_raw_bytes(hash),
                             ValueHandle::InMemory(_node) => unreachable!(),
                         };
-                        return Some(value.map(|value| (self.key(), DBValue::from_vec(value))));
+                        return Some(value.map(|value| (self.key(), value.clone())));
                     }
                     (CrumbStatus::At, TrieNode::Extension(_, child)) => {
                         let next_node = match child {

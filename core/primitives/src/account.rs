@@ -57,8 +57,7 @@ pub enum AccessKeyPermission {
     FullAccess,
 }
 
-/// Grants limited permission to issue transactions with a single function call action.
-/// Those function calls can't have attached balance.
+/// Grants limited permission to make transactions with FunctionCallActions
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.

@@ -103,7 +103,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_receipts_sync_last_block() {
         test_catchup_receipts_sync_common(13, 5, false)
     }
@@ -288,14 +287,13 @@ mod tests {
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
                                                 .1
-                                                .send(Query {
-                                                    path: "account/".to_owned() + &account_to,
-                                                    data: vec![],
-                                                })
+                                                .send(Query::new(
+                                                    "account/".to_string() + &account_to,
+                                                    vec![],
+                                                ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
-                                                    if res_inner.is_ok() {
-                                                        let query_response = res_inner.unwrap();
+                                                    if let Ok(Some(query_response)) = res_inner {
                                                         if let ViewAccount(view_account_result) =
                                                             query_response
                                                         {
@@ -353,7 +351,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_random_single_part_sync_send_15() {
         test_catchup_random_single_part_sync_common(false, false, 15)
     }
@@ -481,15 +478,14 @@ mod tests {
                                             actix::spawn(
                                                 connectors1.write().unwrap()[i]
                                                     .1
-                                                    .send(Query {
-                                                        path: "account/".to_owned()
-                                                            + flat_validators[j],
-                                                        data: vec![],
-                                                    })
+                                                    .send(Query::new(
+                                                        "account/".to_string() + flat_validators[j],
+                                                        vec![],
+                                                    ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
-                                                        if res_inner.is_ok() {
-                                                            let query_response = res_inner.unwrap();
+                                                        if let Ok(Some(query_response)) = res_inner
+                                                        {
                                                             if let ViewAccount(
                                                                 view_account_result,
                                                             ) = query_response

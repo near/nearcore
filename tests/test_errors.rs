@@ -3,7 +3,6 @@ use std::sync::Arc;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, GenesisConfig};
 use near_crypto::{InMemorySigner, KeyType};
-use near_jsonrpc::client::message::RpcError;
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
@@ -11,7 +10,6 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
-use near_primitives::views::ExecutionErrorView;
 use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
@@ -50,13 +48,11 @@ fn test_check_tx_error_log() {
     assert_eq!(
         tx_result,
         format!(
-            "{:?}",
-            RpcError::server_error(Some(ExecutionErrorView::from(
-                InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::AccessKeyNotFound(
-                    "bob.near".to_string(),
-                    signer.public_key.clone()
-                ))
-            )))
+            "{}",
+            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::AccessKeyNotFound(
+                "bob.near".to_string(),
+                signer.public_key.clone()
+            ))
         ),
     );
 }
@@ -66,7 +62,7 @@ fn test_deliver_tx_error_log() {
     let node = start_node();
     let fee_helper = testlib::fees_utils::FeeHelper::new(
         node.genesis_config().runtime_config.transaction_costs.clone(),
-        node.genesis_config().gas_price,
+        node.genesis_config().min_gas_price,
     );
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
@@ -91,14 +87,12 @@ fn test_deliver_tx_error_log() {
     assert_eq!(
         tx_result,
         format!(
-            "{:?}",
-            RpcError::server_error(Some(ExecutionErrorView::from(
-                InvalidTxError::NotEnoughBalance(
-                    "alice.near".to_string(),
-                    TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-                    TESTING_INIT_BALANCE + 1 + cost
-                )
-            )))
+            "{}",
+            InvalidTxError::NotEnoughBalance(
+                "alice.near".to_string(),
+                TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
+                TESTING_INIT_BALANCE + 1 + cost
+            )
         ),
     );
 }

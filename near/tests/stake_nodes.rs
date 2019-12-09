@@ -16,7 +16,7 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::views::{QueryResponse, ValidatorInfo};
 use testlib::genesis_hash;
 
@@ -32,8 +32,8 @@ struct TestNode {
 
 fn init_test_staking(
     paths: Vec<&Path>,
-    num_nodes: usize,
-    num_validators: usize,
+    num_nodes: ValidatorId,
+    num_validators: ValidatorId,
     epoch_length: u64,
     enable_rewards: bool,
 ) -> Vec<TestNode> {
@@ -48,7 +48,7 @@ fn init_test_staking(
     genesis_config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
         genesis_config.max_inflation_rate = 0;
-        genesis_config.gas_price = 0;
+        genesis_config.min_gas_price = 0;
     }
     let first_node = open_port();
 
@@ -61,7 +61,7 @@ fn init_test_staking(
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
         }
-        config.client_config.min_num_peers = num_nodes - 1;
+        config.client_config.min_num_peers = num_nodes as usize - 1;
         config
     });
     configs
@@ -199,7 +199,7 @@ fn test_validator_kickout() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
-                let test_node1 = test_nodes[num_nodes / 2].clone();
+                let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
                 let finalized_mark1 = finalized_mark.clone();
 
                 actix::spawn(test_node1.client.send(Status { is_health_check: false }).then(
@@ -216,18 +216,18 @@ fn test_validator_kickout() {
                         }
                         if res.unwrap().validators == expected {
                             for i in 0..num_nodes / 2 {
-                                let mark = finalized_mark1[i].clone();
+                                let mark = finalized_mark1[i as usize].clone();
                                 actix::spawn(
                                     test_node1
                                         .view_client
-                                        .send(Query {
-                                            path: format!(
+                                        .send(Query::new(
+                                            format!(
                                                 "account/{}",
-                                                test_nodes[i].account_id.clone()
+                                                test_nodes[i as usize].account_id.clone()
                                             ),
-                                            data: vec![],
-                                        })
-                                        .then(move |res| match res.unwrap().unwrap() {
+                                            vec![],
+                                        ))
+                                        .then(move |res| match res.unwrap().unwrap().unwrap() {
                                             QueryResponse::ViewAccount(result) => {
                                                 if result.locked == 0
                                                     || result.amount == TESTING_INIT_BALANCE
@@ -241,19 +241,19 @@ fn test_validator_kickout() {
                                 );
                             }
                             for i in num_nodes / 2..num_nodes {
-                                let mark = finalized_mark1[i].clone();
+                                let mark = finalized_mark1[i as usize].clone();
 
                                 actix::spawn(
                                     test_node1
                                         .view_client
-                                        .send(Query {
-                                            path: format!(
+                                        .send(Query::new(
+                                            format!(
                                                 "account/{}",
-                                                test_nodes[i].account_id.clone()
+                                                test_nodes[i as usize].account_id.clone()
                                             ),
-                                            data: vec![],
-                                        })
-                                        .then(move |res| match res.unwrap().unwrap() {
+                                            vec![],
+                                        ))
+                                        .then(move |res| match res.unwrap().unwrap().unwrap() {
                                             QueryResponse::ViewAccount(result) => {
                                                 assert_eq!(result.locked, TESTING_INIT_STAKE);
                                                 assert_eq!(
@@ -364,14 +364,11 @@ fn test_validator_join() {
                             actix::spawn(
                                 test_node1
                                     .view_client
-                                    .send(Query {
-                                        path: format!(
-                                            "account/{}",
-                                            test_nodes[1].account_id.clone()
-                                        ),
-                                        data: vec![],
-                                    })
-                                    .then(move |res| match res.unwrap().unwrap() {
+                                    .send(Query::new(
+                                        format!("account/{}", test_nodes[1].account_id.clone()),
+                                        vec![],
+                                    ))
+                                    .then(move |res| match res.unwrap().unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
                                             if result.locked == 0 {
                                                 done1_copy2.store(true, Ordering::SeqCst);
@@ -384,14 +381,11 @@ fn test_validator_join() {
                             actix::spawn(
                                 test_node1
                                     .view_client
-                                    .send(Query {
-                                        path: format!(
-                                            "account/{}",
-                                            test_nodes[2].account_id.clone()
-                                        ),
-                                        data: vec![],
-                                    })
-                                    .then(move |res| match res.unwrap().unwrap() {
+                                    .send(Query::new(
+                                        format!("account/{}", test_nodes[2].account_id.clone()),
+                                        vec![],
+                                    ))
+                                    .then(move |res| match res.unwrap().unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
                                             if result.locked == TESTING_INIT_STAKE {
                                                 done2_copy2.store(true, Ordering::SeqCst);

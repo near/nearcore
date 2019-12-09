@@ -8,9 +8,8 @@ use rand::{thread_rng, Rng};
 
 use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
-use near_chunks::NetworkAdapter;
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkRequests};
+use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
@@ -400,7 +399,7 @@ pub enum StateSyncResult {
     /// At least one shard has changed its status
     /// Boolean parameter specifies whether the client needs to start fetching the block
     Changed(bool),
-    /// The state for all shards was downloaded
+    /// The state for all shards was downloaded.
     Completed,
 }
 

@@ -1,5 +1,5 @@
 use near_chain::test_utils::setup;
-use near_chain::{Block, ErrorKind, Provenance};
+use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
 use near_crypto::Signer;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
@@ -42,7 +42,9 @@ fn build_chain_with_orhpans() {
         10,
         last_block.chunks.clone(),
         last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         Some(0),
         vec![],
@@ -51,6 +53,7 @@ fn build_chain_with_orhpans() {
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        last_block.header.inner_lite.next_bp_hash.clone(),
     );
     assert_eq!(
         chain
@@ -213,4 +216,26 @@ fn blocks_at_height() {
     assert!(chain.get_header_by_height(3).is_err());
     assert!(chain.get_header_by_height(4).is_err());
     assert!(chain.get_header_by_height(5).is_err());
+}
+
+#[test]
+fn next_blocks() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
+    let b1 = Block::empty(&genesis, &*signer);
+    let b2 = Block::empty_with_height(&b1, 2, &*signer);
+    let b3 = Block::empty_with_height(&b1, 3, &*signer);
+    let b4 = Block::empty_with_height(&b3, 4, &*signer);
+    let b1_hash = b1.hash();
+    let b2_hash = b2.hash();
+    let b3_hash = b3.hash();
+    let b4_hash = b4.hash();
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
+    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
 }

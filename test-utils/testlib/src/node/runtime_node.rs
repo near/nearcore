@@ -93,7 +93,7 @@ mod tests {
         node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let fee_helper = FeeHelper::new(
             node.genesis_config().runtime_config.transaction_costs.clone(),
-            node.genesis_config().gas_price,
+            node.genesis_config().min_gas_price,
         );
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (

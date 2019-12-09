@@ -13,9 +13,10 @@ use near_client::{Client, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
+use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
 use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
 use near_primitives::errors::InvalidTxError;
@@ -139,7 +140,13 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 None,
                 vec![],
@@ -148,6 +155,7 @@ fn receive_network_block() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -194,7 +202,13 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 None,
                 vec![],
@@ -203,6 +217,7 @@ fn receive_network_block_header() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
@@ -258,7 +273,13 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 Some(0),
                 vec![],
@@ -267,6 +288,7 @@ fn produce_block_with_approvals() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
@@ -319,7 +341,13 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 Some(0),
                 vec![],
@@ -328,6 +356,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             block.header.inner_lite.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
@@ -341,7 +370,13 @@ fn invalid_blocks() {
                 block.header.inner_lite.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 Some(0),
                 vec![],
@@ -350,6 +385,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
@@ -358,7 +394,13 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
+                if last_block.header.prev_hash == CryptoHash::default() {
+                    EpochId(last_block.header.hash)
+                } else {
+                    EpochId(last_block.header.next_epoch_id.clone())
+                },
                 vec![],
+                0,
                 0,
                 Some(0),
                 vec![],
@@ -367,6 +409,7 @@ fn invalid_blocks() {
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
+                last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
@@ -409,38 +452,12 @@ fn client_sync_headers() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
-        let _ = setup_mock(
+        let peer_info2 = peer_info1.clone();
+        let (client, _) = setup_mock(
             vec!["test"],
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo => NetworkResponses::Info(NetworkInfo {
-                    active_peers: vec![FullPeerInfo {
-                        peer_info: peer_info1.clone(),
-                        chain_info: PeerChainInfo {
-                            genesis_id: Default::default(),
-                            height: 5,
-                            weight_and_score: WeightAndScore::from_ints(100, 100),
-                            tracked_shards: vec![],
-                        },
-                        edge_info: EdgeInfo::default(),
-                    }],
-                    num_active_peers: 1,
-                    peer_max_count: 1,
-                    most_weight_peers: vec![FullPeerInfo {
-                        peer_info: peer_info1.clone(),
-                        chain_info: PeerChainInfo {
-                            genesis_id: Default::default(),
-                            height: 5,
-                            weight_and_score: WeightAndScore::from_ints(100, 100),
-                            tracked_shards: vec![],
-                        },
-                        edge_info: EdgeInfo::default(),
-                    }],
-                    sent_bytes_per_sec: 0,
-                    received_bytes_per_sec: 0,
-                    known_producers: vec![],
-                }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
                     assert_eq!(hashes.len(), 1);
@@ -451,6 +468,33 @@ fn client_sync_headers() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
+        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
+            active_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            num_active_peers: 1,
+            peer_max_count: 1,
+            most_weight_peers: vec![FullPeerInfo {
+                peer_info: peer_info2.clone(),
+                chain_info: PeerChainInfo {
+                    genesis_id: Default::default(),
+                    height: 5,
+                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    tracked_shards: vec![],
+                },
+                edge_info: EdgeInfo::default(),
+            }],
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+        }));
         wait_or_panic(2000);
     })
     .unwrap();
@@ -605,7 +649,8 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let chain_genesis = ChainGenesis::test();
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = 100;
     let mut client = setup_client(
         store,
         vec![vec!["test1"]],
@@ -648,4 +693,18 @@ fn test_invalid_block_height() {
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
     }
+}
+
+#[test]
+fn test_minimum_gas_price() {
+    let min_gas_price = 100;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = min_gas_price;
+    chain_genesis.gas_price_adjustment_rate = 10;
+    let mut env = TestEnv::new(chain_genesis, 1, 1);
+    for i in 1..=100 {
+        env.produce_block(0, i);
+    }
+    let block = env.clients[0].chain.get_block_by_height(100).unwrap();
+    assert!(block.header.inner_rest.gas_price >= min_gas_price);
 }

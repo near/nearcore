@@ -31,10 +31,11 @@ use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerIdOrHash,
-    PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
-    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal, SyncData, Unregister,
+    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
+    PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
+    PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal,
+    SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -78,6 +79,8 @@ pub struct PeerManagerActor {
     peer_id: PeerId,
     /// Address of the client actor.
     client_addr: Recipient<NetworkClientMessages>,
+    /// Address of the view client actor.
+    view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Peer store that provides read/write access to peers.
     peer_store: PeerStore,
     /// Set of outbound connections that were not consolidated yet.
@@ -97,6 +100,7 @@ impl PeerManagerActor {
         store: Arc<Store>,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
@@ -106,6 +110,7 @@ impl PeerManagerActor {
             peer_id: config.public_key.clone().into(),
             config,
             client_addr,
+            view_client_addr,
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
@@ -247,6 +252,7 @@ impl PeerManagerActor {
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
+        let view_client_addr = self.view_client_addr.clone();
         Peer::create(move |ctx| {
             let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
             let remote_addr = stream.peer_addr().unwrap();
@@ -264,6 +270,7 @@ impl PeerManagerActor {
                 handshake_timeout,
                 recipient,
                 client_addr,
+                view_client_addr,
                 edge_info,
             )
         });
@@ -625,24 +632,52 @@ impl PeerManagerActor {
     // Ping pong useful functions.
 
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
-        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.peer_id.clone() });
+        let body =
+            RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(ctx, msg);
     }
 
     fn send_pong(&mut self, ctx: &mut Context<Self>, nonce: usize, target: CryptoHash) {
-        let body = RoutedMessageBody::Pong(Pong { nonce, source: self.peer_id.clone() });
+        let body =
+            RoutedMessageBody::Pong(Pong { nonce: nonce as u64, source: self.peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(ctx, msg);
     }
 
     fn handle_ping(&mut self, ctx: &mut Context<Self>, ping: Ping, hash: CryptoHash) {
-        self.send_pong(ctx, ping.nonce, hash);
+        self.send_pong(ctx, ping.nonce as usize, hash);
         self.routing_table.add_ping(ping);
     }
 
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
         self.routing_table.add_pong(pong);
+    }
+
+    pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
+        let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
+        NetworkInfo {
+            active_peers: self
+                .active_peers
+                .values()
+                .map(|a| a.full_peer_info.clone())
+                .collect::<Vec<_>>(),
+            num_active_peers: self.num_active_peers(),
+            peer_max_count: self.config.peer_max_count,
+            most_weight_peers: self.most_weight_peers(),
+            sent_bytes_per_sec,
+            received_bytes_per_sec,
+            known_producers: self.routing_table.get_accounts_keys(),
+        }
+    }
+
+    fn push_network_info(&mut self, ctx: &mut Context<Self>) {
+        let network_info = self.get_network_info();
+
+        let _ = self.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
+        ctx.run_later(self.config.push_info_period, move |act, ctx| {
+            act.push_network_info(ctx);
+        });
     }
 }
 
@@ -657,6 +692,9 @@ impl Actor for PeerManagerActor {
             info!(target: "info", "Server listening at {}@{}", self.peer_id, server_addr);
             ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(InboundTcpConnect::new));
         }
+
+        // Periodically push network information to client
+        self.push_network_info(ctx);
 
         // Start peer monitoring.
         self.monitor_peers(ctx);
@@ -682,23 +720,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkRequests::FetchInfo => {
-                let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
-
-                NetworkResponses::Info(NetworkInfo {
-                    active_peers: self
-                        .active_peers
-                        .values()
-                        .map(|a| a.full_peer_info.clone())
-                        .collect::<Vec<_>>(),
-                    num_active_peers: self.num_active_peers(),
-                    peer_max_count: self.config.peer_max_count,
-                    most_weight_peers: self.most_weight_peers(),
-                    sent_bytes_per_sec,
-                    received_bytes_per_sec,
-                    known_producers: self.routing_table.get_accounts_keys(),
-                })
-            }
             NetworkRequests::Block { block } => {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
@@ -815,6 +836,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     ctx,
                     &account_id,
                     RoutedMessageBody::QueryRequest { path, data, id },
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ReceiptOutComeRequest(account_id, receipt_id) => {
+                self.send_message_to_account(
+                    ctx,
+                    &account_id,
+                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id),
                 );
                 NetworkResponses::NoResponse
             }

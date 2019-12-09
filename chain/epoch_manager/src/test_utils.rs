@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
+};
 use near_primitives::utils::get_num_block_producers_per_shard;
 use near_store::test_utils::create_test_store;
 
@@ -27,35 +29,43 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 
 pub fn epoch_info(
     mut accounts: Vec<(&str, Balance)>,
-    block_producers: Vec<usize>,
-    chunk_producers: Vec<Vec<usize>>,
-    fishermen: Vec<ValidatorWeight>,
+    block_producers: Vec<ValidatorId>,
+    chunk_producers: Vec<Vec<ValidatorId>>,
+    hidden_validators: Vec<ValidatorWeight>,
+    fishermen: Vec<(&str, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
     validator_reward: HashMap<AccountId, Balance>,
     inflation: u128,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
-        acc.insert(x.0.to_string(), i);
+        acc.insert(x.0.to_string(), i as u64);
         acc
     });
-    let validator_kickout = stake_change
-        .iter()
-        .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
-        .collect();
-    EpochInfo {
-        validators: accounts
+    let fishermen_to_index =
+        fishermen.iter().enumerate().map(|(i, (s, _))| (s.to_string(), i as ValidatorId)).collect();
+    let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
+        accounts
             .into_iter()
             .map(|(account_id, amount)| ValidatorStake {
                 account_id: account_id.to_string(),
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 amount,
             })
-            .collect(),
+            .collect()
+    };
+    let validator_kickout = stake_change
+        .iter()
+        .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
+        .collect();
+    EpochInfo {
+        validators: account_to_validators(accounts),
         validator_to_index,
         block_producers,
         chunk_producers,
-        fishermen,
+        hidden_validators,
+        fishermen: account_to_validators(fishermen),
+        fishermen_to_index,
         stake_change,
         validator_reward,
         inflation,
@@ -66,10 +76,11 @@ pub fn epoch_info(
 pub fn epoch_config(
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_block_producers: usize,
-    num_fisherman: usize,
+    num_block_producers: ValidatorId,
+    num_hidden_validators: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
+    fishermen_threshold: Balance,
 ) -> EpochConfig {
     EpochConfig {
         epoch_length,
@@ -79,9 +90,10 @@ pub fn epoch_config(
             num_shards,
             num_block_producers,
         ),
-        avg_fisherman_per_shard: (0..num_shards).map(|_| num_fisherman).collect(),
+        avg_hidden_validators_per_shard: (0..num_shards).map(|_| num_hidden_validators).collect(),
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
+        fishermen_threshold,
     }
 }
 
@@ -128,10 +140,11 @@ pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_seats: usize,
-    num_fisherman: usize,
+    num_seats: ValidatorId,
+    num_hidden_validators: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
+    fishermen_threshold: Balance,
     reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
@@ -139,9 +152,10 @@ pub fn setup_epoch_manager(
         epoch_length,
         num_shards,
         num_seats,
-        num_fisherman,
+        num_hidden_validators,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
+        fishermen_threshold,
     );
     EpochManager::new(
         store,
@@ -156,8 +170,8 @@ pub fn setup_default_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockIndex,
     num_shards: ShardId,
-    num_seats: usize,
-    num_fisherman: usize,
+    num_seats: ValidatorId,
+    num_hidden_validators: ValidatorId,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {
@@ -166,9 +180,10 @@ pub fn setup_default_epoch_manager(
         epoch_length,
         num_shards,
         num_seats,
-        num_fisherman,
+        num_hidden_validators,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
+        1,
         default_reward_calculator(),
     )
 }

@@ -37,6 +37,7 @@ fn create_block() -> Block {
         Utc::now(),
         1_000,
         1_000,
+        CryptoHash::default(),
     );
     let signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     Block::produce(
@@ -44,13 +45,16 @@ fn create_block() -> Block {
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
+        EpochId::default(),
         vec![],
+        0,
         0,
         Some(0),
         vec![],
         vec![],
         &signer,
         0.into(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
     )

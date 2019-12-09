@@ -133,13 +133,34 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_bp_hash: CryptoHash,
         signer: &dyn Signer,
     ) -> Self {
-        Self::empty_with_approvals(prev, height, epoch_id, vec![], signer)
+        Self::empty_with_approvals(
+            prev,
+            height,
+            epoch_id,
+            next_epoch_id,
+            vec![],
+            signer,
+            next_bp_hash,
+        )
     }
 
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
-        Self::empty_with_epoch(prev, height, prev.header.inner_lite.epoch_id.clone(), signer)
+        Self::empty_with_epoch(
+            prev,
+            height,
+            prev.header.inner_lite.epoch_id.clone(),
+            if prev.header.prev_hash == CryptoHash::default() {
+                EpochId(prev.hash())
+            } else {
+                prev.header.inner_lite.next_epoch_id.clone()
+            },
+            prev.header.inner_lite.next_bp_hash,
+            signer,
+        )
     }
 
     pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
@@ -152,15 +173,19 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
         approvals: Vec<Approval>,
         signer: &dyn Signer,
+        next_bp_hash: CryptoHash,
     ) -> Self {
         Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
             epoch_id,
+            next_epoch_id,
             approvals,
+            0,
             0,
             Some(0),
             vec![],
@@ -169,6 +194,7 @@ impl Block {
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
+            next_bp_hash,
         )
     }
 }
