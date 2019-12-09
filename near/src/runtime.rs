@@ -220,8 +220,19 @@ impl NightshadeRuntime {
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
+            let mut slashing_info: HashMap<_, _> = challenges_result
+                .iter()
+                .filter_map(|s| {
+                    if self.account_id_to_shard_id(&s.account_id) == shard_id && !s.is_double_sign {
+                        Some((s.account_id.clone(), None))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward, slashing_info) =
+                let (stake_info, validator_reward, double_sign_slashing_info) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
@@ -238,33 +249,23 @@ impl NightshadeRuntime {
                         acc.insert(v.account_id.clone(), v.amount);
                         acc
                     });
-                let slashing_info = slashing_info
+                let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
                     .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
+                slashing_info.extend(double_sign_slashing_info);
                 Some(ValidatorAccountsUpdate {
                     stake_info,
                     validator_rewards,
                     last_proposals,
                     protocol_treasury_account_id: Some(
                         self.genesis_config.protocol_treasury_account.clone(),
-                    ),
+                    )
+                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
                     slashing_info,
                 })
             } else {
-                let slashing_info = challenges_result
-                    .iter()
-                    .filter_map(|s| {
-                        if self.account_id_to_shard_id(&s.account_id) == shard_id
-                            && !s.is_double_sign
-                        {
-                            Some((s.account_id.clone(), None))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
                 if !challenges_result.is_empty() {
                     Some(ValidatorAccountsUpdate {
                         stake_info: Default::default(),
