@@ -229,11 +229,11 @@ impl User for RuntimeUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, String> {
+    ) -> Result<AccessKeyView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
-            .map(|value| value.map(|access_key| access_key.into()))
+            .map(|access_key| access_key.into())
             .map_err(|err| err.to_string())
     }
 
