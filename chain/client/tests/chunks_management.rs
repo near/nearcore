@@ -6,6 +6,7 @@ use actix::{Addr, System};
 use futures::{future, Future};
 use log::info;
 
+use near_chain::chain::NUM_ORPHAN_PARENTS_CHECK;
 use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
@@ -254,8 +255,10 @@ fn test_request_chunk_restart() {
 #[test]
 fn test_orphan_chain() {
     init_integration_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
-    for i in 1..12 {
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = NUM_ORPHAN_PARENTS_CHECK + 5;
+    let mut env = TestEnv::new(chain_genesis, 2, 1);
+    for i in 1..NUM_ORPHAN_PARENTS_CHECK + 10 {
         env.produce_block(0, i);
         let last_block = env.clients[0].chain.get_block_by_height(i - 1).unwrap().clone();
         env.clients[1].chain.save_orphan(&last_block);
@@ -265,17 +268,17 @@ fn test_orphan_chain() {
     env.clients[1].chain.check_orphans_with_missing_chunks(&None, |missing_chunks| {
         orphans_missing_chunks.write().unwrap().push(missing_chunks);
     });
-    let mut is_missing = false;
+    let mut missing_count = 0;
     for (parent_hash, missing_chunks) in orphans_missing_chunks.write().unwrap().drain(..) {
         println!("{:?} {:?}", parent_hash, missing_chunks);
-        is_missing = true;
+        missing_count += 1;
         assert_eq!(parent_hash, block0.header.hash);
         for chunk in missing_chunks.iter() {
             assert!(chunk.inner.height_created >= 1);
-            assert!(chunk.inner.height_created <= 5);
+            assert!(chunk.inner.height_created <= NUM_ORPHAN_PARENTS_CHECK);
         }
     }
-    assert!(is_missing);
+    assert_eq!(missing_count + 1, NUM_ORPHAN_PARENTS_CHECK);
     // Checking that process_blocks_with_missing_chunks works
     let v = env.clients[1].process_blocks_with_missing_chunks(CryptoHash::default());
     println!("accepted blocks = {:?}", v.len());

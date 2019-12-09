@@ -61,7 +61,7 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
 
 /// Number of orphan parents should be checked to request chunks.
-const NUM_ORPHAN_PARENTS_CHECK: u64 = 5;
+pub const NUM_ORPHAN_PARENTS_CHECK: u64 = 5;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
