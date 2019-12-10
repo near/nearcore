@@ -35,9 +35,8 @@ def build_tests():
 
 
 def workers():
-    workers = cpu_count()
-    if os.environ.get('GITLAB_CI'):
-        workers -= 2
+    workers = cpu_count() // 2
+    print(f'========= run in {workers} workers')
     return workers
 
 

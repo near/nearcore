@@ -6,7 +6,7 @@ import subprocess
 
 def coverage(test_binary):
     """ Run a single test coverage by copying to docker, save exitcode, stdout and stderr """
-
+    src_dir = os.path.abspath('.')
     coverage_output = f'target/cov/{test_binary}'
     subprocess.check_output(f'mkdir -p {coverage_output}', shell=True)
     coverage_output = os.path.abspath(coverage_output)
@@ -14,9 +14,10 @@ def coverage(test_binary):
     p = subprocess.Popen(['docker', 'run',
     '-u', f'{os.getuid()}:{os.getgid()}',
     '-v', f'{test_binary}:{test_binary}',
+    '-v', f'{src_dir}:{src_dir}',
     '-v', f'{coverage_output}:{coverage_output}',
     'ailisp/near-coverage-runtime',
-    'bash', '-c', f'chmod +x {test_binary} && /usr/local/bin/kcov {coverage_output} {test_binary}'], 
+    'bash', '-c', f'chmod +x {test_binary} && /usr/local/bin/kcov --include-pattern=nearcore --exclude-pattern=.so -verify {coverage_output} {test_binary}'], 
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
