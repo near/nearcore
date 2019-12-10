@@ -63,6 +63,9 @@ pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
 /// Number of orphan parents should be checked to request chunks.
 pub const NUM_ORPHAN_PARENTS_CHECK: u64 = 5;
 
+/// Maximal number of orphans that request chunks.
+pub const MAX_ORPHANS_REQUEST_CHUNKS: u64 = 20;
+
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     pub gas_price_adjustment_rate: u8,
@@ -1072,39 +1075,35 @@ impl Chain {
         F: Copy + FnMut((CryptoHash, Vec<ShardChunkHeader>)) -> (),
     {
         let mut orphan_hashes = vec![];
-        for (orphan_hash, orphan) in self.orphans.orphans.iter() {
+        for (orphan_hash, orphan) in
+            self.blocks_with_missing_chunks.orphans.iter().chain(self.orphans.orphans.iter())
+        {
             let mut accepted_parent = false;
             let mut accepted_parent_hash = CryptoHash::default();
             let mut all_parents_known = true;
             let mut prev_hash = orphan.block.header.prev_hash;
             for _ in 0..NUM_ORPHAN_PARENTS_CHECK {
                 if prev_hash == CryptoHash::default() {
-                    // TODO This is very suspicious.
-                    // Technically, it's correct and also helps in testing.
-                    // In reality it show never happen except maybe first seconds
-                    // of creating Universe.
+                    // This is genesis
                     break;
                 }
                 // 1. Look into store
-                match self.store.get_block(&prev_hash) {
-                    Ok(block) => {
+                match self.store.get_block_header(&prev_hash) {
+                    Ok(block_header) => {
                         accepted_parent = true;
                         accepted_parent_hash = prev_hash;
-                        prev_hash = block.header.prev_hash;
+                        prev_hash = block_header.prev_hash;
                         continue;
                     }
                     _ => {}
                 }
                 // 2. Look into missing chunks
-                if self.blocks_with_missing_chunks.orphans.contains_key(&prev_hash) {
-                    let prev_orphan =
-                        self.blocks_with_missing_chunks.orphans.get(&prev_hash).unwrap();
+                if let Some(prev_orphan) = self.blocks_with_missing_chunks.orphans.get(&prev_hash) {
                     prev_hash = prev_orphan.block.header.prev_hash;
                     continue;
                 }
                 // 3. Look into orphans
-                if self.orphans.orphans.contains_key(&prev_hash) {
-                    let prev_orphan = self.orphans.orphans.get(&prev_hash).unwrap();
+                if let Some(prev_orphan) = self.orphans.orphans.get(&prev_hash) {
                     prev_hash = prev_orphan.block.header.prev_hash;
                     continue;
                 }
@@ -1132,9 +1131,15 @@ impl Chain {
             self.epoch_length,
             &self.block_economics_config,
         );
-        for (parent_hash, orphan_hash) in orphan_hashes.into_iter() {
-            let orphan = self.orphans.orphans.get(&orphan_hash).unwrap();
-            // TODO check is it okay to use parent_hash here?
+        for (parent_hash, orphan_hash) in
+            orphan_hashes.into_iter().rev().take(MAX_ORPHANS_REQUEST_CHUNKS as usize)
+        {
+            let orphan = self
+                .orphans
+                .orphans
+                .get(&orphan_hash)
+                .or(self.blocks_with_missing_chunks.orphans.get(&orphan_hash))
+                .unwrap();
             match chain_update.ping_missing_chunks(me, parent_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {

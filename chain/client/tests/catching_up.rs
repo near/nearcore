@@ -15,6 +15,7 @@ mod tests {
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
+    use near_primitives::sharding::ChunkHash;
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
@@ -649,12 +650,12 @@ mod tests {
     }
 
     #[test]
-    fn test_catchup_orphans_2_to_5() {
+    fn test_catchup_orphans_under_epoch() {
         test_catchup_orphans_common(2, 5)
     }
 
     #[test]
-    fn test_catchup_orphans_2_to_10() {
+    fn test_catchup_orphans_over_epoch() {
         test_catchup_orphans_common(2, 10)
     }
 
@@ -672,6 +673,22 @@ mod tests {
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
             let phase = Arc::new(RwLock::new(OrphansPhases::WaitingForSendingTx));
+            let chunk_hashes = Arc::new(RwLock::new(HashMap::new()));
+            let chunk_hashes1 = chunk_hashes.clone();
+            let chunk_heights = Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
+            let block_heights = Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
+            let connectors_done = Arc::new(RwLock::new(HashSet::new()));
+
+            let add_hash = move |hash: ChunkHash, height| match chunk_hashes1
+                .write()
+                .unwrap()
+                .entry(hash.clone())
+            {
+                Entry::Occupied(_) => {}
+                Entry::Vacant(entry) => {
+                    entry.insert(height);
+                }
+            };
 
             let connectors1 = connectors.clone();
             let block_prod_time: u64 = 1200;
@@ -717,8 +734,14 @@ mod tests {
                         OrphansPhases::HoldingBlock => {
                             // We don't allow to get any chunks from height `height_hold` - 1.
                             // It means all blocks with higher height will be put into orphans.
-                            if let NetworkRequests::PartialEncodedChunkRequest { .. } = msg {
+                            if let NetworkRequests::PartialEncodedChunkRequest { request, .. } = msg
+                            {
                                 if from_whom == "test1.2" {
+                                    let mut chunk_heights = chunk_heights.write().unwrap();
+                                    let chunk_hashes = chunk_hashes.read().unwrap();
+                                    if let Some(value) = chunk_hashes.get(&request.chunk_hash) {
+                                        chunk_heights.insert(*value);
+                                    }
                                     return (NetworkResponses::NoResponse, false);
                                 }
                             }
@@ -731,12 +754,38 @@ mod tests {
                                 }
                             }
                             if let NetworkRequests::Block { block } = msg {
+                                for chunk in block.chunks.iter() {
+                                    add_hash(chunk.hash.clone(), block.header.inner_lite.height);
+                                }
                                 println!(
                                     "HOLDING PHASE, HEIGHT = {:?}",
                                     block.header.inner_lite.height
                                 );
+
                                 if block.header.inner_lite.height >= height_release {
+                                    let chunk_heights = chunk_heights.read().unwrap();
+                                    let block_heights = block_heights.read().unwrap();
+                                    for i in 0..height_release + 1 {
+                                        println!("BLOCK HEIGHT FOUND = {:?}, CHUNK HEIGHT REQUESTED = {:?}", block_heights.get(&i), chunk_heights.get(&i));
+                                    }
+                                    let mut total_requests = 0;
+                                    for i in 2..height_release - 1 {
+                                        if let Some(_) = block_heights.get(&i) {
+                                            if chunk_heights.get(&i).is_some() {
+                                                total_requests += 1;
+                                            }
+                                        }
+                                    }
+                                    // This is the most important assert which checks
+                                    // that we request chunks for orphans.
+                                    // total_requests should be greater than 1 because
+                                    // requesting chunks for height 2 is trivial
+                                    // while for at least another one is not.
+                                    assert!(total_requests > 1);
                                     *phase = OrphansPhases::ValidatingOrphans;
+                                } else {
+                                    let mut block_heights1 = block_heights.write().unwrap();
+                                    block_heights1.insert(block.header.inner_lite.height);
                                 }
                             }
                         }
@@ -747,12 +796,17 @@ mod tests {
                                     block.header.inner_lite.height
                                 );
                                 assert!(block.header.inner_lite.height >= height_release);
-                                assert!(block.header.inner_lite.height <= height_release + 10);
-                                if block.header.inner_lite.height == height_release + 10 {
+                                assert!(block.header.inner_lite.height <= height_release + 15);
+                                if block.header.inner_lite.height == height_release + 15 {
+                                    let connectors_done = connectors_done.read().unwrap();
+                                    for i in 0..16 {
+                                        assert!(connectors_done.get(&i).is_some());
+                                    }
                                     System::current().stop();
                                 }
                                 if block.header.inner_lite.height >= height_release + 5 {
                                     for i in 0..16 {
+                                        let connectors_done1 = connectors_done.clone();
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
                                                 .1
@@ -762,10 +816,13 @@ mod tests {
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
+                                                    println!("CHECKING CONNECTOR {:?} {:?}", i, res_inner);
                                                     if let Ok(Some(query_response)) = res_inner {
+                                                        let mut connectors_done = connectors_done1.write().unwrap();
                                                         if let ViewAccount(view_account_result) =
-                                                            query_response
+                                                            query_response.kind
                                                         {
+                                                            connectors_done.insert(i);
                                                             assert_eq!(
                                                                 view_account_result.amount,
                                                                 1111
