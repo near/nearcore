@@ -42,12 +42,13 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        get_access_key(state_update, account_id, public_key).map_err(|e| Box::new(e).into())
+        get_access_key(state_update, account_id, public_key)?
+            .ok_or_else(|| format!("access key {} does not exist while viewing", public_key).into())
     }
 
     pub fn view_state(
