@@ -190,7 +190,7 @@ impl GenesisBuilder {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.config.genesis_time,
-            self.config.gas_price,
+            self.config.min_gas_price,
             self.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );

@@ -17,7 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ValidatorId};
-use near_primitives::views::{QueryResponse, ValidatorInfo};
+use near_primitives::views::{QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
 #[derive(Clone)]
@@ -48,7 +48,7 @@ fn init_test_staking(
     genesis_config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
         genesis_config.max_inflation_rate = 0;
-        genesis_config.gas_price = 0;
+        genesis_config.min_gas_price = 0;
     }
     let first_node = open_port();
 
@@ -227,16 +227,18 @@ fn test_validator_kickout() {
                                             ),
                                             vec![],
                                         ))
-                                        .then(move |res| match res.unwrap().unwrap().unwrap() {
-                                            QueryResponse::ViewAccount(result) => {
-                                                if result.locked == 0
-                                                    || result.amount == TESTING_INIT_BALANCE
-                                                {
-                                                    mark.store(true, Ordering::SeqCst);
+                                        .then(move |res| {
+                                            match res.unwrap().unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    if result.locked == 0
+                                                        || result.amount == TESTING_INIT_BALANCE
+                                                    {
+                                                        mark.store(true, Ordering::SeqCst);
+                                                    }
+                                                    futures::future::ok(())
                                                 }
-                                                futures::future::ok(())
+                                                _ => panic!("wrong return result"),
                                             }
-                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                             }
@@ -253,17 +255,19 @@ fn test_validator_kickout() {
                                             ),
                                             vec![],
                                         ))
-                                        .then(move |res| match res.unwrap().unwrap().unwrap() {
-                                            QueryResponse::ViewAccount(result) => {
-                                                assert_eq!(result.locked, TESTING_INIT_STAKE);
-                                                assert_eq!(
-                                                    result.amount,
-                                                    TESTING_INIT_BALANCE - TESTING_INIT_STAKE
-                                                );
-                                                mark.store(true, Ordering::SeqCst);
-                                                futures::future::ok(())
+                                        .then(move |res| {
+                                            match res.unwrap().unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    assert_eq!(result.locked, TESTING_INIT_STAKE);
+                                                    assert_eq!(
+                                                        result.amount,
+                                                        TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                    );
+                                                    mark.store(true, Ordering::SeqCst);
+                                                    futures::future::ok(())
+                                                }
+                                                _ => panic!("wrong return result"),
                                             }
-                                            _ => panic!("wrong return result"),
                                         }),
                                 );
                             }
@@ -368,8 +372,8 @@ fn test_validator_join() {
                                         format!("account/{}", test_nodes[1].account_id.clone()),
                                         vec![],
                                     ))
-                                    .then(move |res| match res.unwrap().unwrap().unwrap() {
-                                        QueryResponse::ViewAccount(result) => {
+                                    .then(move |res| match res.unwrap().unwrap().unwrap().kind {
+                                        QueryResponseKind::ViewAccount(result) => {
                                             if result.locked == 0 {
                                                 done1_copy2.store(true, Ordering::SeqCst);
                                             }
@@ -385,8 +389,8 @@ fn test_validator_join() {
                                         format!("account/{}", test_nodes[2].account_id.clone()),
                                         vec![],
                                     ))
-                                    .then(move |res| match res.unwrap().unwrap().unwrap() {
-                                        QueryResponse::ViewAccount(result) => {
+                                    .then(move |res| match res.unwrap().unwrap().unwrap().kind {
+                                        QueryResponseKind::ViewAccount(result) => {
                                             if result.locked == TESTING_INIT_STAKE {
                                                 done2_copy2.store(true, Ordering::SeqCst);
                                             }

@@ -98,8 +98,8 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 
-/// Initial gas price.
-pub const INITIAL_GAS_PRICE: Balance = 100;
+/// Minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 100;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
@@ -113,6 +113,9 @@ pub const DEVELOPER_PERCENT: u8 = 30;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
+
+/// Fishermen stake threshold.
+pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
@@ -417,8 +420,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: Gas,
-    /// Initial gas price.
-    pub gas_price: Balance,
+    /// Minimum gas price. It is also the initial gas price.
+    pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
@@ -445,6 +448,9 @@ pub struct GenesisConfig {
     pub num_blocks_per_year: u64,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
+    /// Fishermen stake threshold.
+    #[serde(with = "u128_dec_format")]
+    pub fishermen_threshold: Balance,
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
@@ -462,7 +468,7 @@ impl From<GenesisConfig> for ChainGenesis {
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
-            genesis_config.gas_price,
+            genesis_config.min_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
@@ -537,7 +543,6 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
@@ -551,6 +556,8 @@ impl GenesisConfig {
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            fishermen_threshold: FISHERMEN_THRESHOLD,
+            min_gas_price: MIN_GAS_PRICE,
         }
     }
 
@@ -744,7 +751,6 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
@@ -762,6 +768,8 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                fishermen_threshold: FISHERMEN_THRESHOLD,
+                min_gas_price: MIN_GAS_PRICE,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());

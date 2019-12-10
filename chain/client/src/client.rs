@@ -38,11 +38,6 @@ use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
-/// Block economics config taken from genesis config
-struct BlockEconomicsConfig {
-    gas_price_adjustment_rate: u8,
-}
-
 pub struct Client {
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
@@ -66,8 +61,6 @@ pub struct Client {
     pub block_sync: BlockSync,
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
-    /// Block economics, relevant to changes when new block must be produced.
-    block_economics_config: BlockEconomicsConfig,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
 }
@@ -106,9 +99,6 @@ impl Client {
             header_sync,
             block_sync,
             state_sync,
-            block_economics_config: BlockEconomicsConfig {
-                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-            },
             challenges: Default::default(),
         })
     }
@@ -293,6 +283,9 @@ impl Client {
             self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
         };
 
+        let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
+        let min_gas_price = self.chain.block_economics_config.min_gas_price;
+
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
         } else {
@@ -332,7 +325,8 @@ impl Client {
             epoch_id,
             next_epoch_id,
             approvals,
-            self.block_economics_config.gas_price_adjustment_rate,
+            gas_price_adjustment_rate,
+            min_gas_price,
             inflation,
             prev_block_extra.challenges_result,
             challenges,
@@ -516,7 +510,7 @@ impl Client {
         transactions
     }
 
-    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
+    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) {
         if let Some(block_producer) = self.block_producer.as_ref() {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(
@@ -1104,7 +1098,7 @@ impl Client {
         }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
-        if self.runtime_adapter.verify_validator_signature(
+        if self.runtime_adapter.verify_validator_or_fisherman_signature(
             &head.epoch_id,
             &head.prev_block_hash,
             &challenge.account_id,

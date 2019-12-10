@@ -45,6 +45,7 @@ fn build_chain_with_orhpans() {
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
+        0,
         Some(0),
         vec![],
         vec![],
