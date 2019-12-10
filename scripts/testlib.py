@@ -26,12 +26,6 @@ def build_tests():
     p = subprocess.run(['cargo', 'test', '--workspace', '--no-run'])
     if p.returncode != 0:
         os._exit(p.returncode)
-    binaries = []
-    for f in glob.glob(f'{target_debug}/*'):
-        fname = os.path.basename(f)
-        ext = os.path.splitext(fname)[1]
-        if os.path.isfile(f) and fname != 'near' and ext == '' and not fname.startswith('test_regression'):
-            binaries.append(f)
 
 
 def workers():
@@ -48,6 +42,8 @@ def test_binaries(exclude=None):
         if os.path.isfile(f) and fname != 'near' and ext == '':
             if not exclude:
                 binaries.append(f)
-            elif not any(map(lambda e: re.match(e, f), exclude)):
+            elif not any(map(lambda e: re.match(e, fname), exclude)):
                 binaries.append(f)
+            else:
+                print(f'========= ignore {f}')
     return binaries

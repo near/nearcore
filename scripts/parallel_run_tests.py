@@ -21,8 +21,7 @@ if __name__ == "__main__":
     clean_binary_tests()
     build_tests()
     binaries = test_binaries(exclude=[r'test_regression-*'])
-    # binaries = list(filter(lambda b: b.split('/')[-1].startswith('stake_nodes'), binaries))
-    print(f'========= collected {len(binaries)} tests:')
+    print(f'========= collected {len(binaries)} test binaries:')
     print('\n'.join(binaries))
 
     completed = 0
@@ -31,20 +30,20 @@ if __name__ == "__main__":
         future_to_binary = {executor.submit(run_test, binary): binary for binary in binaries}
         for future in as_completed(future_to_binary):
             completed += 1
-            binary = future_to_binary[future]
+            binary = os.path.basename(future_to_binary[future])
             result = future.result()
-            print(f'========= test {binary}')
-            print('========= stdout:')
+            print(f'========= test binary {binary}')
+            print(f'========= stdout of {binary}:')
             print(result[1])
-            print('========= stderr:')
+            print(f'========= stderr of {binary}:')
             print(result[2])
             if result[0] != 0:
-                fails.append(f'========= test {binary} failed, exit code {result[0]}')
+                fails.append(f'========= test binary {binary} failed, exit code {result[0]}')
 
-    print(f"========= finished run {completed} tests")
+    print(f"========= finished run {completed} test binaries")
     if fails:
         for f in fails:
             print(f)
         exit(1)
     else:
-        print("========= All tests passed")
+        print("========= all tests passed")
