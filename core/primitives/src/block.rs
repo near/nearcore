@@ -482,7 +482,7 @@ impl Block {
         let now = to_timestamp(Utc::now());
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
-        let time_delta = if time_delta < 1 { 1 } else { time_delta };
+        let time_delta = std::cmp::max(time_delta, 1);
 
         let total_weight = prev.inner_rest.total_weight.next(weight_delta * time_delta);
 

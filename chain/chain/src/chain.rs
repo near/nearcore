@@ -2815,10 +2815,10 @@ impl<'a> ChainUpdate<'a> {
         now: u64,
     ) -> WeightAndScore {
         let score = weight_and_score.score;
-        // allowing an extra millisecond here allows for tests to test fork choice rule without
+        // allowing an extra microsecond here allows for tests to test fork choice rule without
         // overwriting the genesis timestamp by creating blocks with timestamps within the next
-        // millisecond from the time the tests starts
-        // TODO (#1846): this 1ms needs to be removed
+        // microsecond from the time the tests starts
+        // TODO (#1846): this 1us needs to be removed
         let weight = if prev_timestamp <= now + 1000 {
             weight_and_score.weight
         } else {

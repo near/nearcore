@@ -464,7 +464,14 @@ impl dyn RuntimeAdapter {
             account_to_stake.insert(approval.clone(), 0);
         }
 
-        let ret = if total_stake >= std::u64::MAX as u128 {
+        debug_assert!(approved_stake <= total_stake);
+
+        // Compute ret as
+        //
+        //    ret = WEIGHT_MULTIPLIER * approved_stake / total_stake
+        //
+        // carefully handling the overflow
+        let ret = if approved_stake >= std::u128::MAX / WEIGHT_MULTIPLIER {
             approved_stake / (total_stake / WEIGHT_MULTIPLIER)
         } else {
             WEIGHT_MULTIPLIER * approved_stake / total_stake
