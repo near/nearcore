@@ -7,7 +7,7 @@ import subprocess
 
 def run_test(test_binary):
     """ Run a single test by copying to docker, save exitcode, stdout and stderr """
-    cmd = ['docker', 'run',
+    cmd = ['docker', 'run', '--rm',
     '-v', f'{test_binary}:{test_binary}', 
     'ailisp/near-test-runtime',
     'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
@@ -20,7 +20,7 @@ def run_test(test_binary):
 if __name__ == "__main__":
     clean_binary_tests()
     build_tests()
-    binaries = test_binaries(exclude=[r'test_regression-*'])
+    binaries = test_binaries(exclude=[r'test_regression-.*'])
     print(f'========= collected {len(binaries)} test binaries:')
     print('\n'.join(binaries))
 

@@ -61,17 +61,15 @@ test_nearlib:
     script:
     - ./scripts/test_nearlib.sh
 
-# coverage:
-#     stage: test
-#     tags:
-#     - shell
-#     before_script:
-#     - *setup_cache
-#     script:
-#     - ./scripts/build_wasm.sh
-#     - ./scripts/cleanup_binary.sh
-#     - cargo test --workspace --no-run
-#     - ./scripts/coverage.sh
+coverage:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - ./scripts/build_wasm.sh
+    - python3 scripts/parallel_coverage.py
 
 test_nearlib_release:
     stage: test
