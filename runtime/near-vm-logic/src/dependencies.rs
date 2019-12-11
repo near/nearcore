@@ -32,8 +32,17 @@ pub trait MemoryLike {
 
 pub type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
+/// Logical pointer to a value in storage.
+/// Allows getting value length before getting the value itself. This is needed so that runtime
+/// can charge gas before accessing a potentially large value.
 pub trait ValuePtr {
+    /// Returns the length of the value
     fn len(&self) -> u32;
+
+    /// Dereferences the pointer.
+    /// Takes a box because currently runtime code uses dynamic dispatch.
+    /// # Errors
+    /// StorageError if reading from storage fails
     fn deref_box(self: Box<Self>) -> Result<Vec<u8>>;
 }
 
