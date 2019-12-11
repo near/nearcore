@@ -111,6 +111,7 @@ if __name__ == "__main__":
 
     # Upload coverage
     if os.environ.get('GITLAB_CI'):
+        print(f'========= uploading coverage')
         subprocess.check_output('curl -s https://codecov.io/bash | bash', shell=True)
 
     if errors:
