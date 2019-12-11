@@ -322,3 +322,22 @@ fn test_health_ok() {
     })
     .unwrap();
 }
+
+/// Retrieve gas price
+#[test]
+fn test_gas_price() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.gas_price().then(|res| {
+            let gas_price = res.unwrap().gas_price;
+            assert!(gas_price > 0);
+            System::current().stop();
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}

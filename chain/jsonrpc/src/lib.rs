@@ -6,27 +6,27 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
 use borsh::BorshDeserialize;
-use futures::future::Future;
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
+use futures::future::Future;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use async_utils::{delay, timeout};
-use message::Message;
 use message::{Request, RpcError};
+use message::Message;
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetNextLightClientBlock, GetValidatorInfo,
-    Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetValidatorInfo,
+    Query, Status, TxStatus, ViewClientActor
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, BlockId, ChunkId};
+use near_jsonrpc_client::{BlockId, ChunkId, message};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, from_base64, BaseEncode};
+use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
@@ -159,6 +159,7 @@ impl JsonRpcHandler {
             "chunk" => self.chunk(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
+            "gas_price" => self.gas_price().await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
     }
@@ -326,6 +327,10 @@ impl JsonRpcHandler {
 
     async fn network_info(&self) -> Result<Value, RpcError> {
         jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
+    }
+
+    async fn gas_price(&self) -> Result<Value, RpcError> {
+        jsonify(self.view_client_addr.send(GetGasPrice {}).compat().await)
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {

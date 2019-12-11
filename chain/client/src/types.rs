@@ -14,8 +14,8 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, LightClientBlockView,
-    QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    LightClientBlockView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -301,6 +301,12 @@ pub struct GetNetworkInfo {}
 
 impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
+}
+
+pub struct GetGasPrice {}
+
+impl Message for GetGasPrice {
+    type Result = Result<GasPriceView, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

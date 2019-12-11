@@ -10,11 +10,11 @@ use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapte
 use near_primitives::types::AccountId;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    LightClientBlockView, QueryResponse,
+    GasPriceView, LightClientBlockView, QueryResponse,
 };
 use near_store::Store;
 
-use crate::types::{Error, GetBlock, Query, TxStatus};
+use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{GetChunk, GetNextLightClientBlock, GetValidatorInfo};
 use cached::{Cached, SizedCache};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
@@ -402,5 +402,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 NetworkViewClientResponses::NoResponse
             }
         }
+    }
+}
+
+impl Handler<GetGasPrice> for ViewClientActor {
+    type Result = Result<GasPriceView, String>;
+
+    fn handle(&mut self, _msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
+        self.chain
+            .head_header()
+            .map(|b| GasPriceView { gas_price: b.inner_rest.gas_price })
+            .map_err(|e| e.to_string())
     }
 }
