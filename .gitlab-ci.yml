@@ -70,6 +70,7 @@ coverage:
     script:
     - ./scripts/build_wasm.sh
     - python3 scripts/parallel_coverage.py
+    - curl -s https://codecov.io/bash | bash
 
 test_nearlib_release:
     stage: test

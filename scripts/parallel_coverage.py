@@ -109,10 +109,5 @@ if __name__ == "__main__":
     subprocess.check_output(['mv', merged_coverage, f'{current_path}/../target/merged_coverage'])
     subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
 
-    # Upload coverage
-    if os.environ.get('GITLAB_CI'):
-        print(f'========= uploading coverage')
-        subprocess.check_output('curl -s https://codecov.io/bash | bash', shell=True)
-
     if errors:
         print(f'========= some errors in running kcov, coverage maybe inaccurate')
