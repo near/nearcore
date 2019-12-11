@@ -368,14 +368,30 @@ impl EpochManager {
                 // (e.g. we need to keep track that they are still slashed, because when we compute
                 // returned stake we are skipping account ids that are slashed in `stake_change`).
                 for (account_id, slash_state) in prev_block_info.slashed.iter() {
-                    if is_epoch_start && slash_state == &SlashState::DoubleSign {
+                    if is_epoch_start {
+                        if slash_state == &SlashState::DoubleSign
+                            || slash_state == &SlashState::Other
+                        {
+                            block_info
+                                .slashed
+                                .entry(account_id.clone())
+                                .or_insert(SlashState::AlreadySlashed);
+                        } else if epoch_info.stake_change.contains_key(account_id) {
+                            block_info
+                                .slashed
+                                .entry(account_id.clone())
+                                .or_insert(slash_state.clone());
+                        }
+                    } else {
                         block_info
                             .slashed
                             .entry(account_id.clone())
-                            .or_insert(SlashState::DoubleSignAlreadySlashed);
-                    }
-                    if epoch_info.stake_change.contains_key(account_id) {
-                        block_info.slashed.entry(account_id.clone()).or_insert(slash_state.clone());
+                            .and_modify(|e| {
+                                if let SlashState::Other = slash_state {
+                                    *e = SlashState::Other;
+                                }
+                            })
+                            .or_insert(slash_state.clone());
                     }
                 }
 
@@ -652,16 +668,34 @@ impl EpochManager {
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let total_stake: Balance = epoch_info.validators.iter().map(|v| v.amount).sum();
+        let total_slashed_stake: Balance = slashed
+            .iter()
+            .filter_map(|(account_id, slashed)| match slashed {
+                SlashState::DoubleSign => {
+                    let idx = epoch_info.validator_to_index.get(account_id);
+                    Some(if let Some(&idx) = idx {
+                        epoch_info.validators[idx as usize].amount
+                    } else {
+                        0
+                    })
+                }
+                _ => None,
+            })
+            .sum();
+        let is_totally_slashed = total_slashed_stake * 3 >= total_stake;
         let mut res = HashMap::default();
         for (account_id, slash_state) in slashed {
             if let SlashState::DoubleSign = slash_state {
                 if let Some(&idx) = epoch_info.validator_to_index.get(&account_id) {
                     let stake = epoch_info.validators[idx as usize].amount;
-                    let slashed_stake = if stake * 3 >= total_stake {
+                    let slashed_stake = if is_totally_slashed {
                         stake
                     } else {
                         let stake = U256::from(stake);
-                        (U256::from(3) * stake * stake / U256::from(total_stake)).as_u128()
+                        // 3 * (total_slashed_stake / total_stake) * stake
+                        (U256::from(3) * U256::from(total_slashed_stake) * stake
+                            / U256::from(total_stake))
+                        .as_u128()
                     };
                     res.insert(account_id, slashed_stake);
                 }
@@ -1363,12 +1397,12 @@ mod tests {
         let slashed2: Vec<_> =
             epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed1, vec![("test1".to_string(), SlashState::Other)]);
-        assert_eq!(slashed2, slashed1);
+        assert_eq!(slashed2, vec![("test1".to_string(), SlashState::AlreadySlashed)]);
     }
 
-    /// Test that double sign slashing will not cause slashing twice.
+    /// Test that double sign interacts with other challenges in the correct way.
     #[test]
-    fn test_double_sign_slashing() {
+    fn test_double_sign_slashing1() {
         let store = create_test_store();
         let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
         let amount_staked = 1_000_000;
@@ -1383,20 +1417,21 @@ mod tests {
 
         let h = hash_range(10);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
 
-        // Slash test1
-        let mut slashed = HashMap::new();
-        slashed.insert("test1".to_string(), SlashState::Other);
         epoch_manager
             .record_block_info(
-                &h[1],
+                &h[2],
                 BlockInfo::new(
-                    1,
+                    2,
                     0,
-                    h[0],
+                    h[1],
                     vec![],
                     vec![],
-                    vec![SlashedValidator::new("test1".to_string(), true)],
+                    vec![
+                        SlashedValidator::new("test1".to_string(), true),
+                        SlashedValidator::new("test1".to_string(), false),
+                    ],
                     0,
                     0,
                     DEFAULT_TOTAL_SUPPLY,
@@ -1406,20 +1441,15 @@ mod tests {
             .unwrap()
             .commit()
             .unwrap();
-
-        let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
-        assert_eq!(
-            epoch_manager
-                .get_all_block_producers(&epoch_id, &h[1])
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id.clone(), x.1))
-                .collect::<Vec<_>>(),
-            vec![("test2".to_string(), false), ("test1".to_string(), true)]
-        );
-
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        let slashed: Vec<_> =
+            epoch_manager.get_slashed_validators(&h[2]).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed, vec![("test1".to_string(), SlashState::Other)]);
         record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        // new epoch
+        let slashed: Vec<_> =
+            epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed, vec![("test1".to_string(), SlashState::AlreadySlashed)]);
+        // slash test1 for double sign
         epoch_manager
             .record_block_info(
                 &h[4],
@@ -1457,11 +1487,78 @@ mod tests {
         );
 
         let slashed: Vec<_> =
-            epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
-        assert_eq!(slashed, vec![("test1".to_string(), SlashState::DoubleSignAlreadySlashed)]);
+            epoch_manager.get_slashed_validators(&h[5]).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed, vec![("test1".to_string(), SlashState::AlreadySlashed)]);
+    }
+
+    /// Test that two double sign challenge in two epochs works
+    #[test]
+    fn test_double_sign_slashing2() {
+        let store = create_test_store();
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+
+        let h = hash_range(10);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+
+        epoch_manager
+            .record_block_info(
+                &h[1],
+                BlockInfo::new(
+                    1,
+                    0,
+                    h[0],
+                    vec![],
+                    vec![],
+                    vec![SlashedValidator::new("test1".to_string(), true)],
+                    0,
+                    0,
+                    DEFAULT_TOTAL_SUPPLY,
+                ),
+                [0; 32],
+            )
+            .unwrap()
+            .commit()
+            .unwrap();
 
         let slashed: Vec<_> =
-            epoch_manager.get_slashed_validators(&h[4]).unwrap().clone().into_iter().collect();
+            epoch_manager.get_slashed_validators(&h[1]).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed, vec![("test1".to_string(), SlashState::DoubleSign)]);
+
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        let slashed: Vec<_> =
+            epoch_manager.get_slashed_validators(&h[2]).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed, vec![("test1".to_string(), SlashState::DoubleSign)]);
+        // new epoch
+        epoch_manager
+            .record_block_info(
+                &h[3],
+                BlockInfo::new(
+                    3,
+                    0,
+                    h[2],
+                    vec![],
+                    vec![],
+                    vec![SlashedValidator::new("test1".to_string(), true)],
+                    0,
+                    0,
+                    DEFAULT_TOTAL_SUPPLY,
+                ),
+                [0; 32],
+            )
+            .unwrap()
+            .commit()
+            .unwrap();
+        let slashed: Vec<_> =
+            epoch_manager.get_slashed_validators(&h[3]).unwrap().clone().into_iter().collect();
         assert_eq!(slashed, vec![("test1".to_string(), SlashState::DoubleSign)]);
     }
 

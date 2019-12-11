@@ -948,6 +948,7 @@ impl Runtime {
         for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
             if let Some(mut account) = get_account(state_update, &account_id)? {
                 let amount_to_slash = stake.unwrap_or(account.locked);
+                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked, account_id);
                 assert!(account.locked >= amount_to_slash, "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}", account.locked, amount_to_slash);
                 stats.total_balance_slashed += amount_to_slash;
                 account.locked -= amount_to_slash;

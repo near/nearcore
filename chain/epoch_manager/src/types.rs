@@ -239,8 +239,8 @@ pub struct EpochSummary {
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,
-    /// Double sign but is already slashed (tokens taken away from account).
-    DoubleSignAlreadySlashed,
+    /// Malicious behavior but is already slashed (tokens taken away from account).
+    AlreadySlashed,
     /// All other cases (tokens should be entirely slashed),
     Other,
 }

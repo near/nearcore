@@ -1261,6 +1261,7 @@ mod test {
             epoch_length: BlockIndex,
             initial_tracked_accounts: Vec<AccountId>,
             initial_tracked_shards: Vec<ShardId>,
+            has_reward: bool,
         ) -> Self {
             let dir = TempDir::new(prefix).unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -1278,6 +1279,9 @@ mod test {
             genesis_config.epoch_length = epoch_length;
             genesis_config.chunk_producer_kickout_threshold =
                 genesis_config.block_producer_kickout_threshold;
+            if !has_reward {
+                genesis_config.max_inflation_rate = 0;
+            }
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
@@ -1422,8 +1426,14 @@ mod test {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env = TestEnv::new(
+            "test_validator_rotation",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+            true,
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1528,6 +1538,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1572,6 +1583,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1698,6 +1710,7 @@ mod test {
             5,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1747,6 +1760,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1768,7 +1782,8 @@ mod test {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env =
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1781,7 +1796,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
         let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -1854,6 +1869,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1907,6 +1923,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1978,6 +1995,7 @@ mod test {
             2,
             vec![validators[1].clone()],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -2048,6 +2066,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), false)]);
         assert_eq!(env.view_account("test2").locked, 0);
@@ -2079,16 +2098,27 @@ mod test {
         }
     }
 
+    /// Test that in case of a double sign, not all stake is slashed if the double signed stake is
+    /// less than 33% and all stake is slashed if the stake is more than 33%
     #[test]
-    fn test_double_sign_challenge() {
-        let mut env = TestEnv::new(
-            "test_challenges",
-            vec![vec!["test1".to_string(), "test2".to_string()]],
-            2,
-            vec![],
-            vec![],
+    fn test_double_sign_challenge_not_all_slashed() {
+        init_test_logger();
+        let num_nodes = 3;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 3, vec![], vec![], false);
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
+
+        let signer = InMemorySigner::from_seed(&validators[2], KeyType::ED25519, &validators[2]);
+        let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
+        env.step(
+            vec![vec![staking_transaction]],
+            vec![true],
+            vec![SlashedValidator::new("test2".to_string(), true)],
         );
-        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), true)]);
         assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
         assert_eq!(
             env.runtime
@@ -2097,7 +2127,11 @@ mod test {
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
                 .collect::<Vec<_>>(),
-            vec![("test2".to_string(), true), ("test1".to_string(), false)]
+            vec![
+                ("test3".to_string(), false),
+                ("test2".to_string(), true),
+                ("test1".to_string(), false)
+            ]
         );
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
@@ -2112,10 +2146,104 @@ mod test {
                 &signature,
             )
             .unwrap());
-        // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
-        for _ in 0..6 {
+
+        for _ in 2..11 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test3".to_string(), true)]);
+        let account = env.view_account("test3");
+        assert_eq!(account.locked, TESTING_INIT_STAKE / 3);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+
+        for _ in 11..=20 {
+            env.step_default(vec![]);
+        }
+
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
+        let account = env.view_account("test3");
+        let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
+        let remaining = TESTING_INIT_STAKE / 3 - slashed;
+        assert_eq!(account.locked, remaining);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+    }
+
+    /// Test that double sign from multiple accounts may result in all of their stake slashed.
+    #[test]
+    fn test_double_sign_challenge_all_slashed() {
+        init_test_logger();
+        let num_nodes = 5;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".to_string(), true)]);
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), true)]);
+        let msg = vec![0, 1, 2];
+        for i in 0..=1 {
+            let signature = signers[i].sign(&msg);
+            assert!(!env
+                .runtime
+                .verify_validator_signature(
+                    &env.head.epoch_id,
+                    &env.head.last_block_hash,
+                    &format!("test{}", i + 1),
+                    &msg,
+                    &signature,
+                )
+                .unwrap());
+        }
+
+        for _ in 3..17 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account("test1");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    }
+
+    /// Test that if double sign occurs in the same epoch as other type of challenges all stake
+    /// is slashed.
+    #[test]
+    fn test_double_sign_with_other_challenges() {
+        init_test_logger();
+        let num_nodes = 3;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        env.step(
+            vec![vec![]],
+            vec![true],
+            vec![
+                SlashedValidator::new("test1".to_string(), true),
+                SlashedValidator::new("test2".to_string(), false),
+            ],
+        );
+        env.step(
+            vec![vec![]],
+            vec![true],
+            vec![
+                SlashedValidator::new("test1".to_string(), false),
+                SlashedValidator::new("test2".to_string(), true),
+            ],
+        );
+
+        for _ in 3..11 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account("test1");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
         let account = env.view_account("test2");
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -2125,8 +2253,14 @@ mod test {
     fn test_key_value_changes() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_key_value_changes", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env = TestEnv::new(
+            "test_key_value_changes",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+            true,
+        );
         let prefix = key_for_account(&"test1".to_string());
         env.runtime.subscriptions.insert(prefix.clone());
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -2178,6 +2312,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
