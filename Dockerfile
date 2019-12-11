@@ -48,7 +48,7 @@ FROM ubuntu:18.04
 EXPOSE 3030 24567
 
 RUN apt-get update -qq && apt-get install -y \
-    libssl-dev \
+    libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /tmp/build/* /usr/local/bin

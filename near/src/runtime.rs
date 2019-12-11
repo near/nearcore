@@ -1131,6 +1131,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
+                    let key = key?;
                     let public_key = &key[prefix.len()..];
                     let access_key = get_access_key_raw(&state_update, &key)?
                         .ok_or("Missing key from iterator")?;

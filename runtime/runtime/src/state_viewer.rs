@@ -69,7 +69,7 @@ impl TrieViewer {
             if let Ok(Some(value)) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
-        });
+        })?;
         Ok(ViewStateResult { values })
     }
 
