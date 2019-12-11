@@ -10,6 +10,7 @@ use log::{debug, error, info};
 use near_primitives::block::{genesis_chunks, Approval, WeightAndScore};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+    SlashedValidator,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
@@ -3171,17 +3172,22 @@ impl<'a> ChainUpdate<'a> {
             match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
             {
                 Ok((hash, account_ids)) => {
-                    match challenge.body {
+                    let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.
-                        ChallengeBody::BlockDoubleSign(_) => {}
+                        ChallengeBody::BlockDoubleSign(_) => true,
                         _ => {
                             self.mark_block_as_challenged(&hash, block_hash)?;
+                            false
                         }
-                    }
-                    result.extend(account_ids);
+                    };
+                    let slash_validators: Vec<_> = account_ids
+                        .into_iter()
+                        .map(|id| SlashedValidator::new(id, is_double_sign))
+                        .collect();
+                    result.extend(slash_validators);
                 }
                 Err(ref err) if err.kind() == ErrorKind::MaliciousChallenge => {
-                    result.push(challenge.account_id.clone());
+                    result.push(SlashedValidator::new(challenge.account_id.clone(), false));
                 }
                 Err(err) => return Err(err),
             }

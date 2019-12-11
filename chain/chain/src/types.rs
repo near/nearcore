@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -303,7 +303,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<AccountId>,
+        slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,

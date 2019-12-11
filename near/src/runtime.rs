@@ -17,7 +17,7 @@ use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, Rewar
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::Approval;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -220,8 +220,20 @@ impl NightshadeRuntime {
                    block_index,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
+
+            let mut slashing_info: HashMap<_, _> = challenges_result
+                .iter()
+                .filter_map(|s| {
+                    if self.account_id_to_shard_id(&s.account_id) == shard_id && !s.is_double_sign {
+                        Some((s.account_id.clone(), None))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward) =
+                let (stake_info, validator_reward, double_sign_slashing_info) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
@@ -238,6 +250,12 @@ impl NightshadeRuntime {
                         acc.insert(v.account_id.clone(), v.amount);
                         acc
                     });
+                let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
+                    .into_iter()
+                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .map(|(account_id, stake)| (account_id, Some(stake)))
+                    .collect();
+                slashing_info.extend(double_sign_slashing_info);
                 Some(ValidatorAccountsUpdate {
                     stake_info,
                     validator_rewards,
@@ -246,11 +264,7 @@ impl NightshadeRuntime {
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
                     .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
-                    slashed_accounts: challenges_result
-                        .iter()
-                        .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id)
-                        .map(Clone::clone)
-                        .collect(),
+                    slashing_info,
                 })
             } else if !challenges_result.is_empty() {
                 Some(ValidatorAccountsUpdate {
@@ -258,11 +272,7 @@ impl NightshadeRuntime {
                     validator_rewards: Default::default(),
                     last_proposals: Default::default(),
                     protocol_treasury_account_id: None,
-                    slashed_accounts: challenges_result
-                        .iter()
-                        .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id)
-                        .map(Clone::clone)
-                        .collect(),
+                    slashing_info,
                 })
             } else {
                 None
@@ -432,7 +442,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(slashed) => slashed,
             Err(_) => return Err(EpochError::MissingBlock(header.prev_hash).into()),
         };
-        if slashed.contains(&block_producer.account_id) {
+        if slashed.contains_key(&block_producer.account_id) {
             return Ok(false);
         }
         Ok(header.signature.verify(header.hash.as_ref(), &block_producer.public_key))
@@ -447,7 +457,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             header.inner.shard_id,
         ) {
             let slashed = epoch_manager.get_slashed_validators(&header.inner.prev_block_hash)?;
-            if slashed.contains(&chunk_producer.account_id) {
+            if slashed.contains_key(&chunk_producer.account_id) {
                 return Ok(false);
             }
             Ok(header.signature.verify(header.chunk_hash().as_ref(), &chunk_producer.public_key))
@@ -539,7 +549,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
             Ok(Some(validator)) => {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
-                Ok((validator, slashed.contains(account_id)))
+                Ok((validator, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -556,7 +566,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
             Ok(Some(fisherman)) => {
                 let slashed = epoch_manager.get_slashed_validators(&last_known_block_hash)?;
-                Ok((fisherman, slashed.contains(account_id)))
+                Ok((fisherman, slashed.contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -766,7 +776,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<AccountId>,
+        slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -777,17 +787,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let mut slashed = HashSet::default();
-        for validator in slashed_validators {
-            slashed.insert(validator);
-        }
         let block_info = BlockInfo::new(
             block_index,
             last_finalized_height,
             parent_hash,
             proposals,
             chunk_mask,
-            slashed,
+            slashed_validators,
             rent_paid,
             validator_reward,
             total_supply,
@@ -1155,7 +1161,7 @@ mod test {
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::WeightAndScore;
-    use near_primitives::challenge::ChallengesResult;
+    use near_primitives::challenge::{ChallengesResult, SlashedValidator};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::init_test_logger;
@@ -1252,6 +1258,7 @@ mod test {
             epoch_length: BlockIndex,
             initial_tracked_accounts: Vec<AccountId>,
             initial_tracked_shards: Vec<ShardId>,
+            has_reward: bool,
         ) -> Self {
             let dir = TempDir::new(prefix).unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -1269,6 +1276,9 @@ mod test {
             genesis_config.epoch_length = epoch_length;
             genesis_config.chunk_producer_kickout_threshold =
                 genesis_config.block_producer_kickout_threshold;
+            if !has_reward {
+                genesis_config.max_inflation_rate = 0;
+            }
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
@@ -1415,8 +1425,14 @@ mod test {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env = TestEnv::new(
+            "test_validator_rotation",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+            true,
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1521,6 +1537,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1565,6 +1582,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1691,6 +1709,7 @@ mod test {
             5,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1740,6 +1759,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1761,7 +1781,8 @@ mod test {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env =
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1774,7 +1795,7 @@ mod test {
         let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
         let root_node = env.runtime.get_state_root_node(&env.state_roots[0]);
         let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -1847,6 +1868,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1900,6 +1922,7 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1971,6 +1994,7 @@ mod test {
             2,
             vec![validators[1].clone()],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -2041,8 +2065,9 @@ mod test {
             2,
             vec![],
             vec![],
+            true,
         );
-        env.step(vec![vec![]], vec![true], vec!["test2".to_string()]);
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), false)]);
         assert_eq!(env.view_account("test2").locked, 0);
         assert_eq!(
             env.runtime
@@ -2072,12 +2097,169 @@ mod test {
         }
     }
 
+    /// Test that in case of a double sign, not all stake is slashed if the double signed stake is
+    /// less than 33% and all stake is slashed if the stake is more than 33%
+    #[test]
+    fn test_double_sign_challenge_not_all_slashed() {
+        init_test_logger();
+        let num_nodes = 3;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 3, vec![], vec![], false);
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
+
+        let signer = InMemorySigner::from_seed(&validators[2], KeyType::ED25519, &validators[2]);
+        let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
+        env.step(
+            vec![vec![staking_transaction]],
+            vec![true],
+            vec![SlashedValidator::new("test2".to_string(), true)],
+        );
+        assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
+        assert_eq!(
+            env.runtime
+                .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
+                .unwrap()
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.1))
+                .collect::<Vec<_>>(),
+            vec![
+                ("test3".to_string(), false),
+                ("test2".to_string(), true),
+                ("test1".to_string(), false)
+            ]
+        );
+        let msg = vec![0, 1, 2];
+        let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
+        let signature = signer.sign(&msg);
+        assert!(!env
+            .runtime
+            .verify_validator_signature(
+                &env.head.epoch_id,
+                &env.head.last_block_hash,
+                &"test2".to_string(),
+                &msg,
+                &signature,
+            )
+            .unwrap());
+
+        for _ in 2..11 {
+            env.step(vec![vec![]], vec![true], vec![]);
+        }
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test3".to_string(), true)]);
+        let account = env.view_account("test3");
+        assert_eq!(account.locked, TESTING_INIT_STAKE / 3);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+
+        for _ in 11..=20 {
+            env.step_default(vec![]);
+        }
+
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
+        let account = env.view_account("test3");
+        let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
+        let remaining = TESTING_INIT_STAKE / 3 - slashed;
+        assert_eq!(account.locked, remaining);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+    }
+
+    /// Test that double sign from multiple accounts may result in all of their stake slashed.
+    #[test]
+    fn test_double_sign_challenge_all_slashed() {
+        init_test_logger();
+        let num_nodes = 5;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id))
+            .collect();
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".to_string(), true)]);
+        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), true)]);
+        let msg = vec![0, 1, 2];
+        for i in 0..=1 {
+            let signature = signers[i].sign(&msg);
+            assert!(!env
+                .runtime
+                .verify_validator_signature(
+                    &env.head.epoch_id,
+                    &env.head.last_block_hash,
+                    &format!("test{}", i + 1),
+                    &msg,
+                    &signature,
+                )
+                .unwrap());
+        }
+
+        for _ in 3..17 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account("test1");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    }
+
+    /// Test that if double sign occurs in the same epoch as other type of challenges all stake
+    /// is slashed.
+    #[test]
+    fn test_double_sign_with_other_challenges() {
+        init_test_logger();
+        let num_nodes = 3;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        env.step(
+            vec![vec![]],
+            vec![true],
+            vec![
+                SlashedValidator::new("test1".to_string(), true),
+                SlashedValidator::new("test2".to_string(), false),
+            ],
+        );
+        env.step(
+            vec![vec![]],
+            vec![true],
+            vec![
+                SlashedValidator::new("test1".to_string(), false),
+                SlashedValidator::new("test2".to_string(), true),
+            ],
+        );
+
+        for _ in 3..11 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account("test1");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+
+        let account = env.view_account("test2");
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    }
+
     #[test]
     fn test_key_value_changes() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_key_value_changes", vec![validators.clone()], 2, vec![], vec![]);
+        let mut env = TestEnv::new(
+            "test_key_value_changes",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+            true,
+        );
         let prefix = key_for_account(&"test1".to_string());
         env.runtime.subscriptions.insert(prefix.clone());
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -2129,6 +2311,7 @@ mod test {
             4,
             vec![],
             vec![],
+            true,
         );
         let block_producers: Vec<_> = validators
             .iter()

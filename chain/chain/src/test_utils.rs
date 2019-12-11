@@ -15,7 +15,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Sign
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -461,7 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: u64,
         _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
-        _slashed_validators: Vec<AccountId>,
+        _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
         _rent_paid: Balance,
         _validator_reward: Balance,
