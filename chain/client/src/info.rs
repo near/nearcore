@@ -65,6 +65,7 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         is_validator: bool,
+        is_fisherman: bool,
         num_validators: usize,
     ) {
         let (cpu_usage, memory) = if let Some(pid) = self.pid {
@@ -89,7 +90,7 @@ impl InfoHelper {
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         info!(target: "info", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
-              White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
+              White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
