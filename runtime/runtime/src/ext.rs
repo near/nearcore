@@ -151,18 +151,22 @@ impl<'a> External for RuntimeExt<'a> {
             Some(iter) => iter.next(),
             None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
         };
-        if result.is_none() {
-            self.iters.remove(&iterator_idx);
+        match result {
+            None => {
+                self.iters.remove(&iterator_idx);
+                Ok(None)
+            }
+            Some(key) => {
+                let key = key.map_err(wrap_error)?;
+                Ok(Some((
+                    key[self.storage_prefix.len()..].to_vec(),
+                    self.trie_update
+                        .get(&key)
+                        .expect("error cannot happen")
+                        .expect("key is guaranteed to be there"),
+                )))
+            }
         }
-        Ok(result.map(|key| {
-            (
-                key[self.storage_prefix.len()..].to_vec(),
-                self.trie_update
-                    .get(&key)
-                    .expect("error cannot happen")
-                    .expect("key is guaranteed to be there"),
-            )
-        }))
     }
 
     fn storage_iter_drop(&mut self, iterator_idx: u64) -> ExtResult<()> {

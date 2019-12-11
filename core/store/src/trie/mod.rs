@@ -29,10 +29,13 @@ mod state_parts;
 mod trie_storage;
 pub mod update;
 
+#[cfg(test)]
+mod trie_tests;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PartialStorage {
     pub nodes: PartialState,
 }

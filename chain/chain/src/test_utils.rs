@@ -9,13 +9,13 @@ use log::debug;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
+use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
 use crate::{Chain, ChainGenesis};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::Approval;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::block::{Approval, Block};
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -261,18 +261,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error> {
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validators = &self.validators
             [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
         let validator = &validators[(header.inner_lite.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
+        Ok(())
     }
 
     fn verify_validator_signature(
@@ -465,7 +461,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: u64,
         _last_finalized_height: u64,
         _proposals: Vec<ValidatorStake>,
-        _slashed_validators: Vec<AccountId>,
+        _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
         _rent_paid: Balance,
         _validator_reward: Balance,
@@ -898,6 +894,43 @@ pub fn setup_with_tx_validity_period(
     (chain, runtime, signer)
 }
 
+pub fn setup_with_validators(
+    validators: Vec<AccountId>,
+    validator_groups: u64,
+    num_shards: ShardId,
+    epoch_length: u64,
+    validity_period: BlockIndex,
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
+    let store = create_test_store();
+    let signers = validators
+        .iter()
+        .map(|x| Arc::new(InMemorySigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .collect();
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+        store.clone(),
+        vec![validators],
+        validator_groups,
+        num_shards,
+        epoch_length,
+    ));
+    let chain = Chain::new(
+        store,
+        runtime.clone(),
+        &ChainGenesis::new(
+            Utc::now(),
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            validity_period,
+            epoch_length,
+        ),
+    )
+    .unwrap();
+    (chain, runtime, signers)
+}
+
 pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..6].to_string()
 }
@@ -1009,4 +1042,13 @@ impl ChainGenesis {
             epoch_length: 5,
         }
     }
+}
+
+// Change the timestamp of a block so that it has a different hash
+// Note that it only works for tests that process blocks with `Provenance::PRODUCED`, since the
+// weights of blocks following `block` will be computed incorrectly.
+pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemorySigner) {
+    block.header.inner_lite.timestamp += delta;
+    block.header.init();
+    block.header.signature = signer.sign(block.header.hash().as_ref());
 }
