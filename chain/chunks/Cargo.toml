@@ -14,7 +14,7 @@ log = "0.4"
 borsh = "0.2.10"
 serde = "1.0"
 serde_derive = "1.0"
-reed-solomon-erasure = "3.1.1"
+reed-solomon-erasure = { version = "3.1.1", features = ["pure-rust"] }
 cached = "0.11.0"
 
 near-crypto = { path = "../../core/crypto" }
