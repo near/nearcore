@@ -316,7 +316,7 @@ fn circle() {
             .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
             .collect();
 
-        check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 10000);
+        check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 20000);
     });
 }
 
