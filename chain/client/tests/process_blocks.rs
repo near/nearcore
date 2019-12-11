@@ -302,7 +302,7 @@ fn produce_block_with_approvals() {
 
             future::result(Ok(()))
         }));
-        near_network::test_utils::wait_or_panic(5000);
+        near_network::test_utils::wait_or_panic(10000);
     })
     .unwrap();
 }
