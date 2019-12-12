@@ -38,7 +38,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
         self.ptr.len()
     }
 
-    fn deref_box(self: Box<Self>) -> ExtResult<Vec<u8>> {
+    fn deref(&self) -> ExtResult<Vec<u8>> {
         self.ptr.deref_value().map_err(wrap_error)
     }
 }

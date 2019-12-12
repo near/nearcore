@@ -43,7 +43,7 @@ pub trait ValuePtr {
     /// Takes a box because currently runtime code uses dynamic dispatch.
     /// # Errors
     /// StorageError if reading from storage fails
-    fn deref_box(self: Box<Self>) -> Result<Vec<u8>>;
+    fn deref(&self) -> Result<Vec<u8>>;
 }
 
 /// An external blockchain interface for the Runtime logic
@@ -88,9 +88,9 @@ pub trait External {
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref_box().unwrap()), Some(b"value1337".to_vec()));
+    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key").unwrap().map(|ptr| ptr.deref_box().unwrap()), None);
+    /// assert_eq!(external.storage_get(b"no_key").unwrap().map(|ptr| ptr.deref().unwrap()), None);
     /// ```
     fn storage_get<'a>(&'a self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
@@ -163,8 +163,8 @@ pub trait External {
     /// // Creates iterator and returns index
     /// let index = external.storage_iter(b"key42").unwrap();
     ///
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), None);
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), None);
     ///
     /// external.storage_iter(b"not_existing_key").expect("should be ok");
     /// ```
@@ -195,9 +195,9 @@ pub trait External {
     /// // Creates iterator and returns index
     /// let index = external.storage_iter_range(b"key42", b"key43").unwrap();
     ///
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), Some((b"key42".to_vec(), b"value1337".to_vec())));
     /// // The second key is `key43`. Returns Ok(None), since the `end` parameter is exclusive
-    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref_box().unwrap())), None);
+    /// assert_eq!(external.storage_iter_next(index).unwrap().map(|(key, ptr)| (key, ptr.deref().unwrap())), None);
     /// ```
     fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<IteratorIndex>;
 

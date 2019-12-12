@@ -1714,7 +1714,7 @@ impl<'a> VMLogic<'a> {
         match value_ptr {
             Some(value_ptr) => {
                 gas_counter.pay_per_byte(cost_per_byte, value_ptr.len() as u64)?;
-                value_ptr.deref_box().map(Some)
+                value_ptr.deref().map(Some)
             }
             None => Ok(None),
         }
@@ -1943,7 +1943,7 @@ impl<'a> VMLogic<'a> {
                 self.gas_counter.pay_per_byte(storage_iter_next_key_byte, key.len() as u64)?;
                 self.gas_counter
                     .pay_per_byte(storage_iter_next_value_byte, value_ptr.len() as u64)?;
-                let value = value_ptr.deref_box()?;
+                let value = value_ptr.deref()?;
                 Some((key, value))
             }
             None => None,

@@ -39,7 +39,7 @@ impl ValuePtr for MockedValuePtr {
         self.value.len() as u32
     }
 
-    fn deref_box(self: Box<Self>) -> crate::dependencies::Result<Vec<u8>> {
+    fn deref(&self) -> crate::dependencies::Result<Vec<u8>> {
         Ok(self.value.clone())
     }
 }
