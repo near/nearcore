@@ -47,7 +47,6 @@ if __name__ == "__main__":
             result = future.result()
             if result[0] != 0:
                 fails.append((binary_full_name, result))
-                # fails.append(f'========= test binary {binary} failed, exit code {result[0]}')
             else:
                 show_test_result(binary, result)
 
