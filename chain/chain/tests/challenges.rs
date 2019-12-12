@@ -1,4 +1,4 @@
-use near_chain::test_utils::setup;
+use near_chain::test_utils::{setup, tamper_with_block};
 use near_chain::{Block, ErrorKind, Provenance};
 use near_primitives::test_utils::init_test_logger;
 
@@ -21,11 +21,13 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head().unwrap().height, 5);
 
     // The block to be added below after we invalidated fourth block.
-    let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
+    let mut last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
+    tamper_with_block(&mut last_block, 2, &*signer);
     assert_eq!(last_block.header.inner_lite.height, 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
-    let challenger_block = Block::empty(&prev, &*signer);
+    let mut challenger_block = Block::empty(&prev, &*signer);
+    tamper_with_block(&mut challenger_block, 1, &*signer);
     let challenger_hash = challenger_block.hash();
 
     let _ = chain
@@ -57,7 +59,8 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), hashes[2]);
 
     // Add two more blocks
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    let mut b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    tamper_with_block(&mut b3, 3, &*signer);
     let _ = chain
         .process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
         .unwrap()
@@ -73,7 +76,8 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), new_head);
 
     // Add two more blocks on an alternative chain
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    let mut b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    tamper_with_block(&mut b3, 4, &*signer);
     let _ = chain
         .process_block(&None, b3.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
         .unwrap();

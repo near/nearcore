@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -381,18 +381,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error> {
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let validator = epoch_manager
             .get_block_producer_info(&header.inner_lite.epoch_id, header.inner_lite.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner_rest.total_weight.next(header.num_approvals() as u128))
+        Ok(())
     }
 
     fn verify_validator_signature(
@@ -1314,6 +1310,7 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
+                    prev_timestamp: 0,
                     weight_and_score: WeightAndScore::from_ints(0, 0),
                 },
                 state_roots,
@@ -1381,6 +1378,7 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
+                prev_timestamp: 0,
                 weight_and_score: WeightAndScore::from_ints(
                     self.head.weight_and_score.weight.to_num() + 1,
                     self.head.weight_and_score.score.to_num(),
