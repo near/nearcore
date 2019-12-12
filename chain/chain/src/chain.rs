@@ -1072,7 +1072,7 @@ impl Chain {
         me: &Option<AccountId>,
         mut orphans_missing_chunks: F,
     ) where
-        F: Copy + FnMut((CryptoHash, Vec<ShardChunkHeader>)) -> (),
+        F: Copy + FnMut((CryptoHash, EpochId, Vec<ShardChunkHeader>)) -> (),
     {
         let mut orphan_hashes = vec![];
         for (orphan_hash, orphan) in
@@ -1143,7 +1143,11 @@ impl Chain {
             match chain_update.ping_missing_chunks(me, parent_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {
-                        orphans_missing_chunks((parent_hash, missing.clone()));
+                        orphans_missing_chunks((
+                            parent_hash,
+                            orphan.block.header.inner_lite.epoch_id.clone(),
+                            missing.clone(),
+                        ));
                     }
                     _ => {
                         error!(target: "chain", "Cannot get missing chunks from orphan {:?}: {:?}", orphan.block.header, e);

@@ -269,10 +269,12 @@ fn test_orphan_chain() {
         orphans_missing_chunks.write().unwrap().push(missing_chunks);
     });
     let mut missing_count = 0;
-    for (parent_hash, missing_chunks) in orphans_missing_chunks.write().unwrap().drain(..) {
-        println!("{:?} {:?}", parent_hash, missing_chunks);
+    for (parent_hash, epoch_id, missing_chunks) in orphans_missing_chunks.write().unwrap().drain(..)
+    {
+        println!("{:?} {:?} {:?}", parent_hash, epoch_id, missing_chunks);
         missing_count += 1;
         assert_eq!(parent_hash, block0.header.hash);
+        assert_eq!(epoch_id, block0.header.inner_lite.epoch_id);
         for chunk in missing_chunks.iter() {
             assert!(chunk.inner.height_created >= 1);
             assert!(chunk.inner.height_created <= NUM_ORPHAN_PARENTS_CHECK);

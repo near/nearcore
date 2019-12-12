@@ -25,7 +25,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
@@ -370,6 +370,7 @@ impl ShardsManager {
     pub fn request_chunks_for_orphan(
         &mut self,
         parent_hash: CryptoHash,
+        epoch_id: EpochId,
         chunks_to_request: Vec<ShardChunkHeader>,
     ) -> Result<(), Error> {
         for chunk_header in chunks_to_request {
@@ -378,7 +379,15 @@ impl ShardsManager {
                 ..
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
-            self.request_chunk(parent_hash, chunk_hash, shard_id, height, chunk_header)?;
+            match self.runtime_adapter.compare_epoch_id(
+                &epoch_id,
+                &self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?,
+            ) {
+                Ok(std::cmp::Ordering::Equal) => {
+                    self.request_chunk(parent_hash, chunk_hash, shard_id, height, chunk_header)?
+                }
+                _ => {}
+            }
         }
         Ok(())
     }
