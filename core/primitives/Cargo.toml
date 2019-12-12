@@ -26,6 +26,7 @@ actix = "0.8.1"
 borsh = "0.2.10"
 
 near-crypto = { path = "../crypto" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 default = ["jemallocator"]

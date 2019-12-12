@@ -1,13 +1,14 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum VMError {
-    FunctionCallError(FunctionCallError),
+    FunctionExecError(FunctionExecError),
     StorageError(Vec<u8>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FunctionCallError {
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub enum FunctionExecError {
     CompilationError(CompilationError),
     LinkError(String),
     ResolveError(MethodResolveError),
@@ -15,7 +16,7 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodUTF8Error,
@@ -23,14 +24,14 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum CompilationError {
     CodeDoesNotExist(String),
     PrepareError(PrepareError),
     WasmerCompileError(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -62,7 +63,7 @@ pub enum PrepareError {
     Memory,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum HostError {
     BadUTF16,
     BadUTF8,
@@ -87,7 +88,7 @@ pub enum HostError {
     ProhibitedInView(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub enum HostErrorOrStorageError {
     HostError(HostError),
     /// Error from underlying storage, serialized
@@ -102,7 +103,7 @@ impl From<HostError> for HostErrorOrStorageError {
 
 impl From<PrepareError> for VMError {
     fn from(err: PrepareError) -> Self {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
+        VMError::FunctionExecError(FunctionExecError::CompilationError(
             CompilationError::PrepareError(err),
         ))
     }
@@ -125,14 +126,14 @@ impl fmt::Display for PrepareError {
     }
 }
 
-impl fmt::Display for FunctionCallError {
+impl fmt::Display for FunctionExecError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            FunctionCallError::CompilationError(e) => e.fmt(f),
-            FunctionCallError::ResolveError(e) => e.fmt(f),
-            FunctionCallError::HostError(e) => e.fmt(f),
-            FunctionCallError::LinkError(s) => write!(f, "{}", s),
-            FunctionCallError::WasmTrap(s) => write!(f, "WebAssembly trap: {}", s),
+            FunctionExecError::CompilationError(e) => e.fmt(f),
+            FunctionExecError::ResolveError(e) => e.fmt(f),
+            FunctionExecError::HostError(e) => e.fmt(f),
+            FunctionExecError::LinkError(s) => write!(f, "{}", s),
+            FunctionExecError::WasmTrap(s) => write!(f, "WebAssembly trap: {}", s),
         }
     }
 }
@@ -158,7 +159,7 @@ impl fmt::Display for MethodResolveError {
 impl fmt::Display for VMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
+            VMError::FunctionExecError(err) => fmt::Display::fmt(err, f),
             VMError::StorageError(_err) => write!(f, "StorageError"),
         }
     }
@@ -195,20 +196,20 @@ impl std::fmt::Display for HostError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
+    use crate::{CompilationError, FunctionExecError, MethodResolveError, PrepareError, VMError};
 
     #[test]
     fn test_display() {
         // TODO: proper printing
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::ResolveError(
+            VMError::FunctionExecError(FunctionExecError::ResolveError(
                 MethodResolveError::MethodInvalidSignature
             ))
             .to_string(),
             "MethodInvalidSignature"
         );
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::CompilationError(
+            VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
             ))
             .to_string(),

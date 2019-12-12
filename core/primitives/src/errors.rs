@@ -1,6 +1,8 @@
 use crate::types::{AccountId, Balance, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+// TODO: looks like in this crate we're trying to avoid inner deps, but I can't find a better solution so far
+use near_vm_errors::VMError;
 use std::fmt::Display;
 
 /// Internal
@@ -64,7 +66,7 @@ pub enum ActionError {
     RentUnpaid(AccountId, Balance),
     TriesToUnstake(AccountId),
     TriesToStake(AccountId, Balance, Balance, Balance),
-    FunctionCallError(String), // TODO type
+    FunctionCallError(VMError),
 }
 
 impl Display for InvalidTxError {
@@ -316,7 +318,7 @@ impl Display for ActionError {
                 "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
                 account_id, balance
             ),
-            ActionError::FunctionCallError(s) => write!(f, "{}", s),
+            ActionError::FunctionCallError(s) => write!(f, "FunctionCall action error: {}", s),
         }
     }
 }

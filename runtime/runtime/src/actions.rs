@@ -27,7 +27,7 @@ use crate::config::RuntimeConfig;
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_primitives::errors::ActionError;
-use near_vm_errors::{CompilationError, FunctionCallError};
+use near_vm_errors::{CompilationError, FunctionExecError};
 use near_vm_runner::VMError;
 
 /// Number of epochs it takes to unstake.
@@ -119,10 +119,10 @@ pub(crate) fn action_function_call(
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist(
-                account_id.clone(),
+            let error = VMError::FunctionExecError(FunctionExecError::CompilationError(
+                CompilationError::CodeDoesNotExist(account_id.clone()),
             ));
-            result.result = Err(ActionError::FunctionCallError(error.to_string()));
+            result.result = Err(ActionError::FunctionCallError(error));
             return Ok(());
         }
         Err(e) => {
@@ -179,8 +179,7 @@ pub(crate) fn action_function_call(
                 borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
             return Err(err);
         }
-        // TODO(#1731): Handle VMError::FunctionCallError better.
-        result.result = Err(ActionError::FunctionCallError(err.to_string()));
+        result.result = Err(ActionError::FunctionCallError(err));
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
             result.gas_burnt_for_function_call += outcome.burnt_gas;
