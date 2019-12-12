@@ -99,6 +99,7 @@ def doit(seq = []):
                 expected_stakes = get_expected_stakes()
                 print("Expect  stakes: %s" % expected_stakes)
                 for (cur, expected) in zip(cur_stakes, expected_stakes):
+                    print(f'cur: {cur}, expected: {expected}')
                     if cur % 1000000 == 0:
                         assert cur == expected
                     else:

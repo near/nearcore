@@ -252,6 +252,11 @@ chmod +x near
     
     def json_rpc(self, method, params, timeout=5):
         return super().json_rpc(method, params, timeout=timeout)
+    
+    def get_status(self):
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=5)
+        r.raise_for_status()
+        return json.loads(r.content)
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
