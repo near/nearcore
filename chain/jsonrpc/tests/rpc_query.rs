@@ -325,6 +325,48 @@ fn test_health_ok() {
 
 /// Retrieve gas price
 #[test]
+fn test_gas_price_by_height() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.gas_price(Some(BlockId::Height(0))).then(|res| {
+            let gas_price = res.unwrap().gas_price;
+            assert!(gas_price > 0);
+            System::current().stop();
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve gas price
+#[test]
+fn test_gas_price_by_hash() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.block(BlockId::Height(0)).then(move |res| {
+            let res = res.unwrap();
+            let mut client = new_client(&format!("http://{}", addr));
+            client.gas_price(Some(BlockId::Hash(res.header.hash))).then(move |res| {
+                let gas_price = res.unwrap().gas_price;
+                assert!(gas_price > 0);
+                System::current().stop();
+                future::ok(())
+            })
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve gas price
+#[test]
 fn test_gas_price() {
     init_test_logger();
 
@@ -332,7 +374,7 @@ fn test_gas_price() {
         let (_, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.gas_price().then(|res| {
+        actix::spawn(client.gas_price(None).then(|res| {
             let gas_price = res.unwrap().gas_price;
             assert!(gas_price > 0);
             System::current().stop();

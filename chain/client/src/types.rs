@@ -303,7 +303,11 @@ impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
 }
 
-pub struct GetGasPrice {}
+pub enum GetGasPrice {
+    Height(BlockIndex),
+    Hash(CryptoHash),
+    None,
+}
 
 impl Message for GetGasPrice {
     type Result = Result<GasPriceView, String>;

@@ -191,7 +191,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
-    pub fn gas_price(&mut self) -> RpcRequest<GasPriceView>;
+    pub fn gas_price(&mut self, id: Option<BlockId>) -> RpcRequest<GasPriceView>;
 });
 
 fn create_client() -> Client {

@@ -408,9 +408,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 impl Handler<GetGasPrice> for ViewClientActor {
     type Result = Result<GasPriceView, String>;
 
-    fn handle(&mut self, _msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
-        self.chain
-            .head_header()
+    fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
+        let header = match msg {
+            GetGasPrice::None => self.chain.head_header(),
+            GetGasPrice::Height(height) => self.chain.get_header_by_height(height),
+            GetGasPrice::Hash(block_hash) => self.chain.get_block_header(&block_hash),
+        };
+        header
             .map(|b| GasPriceView { gas_price: b.inner_rest.gas_price })
             .map_err(|e| e.to_string())
     }
