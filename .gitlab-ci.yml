@@ -20,7 +20,7 @@ test_cargo:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
     - cargo check --all --tests --benches --all-features
-    - python3 scripts/parallel_run_tests.py
+    - bash -c "cargo test --all 2> >(socat stdin stderr,cool-write) > >(socat stdin stderr,cool-write)"
 
 # Regression tests.
 test_regression:
