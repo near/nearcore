@@ -1064,6 +1064,7 @@ impl Client {
             );
 
             match state_sync.run(
+                me,
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,

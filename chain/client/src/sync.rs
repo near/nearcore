@@ -11,7 +11,7 @@ use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId, StateRootNode};
+use near_primitives::types::{AccountId, BlockIndex, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -460,6 +460,7 @@ impl StateSync {
 
     pub fn sync_shards_status(
         &mut self,
+        me: &Option<AccountId>,
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
@@ -521,6 +522,8 @@ impl StateSync {
                             shard_sync_download.downloads[0].run_me = true;
                             shard_sync_download.downloads[0].error = false;
                             shard_sync_download.downloads[0].prev_update_time = now;
+                        }
+                        if shard_sync_download.downloads[0].run_me {
                             need_shard = true;
                         }
                     }
@@ -537,6 +540,8 @@ impl StateSync {
                                 part_download.run_me = true;
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
+                            }
+                            if part_download.run_me {
                                 need_shard = true;
                             }
                         }
@@ -584,6 +589,7 @@ impl StateSync {
             if need_shard {
                 update_sync_status = true;
                 *shard_sync_download = self.request_shard(
+                    me,
                     shard_id,
                     chain,
                     runtime_adapter,
@@ -604,21 +610,23 @@ impl StateSync {
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
     pub fn request_shard(
         &mut self,
+        me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        hash: CryptoHash,
+        sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&hash), Ok(shard_sync_download)).prev_hash;
+            unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
+                .prev_hash;
         let epoch_hash = unwrap_or_return!(
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
         );
         let possible_targets = unwrap_or_return!(
-            runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash),
+            runtime_adapter.get_epoch_block_producers(&epoch_hash, &sync_hash),
             Ok(shard_sync_download)
         )
         .iter()
@@ -629,7 +637,11 @@ impl StateSync {
                 shard_id,
                 false,
             ) {
-                Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
+                if me.as_ref().map(|me| me != &validator_stake.account_id).unwrap_or(false) {
+                    Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -652,7 +664,7 @@ impl StateSync {
             ShardSyncStatus::StateDownloadHeader => {
                 self.network_adapter.send(NetworkRequests::StateRequest {
                     shard_id,
-                    hash,
+                    sync_hash,
                     need_header: true,
                     parts: StateRequestParts::default(),
                     target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
@@ -666,7 +678,7 @@ impl StateSync {
                     if download.run_me {
                         self.network_adapter.send(NetworkRequests::StateRequest {
                             shard_id,
-                            hash,
+                            sync_hash,
                             need_header: false,
                             parts: StateRequestParts {
                                 ids: vec![i as u64],
@@ -686,6 +698,7 @@ impl StateSync {
 
     pub fn run(
         &mut self,
+        me: &Option<AccountId>,
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
@@ -708,6 +721,7 @@ impl StateSync {
         }
 
         let (update_sync_status, all_done) = self.sync_shards_status(
+            me,
             sync_hash,
             new_shard_sync,
             chain,

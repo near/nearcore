@@ -980,7 +980,7 @@ pub enum NetworkRequests {
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
-        hash: CryptoHash,
+        sync_hash: CryptoHash,
         need_header: bool,
         parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
