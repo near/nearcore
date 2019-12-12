@@ -42,7 +42,7 @@ if __name__ == "__main__":
         future_to_binary = {executor.submit(run_test, binary): binary for binary in binaries}
         for future in as_completed(future_to_binary):
             completed += 1
-            binary_full_name = os.path(future_to_binary[future])
+            binary_full_name = future_to_binary[future]
             binary = os.path.basename(binary)
             result = future.result()
             if result[0] != 0:
