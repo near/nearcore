@@ -20,28 +20,28 @@ use near_primitives::transaction::SignedTransaction;
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(1, false, 1500);
+        chunks_produced_and_distributed_common(1, false, 1500, false, false);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, false, 1500);
+        chunks_produced_and_distributed_common(2, false, 1500, false, false);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, false, 1500);
+        chunks_produced_and_distributed_common(4, false, 1500, false, false);
     });
 }
 
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 1500);
+        chunks_produced_and_distributed_common(2, true, 1500, false, false);
     });
 }
 
@@ -49,14 +49,14 @@ fn chunks_recovered_from_others() {
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 1500);
+        chunks_produced_and_distributed_common(4, true, 1500, false, false);
     });
 }
 
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 4000);
+        chunks_produced_and_distributed_common(4, true, 4000, false, false);
     });
 }
 
@@ -67,6 +67,8 @@ fn chunks_produced_and_distributed_common(
     validator_groups: u64,
     drop_from_1_to_4: bool,
     block_timeout: u64,
+    grief_1_to_2: bool,
+    sample_parts: bool
 ) {
     init_test_logger();
     System::run(move || {
@@ -100,6 +102,7 @@ fn chunks_produced_and_distributed_common(
             validator_groups,
             true,
             block_timeout,
+            false,
             false,
             false,
             5,
@@ -144,6 +147,8 @@ fn chunks_produced_and_distributed_common(
                                         block.chunks[shard_id].inner.height_created
                                     );
                                 }
+                                // If 1 is griefing 2, (dropping all parts to anyone other than 2),
+                                // 2 should discard the chunks from sampling
                             }
                         }
 

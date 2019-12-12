@@ -136,6 +136,7 @@ impl ClientConfig {
         min_block_prod_time: u64,
         max_block_prod_time: u64,
         num_block_producers: ValidatorId,
+        should_sample: bool,
     ) -> Self {
         ClientConfig {
             version: Default::default(),
@@ -174,7 +175,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             // sampling parts to prevent chunk griefing is disabled in testing for now
-            num_parts_to_sample: 0,
+            num_parts_to_sample: if should_sample { 2 } else { 0 },
         }
     }
 }

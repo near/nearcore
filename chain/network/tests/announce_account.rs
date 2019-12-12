@@ -61,7 +61,7 @@ pub fn setup_network_node(
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
-            ClientConfig::test(false, 100, 200, num_validators),
+            ClientConfig::test(false, 100, 200, num_validators, false),
             store.clone(),
             chain_genesis,
             runtime,

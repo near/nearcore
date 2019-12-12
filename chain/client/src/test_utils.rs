@@ -64,6 +64,7 @@ pub fn setup(
     recipient: Recipient<NetworkRequests>,
     tx_validity_period: BlockIndex,
     genesis_time: DateTime<Utc>,
+    should_sample: bool,
 ) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
     let num_validators = validators.iter().map(|x| x.len()).sum();
@@ -95,6 +96,7 @@ pub fn setup(
         min_block_prod_time,
         max_block_prod_time,
         num_validators,
+        should_sample,
     );
     let client = ClientActor::new(
         config,
@@ -161,6 +163,7 @@ pub fn setup_mock_with_validity_period(
             pm.recipient(),
             validity_period,
             Utc::now(),
+            false,
         );
         *view_client_addr1.write().unwrap() = Some(view_client.start());
         client
@@ -196,6 +199,7 @@ fn sample_binary(n: u64, k: u64) -> bool {
 ///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
+/// `should_sample` - if set to true, block-producrs will sample parts not owned by them
 /// `epoch_length` - approximate number of heights per epoch
 /// `network_mock` - the callback that is called for each message sent. The `mock` is called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
@@ -211,6 +215,7 @@ pub fn setup_mock_all_validators(
     block_prod_time: u64,
     drop_chunks: bool,
     tamper_with_fg: bool,
+    should_sample: bool,
     epoch_length: u64,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
@@ -610,6 +615,7 @@ pub fn setup_mock_all_validators(
                 pm.recipient(),
                 10000,
                 genesis_time,
+                should_sample,
             );
             *view_client_addr1.write().unwrap() = Some(view_client.start());
             *genesis_block1.write().unwrap() = Some(block);
@@ -678,7 +684,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let block_producer =
         account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
-    let mut config = ClientConfig::test(true, 10, 20, num_validators);
+    let mut config = ClientConfig::test(true, 10, 20, num_validators, false);
     config.epoch_length = chain_genesis.epoch_length;
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
