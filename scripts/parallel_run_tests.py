@@ -43,7 +43,7 @@ if __name__ == "__main__":
         for future in as_completed(future_to_binary):
             completed += 1
             binary_full_name = future_to_binary[future]
-            binary = os.path.basename(binary)
+            binary = os.path.basename(binary_full_name)
             result = future.result()
             if result[0] != 0:
                 fails.append((binary_full_name, result))
