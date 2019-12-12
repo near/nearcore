@@ -100,6 +100,7 @@ impl Client {
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
             network_adapter.clone(),
+            config.num_parts_to_sample,
         );
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_adapter.clone());

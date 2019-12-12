@@ -29,6 +29,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 
+
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
 use rand::Rng;
@@ -42,8 +43,6 @@ const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
-// How many parts are sampled in addition to those owned by me
-const NUM_PARTS_TO_BE_SAMPLED: u64 = 2;
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
@@ -166,6 +165,7 @@ pub struct ShardsManager {
     // A local random seed that is unknown to other members of the network
     // used for sampling parts in addition to the parts owned by me
     local_random_seed: u64,
+    num_parts_to_sample: u32
 }
 
 impl ShardsManager {
@@ -173,6 +173,7 @@ impl ShardsManager {
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
+        num_parts_to_sample: u32
     ) -> Self {
         Self {
             me,
@@ -187,6 +188,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
             local_random_seed: rand::thread_rng().gen::<u64>(),
+            num_parts_to_sample,
         }
     }
 
@@ -259,7 +261,7 @@ impl ShardsManager {
             } else {
                 if let Some(me) = &self.me {
                     // Request all parts that are owned by me and some small number of sampled parts.
-                    (&self.runtime_adapter.get_part_owner(&parent_hash, part_ord)? == me) |
+                    (&self.runtime_adapter.get_part_owner(&parent_hash, part_ord)? == me) ||
                         self.should_sample_part(&parent_hash, part_ord)?
                 } else {
                     false
@@ -798,7 +800,7 @@ impl ShardsManager {
         let num_total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash) as u64;
         self.local_random_seed.hash(&mut s);
         prev_block_hash.hash(&mut s);
-        for _ in 1..NUM_PARTS_TO_BE_SAMPLED {
+        for _ in 1..self.num_parts_to_sample {
             if part_ord == s.finish() % num_total_parts {
                 return Ok(true)
             }
@@ -832,7 +834,7 @@ impl ShardsManager {
             let part_ord = part_ord as u64;
             if !chunk_entry.parts.contains_key(&part_ord) {
                 // Must have all parts owned by me or those that were sampled when requesting parts.
-                if self.need_part(&prev_block_hash, part_ord)? | self.should_sample_part(&prev_block_hash, part_ord)? {
+                if self.need_part(&prev_block_hash, part_ord)? || self.should_sample_part(&prev_block_hash, part_ord)? {
                     return Ok(false);
                 }
             }
@@ -898,7 +900,6 @@ impl ShardsManager {
                 .parts
                 .iter()
                 .filter_map(|(part_ord, part_entry)| {
-                    // Should we include sampled parts here too??
                     if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
                         if need_part {
                             Some(part_entry.clone())

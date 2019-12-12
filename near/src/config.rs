@@ -297,6 +297,7 @@ impl NearConfig {
                 chunk_request_retry_period: Duration::from_millis(200),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                num_parts_to_sample: 2,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

@@ -126,6 +126,8 @@ pub struct ClientConfig {
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
+    /// Number of parts to be sampled from other block producers to protect vs chunk griefing
+    pub num_parts_to_sample: u32,
 }
 
 impl ClientConfig {
@@ -171,6 +173,8 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            // sampling parts to prevent chunk griefing is disabled in testing for now
+            num_parts_to_sample: 0,
         }
     }
 }
