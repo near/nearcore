@@ -19,7 +19,7 @@ serde_json = "1.0"
 rand = "0.7"
 env_logger = "0.7"
 log = "0.4"
-reed-solomon-erasure = {version = "3.1.1", features = ["pure-rust"]}
+reed-solomon-erasure = "4"
 jemallocator = { version = "0.3.0", optional = true }
 actix = "0.8.1"
 
