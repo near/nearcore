@@ -637,7 +637,7 @@ impl StateSync {
                 shard_id,
                 false,
             ) {
-                if me.as_ref().map(|me| me != &validator_stake.account_id).unwrap_or(false) {
+                if me.as_ref().map(|me| me != &validator_stake.account_id).unwrap_or(true) {
                     Some(AccountOrPeerIdOrHash::AccountId(validator_stake.account_id.clone()))
                 } else {
                     None
