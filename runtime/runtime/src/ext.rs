@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{TrieUpdate, TrieUpdateIterator, ValuePointer};
+use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, HostErrorOrStorageError, ValuePtr};
 
 pub struct RuntimeExt<'a> {
@@ -30,7 +30,7 @@ pub struct RuntimeExt<'a> {
 }
 
 pub struct RuntimeExtValuePtr<'a> {
-    ptr: ValuePointer<'a>,
+    ptr: TrieUpdateValuePtr<'a>,
 }
 
 impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {

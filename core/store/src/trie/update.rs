@@ -17,23 +17,23 @@ pub struct TrieUpdate {
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
-pub enum ValuePointer<'a> {
+pub enum TrieUpdateValuePtr<'a> {
     HashAndSize(&'a Trie, u32, CryptoHash),
     MemoryRef(&'a Vec<u8>),
 }
 
-impl<'a> ValuePointer<'a> {
+impl<'a> TrieUpdateValuePtr<'a> {
     pub fn len(&self) -> u32 {
         match self {
-            ValuePointer::MemoryRef(value) => value.len() as u32,
-            ValuePointer::HashAndSize(_, length, _) => *length,
+            TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
+            TrieUpdateValuePtr::HashAndSize(_, length, _) => *length,
         }
     }
 
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
-            ValuePointer::MemoryRef(value) => Ok((*value).clone()),
-            ValuePointer::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
+            TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
+            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
         }
     }
 }
@@ -56,14 +56,15 @@ impl TrieUpdate {
         }
     }
 
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValuePointer>, StorageError> {
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            Ok(value.as_ref().map(ValuePointer::MemoryRef))
+            Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef))
         } else if let Some(value) = self.committed.get(key) {
-            Ok(value.as_ref().map(ValuePointer::MemoryRef))
+            Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef))
         } else {
             self.trie.get_ref(&self.root, key).map(|option| {
-                option.map(|(length, hash)| ValuePointer::HashAndSize(&self.trie, length, hash))
+                option
+                    .map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
             })
         }
     }
