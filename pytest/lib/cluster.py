@@ -100,6 +100,9 @@ class BaseNode(object):
         return json.loads(r.content)
 
     def get_account(self, acc):
+        print(f'get account {acc}')
+        # if acc == 'test2':
+        #     input('pause')
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
     def get_block(self, block_hash):
@@ -250,11 +253,11 @@ chmod +x near
         self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
     
-    def json_rpc(self, method, params, timeout=5):
+    def json_rpc(self, method, params, timeout=10):
         return super().json_rpc(method, params, timeout=timeout)
     
     def get_status(self):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=5)
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
         r.raise_for_status()
         return json.loads(r.content)
 

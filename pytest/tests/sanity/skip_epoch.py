@@ -2,19 +2,20 @@
 # Two specific cases:
 #  - BPs never showed up to begin with, since genesis
 #  - BPs went offline after some epoch
+# Warn: this test may not clean up ~/.near if fails early
 
 import sys, time, base58
 
 sys.path.append('lib')
 
-from cluster import init_cluster, spin_up_node
+from cluster import init_cluster, spin_up_node, load_config
 from transaction import sign_staking_tx
 from utils import TxContext
 
-TIMEOUT = 300
+TIMEOUT = 600
 TWENTY_FIVE = 25
 
-config = {'local': True, 'near_root': '../target/debug/'}
+config = load_config()
 near_root, node_dirs = init_cluster(2, 1, 2, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
 
 started = time.time()
@@ -23,8 +24,9 @@ boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
 #node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
 observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 
+# It takes a while for test2 account to appear
 ctx = TxContext([0, 0, 0], [boot_node, None, observer])
-
+print('ha')
 initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
