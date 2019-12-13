@@ -863,7 +863,7 @@ impl Runtime {
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
                 // If not, then we will postpone this receipt for later.
-                let mut pending_data_count = 0;
+                let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
                     if get_received_data(state_update, account_id, data_id)?.is_none() {
                         pending_data_count += 1;
@@ -910,6 +910,7 @@ impl Runtime {
     /// Iterates over the validators in the current shard and updates their accounts to return stake
     /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
     /// shard.
+    // TODO(#1461): Add Safe Math
     fn update_validator_accounts(
         &self,
         state_update: &mut TrieUpdate,
@@ -1115,6 +1116,7 @@ impl Runtime {
         })
     }
 
+    // TODO(#1461): Add safe math
     pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
         let config = &self.config.transaction_costs.storage_usage_config;
