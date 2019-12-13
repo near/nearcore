@@ -479,6 +479,8 @@ impl StateSync {
                     run_me: true,
                     error: false,
                     done: false,
+                    state_requests_count: 0,
+                    last_target: None,
                 };
                 1
             ],
@@ -508,6 +510,8 @@ impl StateSync {
                                     run_me: true,
                                     error: false,
                                     done: false,
+                                    state_requests_count: 0,
+                                    last_target: None,
                                 };
                                 state_num_parts as usize
                             ],
@@ -601,6 +605,23 @@ impl StateSync {
 
             if download_timeout {
                 error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
+                info!(target: "sync", "Sync status: me {:?}, sync_hash {}, failed {}",
+                      me,
+                      sync_hash,
+                      match shard_sync_download.status {
+                          ShardSyncStatus::StateDownloadHeader => format!("HEADER; requests sent {}, last target {:?}",
+                                                                           shard_sync_download.downloads[0].state_requests_count,
+                                                                           shard_sync_download.downloads[0].last_target),
+                          ShardSyncStatus::StateDownloadParts => { let mut text = "PARTS;".to_string();
+                              for (i, download) in shard_sync_download.downloads.iter().enumerate() {
+                                  text.push_str(&format!(" part {}, requests sent {}, last target {:?};", i, download.state_requests_count, download.last_target));
+                              }
+                              text
+                          }
+                          ShardSyncStatus::StateDownloadFinalize => format!("FINALIZATION"),
+                          ShardSyncStatus::StateDownloadComplete => format!("DONE"),
+                      },
+                );
             }
         }
 
@@ -662,32 +683,38 @@ impl StateSync {
         let mut new_shard_sync_download = shard_sync_download.clone();
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
+                let target =
+                    possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone();
                 self.network_adapter.send(NetworkRequests::StateRequest {
                     shard_id,
                     sync_hash,
                     need_header: true,
                     parts: StateRequestParts::default(),
-                    target: possible_targets[thread_rng().gen_range(0, possible_targets.len())]
-                        .clone(),
+                    target: target.clone(),
                 });
                 assert!(new_shard_sync_download.downloads[0].run_me);
                 new_shard_sync_download.downloads[0].run_me = false;
+                new_shard_sync_download.downloads[0].state_requests_count += 1;
+                new_shard_sync_download.downloads[0].last_target = Some(target);
             }
             ShardSyncStatus::StateDownloadParts => {
-                for (i, download) in new_shard_sync_download.downloads.iter().enumerate() {
+                let num_parts = new_shard_sync_download.downloads.len() as u64;
+                for (i, download) in new_shard_sync_download.downloads.iter_mut().enumerate() {
                     if download.run_me {
+                        let target = possible_targets
+                            [thread_rng().gen_range(0, possible_targets.len())]
+                        .clone();
                         self.network_adapter.send(NetworkRequests::StateRequest {
                             shard_id,
                             sync_hash,
                             need_header: false,
-                            parts: StateRequestParts {
-                                ids: vec![i as u64],
-                                num_parts: new_shard_sync_download.downloads.len() as u64,
-                            },
-                            target: possible_targets
-                                [thread_rng().gen_range(0, possible_targets.len())]
-                            .clone(),
+                            parts: StateRequestParts { ids: vec![i as u64], num_parts },
+                            target: target.clone(),
                         });
+                        assert!(download.run_me);
+                        download.run_me = false;
+                        download.state_requests_count += 1;
+                        download.last_target = Some(target);
                     }
                 }
             }
