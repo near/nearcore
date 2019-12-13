@@ -1,6 +1,7 @@
 from transaction import sign_payment_tx
 import random, base58
 from retry import retry
+from cluster import LocalNode, GCloudNode
 
 class TxContext:
     def __init__(self, act_to_val, nodes):
@@ -56,14 +57,37 @@ class TxContext:
 # checked and now
 class LogTracker:
     def __init__(self, node):
-        self.fname = node.stderr_name
-        with open(self.fname) as f:
-            f.seek(0, 2)
-            self.offset = f.tell()
+        self.node = node
+        if type(node) is LocalNode:
+            self.fname = node.stderr_name
+            with open(self.fname) as f:
+                f.seek(0, 2)
+                self.offset = f.tell()
+        elif type(node) is GCloudNode:
+            self.offset = int(node.machine.run("python3", input='''
+with open('/tmp/python-rc.log') as f:
+    f.seek(0, 2)
+    print(f.tell())
+''').stdout)
+        else:
+            # the above method should works for other cloud, if it has node.machine but untested
+            raise NotImplementedError()
 
     def check(self, s):
-        with open(self.fname) as f:
-            f.seek(self.offset)
-            ret = s in f.read()
-            self.offset = f.tell()
-        return ret
+        if type(self.node) is LocalNode:
+            with open(self.fname) as f:
+                f.seek(self.offset)
+                ret = s in f.read()
+                self.offset = f.tell()
+            return ret
+        elif type(self.node) is GCloudNode:
+            ret, offset = int(node.machine.run("python3", input=f'''
+with open('/tmp/python-rc.log') as f:
+    f.seek({self.offset})
+    print(s in f.read())
+    print(f.tell())
+''')).stdout.strip().split('\n')
+            offset = int(self.offset)
+            return ret
+        else:
+            raise NotImplementedError()
