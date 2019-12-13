@@ -29,17 +29,15 @@ pub struct RuntimeExt<'a> {
     data_count: u64,
 }
 
-pub struct RuntimeExtValuePtr<'a> {
-    ptr: TrieUpdateValuePtr<'a>,
-}
+pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
 
 impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     fn len(&self) -> u32 {
-        self.ptr.len()
+        self.0.len()
     }
 
     fn deref(&self) -> ExtResult<Vec<u8>> {
-        self.ptr.deref_value().map_err(wrap_error)
+        self.0.deref_value().map_err(wrap_error)
     }
 }
 
@@ -120,7 +118,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.trie_update
             .get_ref(&storage_key)
             .map_err(wrap_error)
-            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr { ptr }) as Box<_>))
+            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
@@ -182,7 +180,7 @@ impl<'a> External for RuntimeExt<'a> {
                     .get_ref(&key)
                     .expect("error cannot happen")
                     .expect("key is guaranteed to be there");
-                let result = Box::new(RuntimeExtValuePtr { ptr }) as Box<_>;
+                let result = Box::new(RuntimeExtValuePtr(ptr)) as Box<_>;
                 Ok(Some((key[self.storage_prefix.len()..].to_vec(), result)))
             }
         }
