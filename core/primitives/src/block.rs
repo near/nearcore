@@ -11,7 +11,7 @@ use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -434,10 +434,13 @@ impl Block {
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
         gas_price_adjustment_rate: u8,
+        min_gas_price: Balance,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
+        time_delta: u128,
+        weight_delta: u128,
         score: Weight,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
@@ -471,15 +474,17 @@ impl Block {
             gas_limit,
             gas_price_adjustment_rate,
         );
+        let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
         let new_total_supply =
             prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
-        let num_approvals: u128 = approvals.len() as u128;
-        let total_weight = prev.inner_rest.total_weight.next(num_approvals);
         let now = to_timestamp(Utc::now());
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
+        let time_delta = std::cmp::max(time_delta, 1);
+
+        let total_weight = prev.inner_rest.total_weight.next(weight_delta * time_delta);
 
         Block {
             header: BlockHeader::new(
@@ -514,7 +519,12 @@ impl Block {
         }
     }
 
-    pub fn verify_gas_price(&self, prev_gas_price: Balance, gas_price_adjustment_rate: u8) -> bool {
+    pub fn verify_gas_price(
+        &self,
+        prev_gas_price: Balance,
+        min_gas_price: Balance,
+        gas_price_adjustment_rate: u8,
+    ) -> bool {
         let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
         let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
         let expected_price = Self::compute_new_gas_price(
@@ -523,7 +533,7 @@ impl Block {
             gas_limit,
             gas_price_adjustment_rate,
         );
-        expected_price == self.header.inner_rest.gas_price
+        self.header.inner_rest.gas_price == max(expected_price, min_gas_price)
     }
 
     pub fn compute_new_gas_price(
@@ -676,7 +686,7 @@ impl Weight {
     }
 
     pub fn next(self, num: u128) -> Self {
-        Weight { num: self.num + num + 1 }
+        Weight { num: self.num + num }
     }
 }
 

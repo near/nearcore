@@ -65,7 +65,7 @@ pub fn start_with_config(
     let chain_genesis = ChainGenesis::new(
         config.genesis_config.genesis_time,
         config.genesis_config.gas_limit,
-        config.genesis_config.gas_price,
+        config.genesis_config.min_gas_price,
         config.genesis_config.total_supply,
         config.genesis_config.max_inflation_rate,
         config.genesis_config.gas_price_adjustment_rate,

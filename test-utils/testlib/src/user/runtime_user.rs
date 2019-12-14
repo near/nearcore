@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use near::config::INITIAL_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
@@ -19,6 +18,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
+use near::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -112,7 +112,7 @@ impl RuntimeUser {
             block_index: 0,
             block_timestamp: 0,
             epoch_length: client.epoch_length,
-            gas_price: INITIAL_GAS_PRICE,
+            gas_price: MIN_GAS_PRICE,
             gas_limit: None,
         }
     }
@@ -229,11 +229,11 @@ impl User for RuntimeUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, String> {
+    ) -> Result<AccessKeyView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
-            .map(|value| value.map(|access_key| access_key.into()))
+            .map(|access_key| access_key.into())
             .map_err(|err| err.to_string())
     }
 

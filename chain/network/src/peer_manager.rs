@@ -167,7 +167,7 @@ impl PeerManagerActor {
             },
         );
 
-        assert!(self.process_edge(ctx, new_edge.clone()));
+        self.process_edge(ctx, new_edge.clone());
 
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.

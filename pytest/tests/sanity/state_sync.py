@@ -26,12 +26,13 @@ START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
-near_root, node_dirs = init_cluster(2, 1, 1, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
+near_root, node_dirs = init_cluster(2, 1, 1, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
+#time.sleep(3)
 
 ctx = TxContext([0, 0], [boot_node, node1])
 last_balances = [x for x in ctx.expected_balances]
@@ -65,6 +66,7 @@ if mode == 'onetx':
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 tracker = LogTracker(node2)
+time.sleep(3)
 
 catch_up_height = 0
 while catch_up_height < observed_height:

@@ -16,7 +16,7 @@ TIMEOUT = 600
 TWENTY_FIVE = 25
 
 config = load_config()
-near_root, node_dirs = init_cluster(2, 1, 2, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
+near_root, node_dirs = init_cluster(2, 1, 2, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 7], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0, 1]}})
 
 started = time.time()
 
@@ -95,7 +95,7 @@ assert(sum(balances) == total_supply)
 
 initial_balances = balances
 
-# 4. Stake for the second node to bring it back up as a validator and wait until it actually 
+# 4. Stake for the second node to bring it back up as a validator and wait until it actually
 #    becomes one
 
 def get_validators():
