@@ -1,24 +1,9 @@
 #!/usr/bin/env python3
 import os
-from testlib import clean_binary_tests, build_tests, test_binaries, workers
+from testlib import clean_binary_tests, build_tests, test_binaries, workers, run_test
 from concurrent.futures import as_completed, ThreadPoolExecutor
-import subprocess
 
 RERUN_THRESHOLD = 5
-
-def run_test(test_binary, isolate=True):
-    """ Run a single test, save exitcode, stdout and stderr """
-    if isolate:
-        cmd = ['docker', 'run', '--rm',
-        '-v', f'{test_binary}:{test_binary}', 
-        'ailisp/near-test-runtime',
-        'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
-    else:
-        cmd = [test_binary]
-    p = subprocess.Popen(cmd, 
-    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    stdout, stderr = p.communicate()
-    return (p.returncode, stdout, stderr)
 
 
 def show_test_result(binary, result):
