@@ -23,12 +23,12 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     node
 }
@@ -55,7 +55,7 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
-        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
     let mut first_gas_burnt = 0;
@@ -79,12 +79,12 @@ fn test_evil_deep_trie() {
             )
             .unwrap();
         if i == 0 {
-            first_gas_burnt = res.receipts[0].outcome.gas_burnt;
+            first_gas_burnt = res.receipts_outcome[0].outcome.gas_burnt;
         }
         if i == 49 {
-            last_gas_burnt = res.receipts[0].outcome.gas_burnt;
+            last_gas_burnt = res.receipts_outcome[0].outcome.gas_burnt;
         }
-        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
     // storage_remove also has to get previous value from trie which is expensive

@@ -11,6 +11,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use std::borrow::Borrow;
 
 pub type LogEntry = String;
 
@@ -188,6 +189,12 @@ impl Hash for SignedTransaction {
 impl PartialEq for SignedTransaction {
     fn eq(&self, other: &SignedTransaction) -> bool {
         self.hash == other.hash && self.signature == other.signature
+    }
+}
+
+impl Borrow<CryptoHash> for SignedTransaction {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
     }
 }
 
