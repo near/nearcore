@@ -28,7 +28,7 @@ from multiprocessing import Process, Value, Lock
 
 sys.path.append('lib')
 
-from cluster import init_cluster, spin_up_node
+from cluster import init_cluster, spin_up_node, load_config
 from utils import TxContext
 from transaction import sign_payment_tx, sign_staking_tx
 from network import init_network_pillager, stop_network, resume_network
@@ -130,15 +130,12 @@ def monkey_local_network(stopped, error, nodes, nonces):
     while stopped.value == 0:
         # "- 2" below is because we don't want to kill the node we use to check stats
         node_idx = random.randint(0, len(nodes) - 2)
-        pid = nodes[node_idx].pid.value
-        print("Stopping network for process %s" % pid)
-        stop_network(pid)
+        nodes[node_idx].stop_network()
         if node_idx == get_the_guy_to_mess_up_with(nodes):
             time.sleep(5)
         else:
             time.sleep(1)
-        print("Resuming network for process %s" % pid)
-        resume_network(pid)
+        nodes[node_idx].resume_network()
         time.sleep(5)
 
 @stress_process
@@ -396,7 +393,7 @@ def doit(s, n, N, k, monkeys, timeout):
 
     assert 2 <= n <= N
 
-    config = {'local': True, 'near_root': '../target/debug/'}
+    config = load_config()
     local_config_changes = {}
 
     for i in range(N, N + k + 1):
@@ -424,8 +421,9 @@ def doit(s, n, N, k, monkeys, timeout):
     print(monkey_names)
     if 'monkey_local_network' in monkey_names or 'monkey_global_network' in monkey_names:
         print("There are monkeys messing up with network, initializing the infra")
-        init_network_pillager()
-        expect_network_issues()
+        if config['local']:
+            init_network_pillager()
+            expect_network_issues()
         block_timeout += 10
         tx_tolerance += 0.3
     if 'monkey_node_restart' in monkey_names:

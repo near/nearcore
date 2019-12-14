@@ -15,6 +15,7 @@ import retrying
 import rc
 from rc import gcloud
 import uuid
+import network
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
@@ -170,6 +171,14 @@ class LocalNode(BaseNode):
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
+    
+    def stop_network(self):
+        print("Stopping network for process %s" % self.pid.value)
+        network.stop(self.pid.value)
+    
+    def resume_network(self):
+        print("Resuming network for process %s" % self.pid.value)
+        network.resume_network(self.pid.value)
 
 
 class BotoNode(BaseNode):
@@ -260,6 +269,12 @@ chmod +x near
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
         r.raise_for_status()
         return json.loads(r.content)
+
+    def stop_network(self):
+        rc.run(f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}')
+    
+    def resume_network(self):
+        rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop', input='yes\n')
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
