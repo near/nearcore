@@ -17,6 +17,8 @@ target_debug = os.path.abspath(os.path.join(current_path, '../target/debug'))
 
 
 def clean_binary_tests():
+    if os.environ.get('RFCI_COMMIT'):
+        return
     for f in glob.glob(f'{target_debug}/*'):
         if os.path.isfile(f):
             os.remove(f)
@@ -29,7 +31,10 @@ def build_tests():
 
 
 def workers():
-    workers = cpu_count() // 2
+    if os.environ.get('RFCI_COMMIT'):
+        workers = cpu_count() - 2
+    else:
+        workers = cpu_count() // 2
     print(f'========= run in {workers} workers')
     return workers
 
