@@ -31,10 +31,7 @@ def build_tests():
 
 
 def workers():
-    if os.environ.get('RFCI_COMMIT'):
-        workers = cpu_count() - 2
-    else:
-        workers = cpu_count() // 2
+    workers = cpu_count() // 2
     print(f'========= run in {workers} workers')
     return workers
 
