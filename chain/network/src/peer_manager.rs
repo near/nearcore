@@ -751,12 +751,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, need_header, parts, target } => {
+            NetworkRequests::StateRequest { shard_id, sync_hash, need_header, parts, target } => {
                 match target {
                     AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
                         ctx,
                         &account_id,
-                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts),
+                        RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts),
                     ),
                     peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
                     | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
@@ -765,7 +765,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             target: peer_or_hash,
                             body: RoutedMessageBody::StateRequest(
                                 shard_id,
-                                hash,
+                                sync_hash,
                                 need_header,
                                 parts,
                             ),
