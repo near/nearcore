@@ -2860,14 +2860,16 @@ impl<'a> ChainUpdate<'a> {
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
         let now = to_timestamp(Utc::now());
-        if self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now)
-            > self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now)
-        {
+        let new_adjusted_weight =
+            self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now);
+        let head_adjusted_weight =
+            self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now);
+        if new_adjusted_weight > head_adjusted_weight {
             let tip = Tip::from_header_and_prev_timestamp(&block.header, prev_timestamp);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.height, new_adjusted_weight, head_adjusted_weight);
             Ok(Some(tip))
         } else {
             Ok(None)

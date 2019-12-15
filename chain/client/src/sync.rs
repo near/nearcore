@@ -85,9 +85,9 @@ impl HeaderSync {
             | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
-                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
-                    sync_head.last_block_hash, sync_head.height,
-                    header_head.last_block_hash, header_head.height,
+                debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}/{:?}, resetting to {} at {}/{:?}",
+                    sync_head.last_block_hash, sync_head.height, sync_head.weight_and_score,
+                    header_head.last_block_hash, header_head.height, header_head.weight_and_score,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
