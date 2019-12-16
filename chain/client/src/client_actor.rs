@@ -1078,6 +1078,7 @@ impl ClientActor {
                     })
                     .collect();
                 match unwrap_or_run_later!(self.client.state_sync.run(
+                    me,
                     sync_hash,
                     &mut new_shard_sync,
                     &mut self.client.chain,

@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
+use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -200,6 +201,8 @@ pub struct DownloadStatus {
     pub run_me: bool,
     pub error: bool,
     pub done: bool,
+    pub state_requests_count: u64,
+    pub last_target: Option<AccountOrPeerIdOrHash>,
 }
 
 /// Various status of syncing a specific shard.
