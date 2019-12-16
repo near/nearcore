@@ -13,6 +13,7 @@ pytest --timeout=600 sanity/state_sync.py manytx 250
 pytest sanity/state_sync.py onetx 30
 pytest --timeout=600 sanity/state_sync.py onetx 250
 pytest --timeout=240 sanity/state_sync1.py
+pytest --timeout=310 sanity/state_sync2.py
 pytest sanity/rpc_tx_forwarding.py
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=600 sanity/fork_sync.py
@@ -26,6 +27,9 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 
 pytest stress/network_stress.py
+
+# python adversarial tests
+pytest adversarial/wrong_sync_info.py
 
 # catchup tests
 expensive near-client catching_up tests::test_catchup_receipts_sync_third_epoch
