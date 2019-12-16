@@ -12,15 +12,27 @@ pub struct VMConfig {
     pub grow_mem_cost: u32,
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
+
+    /// Describes limits for VM and Runtime.
+    pub limit_config: VMLimitConfig,
+}
+
+/// Describes limits for VM and Runtime.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
+    /// Max burnt gas per view method.
+    pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
     /// See https://wiki.parity.io/WebAssembly-StackHeight to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
+
     /// The initial number of memory pages.
+    /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
     /// What is the maximal memory pages amount is allowed to have for
     /// a contract.
@@ -37,6 +49,33 @@ pub struct VMConfig {
     pub max_number_logs: u64,
     /// Maximum length of a single log, in bytes.
     pub max_log_len: u64,
+
+    /// Max prepaid gas for a function call action.
+    pub max_prepaid_gas_function_call: Gas,
+    /// Max total prepaid gas per receipt.
+    /// Q: Do we need separate limits for per function call and per receipt?
+    pub max_total_prepaid_gas: Gas,
+
+    /// Max number of actions per receipt.
+    pub max_actions_per_receipt: u32,
+    /// Max total length of all method names per access key.
+    pub max_total_length_method_names: u64,
+    /// Max length of any method name.
+    pub max_length_method_name: u64,
+    /// Max length of returned data
+    pub max_length_returned_data: u64,
+    /// Max contract size
+    pub max_contract_size: u64,
+    /// Max storage key size
+    pub max_length_storage_key: u64,
+    /// Max storage value size
+    pub max_length_storage_value: u64,
+    /// Max number of promises that a function call can create
+    pub max_promises_per_function_call_action: u32,
+    /// Max number of input data dependencies
+    pub max_number_input_data_dependencies: u32,
+    // Max number of outgoing data
+    // Contract can be attacked by a limit of outgoing data.
 }
 
 impl Default for VMConfig {
@@ -45,18 +84,7 @@ impl Default for VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 1,
-            max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 16 * 1024,        // 16Kib of stack.
-            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
-            max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
-            // By default registers are limited by 1GiB of memory.
-            registers_memory_limit: 2u64.pow(30),
-            // By default each register is limited by 100MiB of memory.
-            max_register_size: 2u64.pow(20) * 100,
-            // By default there is at most 100 registers.
-            max_number_registers: 100,
-            max_number_logs: 100,
-            max_log_len: 500,
+            limit_config: VMLimitConfig::default(),
         }
     }
 }
@@ -75,15 +103,44 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
+            // We shouldn't have any costs in the limit config.
+            limit_config: VMLimitConfig::default(),
+        }
+    }
+}
+
+impl Default for VMLimitConfig {
+    fn default() -> Self {
+        Self {
             max_gas_burnt: 10u64.pow(9),
-            max_stack_height: 16 * 1024,
-            initial_memory_pages: 17,
-            max_memory_pages: 32,
+            max_gas_burnt_view: 10u64.pow(9),
+
+            max_stack_height: 16 * 1024,        // 16Kib of stack.
+            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
+            max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
+
+            // By default registers are limited by 1GiB of memory.
             registers_memory_limit: 2u64.pow(30),
+            // By default each register is limited by 100MiB of memory.
             max_register_size: 2u64.pow(20) * 100,
+            // By default there is at most 100 registers.
             max_number_registers: 100,
+
             max_number_logs: 100,
             max_log_len: 500,
+
+            max_prepaid_gas_function_call: 10u64.pow(11),
+            max_total_prepaid_gas: 10u64.pow(11),
+
+            max_actions_per_receipt: 20,
+            max_total_length_method_names: 2000,
+            max_length_method_name: 256,
+            max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
+            max_contract_size: 4 * 2u64.pow(20),        // 4 Mib,
+            max_length_storage_key: 4 * 2u64.pow(20),   // 4 Mib
+            max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib
+            max_promises_per_function_call_action: 1024,
+            max_number_input_data_dependencies: 128,
         }
     }
 }

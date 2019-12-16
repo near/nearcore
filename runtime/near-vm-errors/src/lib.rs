@@ -85,6 +85,7 @@ pub enum HostError {
     InvalidMethodName,
     InvalidPublicKey,
     ProhibitedInView(String),
+    TooManyLogs,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +190,7 @@ impl std::fmt::Display for HostError {
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
+            TooManyLogs => write!(f, "Exceeded the maximum number of log messages"),
         }
     }
 }

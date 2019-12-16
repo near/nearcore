@@ -53,45 +53,6 @@ pub struct RuntimeFeesConfig {
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
     pub burnt_gas_reward: Fraction,
-
-    /// Describes limits for variable actions in VM and Runtime.
-    pub limits: RuntimeLimits,
-}
-
-/// Describes limits for variable actions in VM and Runtime.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct RuntimeLimits {
-    /// Max burnt gas per view method.
-    pub max_gas_burnt_view_method: Gas,
-    /// Max prepaid gas for a function call action.
-    pub max_prepaid_gas_function_call: Gas,
-    /// Max number of actions per receipt.
-    pub max_actions_per_receipt: u32,
-    /// Max total length of all method names per access key.
-    pub max_total_length_method_names: u32,
-    /// Max length of any method name.
-    pub max_length_method_name: u32,
-    /// Max length of returned data
-    pub max_length_returned_data: u32,
-    /// Max contract size
-    pub max_contract_size: u32,
-    /// Max storage key size
-    pub max_length_storage_key: u32,
-    /// Max storage value size
-    pub max_length_storage_value: u32,
-    /// Max number of promises that a function call can create
-    pub max_promises_per_function_call_action: u32,
-    /// Max number of input data dependencies
-    pub max_number_input_data_dependencies: u32,
-    /// Max number of outgoing data
-    /// TODO: Can a contract be attacked by providing a limit of outgoing data?
-    /// Seems YES through return_promise, we can join outgoing dependencies.
-    pub max_number_outgoing_data: u32,
-    /// Max total prepaid gas per receipt.
-    /// Q: Do we need separate limits for per function call and per receipt?
-    pub total_prepaid_gas: u32,
-    /// Max number of log messages from one function call.
-    pub max_number_logs: u32,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.

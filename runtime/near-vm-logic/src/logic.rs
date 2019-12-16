@@ -104,9 +104,14 @@ impl<'a> VMLogic<'a> {
         ext.reset_touched_nodes_counter();
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
+        let max_gas_burnt = if context.is_view {
+            config.limit_config.max_gas_burnt_view
+        } else {
+            config.limit_config.max_gas_burnt
+        };
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
-            config.max_gas_burnt,
+            max_gas_burnt,
             context.prepaid_gas,
             context.is_view,
         );
@@ -210,8 +215,8 @@ impl<'a> VMLogic<'a> {
     fn internal_write_register(&mut self, register_id: u64, data: Vec<u8>) -> Result<()> {
         self.gas_counter.pay_base(write_register_base)?;
         self.gas_counter.pay_per_byte(write_register_byte, data.len() as u64)?;
-        if data.len() as u64 > self.config.max_register_size
-            || self.registers.len() as u64 >= self.config.max_number_registers
+        if data.len() as u64 > self.config.limit_config.max_register_size
+            || self.registers.len() as u64 >= self.config.limit_config.max_number_registers
         {
             return Err(HostError::MemoryAccessViolation.into());
         }
@@ -220,7 +225,7 @@ impl<'a> VMLogic<'a> {
         // Calculate the new memory usage.
         let usage: usize =
             self.registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
-        if usage as u64 > self.config.registers_memory_limit {
+        if usage as u64 > self.config.limit_config.registers_memory_limit {
             Err(HostError::MemoryAccessViolation.into())
         } else {
             Ok(())
@@ -316,7 +321,7 @@ impl<'a> VMLogic<'a> {
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf8_decoding_base)?;
         let mut buf;
-        let max_len = self.config.max_log_len;
+        let max_len = self.config.limit_config.max_log_len;
         if len != std::u64::MAX {
             if len > max_len {
                 return Err(HostError::BadUTF8.into());
@@ -355,7 +360,7 @@ impl<'a> VMLogic<'a> {
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf16_decoding_base)?;
         let mut u16_buffer;
-        let max_len = self.config.max_log_len;
+        let max_len = self.config.limit_config.max_log_len;
         if len != std::u64::MAX {
             let input = self.memory_get_vec(ptr, len)?;
             if len % 2 != 0 || len > max_len {
@@ -1564,6 +1569,9 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
@@ -1584,6 +1592,9 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(
@@ -1604,6 +1615,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         if msg_ptr < 4 || filename_ptr < 4 {
             return Err(HostError::BadUTF16.into());
+        }
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
         }
 
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;

@@ -61,7 +61,10 @@ pub fn run<'a>(
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(wasm_config) {
+    let mut memory = match WasmerMemory::new(
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    ) {
         Ok(x) => x,
         Err(_err) => panic!("Cannot create memory for a contract call"),
     };
