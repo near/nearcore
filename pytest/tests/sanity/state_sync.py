@@ -19,13 +19,13 @@ if len(sys.argv) < 3:
 mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
 
-from cluster import init_cluster, spin_up_node
+from cluster import init_cluster, spin_up_node, load_config
 from utils import TxContext, LogTracker
 
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
-config = {'local': True, 'near_root': '../target/debug/'}
+config = load_config()
 near_root, node_dirs = init_cluster(2, 1, 1, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
