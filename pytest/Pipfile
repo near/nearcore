@@ -12,7 +12,7 @@ ed25519 = "*"
 base58 = "*"
 google-api-python-client = "*"
 six = "*" # requires by gcloud.py
-python-rc = "==0.1.5"
+python-rc = "==0.1.6"
 
 [dev-packages]
 

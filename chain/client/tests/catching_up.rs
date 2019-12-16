@@ -78,7 +78,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
     pub struct StateRequestStruct {
         pub shard_id: u64,
-        pub hash: CryptoHash,
+        pub sync_hash: CryptoHash,
         pub need_header: bool,
         pub parts: StateRequestParts,
         pub target: AccountOrPeerIdOrHash,
@@ -235,7 +235,7 @@ mod tests {
                             }
                             if let NetworkRequests::StateRequest {
                                 shard_id,
-                                hash,
+                                sync_hash,
                                 need_header,
                                 parts,
                                 target,
@@ -244,7 +244,7 @@ mod tests {
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        hash: *hash,
+                                        sync_hash: *sync_hash,
                                         need_header: *need_header,
                                         parts: parts.clone(),
                                         target: target.clone(),

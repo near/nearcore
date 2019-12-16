@@ -963,7 +963,7 @@ impl Chain {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                     // Or someone is attacking with invalid chain.
                     debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.height, block.hash());
-                    Ok(Some(prev_head))
+                    Err(e)
                 }
                 ErrorKind::Unfit(ref msg) => {
                     debug!(
@@ -2429,6 +2429,13 @@ impl<'a> ChainUpdate<'a> {
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
+
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
+        {
+            return Err(ErrorKind::EpochOutOfBounds.into());
+        }
 
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
