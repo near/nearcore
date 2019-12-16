@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
+use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
@@ -313,6 +314,13 @@ impl NearConfig {
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
+                header_sync_initial_timeout: Duration::from_secs(10),
+                header_sync_progress_timeout: Duration::from_secs(2),
+                header_sync_stall_ban_timeout: Duration::from_secs(40),
+                // weight is measured in WM * ns, so if we expect `k` headers per second
+                // synced, and assuming most headers have most approvals, the value should
+                // be `k * WM * 1B`
+                header_sync_expected_weight_per_second: WEIGHT_MULTIPLIER * 1_000_000_000 * 10,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,

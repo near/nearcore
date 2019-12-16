@@ -57,10 +57,13 @@ pub fn test_ts_contract() {
     .0
     .unwrap();
     // Verify by looking directly into the storage of the host.
-    let res = fake_external.storage_get(b"foo");
-    let value = res.unwrap().unwrap();
-    let value = String::from_utf8(value).unwrap();
-    assert_eq!(value.as_str(), "bar");
+    {
+        let res = fake_external.storage_get(b"foo");
+        let value_ptr = res.unwrap().unwrap();
+        let value = value_ptr.deref().unwrap();
+        let value = String::from_utf8(value).unwrap();
+        assert_eq!(value.as_str(), "bar");
+    }
 
     // Call method that reads the value from storage using registers.
     let context = create_context(b"foo");

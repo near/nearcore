@@ -272,8 +272,6 @@ fn sync_empty_state() {
                                         block_header_fetch_horizon;
                                     near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                     near2.client_config.tracked_shards = vec![0, 1, 2, 3];
-                                    near2.network_config.boot_nodes =
-                                        convert_boot_nodes(vec![("test1", port1)]);
 
                                     let (_, view_client2) = start_with_config(dir2.path(), near2);
                                     *view_client2_holder2 = Some(view_client2);

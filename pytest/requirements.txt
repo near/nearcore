@@ -7,4 +7,4 @@ ed25519
 base58
 google-api-python-client
 six
-python-rc==0.1.5
+python-rc==0.1.6

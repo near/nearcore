@@ -15,6 +15,7 @@ import retrying
 import rc
 from rc import gcloud
 import uuid
+import network
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
@@ -100,6 +101,9 @@ class BaseNode(object):
         return json.loads(r.content)
 
     def get_account(self, acc):
+        print(f'get account {acc}')
+        # if acc == 'test2':
+        #     input('pause')
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
     def get_block(self, block_hash):
@@ -167,6 +171,14 @@ class LocalNode(BaseNode):
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
+    
+    def stop_network(self):
+        print("Stopping network for process %s" % self.pid.value)
+        network.stop(self.pid.value)
+    
+    def resume_network(self):
+        print("Resuming network for process %s" % self.pid.value)
+        network.resume_network(self.pid.value)
 
 
 class BotoNode(BaseNode):
@@ -178,15 +190,17 @@ class GCloudNode(BaseNode):
         self.instance_name = instance_name
         self.port = 24567
         self.rpc_port = 3030
+        self.node_dir = node_dir
         self.machine = gcloud.create(
             name=instance_name,
             machine_type='n1-standard-2',
             disk_size='50G',
-            image_project='ubuntu-os-cloud',
+            image_project='gce-uefi-images',
             image_family='ubuntu-1804-lts',
             zone=zone,
             firewall_allows=['tcp:3030', 'tcp:24567'],
-            preemptible=True
+            min_cpu_platform='Intel Skylake',
+            preemptible=False,
         )
         self.ip = self.machine.ip
         self._upload_config_files(node_dir)
@@ -228,6 +242,8 @@ chmod +x near
         self.wait_for_rpc(timeout=30)
 
     def kill(self):
+        self.machine.run('tmux send-keys -t python-rc C-c')
+        time.sleep(3)
         self.machine.kill_detach_tmux()
 
     def destroy_machine(self):
@@ -236,9 +252,29 @@ chmod +x near
     def cleanup(self):
         self.kill()
         # move the node dir to avoid weird interactions with multiple serial test invocations
+        target_path = self.node_dir + '_finished'
+        if os.path.exists(target_path) and os.path.isdir(target_path):
+            shutil.rmtree(target_path)
+        os.rename(self.node_dir, target_path)
+
+        # Get log and delete machine
         rc.run(f'mkdir -p /tmp/pytest_remote_log')
         self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
+    
+    def json_rpc(self, method, params, timeout=10):
+        return super().json_rpc(method, params, timeout=timeout)
+    
+    def get_status(self):
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
+        r.raise_for_status()
+        return json.loads(r.content)
+
+    def stop_network(self):
+        rc.run(f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}')
+    
+    def resume_network(self):
+        rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop', input='yes\n')
 
 
 def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
@@ -328,6 +364,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     else:
         near_root = config['near_root']
         node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = list(node_dirs.filter(lambda n: not n.endswith('_finished'), node_dirs))
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
