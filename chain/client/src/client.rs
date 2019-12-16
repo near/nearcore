@@ -607,11 +607,11 @@ impl Client {
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
-        for (parent_hash, epoch_id, missing_chunks) in
+        for (ancestor_hash, epoch_id, missing_chunks) in
             orphans_missing_chunks.write().unwrap().drain(..)
         {
             self.shards_mgr
-                .request_chunks_for_orphan(parent_hash, epoch_id, missing_chunks)
+                .request_chunks_for_orphan(ancestor_hash, epoch_id, missing_chunks)
                 .unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
@@ -825,11 +825,11 @@ impl Client {
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
-        for (parent_hash, epoch_id, missing_chunks) in
+        for (ancestor_hash, epoch_id, missing_chunks) in
             orphans_missing_chunks.write().unwrap().drain(..)
         {
             self.shards_mgr
-                .request_chunks_for_orphan(parent_hash, epoch_id, missing_chunks)
+                .request_chunks_for_orphan(ancestor_hash, epoch_id, missing_chunks)
                 .unwrap();
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();

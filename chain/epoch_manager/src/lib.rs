@@ -542,21 +542,21 @@ impl EpochManager {
 
     pub fn cares_about_shard_from_prev_block(
         &mut self,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(ancestor_hash)?;
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(ancestor_hash)?;
         self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
     }
 
@@ -564,32 +564,32 @@ impl EpochManager {
     #[allow(clippy::wrong_self_convention)]
     pub fn is_next_block_epoch_start(
         &mut self,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(parent_hash)?.clone();
+        let block_info = self.get_block_info(ancestor_hash)?.clone();
         self.is_next_block_in_next_epoch(&block_info)
     }
 
     pub fn get_epoch_id_from_prev_block(
         &mut self,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
-        if self.is_next_block_epoch_start(parent_hash)? {
-            self.get_next_epoch_id(parent_hash)
+        if self.is_next_block_epoch_start(ancestor_hash)? {
+            self.get_next_epoch_id(ancestor_hash)
         } else {
-            self.get_epoch_id(parent_hash)
+            self.get_epoch_id(ancestor_hash)
         }
     }
 
     pub fn get_next_epoch_id_from_prev_block(
         &mut self,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
-        if self.is_next_block_epoch_start(parent_hash)? {
+        if self.is_next_block_epoch_start(ancestor_hash)? {
             // Because we ID epochs based on the last block of T - 2, this is ID for next next epoch.
-            Ok(EpochId(*parent_hash))
+            Ok(EpochId(*ancestor_hash))
         } else {
-            self.get_next_epoch_id(parent_hash)
+            self.get_next_epoch_id(ancestor_hash)
         }
     }
 

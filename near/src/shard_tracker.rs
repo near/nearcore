@@ -178,7 +178,7 @@ impl ShardTracker {
     pub fn care_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
@@ -186,7 +186,7 @@ impl ShardTracker {
             let account_cares_about_shard = {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
                 epoch_manager
-                    .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+                    .cares_about_shard_from_prev_block(ancestor_hash, account_id, shard_id)
                     .unwrap_or(false)
             };
             if !is_me {
@@ -201,7 +201,7 @@ impl ShardTracker {
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
@@ -209,7 +209,11 @@ impl ShardTracker {
             let account_cares_about_shard = {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
                 epoch_manager
-                    .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                    .cares_about_shard_next_epoch_from_prev_block(
+                        ancestor_hash,
+                        account_id,
+                        shard_id,
+                    )
                     .unwrap_or(false)
             };
             if !is_me {

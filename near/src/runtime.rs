@@ -607,31 +607,31 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
+    fn get_part_owner(&self, ancestor_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
+        let block_producers = epoch_manager.get_all_block_producers(&epoch_id, ancestor_hash)?;
         Ok(block_producers[part_id as usize % block_producers.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
+        self.shard_tracker.care_about_shard(account_id, ancestor_hash, shard_id, is_me)
     }
 
     fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+        self.shard_tracker.will_care_about_shard(account_id, ancestor_hash, shard_id, is_me)
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
@@ -639,9 +639,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
     }
 
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_epoch_id_from_prev_block(&self, ancestor_hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+        epoch_manager.get_epoch_id_from_prev_block(ancestor_hash).map_err(Error::from)
     }
 
     fn get_next_epoch_id_from_prev_block(

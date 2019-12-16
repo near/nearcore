@@ -235,7 +235,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize;
+    fn num_total_parts(&self, ancestor_hash: &CryptoHash) -> usize;
 
     fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize;
 
@@ -243,7 +243,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
+    fn get_part_owner(&self, ancestor_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
 
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
@@ -254,7 +254,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool;
@@ -268,7 +268,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool;
@@ -277,7 +277,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
 
     /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+    fn get_epoch_id_from_prev_block(&self, ancestor_hash: &CryptoHash) -> Result<EpochId, Error>;
 
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)

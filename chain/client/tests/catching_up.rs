@@ -654,11 +654,6 @@ mod tests {
         test_catchup_orphans_common(2, 5)
     }
 
-    #[test]
-    fn test_catchup_orphans_over_epoch() {
-        test_catchup_orphans_common(2, 10)
-    }
-
     fn test_catchup_orphans_common(height_hold: u64, height_release: u64) {
         if !cfg!(feature = "expensive_tests") {
             return;
@@ -782,6 +777,12 @@ mod tests {
                                     // requesting chunks for height 2 is trivial
                                     // while for at least another one is not.
                                     assert!(total_requests > 1);
+                                    assert!(total_requests > height_release - height_hold - 2);
+                                    if height_hold == 2 {
+                                        if height_release == 5 {
+                                            assert_eq!(total_requests, 2);
+                                        }
+                                    }
                                     *phase = OrphansPhases::ValidatingOrphans;
                                 } else {
                                     let mut block_heights1 = block_heights.write().unwrap();

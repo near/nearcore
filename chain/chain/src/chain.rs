@@ -60,8 +60,8 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
 
-/// Number of orphan parents should be checked to request chunks.
-pub const NUM_ORPHAN_PARENTS_CHECK: u64 = 5;
+/// Number of orphan ancestors should be checked to request chunks.
+pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 5;
 
 /// Maximal number of orphans that request chunks.
 pub const MAX_ORPHANS_REQUEST_CHUNKS: u64 = 20;
@@ -1078,22 +1078,17 @@ impl Chain {
         for (orphan_hash, orphan) in
             self.blocks_with_missing_chunks.orphans.iter().chain(self.orphans.orphans.iter())
         {
-            let mut accepted_parent = false;
-            let mut accepted_parent_hash = CryptoHash::default();
-            let mut all_parents_known = true;
+            let mut accepted_ancestor = false;
+            let mut accepted_ancestor_hash = CryptoHash::default();
+            let mut all_ancestors_known = true;
             let mut prev_hash = orphan.block.header.prev_hash;
-            for _ in 0..NUM_ORPHAN_PARENTS_CHECK {
-                if prev_hash == CryptoHash::default() {
-                    // This is genesis
-                    break;
-                }
+            for _ in 0..NUM_ORPHAN_ANCESTORS_CHECK {
                 // 1. Look into store
                 match self.store.get_block_header(&prev_hash) {
                     Ok(block_header) => {
-                        accepted_parent = true;
-                        accepted_parent_hash = prev_hash;
-                        prev_hash = block_header.prev_hash;
-                        continue;
+                        accepted_ancestor = true;
+                        accepted_ancestor_hash = block_header.prev_hash;
+                        break;
                     }
                     _ => {}
                 }
@@ -1108,14 +1103,17 @@ impl Chain {
                     continue;
                 }
                 // Parent is not found
-                all_parents_known = false;
+                all_ancestors_known = false;
                 break;
             }
             // The following conditions should be fulfilled to request chunks:
             // 1. At least one of the parents is accepted (is in store)
             // 2. All of the parents_to_check should be known (in store, missing chunks or orphans)
-            if accepted_parent && all_parents_known {
-                orphan_hashes.push((accepted_parent_hash, orphan_hash));
+            if accepted_ancestor && all_ancestors_known {
+                orphan_hashes.push((accepted_ancestor_hash, orphan_hash));
+                if orphan_hashes.len() == MAX_ORPHANS_REQUEST_CHUNKS as usize {
+                    break;
+                }
             }
         }
         if self.orphans.orphans.len() > 0 {
@@ -1131,20 +1129,18 @@ impl Chain {
             self.epoch_length,
             &self.block_economics_config,
         );
-        for (parent_hash, orphan_hash) in
-            orphan_hashes.into_iter().rev().take(MAX_ORPHANS_REQUEST_CHUNKS as usize)
-        {
+        for (ancestor_hash, orphan_hash) in orphan_hashes.into_iter() {
             let orphan = self
                 .orphans
                 .orphans
                 .get(&orphan_hash)
                 .or(self.blocks_with_missing_chunks.orphans.get(&orphan_hash))
                 .unwrap();
-            match chain_update.ping_missing_chunks(me, parent_hash, &orphan.block) {
+            match chain_update.ping_missing_chunks(me, ancestor_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {
                         orphans_missing_chunks((
-                            parent_hash,
+                            ancestor_hash,
                             orphan.block.header.inner_lite.epoch_id.clone(),
                             missing.clone(),
                         ));
