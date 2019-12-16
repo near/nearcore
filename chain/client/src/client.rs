@@ -81,7 +81,13 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(network_adapter.clone());
+        let header_sync = HeaderSync::new(
+            network_adapter.clone(),
+            config.header_sync_initial_timeout,
+            config.header_sync_progress_timeout,
+            config.header_sync_stall_ban_timeout,
+            config.header_sync_expected_weight_per_second,
+        );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producers = config.num_block_producers as usize;
@@ -1064,6 +1070,7 @@ impl Client {
             );
 
             match state_sync.run(
+                me,
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,

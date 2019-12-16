@@ -90,9 +90,9 @@ while catch_up_height < observed_height:
 assert catch_up_height in seen_boot_heights, "%s not in %s" % (catch_up_height, seen_boot_heights)
 
 if catch_up_height >= 100:
-    assert tracker.check("State 0")
+    assert tracker.check("transition to State Sync")
 elif catch_up_height <= 30:
-    assert not tracker.check("State 0")
+    assert not tracker.check("transition to State Sync")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:
