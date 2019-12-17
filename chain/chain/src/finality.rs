@@ -140,7 +140,7 @@ impl FinalityGadget {
                         break;
                     }
                 }
-                return candidate;
+                candidate
             }
             Err(_) => None,
         };

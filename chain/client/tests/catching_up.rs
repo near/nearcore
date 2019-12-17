@@ -18,7 +18,7 @@ mod tests {
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
-    use near_primitives::views::QueryResponse::ViewAccount;
+    use near_primitives::views::QueryResponseKind::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
@@ -78,7 +78,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
     pub struct StateRequestStruct {
         pub shard_id: u64,
-        pub hash: CryptoHash,
+        pub sync_hash: CryptoHash,
         pub need_header: bool,
         pub parts: StateRequestParts,
         pub target: AccountOrPeerIdOrHash,
@@ -235,7 +235,7 @@ mod tests {
                             }
                             if let NetworkRequests::StateRequest {
                                 shard_id,
-                                hash,
+                                sync_hash,
                                 need_header,
                                 parts,
                                 target,
@@ -244,7 +244,7 @@ mod tests {
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        hash: *hash,
+                                        sync_hash: *sync_hash,
                                         need_header: *need_header,
                                         parts: parts.clone(),
                                         target: target.clone(),
@@ -295,7 +295,7 @@ mod tests {
                                                     let res_inner = res.unwrap();
                                                     if let Ok(Some(query_response)) = res_inner {
                                                         if let ViewAccount(view_account_result) =
-                                                            query_response
+                                                            query_response.kind
                                                         {
                                                             assert_eq!(
                                                                 view_account_result.amount,
@@ -488,7 +488,7 @@ mod tests {
                                                         {
                                                             if let ViewAccount(
                                                                 view_account_result,
-                                                            ) = query_response
+                                                            ) = query_response.kind
                                                             {
                                                                 check_amount(
                                                                     amounts1,

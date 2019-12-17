@@ -20,7 +20,7 @@ test_cargo:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
     - cargo check --all --tests --benches --all-features
-    - bash -c "cargo test --all 2> >(socat stdin stderr,cool-write) > >(socat stdin stderr,cool-write)"
+    - python3 scripts/parallel_run_tests.py
 
 # Regression tests.
 test_regression:
@@ -61,17 +61,16 @@ test_nearlib:
     script:
     - ./scripts/test_nearlib.sh
 
-# coverage:
-#     stage: test
-#     tags:
-#     - shell
-#     before_script:
-#     - *setup_cache
-#     script:
-#     - ./scripts/build_wasm.sh
-#     - ./scripts/cleanup_binary.sh
-#     - cargo test --workspace --no-run
-#     - ./scripts/coverage.sh
+coverage:
+    stage: test
+    tags:
+    - shell
+    before_script:
+    - *setup_cache
+    script:
+    - ./scripts/build_wasm.sh
+    - python3 scripts/parallel_coverage.py
+    - curl -s https://codecov.io/bash | bash
 
 test_nearlib_release:
     stage: test

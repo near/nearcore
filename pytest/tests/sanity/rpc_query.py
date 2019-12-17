@@ -12,7 +12,7 @@ from cluster import start_cluster
 from utils import TxContext
 from transaction import sign_payment_tx
 
-nodes = start_cluster(2, 2, 4, {'local': True, 'near_root': '../target/debug/'}, [["gas_price", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {2: {"tracked_shards": [0, 1, 2, 3]}})
+nodes = start_cluster(2, 2, 4, None, [["min_gas_price", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {2: {"tracked_shards": [0, 1, 2, 3]}})
 
 time.sleep(3)
 
@@ -29,7 +29,7 @@ for i in range(4):
             if 'error' in result:
                 assert False, result
 
-
+time.sleep(2)
 for i in range(4):
     query_result1 = nodes[-2].get_account("test%s" % i)
     query_result2 = nodes[-1].get_account("test%s" % i)
