@@ -302,10 +302,13 @@ impl PeerManagerActor {
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.weight_and_score == max_weight_and_score {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
+                if max_weight_and_score.beyond_threshold(
+                    &active_peer.full_peer_info.chain_info.weight_and_score,
+                    self.config.most_weighted_peer_horizon,
+                ) {
                     None
+                } else {
+                    Some(active_peer.full_peer_info.clone())
                 }
             })
             .collect::<Vec<_>>()
