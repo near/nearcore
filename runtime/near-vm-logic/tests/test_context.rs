@@ -14,6 +14,7 @@ pub fn create_context() -> VMContext {
         block_index: 10,
         block_timestamp: 42,
         account_balance: 2u128,
+        account_locked_balance: 1u128,
         storage_usage: 12,
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(9),
@@ -98,5 +99,10 @@ decl_test_u128!(
     test_account_balance,
     account_balance,
     create_context().account_balance + create_context().attached_deposit
+);
+decl_test_u128!(
+    test_account_locked_balance,
+    account_locked_balance,
+    create_context().account_locked_balance
 );
 decl_test_u128!(test_attached_deposit, attached_deposit, create_context().attached_deposit);
