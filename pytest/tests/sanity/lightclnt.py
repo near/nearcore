@@ -6,12 +6,26 @@ import sys, time
 
 sys.path.append('lib')
 
-from cluster import start_cluster
+from cluster import start_cluster, load_config
 from lightclient import compute_block_hash, validate_light_client_block
 
 TIMEOUT = 150
-
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], {})
+config = load_config()
+client_config_changes = {}
+if not config['local']:
+    client_config_changes = {
+      "min_block_production_delay": {
+        "secs": 4,
+      },
+    "max_block_production_delay": {
+        "secs": 8,
+      },
+    "max_block_wait_delay": {
+        "secs": 24,
+      },
+    }
+    TIMEOUT = 600
+nodes = start_cluster(4, 0, 4, None, [["epoch_length", 6], ["block_producer_kickout_threshold", 80]], client_config_changes)
 
 started = time.time()
 
@@ -81,6 +95,7 @@ while True:
         break
 
     assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
+    print(iter_, heights[iter_])
     assert res['result']['inner_lite']['height'] == heights[iter_], res['result']['inner_lite']
 
     last_known_block_hash = compute_block_hash(res['result']['inner_lite'], res['result']['inner_rest_hash'], res['result']['prev_hash']).decode('ascii')
@@ -93,6 +108,7 @@ while True:
     iter_ += 1
 
 res = get_light_client_block(height_to_hash[26], last_known_block)
+print(res)
 assert res['result']['inner_lite']['height'] == 27
 
 get_up_to(30, 31)

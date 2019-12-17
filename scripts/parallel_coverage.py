@@ -35,7 +35,8 @@ def coverage(test_binary):
 
 
 def clean_coverage():
-    subprocess.check_output('rm -rf target/cov*', shell=True)
+    subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
+    subprocess.check_output(f'rm -rf {current_path}/../target/merged_coverage', shell=True)
 
 
 def coverage_dir(i):
@@ -106,7 +107,7 @@ if __name__ == "__main__":
 
     merged_coverage = os.path.join(coverage_dir(i), str(j))
     print(f'========= coverage merged to {merged_coverage}')
-    subprocess.check_output(['mv', merged_coverage, f'{current_path}/../target/merged_coverage'])
+    subprocess.check_output(['mv', merged_coverage, f'{current_path}/../merged_coverage'])
     subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
 
     if errors:
