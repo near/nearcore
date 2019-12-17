@@ -4,19 +4,18 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use actix::Recipient;
 use log::{debug, error};
 use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
-    RuntimeAdapter, ValidTransaction,
+    RuntimeAdapter,
 };
 use near_crypto::Signer;
-use near_network::types::PartialEncodedChunkRequestMsg;
+use near_network::types::{NetworkAdapter, PartialEncodedChunkRequestMsg};
 use near_network::NetworkRequests;
-use near_pool::TransactionPool;
+use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -39,30 +38,6 @@ const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
-
-/// Adapter to break dependency of sub-components on the network requests.
-/// For tests use MockNetworkAdapter that accumulates the requests to network.
-pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
-}
-
-pub struct NetworkRecipient {
-    network_recipient: Recipient<NetworkRequests>,
-}
-
-unsafe impl Sync for NetworkRecipient {}
-
-impl NetworkRecipient {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
-        Self { network_recipient }
-    }
-}
-
-impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
-        let _ = self.network_recipient.do_send(msg);
-    }
-}
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -123,7 +98,7 @@ impl RequestPool {
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
-        let _ = self.requests.remove(chunk_hash);
+        self.requests.remove(chunk_hash);
     }
 
     pub fn fetch(&mut self) -> Vec<(ChunkHash, ChunkRequestInfo)> {
@@ -156,8 +131,6 @@ pub struct ShardsManager {
     network_adapter: Arc<dyn NetworkAdapter>,
 
     encoded_chunks: EncodedChunksCache,
-    block_hash_to_chunk_headers: HashMap<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
-
     requested_partial_encoded_chunks: RequestPool,
 }
 
@@ -173,7 +146,6 @@ impl ShardsManager {
             runtime_adapter,
             network_adapter,
             encoded_chunks: EncodedChunksCache::new(),
-            block_hash_to_chunk_headers: HashMap::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MS),
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_OTHERS_MS),
@@ -190,16 +162,8 @@ impl ShardsManager {
         );
     }
 
-    pub fn prepare_transactions(
-        &mut self,
-        shard_id: ShardId,
-        expected_weight: u32,
-    ) -> Result<Vec<SignedTransaction>, Error> {
-        if let Some(tx_pool) = self.tx_pools.get_mut(&shard_id) {
-            tx_pool.prepare_transactions(expected_weight).map_err(|err| err.into())
-        } else {
-            Ok(vec![])
-        }
+    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper> {
+        self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
     pub fn cares_about_shard_this_or_next_epoch(
@@ -317,18 +281,18 @@ impl ShardsManager {
     ) -> Result<AccountId, Error> {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        for (block_producer, is_slashed) in
+        for (validator_stake, is_slashed) in
             self.runtime_adapter.get_epoch_block_producers(&epoch_id, parent_hash)?
         {
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
-                    Some(&block_producer),
+                    Some(&validator_stake.account_id),
                     &parent_hash,
                     shard_id,
                     false,
                 )
             {
-                block_producers.push(block_producer);
+                block_producers.push(validator_stake.account_id);
             }
         }
 
@@ -417,14 +381,18 @@ impl ShardsManager {
         Ok(())
     }
 
-    pub fn prepare_chunks(
-        &mut self,
-        prev_block_hash: CryptoHash,
-    ) -> Vec<(ShardId, ShardChunkHeader)> {
-        self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
+    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
+        self.encoded_chunks.num_chunks_for_block(prev_block_hash)
     }
 
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
+    pub fn prepare_chunks(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+    ) -> Vec<(ShardId, ShardChunkHeader)> {
+        self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
+    }
+
+    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
@@ -449,7 +417,7 @@ impl ShardsManager {
         self.tx_pools
             .entry(shard_id)
             .or_insert_with(TransactionPool::default)
-            .reintroduce_transactions(transactions);
+            .reintroduce_transactions(transactions.clone());
     }
 
     pub fn receipts_recipient_filter(
@@ -717,11 +685,9 @@ impl ShardsManager {
             entry.parts.len() >= self.runtime_adapter.num_data_parts(&prev_block_hash);
 
         if have_all_parts {
-            self.block_hash_to_chunk_headers
-                .entry(header.inner.prev_block_hash)
-                .or_insert_with(|| vec![])
-                .push((partial_encoded_chunk.shard_id, header.clone()));
+            self.encoded_chunks.insert_chunk_header(partial_encoded_chunk.shard_id, header.clone());
         }
+        let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         if have_all_parts && have_all_receipts {
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
@@ -834,7 +800,7 @@ impl ShardsManager {
         validator_reward: Balance,
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
-        transactions: &Vec<SignedTransaction>,
+        transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
@@ -1063,10 +1029,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.block_hash_to_chunk_headers
-            .entry(prev_block_hash)
-            .or_insert_with(|| vec![])
-            .push((shard_id, encoded_chunk.header.clone()));
+        self.encoded_chunks.insert_chunk_header(shard_id, encoded_chunk.header.clone());
 
         // Store the chunk in the permanent storage
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;

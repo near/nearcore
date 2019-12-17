@@ -7,7 +7,9 @@ use near_primitives::types::StateRoot;
 
 use crate::trie::iterator::CrumbStatus;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, POISONED_LOCK_ERR};
+use crate::trie::{
+    NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize, ValueHandle, POISONED_LOCK_ERR,
+};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 
 impl Trie {
@@ -41,7 +43,7 @@ impl Trie {
         Ok(trie_nodes)
     }
 
-    /// Assume we lay out all trie nodes in dfs order visiting children before the parent.
+    /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
     /// We take all node sizes (memory_usage_direct()) and take all nodes intersecting with
     /// [size_start, size_end) interval, also all nodes necessary to prove it and some
     /// additional nodes defined by the current implementation (TODO #1603 strict spec).
@@ -56,24 +58,23 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let root_node = self.retrieve_node(&root_hash)?;
         let path_begin = self.find_path(&root_node, size_start)?;
-        let mut path_end = self.find_path(&root_node, size_end)?;
-        // We want to include up to everything that starts with path_end, for simplicity we append
-        // a large character to the end and use (key_nibbles > path_end) as stopping condition
-        path_end.push(0x10);
+        let path_end = self.find_path(&root_node, size_end)?;
 
         let mut iterator = TrieIterator::new(&self, root_hash)?;
-        let path_begin = NibbleSlice::encode_nibbles(&path_begin, false);
-        iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin[..]).0)?;
+        let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
+        iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
         loop {
             match iterator.next() {
                 None => break,
                 Some(Err(e)) => {
                     return Err(e);
                 }
-                Some(Ok(_)) => {}
+                Some(Ok(_)) => {
+                    // The last iteration actually reads a value we don't need.
+                }
             }
             // TODO #1603 this is bad for large keys
-            if iterator.key_nibbles > path_end {
+            if iterator.key_nibbles >= path_end {
                 break;
             }
         }
@@ -87,15 +88,20 @@ impl Trie {
         size_skipped: &mut u64,
         key_nibbles: &mut Vec<u8>,
     ) -> Result<bool, StorageError> {
+        let node_size = node.node.memory_usage_direct_no_memory();
+        if *size_skipped + node_size <= size_start {
+            *size_skipped += node_size;
+        } else {
+            return Ok(false);
+        }
         match &node.node {
             TrieNode::Empty => Ok(false),
-            TrieNode::Leaf(key, _value) => {
+            TrieNode::Leaf(key, _) => {
                 let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
                 Ok(false)
             }
-            TrieNode::Branch(children, _value) => {
-                let mut skipped_children = 0u64;
+            TrieNode::Branch(children, _) => {
                 for child_index in 0..children.len() {
                     let child = match &children[child_index] {
                         None => {
@@ -106,16 +112,16 @@ impl Trie {
                         }
                         Some(NodeHandle::Hash(h)) => self.retrieve_node(&h)?,
                     };
-                    if *size_skipped + skipped_children + child.memory_usage <= size_start {
-                        skipped_children += child.memory_usage;
+                    if *size_skipped + child.memory_usage <= size_start {
+                        *size_skipped += child.memory_usage;
                         continue;
                     } else {
                         key_nibbles.push(child_index as u8);
                         *node = child;
-                        *size_skipped += skipped_children;
                         return Ok(true);
                     }
                 }
+                key_nibbles.push(16u8);
                 Ok(false)
             }
             TrieNode::Extension(key, child_handle) => {
@@ -171,6 +177,7 @@ impl Trie {
         Ok(())
     }
 
+    /// on_enter is applied for nodes as well as values
     fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
         &self,
         root: &CryptoHash,
@@ -190,11 +197,23 @@ impl Trie {
                 TrieNode::Empty => {
                     continue;
                 }
-                TrieNode::Leaf(_, _) => {
+                TrieNode::Leaf(_, value) => {
+                    match value {
+                        ValueHandle::HashAndSize(_, hash) => {
+                            on_enter(hash)?;
+                        }
+                        ValueHandle::InMemory(_) => unreachable!("only possible while mutating"),
+                    }
                     continue;
                 }
-                TrieNode::Branch(children, _value) => match position {
+                TrieNode::Branch(children, value) => match position {
                     CrumbStatus::Entering => {
+                        match value {
+                            Some(ValueHandle::HashAndSize(_, hash)) => {
+                                on_enter(hash)?;
+                            }
+                            _ => {}
+                        }
                         stack.push((hash, node, CrumbStatus::AtChild(0)));
                         continue;
                     }
@@ -302,6 +321,7 @@ mod tests {
     use crate::trie::tests::gen_changes;
 
     use super::*;
+    use rand::prelude::ThreadRng;
 
     #[test]
     fn test_combine_empty_trie_parts() {
@@ -309,10 +329,126 @@ mod tests {
         let _ = Trie::combine_state_parts(&state_root, &vec![]).unwrap();
     }
 
+    fn construct_trie_for_big_parts_1(
+        rng: &mut ThreadRng,
+        max_key_length: u64,
+        big_value_length: u64,
+    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        // Test #1: a long path where every node on the path has a large value
+        let mut trie_changes = Vec::new();
+        for i in 0..max_key_length {
+            // ([255,255,..,255], big_value)
+            let key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
+            let value = (0..big_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+            trie_changes.push((key, Some(value)));
+        }
+        trie_changes
+    }
+
+    fn construct_trie_for_big_parts_2(
+        rng: &mut ThreadRng,
+        max_key_length: u64,
+        big_value_length: u64,
+    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        // Test #2: a long path where every node on the path has a large value, is a branch
+        // and each of its children is a branch.
+        let mut trie_changes =
+            construct_trie_for_big_parts_1(rng, max_key_length, big_value_length);
+        let small_value_length = 20;
+        for i in 0..max_key_length {
+            for x in 0u8..15u8 {
+                for y in 0u8..15u8 {
+                    {
+                        // ([255,255,..,255]xy, small_value)
+                        // this means every 000..000 node is a branch and all of its children are branches
+                        let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
+                        key.push(x * 16 + y);
+                        let value =
+                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                        trie_changes.push((key, Some(value)));
+                    }
+                    {
+                        let mut key = (0..i).map(|_| 255u8).collect::<Vec<_>>();
+                        key.push(16 * 15 + x);
+                        key.push(y * 16);
+                        let value =
+                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                        trie_changes.push((key, Some(value)));
+                    }
+                    {
+                        let mut key = (0..i).map(|_| 255u8).collect::<Vec<_>>();
+                        key.push(16 * x + 15);
+                        key.push(y);
+                        let value =
+                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                        trie_changes.push((key, Some(value)));
+                    }
+                }
+            }
+        }
+        trie_changes
+    }
+
+    fn run_test_parts_not_huge<F>(gen_trie_changes: F, big_value_length: u64)
+    where
+        F: FnOnce(&mut ThreadRng, u64, u64) -> Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    {
+        let mut rng = rand::thread_rng();
+        let max_key_length = 50u64;
+        let max_key_length_in_nibbles = max_key_length * 2;
+        let max_node_serialized_size = 32 * 16 + 100; // DEVNOTE nodes can be pretty big
+        let max_node_children = 16;
+        let max_part_overhead =
+            max_key_length_in_nibbles * max_node_serialized_size * max_node_children * 2
+                + big_value_length * 2;
+        println!("Max allowed overhead: {}", max_part_overhead);
+        let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
+        println!("Number of nodes: {}", trie_changes.len());
+        let trie = create_trie();
+        let (store_update, state_root) = trie
+            .update(&Trie::empty_root(), trie_changes.into_iter())
+            .unwrap()
+            .into(trie.clone())
+            .unwrap();
+        store_update.commit().ok();
+        let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
+        println!("Total memory size: {}", memory_size);
+        for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
+            let approximate_size_per_part = memory_size / num_parts;
+            let parts = (0..num_parts)
+                .map(|part_id| {
+                    trie.get_trie_nodes_for_part(part_id, num_parts, &state_root).unwrap().0
+                })
+                .collect::<Vec<_>>();
+            let part_nodecounts_vec = parts.iter().map(|nodes| nodes.len()).collect::<Vec<_>>();
+            let sizes_vec = parts
+                .iter()
+                .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
+                .collect::<Vec<_>>();
+
+            println!("Node counts of parts: {:?}", part_nodecounts_vec);
+            println!("Sizes of parts: {:?}", sizes_vec);
+            println!("Max size we allow: {}", approximate_size_per_part + max_part_overhead);
+            for size in sizes_vec {
+                assert!((size as u64) < approximate_size_per_part + max_part_overhead);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parts_not_huge_1() {
+        run_test_parts_not_huge(construct_trie_for_big_parts_1, 100_000);
+    }
+
+    #[test]
+    fn test_parts_not_huge_2() {
+        run_test_parts_not_huge(construct_trie_for_big_parts_2, 100_000);
+    }
+
     #[test]
     fn test_parts() {
         let mut rng = rand::thread_rng();
-        for _ in 0..10 {
+        for _ in 0..20 {
             let trie = create_trie();
             let trie_changes = gen_changes(&mut rng, 500);
 
@@ -322,6 +458,7 @@ mod tests {
                 .into(trie.clone())
                 .unwrap();
             store_update.commit().ok();
+            let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
             for _ in 0..100 {
                 // Test that creating and validating are consistent
                 let num_parts = rng.gen_range(1, 10);
@@ -369,7 +506,12 @@ mod tests {
                 println!("------------------------------");
                 println!("Number of nodes: {:?}", all_nodes.len());
                 println!("Sizes of parts: {:?}", sizes_vec);
-                println!("All nodes size: {:?}, sum_of_sizes: {:?}", size_of_all, sum_of_sizes);
+                println!(
+                    "All nodes size: {:?}, sum_of_sizes: {:?}, memory_usage: {:?}",
+                    size_of_all, sum_of_sizes, root_memory_usage
+                );
+                // borsh serialize should be about this size
+                assert!(size_of_all + 8 * all_nodes.len() <= root_memory_usage as usize);
             }
         }
     }

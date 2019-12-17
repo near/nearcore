@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,12 +8,15 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
+use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
+use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    LightClientBlockView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -20,7 +24,6 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain::Error),
-    Pool(near_pool::Error),
     Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
@@ -31,7 +34,6 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Pool(err) => write!(f, "Pool: {}", err),
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
@@ -52,12 +54,6 @@ impl From<near_chain::ErrorKind> for Error {
     fn from(e: near_chain::ErrorKind) -> Self {
         let error: near_chain::Error = e.into();
         Error::Chain(error)
-    }
-}
-
-impl From<near_pool::Error> for Error {
-    fn from(e: near_pool::Error) -> Self {
-        Error::Pool(e)
     }
 }
 
@@ -103,10 +99,16 @@ pub struct ClientConfig {
     pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockIndex,
+    /// How much time to wait after initial header sync
+    pub header_sync_initial_timeout: Duration,
+    /// How much time to wait after some progress is made in header sync
+    pub header_sync_progress_timeout: Duration,
+    /// How much time to wait before banning a peer in header sync if sync is too slow
+    pub header_sync_stall_ban_timeout: Duration,
+    /// Expected increase of header head weight per second during header sync
+    pub header_sync_expected_weight_per_second: u128,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
-    /// Period between fetching data from other parts of the system.
-    pub fetch_info_period: Duration,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
     /// Produce empty blocks, use `false` for testing.
@@ -160,8 +162,11 @@ impl ClientConfig {
             sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
+            header_sync_initial_timeout: Duration::from_secs(10),
+            header_sync_progress_timeout: Duration::from_secs(2),
+            header_sync_stall_ban_timeout: Duration::from_secs(30),
+            header_sync_expected_weight_per_second: 1_000_000_000,
             min_num_peers: 1,
-            fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
@@ -171,7 +176,10 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(min_block_prod_time / 2),
-            chunk_request_retry_period: Duration::from_millis(min_block_prod_time / 5),
+            chunk_request_retry_period: min(
+                Duration::from_millis(100),
+                Duration::from_millis(min_block_prod_time / 5),
+            ),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -205,6 +213,8 @@ pub struct DownloadStatus {
     pub run_me: bool,
     pub error: bool,
     pub done: bool,
+    pub state_requests_count: u64,
+    pub last_target: Option<AccountOrPeerIdOrHash>,
 }
 
 /// Various status of syncing a specific shard.
@@ -269,25 +279,53 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
+#[derive(Clone)]
 pub struct Query {
     pub path: String,
     pub data: Vec<u8>,
+    pub id: String,
+}
+
+impl Query {
+    pub fn new(path: String, data: Vec<u8>) -> Self {
+        Query { path, data, id: generate_random_string(10) }
+    }
 }
 
 impl Message for Query {
-    type Result = Result<QueryResponse, String>;
+    type Result = Result<Option<QueryResponse>, String>;
 }
 
-pub struct Status {}
+pub struct Status {
+    pub is_health_check: bool,
+}
 
 impl Message for Status {
     type Result = Result<StatusResponse, String>;
+}
+
+pub struct GetNextLightClientBlock {
+    pub last_block_hash: CryptoHash,
+}
+
+impl Message for GetNextLightClientBlock {
+    type Result = Result<Option<LightClientBlockView>, String>;
 }
 
 pub struct GetNetworkInfo {}
 
 impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
+}
+
+pub enum GetGasPrice {
+    Height(BlockIndex),
+    Hash(CryptoHash),
+    None,
+}
+
+impl Message for GetGasPrice {
+    type Result = Result<GasPriceView, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -304,10 +342,11 @@ pub struct NetworkInfoResponse {
 /// Status of given transaction including all the subsequent receipts.
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
+    pub signer_account_id: AccountId,
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalExecutionOutcomeView, String>;
+    type Result = Result<Option<FinalExecutionOutcomeView>, String>;
 }
 
 pub struct GetValidatorInfo {

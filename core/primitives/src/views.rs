@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Approval, Block, BlockHeader, BlockHeaderInner};
+use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use crate::hash::CryptoHash;
@@ -21,8 +21,8 @@ use crate::serialize::{
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
-    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
@@ -146,15 +146,33 @@ pub struct AccessKeyInfoView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct AccessKeyList {
+    pub keys: Vec<AccessKeyInfoView>,
+}
+
+impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
+    fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
+        Self { keys: iter.into_iter().collect() }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(untagged)]
-pub enum QueryResponse {
+pub enum QueryResponseKind {
     ViewAccount(AccountView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
-    AccessKey(Option<AccessKeyView>),
-    AccessKeyList(Vec<AccessKeyInfoView>),
+    AccessKey(AccessKeyView),
+    AccessKeyList(AccessKeyList),
     Validators(EpochValidatorInfo),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct QueryResponse {
+    #[serde(flatten)]
+    pub kind: QueryResponseKind,
+    pub block_height: BlockIndex,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -192,8 +210,8 @@ impl TryFrom<QueryResponse> for AccountView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewAccount(acc) => Ok(acc),
+        match query_response.kind {
+            QueryResponseKind::ViewAccount(acc) => Ok(acc),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -203,19 +221,19 @@ impl TryFrom<QueryResponse> for ViewStateResult {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewState(vs) => Ok(vs),
+        match query_response.kind {
+            QueryResponseKind::ViewState(vs) => Ok(vs),
             _ => Err("Invalid type of response".into()),
         }
     }
 }
 
-impl TryFrom<QueryResponse> for Option<AccessKeyView> {
+impl TryFrom<QueryResponse> for AccessKeyView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::AccessKey(access_key) => Ok(access_key),
+        match query_response.kind {
+            QueryResponseKind::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -236,6 +254,7 @@ impl From<Challenge> for ChallengeView {
 pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_id: CryptoHash,
+    pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
@@ -262,6 +281,7 @@ pub struct BlockHeaderView {
     pub challenges_result: ChallengesResult,
     pub last_quorum_pre_vote: CryptoHash,
     pub last_quorum_pre_commit: CryptoHash,
+    pub next_bp_hash: CryptoHash,
     pub approvals: Vec<(AccountId, CryptoHash, CryptoHash, Signature)>,
     pub signature: Signature,
 }
@@ -269,35 +289,37 @@ pub struct BlockHeaderView {
 impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            height: header.inner.height,
-            epoch_id: header.inner.epoch_id.0,
+            height: header.inner_lite.height,
+            epoch_id: header.inner_lite.epoch_id.0,
+            next_epoch_id: header.inner_lite.next_epoch_id.0,
             hash: header.hash,
-            prev_hash: header.inner.prev_hash,
-            prev_state_root: header.inner.prev_state_root,
-            chunk_receipts_root: header.inner.chunk_receipts_root,
-            chunk_headers_root: header.inner.chunk_headers_root,
-            chunk_tx_root: header.inner.chunk_tx_root,
-            chunks_included: header.inner.chunks_included,
-            outcome_root: header.inner.outcome_root,
-            timestamp: header.inner.timestamp,
-            total_weight: header.inner.total_weight.to_num(),
-            score: header.inner.score.to_num(),
+            prev_hash: header.prev_hash,
+            prev_state_root: header.inner_lite.prev_state_root,
+            chunk_receipts_root: header.inner_rest.chunk_receipts_root,
+            chunk_headers_root: header.inner_rest.chunk_headers_root,
+            chunk_tx_root: header.inner_rest.chunk_tx_root,
+            chunks_included: header.inner_rest.chunks_included,
+            outcome_root: header.inner_lite.outcome_root,
+            timestamp: header.inner_lite.timestamp,
+            total_weight: header.inner_rest.total_weight.to_num(),
+            score: header.inner_rest.score.to_num(),
             validator_proposals: header
-                .inner
+                .inner_rest
                 .validator_proposals
                 .into_iter()
                 .map(|v| v.into())
                 .collect(),
-            chunk_mask: header.inner.chunk_mask,
-            gas_price: header.inner.gas_price,
-            rent_paid: header.inner.rent_paid,
-            validator_reward: header.inner.validator_reward,
-            total_supply: header.inner.total_supply,
-            challenges_result: header.inner.challenges_result,
-            last_quorum_pre_vote: header.inner.last_quorum_pre_vote,
-            last_quorum_pre_commit: header.inner.last_quorum_pre_commit,
+            chunk_mask: header.inner_rest.chunk_mask,
+            gas_price: header.inner_rest.gas_price,
+            rent_paid: header.inner_rest.rent_paid,
+            validator_reward: header.inner_rest.validator_reward,
+            total_supply: header.inner_rest.total_supply,
+            challenges_result: header.inner_rest.challenges_result,
+            last_quorum_pre_vote: header.inner_rest.last_quorum_pre_vote,
+            last_quorum_pre_commit: header.inner_rest.last_quorum_pre_commit,
+            next_bp_hash: header.inner_lite.next_bp_hash,
             approvals: header
-                .inner
+                .inner_rest
                 .approvals
                 .into_iter()
                 .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
@@ -310,17 +332,21 @@ impl From<BlockHeader> for BlockHeaderView {
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
         let mut header = Self {
-            inner: BlockHeaderInner {
+            prev_hash: view.prev_hash,
+            inner_lite: BlockHeaderInnerLite {
                 height: view.height,
                 epoch_id: EpochId(view.epoch_id),
-                prev_hash: view.prev_hash,
+                next_epoch_id: EpochId(view.next_epoch_id),
                 prev_state_root: view.prev_state_root,
+                outcome_root: view.outcome_root,
+                timestamp: view.timestamp,
+                next_bp_hash: view.next_bp_hash,
+            },
+            inner_rest: BlockHeaderInnerRest {
                 chunk_receipts_root: view.chunk_receipts_root,
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
-                outcome_root: view.outcome_root,
-                timestamp: view.timestamp,
                 total_weight: view.total_weight.into(),
                 score: view.score.into(),
                 validator_proposals: view
@@ -353,6 +379,17 @@ impl From<BlockHeaderView> for BlockHeader {
         header.init();
         header
     }
+}
+
+#[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct BlockHeaderInnerLiteView {
+    pub height: BlockIndex,
+    pub epoch_id: CryptoHash,
+    pub next_epoch_id: CryptoHash,
+    pub prev_state_root: CryptoHash,
+    pub outcome_root: CryptoHash,
+    pub timestamp: u64,
+    pub next_bp_hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -784,18 +821,15 @@ pub struct ExecutionOutcomeView {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
-    /// Proofs for given execution outcome.
-    pub proof: MerklePath,
 }
 
-impl From<ExecutionOutcomeWithProof> for ExecutionOutcomeView {
-    fn from(outcome: ExecutionOutcomeWithProof) -> Self {
+impl From<ExecutionOutcome> for ExecutionOutcomeView {
+    fn from(outcome: ExecutionOutcome) -> Self {
         Self {
-            status: outcome.outcome.status.into(),
-            logs: outcome.outcome.logs,
-            receipt_ids: outcome.outcome.receipt_ids,
-            gas_burnt: outcome.outcome.gas_burnt,
-            proof: outcome.proof,
+            status: outcome.status.into(),
+            logs: outcome.logs,
+            receipt_ids: outcome.receipt_ids,
+            gas_burnt: outcome.gas_burnt,
         }
     }
 }
@@ -804,11 +838,16 @@ impl From<ExecutionOutcomeWithProof> for ExecutionOutcomeView {
 pub struct ExecutionOutcomeWithIdView {
     pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
+    pub proof: MerklePath,
 }
 
 impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
-    fn from(outcome_with_id: ExecutionOutcomeWithIdAndProof) -> Self {
-        Self { id: outcome_with_id.id, outcome: outcome_with_id.outcome_with_proof.into() }
+    fn from(outcome_with_id_and_proof: ExecutionOutcomeWithIdAndProof) -> Self {
+        Self {
+            id: outcome_with_id_and_proof.outcome_with_id.id,
+            outcome: outcome_with_id_and_proof.outcome_with_id.outcome.into(),
+            proof: outcome_with_id_and_proof.proof,
+        }
     }
 }
 
@@ -968,6 +1007,10 @@ pub struct EpochValidatorInfo {
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStakeView>,
+    /// Fishermen for the current epoch
+    pub current_fishermen: Vec<ValidatorStakeView>,
+    /// Fishermen for the next epoch
+    pub next_fishermen: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
 }
@@ -979,4 +1022,29 @@ pub struct CurrentEpochValidatorInfo {
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
     pub num_missing_blocks: BlockIndex,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct LightClientApprovalView {
+    pub parent_hash: CryptoHash,
+    pub reference_hash: CryptoHash,
+    pub signature: Signature,
+}
+
+#[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct LightClientBlockView {
+    pub inner_lite: BlockHeaderInnerLiteView,
+    pub inner_rest_hash: CryptoHash,
+    pub next_bps: Option<Vec<ValidatorStakeView>>,
+    pub qv_hash: CryptoHash,
+    pub future_inner_hashes: Vec<CryptoHash>,
+    pub qv_approvals: Vec<Option<LightClientApprovalView>>,
+    pub qc_approvals: Vec<Option<LightClientApprovalView>>,
+    pub prev_hash: CryptoHash,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GasPriceView {
+    #[serde(with = "u128_dec_format")]
+    pub gas_price: Balance,
 }

@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -12,6 +11,7 @@ use chrono::{DateTime, Utc};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
+use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
@@ -58,7 +58,22 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 
 /// Reduce wait time for every missing block in ms.
-const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 1_000;
+const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
+
+/// Horizon at which instead of fetching block, fetch full state.
+const BLOCK_FETCH_HORIZON: u64 = 50;
+
+/// Horizon to step from the latest block when fetching state.
+const STATE_FETCH_HORIZON: u64 = 5;
+
+/// Behind this horizon header fetch kicks in.
+const BLOCK_HEADER_FETCH_HORIZON: u64 = 50;
+
+/// Time between check to perform catchup.
+const CATCHUP_STEP_PERIOD: u64 = 100;
+
+/// Time between checking to re-request chunks.
+const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -84,8 +99,8 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 
-/// Initial gas price.
-pub const INITIAL_GAS_PRICE: Balance = 100;
+/// Minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 100;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
@@ -99,6 +114,9 @@ pub const DEVELOPER_PERCENT: u8 = 30;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
+
+/// Fishermen stake threshold.
+pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
@@ -177,6 +195,16 @@ pub struct Consensus {
     pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
+    /// Horizon at which instead of fetching block, fetch full state.
+    pub block_fetch_horizon: BlockIndex,
+    /// Horizon to step from the latest block when fetching state.
+    pub state_fetch_horizon: BlockIndex,
+    /// Behind this horizon header fetch kicks in.
+    pub block_header_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
 }
 
 impl Default for Consensus {
@@ -189,6 +217,11 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
             reduce_wait_for_missing_block: Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS),
             produce_empty_blocks: true,
+            block_fetch_horizon: BLOCK_FETCH_HORIZON,
+            state_fetch_horizon: STATE_FETCH_HORIZON,
+            block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
+            catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+            chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
         }
     }
 }
@@ -281,8 +314,14 @@ impl NearConfig {
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
+                header_sync_initial_timeout: Duration::from_secs(10),
+                header_sync_progress_timeout: Duration::from_secs(2),
+                header_sync_stall_ban_timeout: Duration::from_secs(40),
+                // weight is measured in WM * ns, so if we expect `k` headers per second
+                // synced, and assuming most headers have most approvals, the value should
+                // be `k * WM * 1B`
+                header_sync_expected_weight_per_second: WEIGHT_MULTIPLIER * 1_000_000_000 * 10,
                 min_num_peers: config.consensus.min_num_peers,
-                fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
@@ -290,11 +329,11 @@ impl NearConfig {
                 announce_account_horizon: genesis_config.epoch_length / 2,
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: 50,
-                state_fetch_horizon: 5,
-                block_header_fetch_horizon: 50,
-                catchup_step_period: Duration::from_millis(100),
-                chunk_request_retry_period: Duration::from_millis(200),
+                block_fetch_horizon: config.consensus.block_fetch_horizon,
+                state_fetch_horizon: config.consensus.state_fetch_horizon,
+                block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
+                catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
+                chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },
@@ -328,6 +367,7 @@ impl NearConfig {
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
@@ -388,8 +428,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: Gas,
-    /// Initial gas price.
-    pub gas_price: Balance,
+    /// Minimum gas price. It is also the initial gas price.
+    pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
@@ -416,6 +456,9 @@ pub struct GenesisConfig {
     pub num_blocks_per_year: u64,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
+    /// Fishermen stake threshold.
+    #[serde(with = "u128_dec_format")]
+    pub fishermen_threshold: Balance,
 }
 
 pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
@@ -433,7 +476,7 @@ impl From<GenesisConfig> for ChainGenesis {
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
-            genesis_config.gas_price,
+            genesis_config.min_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
@@ -458,21 +501,22 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
     ));
 }
 
+const DEFAULT_TEST_CONTRACT: &'static [u8] =
+    include_bytes!("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+
 impl GenesisConfig {
     fn test_with_seeds(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
-        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-        let default_test_contract = std::fs::read(path).unwrap();
-        let encoded_test_contract = to_base64(&default_test_contract);
-        let code_hash = hash(&default_test_contract);
+        let encoded_test_contract = to_base64(&DEFAULT_TEST_CONTRACT);
+        let code_hash = hash(&DEFAULT_TEST_CONTRACT);
         for (i, &account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
+            let i = i as u64;
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
@@ -507,7 +551,6 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
@@ -521,14 +564,16 @@ impl GenesisConfig {
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            fishermen_threshold: FISHERMEN_THRESHOLD,
+            min_gas_price: MIN_GAS_PRICE,
         }
     }
 
-    pub fn test(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         Self::test_with_seeds(seeds, num_validators, vec![num_validators])
     }
 
-    pub fn test_free(seeds: Vec<&str>, num_validators: usize) -> Self {
+    pub fn test_free(seeds: Vec<&str>, num_validators: ValidatorId) -> Self {
         let mut config = Self::test_with_seeds(seeds, num_validators, vec![num_validators]);
         config.runtime_config = RuntimeConfig::free();
         config
@@ -536,8 +581,8 @@ impl GenesisConfig {
 
     pub fn test_sharded(
         seeds: Vec<&str>,
-        num_validators: usize,
-        validators_per_shard: Vec<usize>,
+        num_validators: ValidatorId,
+        validators_per_shard: Vec<ValidatorId>,
     ) -> Self {
         Self::test_with_seeds(seeds, num_validators, validators_per_shard)
     }
@@ -569,14 +614,6 @@ impl From<&str> for GenesisConfig {
             panic!(format!(
                 "Incorrect version of genesis config {} expected {}",
                 config.protocol_version, PROTOCOL_VERSION
-            ));
-        }
-        let num_shards = config.block_producers_per_shard.len();
-        let num_chunk_producers: ValidatorId = config.block_producers_per_shard.iter().sum();
-        if num_chunk_producers != max(config.num_block_producers, num_shards) {
-            panic!(format!(
-                "Number of chunk producers {} does not match number of block producers {}",
-                num_chunk_producers, config.num_block_producers
             ));
         }
         let total_supply = get_initial_supply(&config.records);
@@ -722,7 +759,6 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
@@ -740,6 +776,8 @@ pub fn init_configs(
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                fishermen_threshold: FISHERMEN_THRESHOLD,
+                min_gas_price: MIN_GAS_PRICE,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -753,7 +791,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validators: usize,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
-    let num_validators = seeds.len() - num_non_validators;
+    let num_validators = (seeds.len() - num_non_validators) as ValidatorId;
     let signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
@@ -771,6 +809,8 @@ pub fn create_testnet_configs_from_seeds(
     let first_node_port = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::from_millis(1000);
+        config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
@@ -783,7 +823,7 @@ pub fn create_testnet_configs_from_seeds(
             config.network.skip_sync_wait = num_validators == 1;
         }
         config.consensus.min_num_peers =
-            cmp::min(num_validators - 1, config.consensus.min_num_peers);
+            cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
     (configs, signers, network_signers, genesis_config)

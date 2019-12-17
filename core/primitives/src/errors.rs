@@ -26,13 +26,6 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-/// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct GasOverflowError;
-/// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct BalanceOverflowError;
-
 /// External
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidTxError {
@@ -104,7 +97,7 @@ impl Display for InvalidTxError {
                 write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
-                write!(f, "Transaction gas or balance cost is too high") 
+                write!(f, "Transaction gas or balance cost is too high")
             }
             InvalidTxError::InvalidChain => {
                 write!(f, "Transaction parent block hash doesn't belong to the current chain")
@@ -119,18 +112,6 @@ impl Display for InvalidTxError {
 impl From<InvalidAccessKeyError> for InvalidTxError {
     fn from(error: InvalidAccessKeyError) -> Self {
         InvalidTxError::InvalidAccessKey(error)
-    }
-}
-
-impl From<GasOverflowError> for InvalidTxError {
-    fn from(_: GasOverflowError) -> Self {
-        InvalidTxError::CostOverflow
-    }
-}
-
-impl From<BalanceOverflowError> for InvalidTxError {
-    fn from(_: BalanceOverflowError) -> Self {
-        InvalidTxError::CostOverflow
     }
 }
 
@@ -241,12 +222,28 @@ impl Display for BalanceMismatchError {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct IntegerOverflowError;
+
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
+    UnexpectedIntegerOverflow,
     InvalidTxError(InvalidTxError),
     StorageError(StorageError),
     BalanceMismatch(BalanceMismatchError),
+}
+
+impl From<IntegerOverflowError> for InvalidTxError {
+    fn from(_: IntegerOverflowError) -> Self {
+        InvalidTxError::CostOverflow
+    }
+}
+
+impl From<IntegerOverflowError> for RuntimeError {
+    fn from(_: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow
+    }
 }
 
 impl From<StorageError> for RuntimeError {
@@ -261,12 +258,9 @@ impl From<BalanceMismatchError> for RuntimeError {
     }
 }
 
-impl<T> From<T> for RuntimeError
-where
-    T: Into<InvalidTxError>,
-{
-    fn from(e: T) -> Self {
-        RuntimeError::InvalidTxError(e.into())
+impl From<InvalidTxError> for RuntimeError {
+    fn from(e: InvalidTxError) -> Self {
+        RuntimeError::InvalidTxError(e)
     }
 }
 

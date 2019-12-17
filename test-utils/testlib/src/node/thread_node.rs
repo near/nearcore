@@ -1,6 +1,7 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use near::{start_with_config, NearConfig};
+use near::{start_with_config, GenesisConfig, NearConfig};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
@@ -18,16 +19,20 @@ pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
     pub signer: Arc<InMemorySigner>,
+    pub dir: tempdir::TempDir,
 }
 
-fn start_thread(config: NearConfig) -> ShutdownableThread {
+fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
     ShutdownableThread::start("test", move || {
-        let tmp_dir = tempdir::TempDir::new("thread_node").unwrap();
-        start_with_config(tmp_dir.path(), config);
+        start_with_config(&path, config);
     })
 }
 
 impl Node for ThreadNode {
+    fn genesis_config(&self) -> &GenesisConfig {
+        &self.config.genesis_config
+    }
+
     fn account_id(&self) -> Option<AccountId> {
         match &self.config.block_producer {
             Some(bp) => Some(bp.account_id.clone()),
@@ -36,7 +41,7 @@ impl Node for ThreadNode {
     }
 
     fn start(&mut self) {
-        let handle = start_thread(self.config.clone());
+        let handle = start_thread(self.config.clone(), self.dir.path().to_path_buf());
         self.state = ThreadNodeState::Running(handle);
     }
 
@@ -83,6 +88,11 @@ impl ThreadNode {
             KeyType::ED25519,
             &config.block_producer.clone().unwrap().account_id,
         ));
-        ThreadNode { config, state: ThreadNodeState::Stopped, signer }
+        ThreadNode {
+            config,
+            state: ThreadNodeState::Stopped,
+            signer,
+            dir: tempdir::TempDir::new("thread_node").unwrap(),
+        }
     }
 }

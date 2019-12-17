@@ -9,7 +9,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::QueryResponse::ViewAccount;
+use near_primitives::views::QueryResponseKind::ViewAccount;
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -49,10 +49,10 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query { path: "account/".to_owned() + flat_validators[i], data: vec![] })
+                    .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
                     .then(move |res| {
-                        let query_responce = res.unwrap().unwrap();
-                        if let ViewAccount(view_account_result) = query_responce {
+                        let query_response = res.unwrap().unwrap().unwrap();
+                        if let ViewAccount(view_account_result) = query_response.kind {
                             assert_eq!(view_account_result.amount, expected);
                             successful_queries2.fetch_add(1, Ordering::Relaxed);
                             if successful_queries2.load(Ordering::Relaxed) >= 4 {
@@ -91,7 +91,7 @@ mod tests {
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
     use near_primitives::views::QueryResponse;
-    use near_primitives::views::QueryResponse::ViewAccount;
+    use near_primitives::views::QueryResponseKind::ViewAccount;
 
     fn send_tx(
         num_validators: usize,
@@ -152,7 +152,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_callback(
-        res: Result<Result<QueryResponse, String>, MailboxError>,
+        res: Result<Result<Option<QueryResponse>, String>, MailboxError>,
         account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
@@ -166,7 +166,7 @@ mod tests {
         num_iters: usize,
         block_hash: CryptoHash,
     ) {
-        let res = res.unwrap();
+        let res = res.unwrap().and_then(|r| r.ok_or_else(|| "Request routed".to_string()));
 
         let query_response = match res {
             Ok(query_response) => query_response,
@@ -187,7 +187,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
+                        .send(Query::new("account/".to_owned() + &account_id, vec![]))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -211,7 +211,7 @@ mod tests {
             }
         };
 
-        if let ViewAccount(view_account_result) = query_response {
+        if let ViewAccount(view_account_result) = query_response.kind {
             let mut expected = 0;
             for i in 0..8 {
                 if validators[i] == account_id {
@@ -275,10 +275,10 @@ mod tests {
                                 as usize
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
-                                .send(Query {
-                                    path: "account/".to_owned() + validators[i].clone(),
-                                    data: vec![],
-                                })
+                                .send(Query::new(
+                                    "account/".to_string() + validators[i].clone(),
+                                    vec![],
+                                ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
                                         x,
@@ -324,7 +324,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
+                        .send(Query::new("account/".to_string() + &account_id, vec![]))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -396,7 +396,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if drop_chunks || rotate_validators { 150 } else { 75 },
+                if drop_chunks || rotate_validators { 150 } else { 100 },
                 drop_chunks,
                 true,
                 20,
@@ -428,10 +428,10 @@ mod tests {
                 actix::spawn(
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
-                        .send(Query {
-                            path: "account/".to_owned() + flat_validators[i].clone(),
-                            data: vec![],
-                        })
+                        .send(Query::new(
+                            "account/".to_string() + flat_validators[i].clone(),
+                            vec![],
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -453,8 +453,11 @@ mod tests {
                 );
             }
 
-            // After recent slow downs, on X1 it takes ~15m
-            near_network::test_utils::wait_or_panic(1000 * 60 * 15 * 2);
+            near_network::test_utils::wait_or_panic(if rotate_validators {
+                1000 * 60 * 15 * 4
+            } else {
+                1000 * 60 * 15 * 2
+            });
         })
         .unwrap();
     }

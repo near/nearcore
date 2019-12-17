@@ -2,12 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use actix::{Actor, Addr, AsyncContext};
+use actix::{Actor, Addr};
 use log::info;
 
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
-use near_network::PeerManagerActor;
+use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
 
@@ -65,7 +65,7 @@ pub fn start_with_config(
     let chain_genesis = ChainGenesis::new(
         config.genesis_config.genesis_time,
         config.genesis_config.gas_limit,
-        config.genesis_config.gas_price,
+        config.genesis_config.min_gas_price,
         config.genesis_config.total_supply,
         config.genesis_config.max_inflation_rate,
         config.genesis_config.gas_price_adjustment_rate,
@@ -73,29 +73,41 @@ pub fn start_with_config(
         config.genesis_config.epoch_length,
     );
 
-    let view_client =
-        ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap().start();
-    let view_client1 = view_client.clone();
     let node_id = config.network_config.public_key.clone().into();
-    let client = ClientActor::create(move |ctx| {
-        let network_actor =
-            PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
-                .unwrap()
-                .start();
+    let network_adapter = Arc::new(NetworkRecipient::new());
+    let view_client = ViewClientActor::new(
+        store.clone(),
+        &chain_genesis,
+        runtime.clone(),
+        network_adapter.clone(),
+    )
+    .unwrap()
+    .start();
 
-        start_http(config.rpc_config, ctx.address(), view_client1);
+    let client_actor = ClientActor::new(
+        config.client_config,
+        store.clone(),
+        chain_genesis.clone(),
+        runtime,
+        node_id,
+        network_adapter.clone(),
+        config.block_producer,
+        telemetry,
+    )
+    .unwrap()
+    .start();
+    start_http(config.rpc_config, client_actor.clone(), view_client.clone());
 
-        ClientActor::new(
-            config.client_config,
-            store.clone(),
-            chain_genesis.clone(),
-            runtime,
-            node_id,
-            network_actor.recipient(),
-            config.block_producer,
-            telemetry,
-        )
-        .unwrap()
-    });
-    (client, view_client)
+    let network_actor = PeerManagerActor::new(
+        store.clone(),
+        config.network_config,
+        client_actor.clone().recipient(),
+        view_client.clone().recipient(),
+    )
+    .unwrap()
+    .start();
+
+    network_adapter.set_recipient(network_actor.recipient());
+
+    (client_actor, view_client)
 }

@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use borsh::BorshSerialize;
 
-use near::GenesisConfig;
+use near::config::FISHERMEN_THRESHOLD;
+use near::{GenesisConfig, NightshadeRuntime};
+use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter};
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
@@ -37,18 +39,23 @@ fn test_verify_block_double_sign_challenge() {
         &genesis.header,
         2,
         genesis.chunks.clone(),
-        b1.header.inner.epoch_id.clone(),
+        b1.header.inner_lite.epoch_id.clone(),
+        b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         None,
         vec![],
         vec![],
         &signer,
+        1,
+        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        b1.header.inner_lite.next_bp_hash.clone(),
     );
-    let epoch_id = b1.header.inner.epoch_id.clone();
+    let epoch_id = b1.header.inner_lite.epoch_id.clone();
     let valid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: b2.header.try_to_vec().unwrap(),
@@ -116,10 +123,11 @@ fn create_invalid_proofs_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
-            &last_block.header.inner.epoch_id,
+            &last_block.header.inner_lite.epoch_id,
             last_block.chunks[0].clone(),
             2,
             0,
@@ -137,16 +145,21 @@ fn create_invalid_proofs_chunk(
         &last_block.header,
         2,
         vec![chunk.header.clone()],
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         None,
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
+        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
+        1,
         0.into(),
-        last_block.header.inner.prev_hash,
+        last_block.header.prev_hash,
         CryptoHash::default(),
+        last_block.header.inner_lite.next_bp_hash,
     );
     (chunk, merkle_paths, receipts, block)
 }
@@ -170,8 +183,8 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     assert_eq!(
         validate_challenge(
             &*env.clients[0].chain.runtime_adapter,
-            &block.header.inner.epoch_id,
-            &block.header.inner.prev_hash,
+            &block.header.inner_lite.epoch_id,
+            &block.header.prev_hash,
             &valid_challenge
         )
         .unwrap(),
@@ -206,16 +219,17 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
+    let prev_timestamp = env.clients[0].chain.head().unwrap().prev_timestamp;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
-        env.clients[0].chain.get_block(&last_block.header.inner.prev_hash).unwrap().clone();
+        env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
             last_block.hash(),
             StateRoot::default(),
             CryptoHash::default(),
-            last_block.header.inner.height + 1,
+            last_block.header.inner_lite.height + 1,
             0,
             0,
             1_000,
@@ -223,7 +237,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             0,
             0,
             vec![],
-            &vec![],
+            vec![],
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
@@ -244,21 +258,26 @@ fn test_verify_chunk_invalid_state_challenge() {
         )
         .unwrap();
 
-    invalid_chunk.header.height_included = last_block.header.inner.height + 1;
+    invalid_chunk.header.height_included = last_block.header.inner_lite.height + 1;
     let block = Block::produce(
         &last_block.header,
-        last_block.header.inner.height + 1,
+        last_block.header.inner_lite.height + 1,
         vec![invalid_chunk.header.clone()],
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         None,
         vec![],
         vec![],
         &signer,
-        0.into(),
-        last_block.header.inner.prev_hash,
-        prev_to_last_block.header.inner.prev_hash,
+        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
+        1,
+        prev_to_last_block.header.inner_rest.total_weight,
+        last_block.header.prev_hash,
+        prev_to_last_block.header.prev_hash,
+        last_block.header.inner_lite.next_bp_hash,
     );
 
     let challenge_body = {
@@ -276,7 +295,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             validity_period,
             epoch_length,
-            0,
+            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
         );
 
         chain_update
@@ -292,17 +311,18 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 227, 6, 86, 139, 125, 37, 242, 104, 89, 182, 115, 113, 193, 120, 119,
-                    33, 26, 201, 6, 127, 176, 76, 7, 26, 49, 95, 52, 178, 159, 143, 117, 52, 30,
-                    175, 188, 91, 174, 142, 135, 98, 116, 150, 226, 129, 204, 53, 64, 77, 100, 76,
-                    30, 35, 91, 181, 116, 222, 89, 72, 223, 126, 155, 43, 85, 154, 123, 65, 104,
-                    88, 146, 81, 64, 114, 10, 155, 246, 47, 39, 58, 223, 4, 22, 25, 219, 175, 9,
-                    240, 3, 80, 88, 189, 162, 254, 21, 231, 234, 116, 125, 124, 2, 0, 0, 0, 0, 0
+                    1, 7, 0, 108, 48, 153, 141, 134, 223, 107, 165, 52, 167, 140, 87, 107, 164,
+                    223, 21, 74, 224, 7, 235, 235, 255, 219, 174, 60, 139, 67, 180, 66, 16, 49,
+                    222, 67, 81, 244, 63, 86, 221, 180, 184, 42, 54, 139, 35, 104, 2, 120, 138, 48,
+                    214, 66, 144, 62, 234, 58, 40, 186, 242, 119, 216, 128, 182, 199, 225, 171, 30,
+                    7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
+                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 183, 126, 2, 0, 0, 0,
+                    0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 54, 106, 135, 107, 146, 249, 30, 224, 4, 250, 77, 43, 107,
-                    71, 32, 36, 160, 74, 172, 80, 43, 254, 111, 201, 245, 124, 145, 98, 123, 210,
-                    44, 242, 167, 124, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 173, 149, 126, 106, 157, 77, 224, 145, 155, 33, 238, 135,
+                    50, 183, 250, 200, 70, 111, 221, 109, 136, 232, 39, 159, 134, 16, 127, 15, 149,
+                    188, 169, 157, 235, 126, 2, 0, 0, 0, 0, 0
                 ]
             ],
         );
@@ -312,8 +332,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     assert_eq!(
         validate_challenge(
             &*client.chain.runtime_adapter,
-            &block.header.inner.epoch_id,
-            &block.header.inner.prev_hash,
+            &block.header.inner_lite.epoch_id,
+            &block.header.prev_hash,
             &challenge
         )
         .unwrap(),
@@ -432,6 +452,67 @@ fn test_block_challenge() {
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }
 
+/// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
+/// a validator cannot.
+#[test]
+fn test_fishermen_challenge() {
+    init_test_logger();
+    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
+    genesis_config.epoch_length = 5;
+    let create_runtime = || -> Arc<NightshadeRuntime> {
+        Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            genesis_config.clone(),
+            vec![],
+            vec![],
+        ))
+    };
+    let runtime1 = create_runtime();
+    let runtime2 = create_runtime();
+    let runtime3 = create_runtime();
+    let mut env =
+        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let stake_transaction = SignedTransaction::stake(
+        1,
+        "test1".to_string(),
+        &signer,
+        FISHERMEN_THRESHOLD,
+        env.clients[1].block_producer.as_ref().unwrap().signer.public_key(),
+        genesis_hash,
+    );
+    env.clients[0].process_tx(stake_transaction);
+    for i in 1..=11 {
+        env.produce_block(0, i);
+    }
+
+    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+
+    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+    let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
+        block_header: block.header.try_to_vec().unwrap(),
+        chunk: chunk.clone(),
+        merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
+    });
+    let challenge = Challenge::produce(
+        challenge_body.clone(),
+        env.clients[1].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[1].block_producer.as_ref().unwrap().signer,
+    );
+    let challenge1 = Challenge::produce(
+        challenge_body,
+        env.clients[2].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[2].block_producer.as_ref().unwrap().signer,
+    );
+    assert!(env.clients[0].process_challenge(challenge1).is_err());
+    env.clients[0].process_challenge(challenge.clone()).unwrap();
+    env.produce_block(0, 12);
+    assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges, vec![challenge]);
+    assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+}
+
 /// If there are two blocks produced at the same height but by different block producers, no
 /// challenge should be generated
 #[test]
@@ -478,7 +559,7 @@ fn test_challenge_in_different_epoch() {
     let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
-        let height = block.header.inner.height;
+        let height = block.header.inner_lite.height;
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
         match env.clients[0].run_catchup(&vec![]) {
             Ok(accepted_blocks) => {

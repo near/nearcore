@@ -25,9 +25,6 @@ pub enum ErrorKind {
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
-    /// Peer abusively sending us an old block we already have
-    #[fail(display = "Old Block")]
-    OldBlock,
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -43,9 +40,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block weight.
-    #[fail(display = "Invalid Block Weight")]
-    InvalidBlockWeight,
+    /// Invalid block weight or score.
+    #[fail(display = "Invalid Block Weight Or Score")]
+    InvalidBlockWeightOrScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -100,6 +97,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    #[fail(display = "Invalid Next BP Hash")]
+    InvalidNextBPHash,
     /// Invalid quorum_pre_vote or quorum_pre_commit
     #[fail(display = "Invalid Finality Info")]
     InvalidFinalityInfo,
@@ -130,6 +130,9 @@ pub enum ErrorKind {
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Someone is not a validator. Usually happens in signature verification
+    #[fail(display = "Not A Validator")]
+    NotAValidator,
     /// Validator error.
     #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
@@ -199,10 +202,9 @@ impl Error {
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
-            | ErrorKind::OldBlock
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidBlockWeightOrScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -220,6 +222,7 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidNextBPHash
             | ErrorKind::InvalidFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
@@ -229,7 +232,8 @@ impl Error {
             | ErrorKind::InvalidGasUsed
             | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
-            | ErrorKind::InvalidRent => true,
+            | ErrorKind::InvalidRent
+            | ErrorKind::NotAValidator => true,
         }
     }
 

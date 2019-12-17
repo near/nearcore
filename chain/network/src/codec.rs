@@ -154,4 +154,12 @@ mod test {
         });
         test_codec(msg);
     }
+
+    #[test]
+    fn test_account_id_bytes() {
+        let account_id = "near0".to_string();
+        let enc = account_id.as_bytes();
+        let dec_account_id = String::from_utf8_lossy(enc).to_string();
+        assert_eq!(account_id, dec_account_id);
+    }
 }

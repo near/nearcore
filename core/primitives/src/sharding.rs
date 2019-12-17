@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
+use reed_solomon_erasure::ReedSolomon;
 
 use near_crypto::{Signature, Signer};
 
@@ -164,7 +164,7 @@ pub struct ShardChunk {
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
-    pub parts: Vec<Option<Shard>>,
+    pub parts: Vec<Option<Box<[u8]>>>,
 }
 
 impl EncodedShardChunkBody {
@@ -186,8 +186,10 @@ impl EncodedShardChunkBody {
         data_shards: usize,
         parity_shards: usize,
     ) -> Result<(), reed_solomon_erasure::Error> {
-        let rs = ReedSolomon::new(data_shards, parity_shards).unwrap();
-        rs.reconstruct_shards(self.parts.as_mut_slice())
+        let rs =
+            ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_shards, parity_shards)
+                .unwrap();
+        rs.reconstruct(self.parts.as_mut_slice())
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
@@ -225,13 +227,12 @@ impl EncodedShardChunk {
 
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        transactions: &Vec<SignedTransaction>,
+        transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
-        let mut bytes =
-            TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
+        let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
         let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];
@@ -292,7 +293,7 @@ impl EncodedShardChunk {
         validator_proposals: Vec<ValidatorStake>,
 
         encoded_length: u64,
-        parts: Vec<Option<Shard>>,
+        parts: Vec<Option<Box<[u8]>>>,
 
         data_shards: usize,
         parity_shards: usize,
@@ -354,13 +355,15 @@ impl EncodedShardChunk {
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
-        let encoded_data = option_shards_into_shards(self.content.parts[0..data_parts].to_vec())
+        let unwrapped = self.content.parts[0..data_parts]
             .iter()
+            .map(|option| option.as_ref().expect("Missing shard"));
+        let encoded_data = unwrapped
             .map(|boxed| boxed.iter())
             .flatten()
             .cloned()
-            .collect::<Vec<u8>>()[0..self.header.inner.encoded_length as usize]
-            .to_vec();
+            .take(self.header.inner.encoded_length as usize)
+            .collect::<Vec<u8>>();
 
         let transaction_receipts = TransactionReceipt::try_from_slice(&encoded_data)?;
 

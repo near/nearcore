@@ -140,9 +140,7 @@ impl RemoteNode {
             .iter()
             .zip(self.signers.iter().map(|s| &s.public_key))
             .map(|(account_id, public_key)| {
-                get_result(|| self.get_access_key(&account_id, &public_key))
-                    .expect("No access key for given public key")
-                    .nonce
+                get_result(|| self.get_access_key(&account_id, &public_key)).nonce
             })
             .collect();
         self.nonces = nonces;
@@ -161,7 +159,7 @@ impl RemoteNode {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKeyView, Box<dyn std::error::Error>> {
         let user = RpcUser::new(
             &self.addr.to_string(),
             account_id.to_string(),

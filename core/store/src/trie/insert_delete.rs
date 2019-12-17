@@ -4,12 +4,14 @@ use near_primitives::hash::{hash, CryptoHash};
 
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
-    NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle, TrieNode, TrieNodeWithSize,
+    NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, TrieNode,
+    TrieNodeWithSize, ValueHandle,
 };
 use crate::{StorageError, Trie, TrieChanges};
 
 pub(crate) struct NodesStorage {
     nodes: Vec<Option<TrieNodeWithSize>>,
+    values: Vec<Option<Vec<u8>>>,
     pub(crate) refcount_changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
 }
 
@@ -18,7 +20,7 @@ const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 /// Local mutable storage that owns node objects.
 impl NodesStorage {
     pub fn new() -> NodesStorage {
-        NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new() }
+        NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new(), values: Vec::new() }
     }
 
     fn destroy(&mut self, handle: StorageHandle) -> TrieNodeWithSize {
@@ -48,6 +50,19 @@ impl NodesStorage {
     pub(crate) fn store(&mut self, node: TrieNodeWithSize) -> StorageHandle {
         self.nodes.push(Some(node));
         StorageHandle(self.nodes.len() - 1)
+    }
+
+    pub(crate) fn store_value(&mut self, value: Vec<u8>) -> StorageValueHandle {
+        self.values.push(Some(value));
+        StorageValueHandle(self.values.len() - 1)
+    }
+
+    pub(crate) fn value_ref(&self, handle: StorageValueHandle) -> &Vec<u8> {
+        self.values
+            .get(handle.0)
+            .expect(INVALID_STORAGE_HANDLE)
+            .as_ref()
+            .expect(INVALID_STORAGE_HANDLE)
     }
 
     fn store_at(&mut self, handle: StorageHandle, node: TrieNodeWithSize) {
@@ -80,25 +95,30 @@ impl Trie {
         loop {
             path.push(handle);
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
-            let children_memory_usage = memory_usage - node.memory_usage_direct();
+            let children_memory_usage = memory_usage - node.memory_usage_direct(memory);
             match node {
                 TrieNode::Empty => {
-                    let leaf_node =
-                        TrieNode::Leaf(partial.encoded(true).into_vec(), value.take().unwrap());
-                    let memory_usage = leaf_node.memory_usage_direct();
+                    let value_handle = memory.store_value(value.take().unwrap());
+                    let leaf_node = TrieNode::Leaf(
+                        partial.encoded(true).into_vec(),
+                        ValueHandle::InMemory(value_handle),
+                    );
+                    let memory_usage = leaf_node.memory_usage_direct(memory);
                     memory.store_at(handle, TrieNodeWithSize { node: leaf_node, memory_usage });
                     break;
                 }
                 TrieNode::Branch(mut children, existing_value) => {
                     // If the key ends here, store the value in branch's value.
                     if partial.is_empty() {
-                        Trie::calc_memory_usage_and_store(
-                            memory,
-                            handle,
-                            children_memory_usage,
-                            TrieNode::Branch(children, Some(value.take().unwrap())),
-                            None,
-                        );
+                        if let Some(value) = &existing_value {
+                            self.delete_value(memory, value)?;
+                        }
+                        let value_handle = memory.store_value(value.take().unwrap());
+                        let new_node =
+                            TrieNode::Branch(children, Some(ValueHandle::InMemory(value_handle)));
+                        let new_memory_usage =
+                            children_memory_usage + new_node.memory_usage_direct(memory);
+                        memory.store_at(handle, TrieNodeWithSize::new(new_node, new_memory_usage));
                         break;
                     } else {
                         let idx = partial.at(0) as usize;
@@ -129,8 +149,10 @@ impl Trie {
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // Equivalent leaf.
-                        let node = TrieNode::Leaf(key, value.take().unwrap());
-                        let memory_usage = node.memory_usage_direct();
+                        self.delete_value(memory, &existing_value)?;
+                        let value_handle = memory.store_value(value.take().unwrap());
+                        let node = TrieNode::Leaf(key, ValueHandle::InMemory(value_handle));
+                        let memory_usage = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize { node, memory_usage });
                         break;
                     } else if common_prefix == 0 {
@@ -145,7 +167,7 @@ impl Trie {
                                 existing_key.mid(1).encoded(true).into_vec(),
                                 existing_value,
                             );
-                            let memory_usage = new_leaf.memory_usage_direct();
+                            let memory_usage = new_leaf.memory_usage_direct(memory);
                             children_memory_usage = memory_usage;
                             children[idx] = Some(NodeHandle::InMemory(
                                 memory.store(TrieNodeWithSize { node: new_leaf, memory_usage }),
@@ -153,7 +175,7 @@ impl Trie {
                             TrieNode::Branch(children, None)
                         };
                         let memory_usage =
-                            branch_node.memory_usage_direct() + children_memory_usage;
+                            branch_node.memory_usage_direct(memory) + children_memory_usage;
                         memory
                             .store_at(handle, TrieNodeWithSize { node: branch_node, memory_usage });
                         path.pop();
@@ -161,14 +183,14 @@ impl Trie {
                     } else if common_prefix == existing_key.len() {
                         let branch_node =
                             TrieNode::Branch(Default::default(), Some(existing_value));
-                        let memory_usage = branch_node.memory_usage_direct();
+                        let memory_usage = branch_node.memory_usage_direct(memory);
                         let child =
                             memory.store(TrieNodeWithSize { node: branch_node, memory_usage });
                         let new_node = TrieNode::Extension(
                             existing_key.encoded(false).into_vec(),
                             NodeHandle::InMemory(child),
                         );
-                        let memory_usage = new_node.memory_usage_direct();
+                        let memory_usage = new_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize { node: new_node, memory_usage });
                         handle = child;
                         partial = partial.mid(common_prefix);
@@ -179,14 +201,14 @@ impl Trie {
                             existing_key.mid(common_prefix).encoded(true).into_vec(),
                             existing_value,
                         );
-                        let leaf_memory_usage = leaf_node.memory_usage_direct();
+                        let leaf_memory_usage = leaf_node.memory_usage_direct(memory);
                         let child =
                             memory.store(TrieNodeWithSize::new(leaf_node, leaf_memory_usage));
                         let node = TrieNode::Extension(
                             partial.encoded_leftmost(common_prefix, false).into_vec(),
                             NodeHandle::InMemory(child),
                         );
-                        let mem = node.memory_usage_direct();
+                        let mem = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(node, mem));
                         handle = child;
                         partial = partial.mid(common_prefix);
@@ -210,13 +232,14 @@ impl Trie {
                             );
 
                             child_memory_usage =
-                                children_memory_usage + child.memory_usage_direct();
+                                children_memory_usage + child.memory_usage_direct(memory);
                             Some(NodeHandle::InMemory(
                                 memory.store(TrieNodeWithSize::new(child, child_memory_usage)),
                             ))
                         };
                         let branch_node = TrieNode::Branch(children, None);
-                        let memory_usage = branch_node.memory_usage_direct() + child_memory_usage;
+                        let memory_usage =
+                            branch_node.memory_usage_direct(memory) + child_memory_usage;
                         memory.store_at(handle, TrieNodeWithSize::new(branch_node, memory_usage));
                         path.pop();
                         continue;
@@ -226,7 +249,7 @@ impl Trie {
                             NodeHandle::InMemory(handle) => handle,
                         };
                         let node = TrieNode::Extension(key, NodeHandle::InMemory(child));
-                        let memory_usage = node.memory_usage_direct();
+                        let memory_usage = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(node, memory_usage));
                         handle = child;
                         partial = partial.mid(common_prefix);
@@ -238,14 +261,14 @@ impl Trie {
                             child,
                         );
                         let child_memory_usage =
-                            children_memory_usage + child_node.memory_usage_direct();
+                            children_memory_usage + child_node.memory_usage_direct(memory);
                         let child =
                             memory.store(TrieNodeWithSize::new(child_node, child_memory_usage));
                         let node = TrieNode::Extension(
                             existing_key.encoded_leftmost(common_prefix, false).into_vec(),
                             NodeHandle::InMemory(child),
                         );
-                        let memory_usage = node.memory_usage_direct();
+                        let memory_usage = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(node, memory_usage));
                         handle = child;
                         partial = partial.mid(common_prefix);
@@ -259,10 +282,6 @@ impl Trie {
             let child = path.get(i + 1).unwrap();
             let child_memory_usage = memory.node_ref(*child).memory_usage;
             memory.node_mut(*node).memory_usage += child_memory_usage;
-        }
-        #[cfg(test)]
-        {
-            self.memory_usage_verify(memory, NodeHandle::InMemory(root_handle));
         }
         Ok(root_handle)
     }
@@ -281,7 +300,7 @@ impl Trie {
         new_node: TrieNode,
         old_child: Option<StorageHandle>,
     ) {
-        let new_memory_usage = children_memory_usage + new_node.memory_usage_direct()
+        let new_memory_usage = children_memory_usage + new_node.memory_usage_direct(memory)
             - old_child.map(|child| memory.node_ref(child).memory_usage()).unwrap_or_default();
         memory.store_at(handle, TrieNodeWithSize::new(new_node, new_memory_usage));
     }
@@ -303,7 +322,7 @@ impl Trie {
         loop {
             path.push(handle);
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
-            let children_memory_usage = memory_usage - node.memory_usage_direct();
+            let children_memory_usage = memory_usage - node.memory_usage_direct(memory);
             match node {
                 TrieNode::Empty => {
                     memory.store_at(handle, TrieNodeWithSize::empty());
@@ -312,12 +331,13 @@ impl Trie {
                 }
                 TrieNode::Leaf(key, value) => {
                     if NibbleSlice::from_encoded(&key).0 == partial {
+                        self.delete_value(memory, &value)?;
                         memory.store_at(handle, TrieNodeWithSize::empty());
                         deleted = true;
                         break;
                     } else {
                         let leaf_node = TrieNode::Leaf(key, value);
-                        let memory_usage = leaf_node.memory_usage_direct();
+                        let memory_usage = leaf_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
                         deleted = false;
                         break;
@@ -325,9 +345,14 @@ impl Trie {
                 }
                 TrieNode::Branch(mut children, value) => {
                     if partial.is_empty() {
+                        if let Some(value) = &value {
+                            self.delete_value(memory, &value)?;
+                            deleted = true;
+                        } else {
+                            deleted = false;
+                        }
                         if children.iter().filter(|&x| x.is_some()).count() == 0 {
                             memory.store_at(handle, TrieNodeWithSize::empty());
-                            deleted = value.is_some();
                             break;
                         } else {
                             Trie::calc_memory_usage_and_store(
@@ -337,7 +362,6 @@ impl Trie {
                                 TrieNode::Branch(children, None),
                                 None,
                             );
-                            deleted = value.is_some();
                             break;
                         }
                     } else {
@@ -405,10 +429,6 @@ impl Trie {
             }
         }
         self.fix_nodes(memory, path)?;
-        #[cfg(test)]
-        {
-            self.memory_usage_verify(memory, NodeHandle::InMemory(root_node));
-        }
         Ok((root_node, deleted))
     }
 
@@ -444,7 +464,7 @@ impl Trie {
                         if let Some(value) = value {
                             let empty = NibbleSlice::new(&[]).encoded(true).into_vec();
                             let leaf_node = TrieNode::Leaf(empty, value);
-                            let memory_usage = leaf_node.memory_usage_direct();
+                            let memory_usage = leaf_node.memory_usage_direct(memory);
                             memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
                         } else {
                             memory.store_at(handle, TrieNodeWithSize::empty());
@@ -492,7 +512,7 @@ impl Trie {
             NodeHandle::InMemory(h) => h,
         };
         let TrieNodeWithSize { node, memory_usage } = memory.destroy(child);
-        let child_child_memory_usage = memory_usage - node.memory_usage_direct();
+        let child_child_memory_usage = memory_usage - node.memory_usage_direct(memory);
         match node {
             TrieNode::Empty => {
                 memory.store_at(handle, TrieNodeWithSize::empty());
@@ -503,7 +523,7 @@ impl Trie {
                     .merge_encoded(&NibbleSlice::from_encoded(&child_key).0, true)
                     .into_vec();
                 let new_node = TrieNode::Leaf(key, value);
-                let memory_usage = new_node.memory_usage_direct();
+                let memory_usage = new_node.memory_usage_direct(memory);
                 memory.store_at(handle, TrieNodeWithSize::new(new_node, memory_usage));
             }
             TrieNode::Branch(children, value) => {
@@ -512,7 +532,7 @@ impl Trie {
                     TrieNodeWithSize::new(TrieNode::Branch(children, value), memory_usage),
                 );
                 let new_node = TrieNode::Extension(key, NodeHandle::InMemory(child));
-                let memory_usage = memory_usage + new_node.memory_usage_direct();
+                let memory_usage = memory_usage + new_node.memory_usage_direct(memory);
                 memory.store_at(handle, TrieNodeWithSize::new(new_node, memory_usage));
             }
             TrieNode::Extension(child_key, child_child) => {
@@ -521,7 +541,7 @@ impl Trie {
                     .merge_encoded(&NibbleSlice::from_encoded(&child_key).0, false)
                     .into_vec();
                 let new_node = TrieNode::Extension(key, child_child);
-                let memory_usage = new_node.memory_usage_direct() + child_child_memory_usage;
+                let memory_usage = new_node.memory_usage_direct(memory) + child_child_memory_usage;
                 memory.store_at(handle, TrieNodeWithSize::new(new_node, memory_usage));
             }
         }
@@ -581,7 +601,10 @@ impl Trie {
                                 _ => unreachable!(),
                             }
                         }
-                        RawTrieNode::Branch(*new_children, value.clone())
+                        let new_value =
+                            value.clone().map(|value| Trie::flatten_value(&mut memory, value));
+
+                        RawTrieNode::Branch(*new_children, new_value)
                     }
                     FlattenNodesCrumb::Exiting => unreachable!(),
                 },
@@ -597,7 +620,12 @@ impl Trie {
                     FlattenNodesCrumb::Exiting => RawTrieNode::Extension(key.clone(), last_hash),
                     _ => unreachable!(),
                 },
-                TrieNode::Leaf(key, value) => RawTrieNode::Leaf(key.clone(), value.clone()),
+                TrieNode::Leaf(key, value) => {
+                    let key = key.clone();
+                    let value = value.clone();
+                    let (value_length, value_hash) = Trie::flatten_value(&mut memory, value);
+                    RawTrieNode::Leaf(key, value_length, value_hash)
+                }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
             raw_node_with_size.encode_into(&mut buffer).expect("Encode can never fail");
@@ -612,5 +640,20 @@ impl Trie {
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
         Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
+    }
+
+    fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> (u32, CryptoHash) {
+        match value {
+            ValueHandle::InMemory(value_handle) => {
+                let value = memory.value_ref(value_handle).clone();
+                let value_length = value.len() as u32;
+                let value_hash = hash(&value);
+                let (_value, rc) =
+                    memory.refcount_changes.entry(value_hash).or_insert_with(|| (value, 0));
+                *rc += 1;
+                (value_length, value_hash)
+            }
+            ValueHandle::HashAndSize(value_length, value_hash) => (value_length, value_hash),
+        }
     }
 }

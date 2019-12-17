@@ -1,12 +1,13 @@
-mod fixtures;
-mod vm_logic_builder;
-
 use fixtures::get_context;
+use helpers::*;
 use near_vm_errors::HostError;
 use near_vm_logic::ExtCosts;
 use vm_logic_builder::VMLogicBuilder;
+
+mod fixtures;
+mod vm_logic_builder;
+
 mod helpers;
-use helpers::*;
 
 #[test]
 fn test_valid_utf8() {

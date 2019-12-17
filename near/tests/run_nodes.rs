@@ -5,13 +5,13 @@ use tempdir::TempDir;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockIndex, ValidatorId};
 use testlib::start_nodes;
 
 fn run_nodes(
     num_shards: usize,
-    num_nodes: usize,
-    num_validators: usize,
+    num_nodes: ValidatorId,
+    num_validators: ValidatorId,
     epoch_length: BlockIndex,
     num_blocks: BlockIndex,
 ) {

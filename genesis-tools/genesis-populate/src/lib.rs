@@ -11,17 +11,17 @@ use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
+use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, ChunkExtra, ShardId, StateRoot};
+use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
+    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
 use node_runtime::StateRecord;
 
@@ -145,7 +145,7 @@ impl GenesisBuilder {
     pub fn dump_state(self) -> Result<Self> {
         let mut dump_path = self.home_dir.clone();
         dump_path.push("state_dump");
-        self.store.save_to_file(COL_STATE, dump_path.as_path())?;
+        self.store.save_to_file(ColState, dump_path.as_path())?;
         {
             let mut roots_files = self.home_dir.clone();
             roots_files.push("genesis_roots");
@@ -190,8 +190,9 @@ impl GenesisBuilder {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.config.genesis_time,
-            self.config.gas_price,
+            self.config.min_gas_price,
             self.config.total_supply,
+            Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
         let mut store = ChainStore::new(self.store.clone());
@@ -201,7 +202,7 @@ impl GenesisBuilder {
             .add_validator_proposals(
                 CryptoHash::default(),
                 genesis.hash(),
-                genesis.header.inner.height,
+                genesis.header.inner_lite.height,
                 0,
                 vec![],
                 vec![],
@@ -231,7 +232,10 @@ impl GenesisBuilder {
             );
         }
 
-        let head = Tip::from_header(&genesis.header);
+        let head = Tip::from_header_and_prev_timestamp(
+            &genesis.header,
+            genesis.header.inner_lite.timestamp,
+        );
         store_update.save_head(&head).unwrap();
         store_update.save_sync_head(&head);
         store_update.commit().unwrap();

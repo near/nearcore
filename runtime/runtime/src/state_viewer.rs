@@ -42,12 +42,13 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        get_access_key(state_update, account_id, public_key).map_err(|e| Box::new(e).into())
+        get_access_key(state_update, account_id, public_key)?
+            .ok_or_else(|| format!("access key {} does not exist while viewing", public_key).into())
     }
 
     pub fn view_state(
@@ -68,7 +69,7 @@ impl TrieViewer {
             if let Ok(Some(value)) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
-        });
+        })?;
         Ok(ViewStateResult { values })
     }
 
@@ -88,7 +89,7 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let account = get_account(&state_update, contract_id)?
-            .ok_or_else(|| format!("Account {:?} doesn't exists", contract_id))?;
+            .ok_or_else(|| format!("Account {:?} doesn't exist", contract_id))?;
         let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
             format!("cannot find contract code for account {}", contract_id.clone())
         })?;
@@ -162,7 +163,6 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use kvdb::DBValue;
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -230,7 +230,7 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(key_for_data(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
+        state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
