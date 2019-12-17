@@ -1,8 +1,7 @@
 use std::convert::TryFrom;
 
 use actix::{Actor, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
@@ -39,7 +38,7 @@ fn test_block() {
             assert_eq!(res.header.total_weight, 0);
             assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();
-            future::ok(())
+            future::ready(())
         }));
     })
     .unwrap();
@@ -61,7 +60,7 @@ fn test_block_by_hash() {
                 let res = res.unwrap();
                 assert_eq!(res.header.height, 0);
                 System::current().stop();
-                future::ok(())
+                future::ready(())
             })
         }));
     })
@@ -107,7 +106,7 @@ fn test_chunk_by_hash() {
                         let same_chunk = same_chunk.unwrap();
                         assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
                         System::current().stop();
-                        future::ok(())
+                        future::ready(())
                     })
                 },
             ),
@@ -144,7 +143,7 @@ fn test_query_account() {
                 assert_eq!(account_info.storage_paid_at, 0);
                 assert_eq!(account_info.storage_usage, 0);
                 System::current().stop();
-                future::result(Ok(()))
+                future::ready(())
             },
         ));
     })
@@ -177,7 +176,7 @@ fn test_query_access_keys() {
                 assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
                 assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
                 System::current().stop();
-                future::result(Ok(()))
+                future::ready(())
             },
         ));
     })
@@ -209,7 +208,7 @@ fn test_query_access_key() {
                 assert_eq!(access_key.nonce, 0);
                 assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
                 System::current().stop();
-                future::result(Ok(()))
+                future::ready(())
             },
         ));
     })
@@ -231,7 +230,7 @@ fn test_status() {
             assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();
@@ -252,7 +251,7 @@ fn test_status_fail() {
                     if res.is_err() {
                         System::current().stop();
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }));
             }),
             100,
@@ -273,7 +272,7 @@ fn test_health_fail() {
         actix::spawn(client.health().then(|res| {
             assert!(res.is_err());
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();
@@ -294,7 +293,7 @@ fn test_health_fail_no_blocks() {
                     if res.is_err() {
                         System::current().stop();
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }));
             }),
             300,
@@ -317,7 +316,7 @@ fn test_health_ok() {
         actix::spawn(client.health().then(|res| {
             assert!(res.is_ok());
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();
@@ -336,7 +335,7 @@ fn test_gas_price_by_height() {
             let gas_price = res.unwrap().gas_price;
             assert!(gas_price > 0);
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();
@@ -358,7 +357,7 @@ fn test_gas_price_by_hash() {
                 let gas_price = res.unwrap().gas_price;
                 assert!(gas_price > 0);
                 System::current().stop();
-                future::ok(())
+                future::ready(())
             })
         }));
     })
@@ -378,7 +377,7 @@ fn test_gas_price() {
             let gas_price = res.unwrap().gas_price;
             assert!(gas_price > 0);
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();

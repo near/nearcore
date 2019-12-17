@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use actix_web::client::{Client, Connector};
-use futures::Future;
+use futures::{future, Future, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -33,8 +33,8 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-type HttpRequest<T> = Box<dyn Future<Item = T, Error = String>>;
-type RpcRequest<T> = Box<dyn Future<Item = T, Error = RpcError>>;
+type HttpRequest<T> = Box<dyn Future<Output = Result<T, String>> + Unpin>;
+type RpcRequest<T> = Box<dyn Future<Output = Result<T, RpcError>> + Unpin>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -52,7 +52,7 @@ where
             .send_json(&request)
             .map_err(|_| RpcError::invalid_request())
             .and_then(|mut response| {
-                response.body().then(|body| match body {
+                response.body().map(|body| match body {
                     Ok(bytes) => from_slice(&bytes).map_err(|err| {
                         RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
                     }),
@@ -61,12 +61,15 @@ where
                     }
                 })
             })
-            .and_then(|message| match message {
-                Message::Response(resp) => resp.result.and_then(|x| {
-                    serde_json::from_value(x)
-                        .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
-                }),
-                _ => Err(RpcError::invalid_request()),
+            .and_then(|message| {
+                future::ready(match message {
+                    Message::Response(resp) => resp.result.and_then(|x| {
+                        serde_json::from_value(x).map_err(|err| {
+                            RpcError::parse_error(format!("Failed to parse: {:?}", err))
+                        })
+                    }),
+                    _ => Err(RpcError::invalid_request()),
+                })
             }),
     )
 }
@@ -88,7 +91,7 @@ where
         .send()
         .map_err(|err| err.to_string())
         .and_then(|mut response| {
-            response.body().then(|body| match body {
+            response.body().map(|body| match body {
                 Ok(bytes) => String::from_utf8(bytes.to_vec())
                     .map_err(|err| format!("Error {:?} in {:?}", err, bytes))
                     .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),

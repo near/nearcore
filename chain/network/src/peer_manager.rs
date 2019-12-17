@@ -5,19 +5,17 @@ use std::time::Duration;
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
-use actix::prelude::Stream;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
-use futures::future;
+use futures::{future, Stream, StreamExt};
 use log::{debug, error, info, trace, warn};
 use rand::{thread_rng, Rng};
-use tokio::codec::FramedRead;
-use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, TcpStream};
+use tokio_util::codec::FramedRead;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
@@ -41,6 +39,8 @@ use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
+use futures::task::Poll;
+use std::pin::Pin;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -256,11 +256,13 @@ impl PeerManagerActor {
         Peer::create(move |ctx| {
             let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
             let remote_addr = stream.peer_addr().unwrap();
-            let (read, write) = stream.split();
+            let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-
-            Peer::add_stream(FramedRead::new(read, Codec::new()), ctx);
+            Peer::add_stream(
+                FramedRead::new(read, Codec::new()).map(|x| x.expect("Decoder error")),
+                ctx,
+            );
             Peer::new(
                 PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
@@ -345,10 +347,10 @@ impl PeerManagerActor {
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
-        future::join_all(requests)
+        future::try_join_all(requests)
             .into_actor(self)
-            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
-            .and_then(|_, _, _| actix::fut::ok(()))
+            .map(|x, _, _| x.map_err(|e| error!("Failed sending broadcast message: {}", e)))
+            .map(|_, _, _| ())
             .spawn(ctx);
     }
 
@@ -425,23 +427,25 @@ impl PeerManagerActor {
                 .addr
                 .send(QueryPeerStats {})
                 .into_actor(self)
-                .map_err(|err, _, _| error!("Failed sending message: {}", err))
-                .and_then(move |res, act, _| {
-                    if res.is_abusive {
-                        trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
-                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                        //  network traffic that flags honest peers.
-                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                        // if let Some(active_peer) = act.active_peers.get(&peer_id1) {
-                        //     active_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                        // }
-                    } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
-                        active_peer.full_peer_info.chain_info = res.chain_info;
-                        active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
-                        active_peer.received_bytes_per_sec = res.received_bytes_per_sec;
-                    }
-                    actix::fut::ok(())
+                .map(|result, _, _| result.map_err(|err| error!("Failed sending message: {}", err)))
+                .map(move |res, act, _| {
+                    res.map(|res| {
+                        if res.is_abusive {
+                            trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
+                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                            //  network traffic that flags honest peers.
+                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                            // if let Some(active_peer) = act.active_peers.get(&peer_id1) {
+                            //     active_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                            // }
+                        } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
+                            active_peer.full_peer_info.chain_info = res.chain_info;
+                            active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
+                            active_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                        }
+                    })
                 })
+                .map(|_, _, _| ())
                 .spawn(ctx);
         }
 
@@ -505,10 +509,10 @@ impl PeerManagerActor {
         let requests: Vec<_> =
             self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
 
-        future::join_all(requests)
+        future::try_join_all(requests)
             .into_actor(self)
-            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
-            .and_then(|_, _, _| actix::fut::ok(()))
+            .map(|res, _, _| res.map_err(|e| error!("Failed sending broadcast message: {}", e)))
+            .map(|_, _, _| ())
             .spawn(ctx);
     }
 
@@ -530,8 +534,8 @@ impl PeerManagerActor {
                 .addr
                 .send(SendMessage { message })
                 .into_actor(self)
-                .map_err(|e, _, _| error!("Failed sending message: {}", e))
-                .and_then(|_, _, _| actix::fut::ok(()))
+                .map(|res, _, _| res.map_err(|e| error!("Failed sending message: {}", e)))
+                .map(|_, _, _| ())
                 .spawn(ctx);
         } else {
             debug!(target: "network",
@@ -681,6 +685,22 @@ impl PeerManagerActor {
     }
 }
 
+// TODO Incoming needs someone to own TcpListener, temporary workaround until there is a better way
+pub struct IncomingCrutch {
+    listener: TcpListener,
+}
+
+impl Stream for IncomingCrutch {
+    type Item = std::io::Result<TcpStream>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Stream::poll_next(std::pin::Pin::new(&mut self.listener.incoming()), cx)
+    }
+}
+
 impl Actor for PeerManagerActor {
     type Context = Context<Self>;
 
@@ -688,9 +708,13 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
-            let listener = TcpListener::bind(&server_addr).unwrap();
+            let listener = std::net::TcpListener::bind(&server_addr).unwrap();
+            let listener = TcpListener::from_std(listener).unwrap();
+            let incoming = IncomingCrutch { listener };
             info!(target: "info", "Server listening at {}@{}", self.peer_id, server_addr);
-            ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(InboundTcpConnect::new));
+            ctx.add_message_stream(
+                incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
+            );
         }
 
         // Periodically push network information to client
@@ -953,7 +977,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             debug!(target: "network", "Received invalid account confirmation from client.");
                         }
                     }
-                        actix::fut::ok(())
+                        actix::fut::ready(())
                     })
                     .spawn(ctx);
 
@@ -1049,18 +1073,18 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                                 Some(msg.peer_info),
                                 Some(edge_info),
                             );
-                            actix::fut::ok(())
+                            actix::fut::ready(())
                         }
                         Err(err) => {
                             info!(target: "network", "Error connecting to {}: {}", addr, err);
                             act.outgoing_peers.remove(&msg.peer_info.id);
-                            actix::fut::err(())
+                            actix::fut::ready(())
                         }
                     },
                     Err(err) => {
                         info!(target: "network", "Error connecting to {}: {}", addr, err);
                         act.outgoing_peers.remove(&msg.peer_info.id);
-                        actix::fut::err(())
+                        actix::fut::ready(())
                     }
                 })
                 .wait(ctx);

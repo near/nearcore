@@ -7,8 +7,7 @@ use std::time::Duration;
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -413,7 +412,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }
@@ -447,7 +446,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }
@@ -495,7 +494,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }

@@ -343,6 +343,7 @@ impl AccountOrPeerIdOrHash {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -831,6 +832,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
     pub stream: TcpStream,
@@ -845,12 +847,14 @@ impl InboundTcpConnect {
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
 }
 
 #[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
@@ -883,6 +887,7 @@ pub enum ConsolidateResponse {
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
@@ -916,6 +921,7 @@ impl Message for PeersRequest {
 
 /// Received new peers from another peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
@@ -949,6 +955,7 @@ pub enum ReasonForBan {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -1047,6 +1054,7 @@ pub enum NetworkRequests {
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
+#[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
@@ -1287,6 +1295,7 @@ pub struct PartialEncodedChunkRequestMsg {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct StopSignal {}
 
 /// Adapter to break dependency of sub-components on the network requests.

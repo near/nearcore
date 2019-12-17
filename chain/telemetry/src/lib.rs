@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use actix::prelude::Future;
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::client::{Client, Connector};
+use futures::FutureExt;
 use serde_derive::{Deserialize, Serialize};
 
 /// Timeout for establishing connection.
@@ -15,6 +15,7 @@ pub struct TelemetryConfig {
 
 /// Event to send over telemetry.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,
 }
@@ -59,8 +60,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                     .post(endpoint)
                     .header("Content-Type", "application/json")
                     .send_json(&msg.content)
-                    .map_err(|_err| {})
-                    .map(|_response| {}),
+                    .map(drop),
             );
         }
     }

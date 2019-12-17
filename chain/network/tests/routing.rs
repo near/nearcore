@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
-use futures::{future, Future};
+use futures::{future, FutureExt, TryFutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
@@ -138,7 +138,7 @@ impl StateMachine {
                         match res {
                             Ok(_) => {
                                 flag.store(true, Ordering::Relaxed);
-                                future::ok(())
+                                future::ready(())
                             }
                             Err(e) => {
                                 panic!("Error adding edge. {:?}", e);
@@ -179,7 +179,8 @@ impl StateMachine {
                                     }
                                 }
                                 future::ok(())
-                            }),
+                            })
+                            .map(drop),
                     );
                 }))
             }
@@ -206,7 +207,8 @@ impl StateMachine {
                                     }
                                 }
                                 future::ok(())
-                            }),
+                            })
+                            .map(drop),
                     );
                 }));
             }
@@ -228,7 +230,8 @@ impl StateMachine {
                             .and_then(move |_| {
                                 flag.store(true, Ordering::Relaxed);
                                 future::ok(())
-                            }),
+                            })
+                            .map(drop),
                     );
                 }));
             }
@@ -274,7 +277,8 @@ impl StateMachine {
                                 }
 
                                 future::ok(())
-                            }),
+                            })
+                            .map(drop),
                     );
                 }));
             }
