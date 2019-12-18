@@ -10,6 +10,8 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
+use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter, Tip,
@@ -33,15 +35,9 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
-
-/// Block economics config taken from genesis config
-struct BlockEconomicsConfig {
-    gas_price_adjustment_rate: u8,
-}
 
 pub struct Client {
     pub config: ClientConfig,
@@ -66,8 +62,6 @@ pub struct Client {
     pub block_sync: BlockSync,
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
-    /// Block economics, relevant to changes when new block must be produced.
-    block_economics_config: BlockEconomicsConfig,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
 }
@@ -88,7 +82,13 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(network_adapter.clone());
+        let header_sync = HeaderSync::new(
+            network_adapter.clone(),
+            config.header_sync_initial_timeout,
+            config.header_sync_progress_timeout,
+            config.header_sync_stall_ban_timeout,
+            config.header_sync_expected_weight_per_second,
+        );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producers = config.num_block_producers as usize;
@@ -106,9 +106,6 @@ impl Client {
             header_sync,
             block_sync,
             state_sync,
-            block_economics_config: BlockEconomicsConfig {
-                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-            },
             challenges: Default::default(),
         })
     }
@@ -195,8 +192,9 @@ impl Client {
         let prev_prev_hash = prev.prev_hash;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
         let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
+        let prev_timestamp = prev.inner_lite.timestamp;
 
-        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -293,10 +291,26 @@ impl Client {
             self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
         };
 
+        let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
+        let min_gas_price = self.chain.block_economics_config.min_gas_price;
+
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(&*self.runtime_adapter, next_epoch_id.clone(), &prev_hash)?
         } else {
             prev_next_bp_hash
+        };
+
+        let weight_delta = self.runtime_adapter.compute_block_weight_delta(
+            approvals.iter().map(|x| &x.account_id).collect(),
+            &prev_epoch_id,
+            &prev_hash,
+        )?;
+
+        let time_delta = if prev_prev_hash == CryptoHash::default() {
+            1
+        } else {
+            (prev_timestamp - self.chain.get_block_header(&prev_prev_hash)?.inner_lite.timestamp)
+                as u128
         };
 
         // Get block extra from previous block.
@@ -332,11 +346,14 @@ impl Client {
             epoch_id,
             next_epoch_id,
             approvals,
-            self.block_economics_config.gas_price_adjustment_rate,
+            gas_price_adjustment_rate,
+            min_gas_price,
             inflation,
             prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,
+            time_delta,
+            weight_delta,
             score,
             quorums.last_quorum_pre_vote,
             quorums.last_quorum_pre_commit,
@@ -516,7 +533,7 @@ impl Client {
         transactions
     }
 
-    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) -> () {
+    pub fn send_challenges(&mut self, challenges: Arc<RwLock<Vec<ChallengeBody>>>) {
         if let Some(block_producer) = self.block_producer.as_ref() {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(
@@ -1054,6 +1071,7 @@ impl Client {
             );
 
             match state_sync.run(
+                me,
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,
@@ -1104,7 +1122,7 @@ impl Client {
         }
         debug!(target: "client", "Received challenge: {:?}", challenge);
         let head = self.chain.head()?;
-        if self.runtime_adapter.verify_validator_signature(
+        if self.runtime_adapter.verify_validator_or_fisherman_signature(
             &head.epoch_id,
             &head.prev_block_hash,
             &challenge.account_id,

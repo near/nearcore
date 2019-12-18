@@ -381,7 +381,7 @@ pub fn validate_challenge(
     transaction_validity_period: BlockIndex,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
-    if !runtime_adapter.verify_validator_signature(
+    if !runtime_adapter.verify_validator_or_fisherman_signature(
         epoch_id,
         last_block_hash,
         &challenge.account_id,

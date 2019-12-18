@@ -27,6 +27,17 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
+/// `run` does the following:
+/// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
+/// - injects gas counting into
+/// - instantiates (links) `VMLogic` externs with the imports of the binary
+/// - calls the `method_name` with `context.input`
+///   - updates `ext` with new receipts, created during the execution
+///   - counts burnt and used gas
+///   - counts how accounts storage usage increased by the call
+///   - collects logs
+///   - sets the return data
+///  returns result as `VMOutcome`
 pub fn run<'a>(
     code_hash: Vec<u8>,
     code: &[u8],

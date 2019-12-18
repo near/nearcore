@@ -7,10 +7,10 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, error, info};
 
-use near_primitives::block::{genesis_chunks, Approval};
+use near_primitives::block::{genesis_chunks, Approval, WeightAndScore};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk,
+    MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
@@ -46,6 +46,7 @@ use crate::validate::{
     validate_chunk_with_chunk_extra,
 };
 use crate::{byzantine_assert, create_light_client_block_view};
+use near_primitives::utils::to_timestamp;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -58,6 +59,15 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
+
+/// The multiplier of the stake percentage when computing block weight
+pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
+
+/// Block economics config taken from genesis config
+pub struct BlockEconomicsConfig {
+    pub gas_price_adjustment_rate: u8,
+    pub min_gas_price: Balance,
+}
 
 enum ApplyChunksMode {
     ThisEpoch,
@@ -158,7 +168,7 @@ impl OrphanBlockPool {
 pub struct ChainGenesis {
     pub time: DateTime<Utc>,
     pub gas_limit: Gas,
-    pub gas_price: Balance,
+    pub min_gas_price: Balance,
     pub total_supply: Balance,
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
@@ -170,7 +180,7 @@ impl ChainGenesis {
     pub fn new(
         time: DateTime<Utc>,
         gas_limit: Gas,
-        gas_price: Balance,
+        min_gas_price: Balance,
         total_supply: Balance,
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
@@ -180,7 +190,7 @@ impl ChainGenesis {
         Self {
             time,
             gas_limit,
-            gas_price,
+            min_gas_price,
             total_supply,
             max_inflation_rate,
             gas_price_adjustment_rate,
@@ -200,7 +210,8 @@ pub struct Chain {
     genesis: BlockHeader,
     pub transaction_validity_period: BlockIndex,
     pub epoch_length: BlockIndex,
-    gas_price_adjustment_rate: u8,
+    /// Block economics, relevant to changes when new block must be produced.
+    pub block_economics_config: BlockEconomicsConfig,
 }
 
 impl Chain {
@@ -221,7 +232,7 @@ impl Chain {
         let genesis = Block::genesis(
             genesis_chunks.iter().map(|chunk| chunk.header.clone()).collect(),
             chain_genesis.time,
-            chain_genesis.gas_price,
+            chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(&*runtime_adapter, EpochId::default(), &CryptoHash::default())?,
         );
@@ -299,7 +310,10 @@ impl Chain {
                         );
                     }
 
-                    head = Tip::from_header(&genesis.header);
+                    head = Tip::from_header_and_prev_timestamp(
+                        &genesis.header,
+                        genesis.header.inner_lite.timestamp,
+                    );
                     store_update.save_head(&head)?;
                     store_update.save_sync_head(&head);
 
@@ -322,7 +336,10 @@ impl Chain {
             genesis: genesis.header,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
-            gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+            block_economics_config: BlockEconomicsConfig {
+                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+                min_gas_price: chain_genesis.min_gas_price,
+            },
         })
     }
 
@@ -496,7 +513,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
@@ -514,7 +531,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
@@ -575,7 +592,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
@@ -625,7 +642,7 @@ impl Chain {
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
                     self.epoch_length,
-                    self.gas_price_adjustment_rate,
+                    &self.block_economics_config,
                 );
 
                 match chain_update.check_header_known(header) {
@@ -663,14 +680,19 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
 
         if let Some(header) = headers.last() {
+            let prev_timestamp = chain_update
+                .chain_store_update
+                .get_block_header(&header.prev_hash)?
+                .inner_lite
+                .timestamp;
             // Update sync_head regardless of the total weight.
-            chain_update.update_sync_head(header)?;
+            chain_update.update_sync_head(header, prev_timestamp)?;
             // Update header_head if total weight changed.
-            chain_update.update_header_head_if_not_challenged(header)?;
+            chain_update.update_header_head_if_not_challenged(header, prev_timestamp)?;
         }
 
         chain_update.commit()
@@ -773,8 +795,17 @@ impl Chain {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = header.prev_hash;
-        let prev_header = self.get_block_header(&hash)?;
-        let tip = Tip::from_header(prev_header);
+        let prev_prev_hash = self.get_block_header(&hash)?.prev_hash;
+        let (prev_prev_timestamp, prev_header) = if prev_prev_hash == CryptoHash::default() {
+            let prev_header = self.get_block_header(&hash)?;
+            (prev_header.inner_lite.timestamp, prev_header)
+        } else {
+            (
+                self.get_block_header(&prev_prev_hash)?.inner_lite.timestamp,
+                self.get_block_header(&hash)?,
+            )
+        };
+        let tip = Tip::from_header_and_prev_timestamp(prev_header, prev_prev_timestamp);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
@@ -847,7 +878,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
 
@@ -935,7 +966,7 @@ impl Chain {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                     // Or someone is attacking with invalid chain.
                     debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.height, block.hash());
-                    Ok(Some(prev_head))
+                    Err(e)
                 }
                 ErrorKind::Unfit(ref msg) => {
                     debug!(
@@ -1528,7 +1559,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -1544,7 +1575,7 @@ impl Chain {
                 &self.blocks_with_missing_chunks,
                 self.transaction_validity_period,
                 self.epoch_length,
-                self.gas_price_adjustment_rate,
+                &self.block_economics_config,
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
@@ -1600,7 +1631,7 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.transaction_validity_period,
             self.epoch_length,
-            self.gas_price_adjustment_rate,
+            &self.block_economics_config,
         );
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
@@ -1631,7 +1662,7 @@ impl Chain {
                     &self.blocks_with_missing_chunks,
                     self.transaction_validity_period,
                     self.epoch_length,
-                    self.gas_price_adjustment_rate,
+                    &self.block_economics_config,
                 );
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
@@ -1959,7 +1990,7 @@ pub struct ChainUpdate<'a> {
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: BlockIndex,
     epoch_length: BlockIndex,
-    gas_price_adjustment_rate: u8,
+    block_economics_config: &'a BlockEconomicsConfig,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -1970,7 +2001,7 @@ impl<'a> ChainUpdate<'a> {
         blocks_with_missing_chunks: &'a OrphanBlockPool,
         transaction_validity_period: BlockIndex,
         epoch_length: BlockIndex,
-        gas_price_adjustment_rate: u8,
+        block_economics_config: &'a BlockEconomicsConfig,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();
         ChainUpdate {
@@ -1980,7 +2011,7 @@ impl<'a> ChainUpdate<'a> {
             blocks_with_missing_chunks,
             transaction_validity_period,
             epoch_length,
-            gas_price_adjustment_rate,
+            block_economics_config,
         }
     }
 
@@ -2403,12 +2434,20 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
+        {
+            return Err(ErrorKind::EpochOutOfBounds.into());
+        }
+
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
         let prev_prev_hash = prev.prev_hash;
         let prev_gas_price = prev.inner_rest.gas_price;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
+        let prev_timestamp = prev.inner_lite.timestamp;
 
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.chain_store_update.block_exists(&prev_hash)? {
@@ -2438,7 +2477,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", me, block.hash(), is_caught_up, needs_to_start_fetching_state);
 
         // Check the header is valid before we proceed with the full block.
-        self.process_header_for_block(&block.header, provenance, on_challenge)?;
+        self.process_header_for_block(&block.header, prev_timestamp, provenance, on_challenge)?;
 
         for approval in block.header.inner_rest.approvals.iter() {
             FinalityGadget::process_approval(me, approval, &mut self.chain_store_update)?;
@@ -2460,7 +2499,11 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Other("Invalid block".into()).into());
         }
 
-        if !block.verify_gas_price(prev_gas_price, self.gas_price_adjustment_rate) {
+        if !block.verify_gas_price(
+            prev_gas_price,
+            self.block_economics_config.min_gas_price,
+            self.block_economics_config.gas_price_adjustment_rate,
+        ) {
             byzantine_assert!(false);
             return Err(ErrorKind::InvalidGasPrice.into());
         }
@@ -2535,7 +2578,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Update the chain head if total weight has increased.
-        let res = self.update_head(block)?;
+        let res = self.update_head(block, prev_timestamp)?;
 
         if res.is_some() {
             // Some tests do not set finality-related fields, make them also not create the light
@@ -2606,6 +2649,7 @@ impl<'a> ChainUpdate<'a> {
     fn process_header_for_block<F>(
         &mut self,
         header: &BlockHeader,
+        prev_timestamp: u64,
         provenance: &Provenance,
         on_challenge: F,
     ) -> Result<(), Error>
@@ -2614,7 +2658,7 @@ impl<'a> ChainUpdate<'a> {
     {
         self.validate_header(header, provenance, on_challenge)?;
         self.chain_store_update.save_block_header(header.clone());
-        self.update_header_head_if_not_challenged(header)?;
+        self.update_header_head_if_not_challenged(header, prev_timestamp)?;
         Ok(())
     }
 
@@ -2715,9 +2759,27 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidApprovals.into());
             };
 
-            let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
+            self.runtime_adapter.verify_block_signature(header)?;
+
+            let weight_delta = self.runtime_adapter.compute_block_weight_delta(
+                header.inner_rest.approvals.iter().map(|x| &x.account_id).collect(),
+                &prev_header.inner_lite.epoch_id,
+                &header.prev_hash,
+            )?;
+            let time_delta = if prev_header.prev_hash == CryptoHash::default() {
+                1
+            } else {
+                (prev_header.inner_lite.timestamp.saturating_sub(
+                    self.chain_store_update
+                        .get_block_header(&prev_header.prev_hash)?
+                        .inner_lite
+                        .timestamp,
+                )) as u128
+            };
+
+            let weight = prev_header.inner_rest.total_weight.next(weight_delta * time_delta);
             if weight != header.inner_rest.total_weight {
-                return Err(ErrorKind::InvalidBlockWeight.into());
+                return Err(ErrorKind::InvalidBlockWeightOrScore.into());
             }
 
             let quorums = Chain::compute_quorums(
@@ -2735,19 +2797,63 @@ impl<'a> ChainUpdate<'a> {
             {
                 return Err(ErrorKind::InvalidFinalityInfo.into());
             }
+
+            let expected_score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
+                0.into()
+            } else {
+                self.chain_store_update
+                    .get_block_header(&quorums.last_quorum_pre_vote)?
+                    .inner_rest
+                    .total_weight
+            };
+
+            if header.inner_rest.score != expected_score {
+                return Err(ErrorKind::InvalidBlockWeightOrScore.into());
+            }
         }
 
         Ok(())
     }
 
-    /// Update the header head if this header has most work.
+    /// Adjust weight for a block that is in the future.
+    /// For blocks that are in the future compared to what we believe is the current time we
+    /// subtract the weight that corresponds to the 50% of stake approving for the time delta
+    /// between the previous block timestamp and the current time
+    fn adjust_weight(
+        &self,
+        weight_and_score: &WeightAndScore,
+        prev_timestamp: u64,
+        now: u64,
+    ) -> WeightAndScore {
+        let score = weight_and_score.score;
+        // allowing an extra microsecond here allows for tests to test fork choice rule without
+        // overwriting the genesis timestamp by creating blocks with timestamps within the next
+        // microsecond from the time the tests starts
+        // TODO (#1846): this 1us needs to be removed
+        let weight = if prev_timestamp <= now + 1000 {
+            weight_and_score.weight
+        } else {
+            (weight_and_score
+                .weight
+                .to_num()
+                .saturating_sub((prev_timestamp - now - 1000) as u128 * WEIGHT_MULTIPLIER / 2))
+            .into()
+        };
+        WeightAndScore { weight, score }
+    }
+
+    /// Update the header head if this header has most weight.
     fn update_header_head_if_not_challenged(
         &mut self,
         header: &BlockHeader,
+        prev_timestamp: u64,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.inner_rest.weight_and_score() > header_head.weight_and_score {
-            let tip = Tip::from_header(header);
+        let now = to_timestamp(Utc::now());
+        if self.adjust_weight(&header.inner_rest.weight_and_score(), prev_timestamp, now)
+            > self.adjust_weight(&header_head.weight_and_score, prev_timestamp, now)
+        {
+            let tip = Tip::from_header_and_prev_timestamp(header, prev_timestamp);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
 
@@ -2760,16 +2866,21 @@ impl<'a> ChainUpdate<'a> {
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where we've just added enough weight to have a fork with more
     /// work than the head.
-    fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn update_head(&mut self, block: &Block, prev_timestamp: u64) -> Result<Option<Tip>, Error> {
         // if we made a fork with more weight than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.inner_rest.weight_and_score() > head.weight_and_score {
-            let tip = Tip::from_header(&block.header);
+        let now = to_timestamp(Utc::now());
+        let new_adjusted_weight =
+            self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now);
+        let head_adjusted_weight =
+            self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now);
+        if new_adjusted_weight > head_adjusted_weight {
+            let tip = Tip::from_header_and_prev_timestamp(&block.header, prev_timestamp);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.height, new_adjusted_weight, head_adjusted_weight);
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -2777,8 +2888,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Updates "sync" head with given block header.
-    fn update_sync_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let tip = Tip::from_header(header);
+    fn update_sync_head(&mut self, header: &BlockHeader, prev_timestamp: u64) -> Result<(), Error> {
+        let tip = Tip::from_header_and_prev_timestamp(header, prev_timestamp);
         self.chain_store_update.save_sync_head(&tip);
         debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
         Ok(())
@@ -2837,7 +2948,13 @@ impl<'a> ChainUpdate<'a> {
                 &prev_header
             };
 
-            let tip = Tip::from_header(new_head_header);
+            let new_head_header = new_head_header.clone();
+            let prev_timestamp = self
+                .chain_store_update
+                .get_block_header(&new_head_header.prev_hash)?
+                .inner_lite
+                .timestamp;
+            let tip = Tip::from_header_and_prev_timestamp(&new_head_header, prev_timestamp);
             self.chain_store_update.save_head(&tip)?;
         }
 
@@ -3074,17 +3191,22 @@ impl<'a> ChainUpdate<'a> {
                 self.transaction_validity_period,
             ) {
                 Ok((hash, account_ids)) => {
-                    match challenge.body {
+                    let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.
-                        ChallengeBody::BlockDoubleSign(_) => {}
+                        ChallengeBody::BlockDoubleSign(_) => true,
                         _ => {
                             self.mark_block_as_challenged(&hash, block_hash)?;
+                            false
                         }
-                    }
-                    result.extend(account_ids);
+                    };
+                    let slash_validators: Vec<_> = account_ids
+                        .into_iter()
+                        .map(|id| SlashedValidator::new(id, is_double_sign))
+                        .collect();
+                    result.extend(slash_validators);
                 }
                 Err(ref err) if err.kind() == ErrorKind::MaliciousChallenge => {
-                    result.push(challenge.account_id.clone());
+                    result.push(SlashedValidator::new(challenge.account_id.clone(), false));
                 }
                 Err(err) => return Err(err),
             }

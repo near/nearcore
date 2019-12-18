@@ -146,15 +146,33 @@ pub struct AccessKeyInfoView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct AccessKeyList {
+    pub keys: Vec<AccessKeyInfoView>,
+}
+
+impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
+    fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
+        Self { keys: iter.into_iter().collect() }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(untagged)]
-pub enum QueryResponse {
+pub enum QueryResponseKind {
     ViewAccount(AccountView),
     ViewState(ViewStateResult),
     CallResult(CallResult),
     Error(QueryError),
-    AccessKey(Option<AccessKeyView>),
-    AccessKeyList(Vec<AccessKeyInfoView>),
+    AccessKey(AccessKeyView),
+    AccessKeyList(AccessKeyList),
     Validators(EpochValidatorInfo),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct QueryResponse {
+    #[serde(flatten)]
+    pub kind: QueryResponseKind,
+    pub block_height: BlockIndex,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -192,8 +210,8 @@ impl TryFrom<QueryResponse> for AccountView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewAccount(acc) => Ok(acc),
+        match query_response.kind {
+            QueryResponseKind::ViewAccount(acc) => Ok(acc),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -203,19 +221,19 @@ impl TryFrom<QueryResponse> for ViewStateResult {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::ViewState(vs) => Ok(vs),
+        match query_response.kind {
+            QueryResponseKind::ViewState(vs) => Ok(vs),
             _ => Err("Invalid type of response".into()),
         }
     }
 }
 
-impl TryFrom<QueryResponse> for Option<AccessKeyView> {
+impl TryFrom<QueryResponse> for AccessKeyView {
     type Error = String;
 
     fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
-        match query_response {
-            QueryResponse::AccessKey(access_key) => Ok(access_key),
+        match query_response.kind {
+            QueryResponseKind::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -989,6 +1007,10 @@ pub struct EpochValidatorInfo {
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStakeView>,
+    /// Fishermen for the current epoch
+    pub current_fishermen: Vec<ValidatorStakeView>,
+    /// Fishermen for the next epoch
+    pub next_fishermen: Vec<ValidatorStakeView>,
     /// Proposals in the current epoch
     pub current_proposals: Vec<ValidatorStakeView>,
 }
@@ -1019,4 +1041,10 @@ pub struct LightClientBlockView {
     pub qv_approvals: Vec<Option<LightClientApprovalView>>,
     pub qc_approvals: Vec<Option<LightClientApprovalView>>,
     pub prev_hash: CryptoHash,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GasPriceView {
+    #[serde(with = "u128_dec_format")]
+    pub gas_price: Balance,
 }

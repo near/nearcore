@@ -4,14 +4,16 @@ use actix::{Actor, System};
 use futures::future;
 use futures::future::Future;
 
-use near_crypto::Signature;
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::{BlockId, ChunkId};
 use near_network::test_utils::WaitOrTimeout;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::ShardId;
+use near_primitives::views::QueryResponseKind;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -114,20 +116,102 @@ fn test_chunk_by_hash() {
     .unwrap();
 }
 
-/// Connect to json rpc and query the client.
+/// Connect to json rpc and query account info.
 #[test]
-fn test_query() {
+fn test_query_account() {
     init_test_logger();
 
     System::run(|| {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(|res| {
-            assert!(res.is_ok());
-            System::current().stop();
-            future::result(Ok(()))
-        }));
+        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let account_info =
+                    if let QueryResponseKind::ViewAccount(account) = query_response.kind {
+                        account
+                    } else {
+                        panic!(
+                            "queried account, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
+                assert_eq!(account_info.amount, 0);
+                assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+                assert_eq!(account_info.locked, 0);
+                assert_eq!(account_info.storage_paid_at, 0);
+                assert_eq!(account_info.storage_usage, 0);
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
+    })
+    .unwrap();
+}
+
+/// Connect to json rpc and query account info.
+#[test]
+fn test_query_access_keys() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.query("access_key/test".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let access_keys =
+                    if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind {
+                        access_keys
+                    } else {
+                        panic!(
+                            "queried access keys, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
+                assert_eq!(access_keys.keys.len(), 1);
+                assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
+                assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
+    })
+    .unwrap();
+}
+
+/// Connect to json rpc and query account info.
+#[test]
+fn test_query_access_key() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.query("access_key/test/xxx".to_string(), "".to_string()).then(
+            |query_response| {
+                let query_response = query_response.unwrap();
+                assert_eq!(query_response.block_height, 0);
+                let access_key =
+                    if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
+                        access_keys
+                    } else {
+                        panic!(
+                            "queried access keys, but received something else: {:?}",
+                            query_response.kind
+                        );
+                    };
+                assert_eq!(access_key.nonce, 0);
+                assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
+                System::current().stop();
+                future::result(Ok(()))
+            },
+        ));
     })
     .unwrap();
 }
@@ -232,6 +316,67 @@ fn test_health_ok() {
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.health().then(|res| {
             assert!(res.is_ok());
+            System::current().stop();
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve gas price
+#[test]
+fn test_gas_price_by_height() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.gas_price(Some(BlockId::Height(0))).then(|res| {
+            let gas_price = res.unwrap().gas_price;
+            assert!(gas_price > 0);
+            System::current().stop();
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve gas price
+#[test]
+fn test_gas_price_by_hash() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.block(BlockId::Height(0)).then(move |res| {
+            let res = res.unwrap();
+            let mut client = new_client(&format!("http://{}", addr));
+            client.gas_price(Some(BlockId::Hash(res.header.hash))).then(move |res| {
+                let gas_price = res.unwrap().gas_price;
+                assert!(gas_price > 0);
+                System::current().stop();
+                future::ok(())
+            })
+        }));
+    })
+    .unwrap();
+}
+
+/// Retrieve gas price
+#[test]
+fn test_gas_price() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.gas_price(None).then(|res| {
+            let gas_price = res.unwrap().gas_price;
+            assert!(gas_price > 0);
             System::current().stop();
             future::result(Ok(()))
         }));

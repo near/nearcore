@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use borsh::BorshSerialize;
 
-use near::GenesisConfig;
+use near::config::FISHERMEN_THRESHOLD;
+use near::{GenesisConfig, NightshadeRuntime};
+use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, Error, ErrorKind, Provenance, RuntimeAdapter,
@@ -46,10 +48,13 @@ fn test_verify_block_double_sign_challenge() {
         b1.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
+        0,
         None,
         vec![],
         vec![],
         &signer,
+        1,
+        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -154,6 +159,7 @@ fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
@@ -213,10 +219,13 @@ fn create_chunk(
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
+        0,
         None,
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
+        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
+        1,
         0.into(),
         last_block.header.prev_hash,
         CryptoHash::default(),
@@ -439,6 +448,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
+    let prev_timestamp = env.clients[0].chain.head().unwrap().prev_timestamp;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
@@ -486,11 +496,14 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
         0,
+        0,
         None,
         vec![],
         vec![],
         &signer,
-        0.into(),
+        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
+        1,
+        prev_to_last_block.header.inner_rest.total_weight,
         last_block.header.prev_hash,
         prev_to_last_block.header.prev_hash,
         last_block.header.inner_lite.next_bp_hash,
@@ -511,7 +524,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &empty_block_pool,
             validity_period,
             epoch_length,
-            0,
+            &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
         );
 
         chain_update
@@ -669,6 +682,67 @@ fn test_block_challenge() {
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
     assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges, vec![challenge]);
+    assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
+}
+
+/// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
+/// a validator cannot.
+#[test]
+fn test_fishermen_challenge() {
+    init_test_logger();
+    let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
+    genesis_config.epoch_length = 5;
+    let create_runtime = || -> Arc<NightshadeRuntime> {
+        Arc::new(near::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            genesis_config.clone(),
+            vec![],
+            vec![],
+        ))
+    };
+    let runtime1 = create_runtime();
+    let runtime2 = create_runtime();
+    let runtime3 = create_runtime();
+    let mut env =
+        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let genesis_hash = env.clients[0].chain.genesis().hash();
+    let stake_transaction = SignedTransaction::stake(
+        1,
+        "test1".to_string(),
+        &signer,
+        FISHERMEN_THRESHOLD,
+        env.clients[1].block_producer.as_ref().unwrap().signer.public_key(),
+        genesis_hash,
+    );
+    env.clients[0].process_tx(stake_transaction);
+    for i in 1..=11 {
+        env.produce_block(0, i);
+    }
+
+    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+
+    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+    let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
+        block_header: block.header.try_to_vec().unwrap(),
+        chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
+        merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
+    });
+    let challenge = Challenge::produce(
+        challenge_body.clone(),
+        env.clients[1].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[1].block_producer.as_ref().unwrap().signer,
+    );
+    let challenge1 = Challenge::produce(
+        challenge_body,
+        env.clients[2].block_producer.as_ref().unwrap().account_id.clone(),
+        &*env.clients[2].block_producer.as_ref().unwrap().signer,
+    );
+    assert!(env.clients[0].process_challenge(challenge1).is_err());
+    env.clients[0].process_challenge(challenge.clone()).unwrap();
+    env.produce_block(0, 12);
+    assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }
 

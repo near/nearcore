@@ -11,7 +11,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::{FinalExecutionStatus, QueryResponse};
+use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
 use testlib::{genesis_block, start_nodes};
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
@@ -310,8 +310,8 @@ fn test_rpc_routing() {
                                 .map_err(|err| {
                                     println!("Error retrieving account: {:?}", err);
                                 })
-                                .map(move |result| match result {
-                                    QueryResponse::ViewAccount(account_view) => {
+                                .map(move |result| match result.kind {
+                                    QueryResponseKind::ViewAccount(account_view) => {
                                         assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
                                         System::current().stop();
                                     }

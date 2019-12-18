@@ -86,8 +86,8 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasure account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
-    /// Accounts to slash.
-    pub slashed_accounts: HashSet<AccountId>,
+    /// Accounts to slash and the slashed amount (None means everything)
+    pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
 #[derive(Debug)]
@@ -863,7 +863,7 @@ impl Runtime {
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
                 // If not, then we will postpone this receipt for later.
-                let mut pending_data_count = 0;
+                let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
                     if get_received_data(state_update, account_id, data_id)?.is_none() {
                         pending_data_count += 1;
@@ -910,6 +910,7 @@ impl Runtime {
     /// Iterates over the validators in the current shard and updates their accounts to return stake
     /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
     /// shard.
+    // TODO(#1461): Add Safe Math
     fn update_validator_accounts(
         &self,
         state_update: &mut TrieUpdate,
@@ -945,10 +946,13 @@ impl Runtime {
             }
         }
 
-        for account_id in validator_accounts_update.slashed_accounts.iter() {
+        for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
             if let Some(mut account) = get_account(state_update, &account_id)? {
-                stats.total_balance_slashed += account.locked;
-                account.locked = 0;
+                let amount_to_slash = stake.unwrap_or(account.locked);
+                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked, account_id);
+                assert!(account.locked >= amount_to_slash, "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}", account.locked, amount_to_slash);
+                stats.total_balance_slashed += amount_to_slash;
+                account.locked -= amount_to_slash;
                 set_account(state_update, &account_id, &account);
             }
         }
@@ -1112,6 +1116,7 @@ impl Runtime {
         })
     }
 
+    // TODO(#1461): Add safe math
     pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
         let config = &self.config.transaction_costs.storage_usage_config;
@@ -1351,7 +1356,7 @@ mod tests {
             validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
             last_proposals: Default::default(),
             protocol_treasury_account_id: None,
-            slashed_accounts: HashSet::default(),
+            slashing_info: HashMap::default(),
         };
 
         runtime

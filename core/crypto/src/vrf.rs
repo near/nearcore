@@ -328,12 +328,12 @@ traits_v!(Proof, 64);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dalek_rand::rngs::OsRng;
+    use rand::rngs::OsRng;
     use serde_json::{from_str, to_string};
 
     #[test]
     fn test_conversion() {
-        let sk = SecretKey::random(&mut OsRng::new().unwrap());
+        let sk = SecretKey::random(&mut OsRng::default());
         let sk2 = SecretKey::from_bytes(&sk.into()).unwrap();
         assert_eq!(sk, sk2);
         let pk = sk.public_key();
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let sk = SecretKey::random(&mut OsRng::new().unwrap());
+        let sk = SecretKey::random(&mut OsRng::default());
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn test_different_keys() {
-        let sk = SecretKey::random(&mut OsRng::new().unwrap());
-        let sk2 = SecretKey::random(&mut OsRng::new().unwrap());
+        let sk = SecretKey::random(&mut OsRng::default());
+        let sk2 = SecretKey::random(&mut OsRng::default());
         assert_ne!(sk, sk2);
         assert_ne!(Into::<[u8; 32]>::into(sk), Into::<[u8; 32]>::into(sk2));
         let pk = sk.public_key();
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let sk = SecretKey::random(&mut OsRng::new().unwrap());
+        let sk = SecretKey::random(&mut OsRng::default());
         let sk2 = round_trip(&sk);
         assert_eq!(sk, sk2);
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");

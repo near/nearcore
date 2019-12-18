@@ -3,6 +3,7 @@ use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
@@ -24,11 +25,13 @@ pub struct EpochConfig {
     /// Number of block producers per each shard.
     pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per each shard.
-    pub avg_fisherman_per_shard: Vec<ValidatorId>,
-    /// Criterion for kicking out block producers
+    pub avg_hidden_validators_per_shard: Vec<ValidatorId>,
+    /// Criterion for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers
+    /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Stake threshold for becoming a fisherman.
+    pub fishermen_threshold: Balance,
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -46,7 +49,11 @@ pub struct EpochInfo {
     /// Per each shard, ids and seats of validators that are responsible.
     pub chunk_producers: Vec<Vec<ValidatorId>>,
     /// Weight of given validator used to determine how many shards they will validate.
-    pub fishermen: Vec<ValidatorWeight>,
+    pub hidden_validators: Vec<ValidatorWeight>,
+    /// List of current fishermen.
+    pub fishermen: Vec<ValidatorStake>,
+    /// Fisherman account id to index of proposal.
+    pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
     /// Validator reward for the epoch
@@ -67,7 +74,7 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
-    pub slashed: HashSet<AccountId>,
+    pub slashed: HashMap<AccountId, SlashState>,
     /// Total rent paid in this block.
     pub rent_paid: Balance,
     /// Total validator reward in this block.
@@ -87,7 +94,7 @@ impl BlockInfo {
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
-        slashed: HashSet<AccountId>,
+        slashed: Vec<SlashedValidator>,
         rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
@@ -98,7 +105,14 @@ impl BlockInfo {
             prev_hash,
             proposals,
             chunk_mask: validator_mask,
-            slashed,
+            slashed: slashed
+                .into_iter()
+                .map(|s| {
+                    let slash_state =
+                        if s.is_double_sign { SlashState::DoubleSign } else { SlashState::Other };
+                    (s.account_id, slash_state)
+                })
+                .collect(),
             rent_paid,
             validator_reward,
             total_supply,
@@ -218,4 +232,15 @@ pub struct EpochSummary {
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
+}
+
+/// State that a slashed validator can be in.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum SlashState {
+    /// Double Sign, will be partially slashed.
+    DoubleSign,
+    /// Malicious behavior but is already slashed (tokens taken away from account).
+    AlreadySlashed,
+    /// All other cases (tokens should be entirely slashed),
+    Other,
 }

@@ -348,8 +348,6 @@ impl Peer {
         near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
-        let mut msg_hash = None;
-
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
@@ -385,7 +383,7 @@ impl Peer {
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
-                msg_hash = Some(routed_message.hash());
+                let msg_hash = routed_message.hash();
 
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(approval) => {
@@ -400,17 +398,14 @@ impl Peer {
                             hash,
                             need_header,
                             parts,
-                            msg_hash.clone().unwrap(),
+                            msg_hash,
                         )
                     }
                     RoutedMessageBody::StateResponse(info) => {
                         NetworkClientMessages::StateResponse(info)
                     }
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                        NetworkClientMessages::PartialEncodedChunkRequest(
-                            request,
-                            msg_hash.clone().unwrap(),
-                        )
+                        NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk)

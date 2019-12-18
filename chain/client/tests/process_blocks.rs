@@ -147,10 +147,13 @@ fn receive_network_block() {
                 },
                 vec![],
                 0,
+                0,
                 None,
                 vec![],
                 vec![],
                 &signer,
+                1,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -208,10 +211,13 @@ fn receive_network_block_header() {
                 },
                 vec![],
                 0,
+                0,
                 None,
                 vec![],
                 vec![],
                 &signer,
+                1,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -278,10 +284,13 @@ fn produce_block_with_approvals() {
                 },
                 vec![],
                 0,
+                0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer1,
+                1,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -345,10 +354,13 @@ fn invalid_blocks() {
                 },
                 vec![],
                 0,
+                0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                1,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -373,10 +385,13 @@ fn invalid_blocks() {
                 },
                 vec![],
                 0,
+                0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                (block.header.inner_lite.timestamp - last_block.header.timestamp) as u128,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -396,10 +411,13 @@ fn invalid_blocks() {
                 },
                 vec![],
                 0,
+                0,
                 Some(0),
                 vec![],
                 vec![],
                 &signer,
+                1,
+                1,
                 0.into(),
                 CryptoHash::default(),
                 CryptoHash::default(),
@@ -643,7 +661,8 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let chain_genesis = ChainGenesis::test();
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = 100;
     let mut client = setup_client(
         store,
         vec![vec!["test1"]],
@@ -686,4 +705,18 @@ fn test_invalid_block_height() {
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
     }
+}
+
+#[test]
+fn test_minimum_gas_price() {
+    let min_gas_price = 100;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.min_gas_price = min_gas_price;
+    chain_genesis.gas_price_adjustment_rate = 10;
+    let mut env = TestEnv::new(chain_genesis, 1, 1);
+    for i in 1..=100 {
+        env.produce_block(0, i);
+    }
+    let block = env.clients[0].chain.get_block_by_height(100).unwrap();
+    assert!(block.header.inner_rest.gas_price >= min_gas_price);
 }

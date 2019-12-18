@@ -4,11 +4,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
-use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 
+pub use db::DBCol::{self, *};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -22,16 +22,16 @@ use near_primitives::utils::{
     key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 
+use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
-    update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
+    update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 mod db;
 pub mod test_utils;
 mod trie;
-
-pub use db::DBCol::{self, *};
 
 pub struct Store {
     storage: Arc<dyn Database>,

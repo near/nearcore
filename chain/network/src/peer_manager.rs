@@ -167,7 +167,7 @@ impl PeerManagerActor {
             },
         );
 
-        assert!(self.process_edge(ctx, new_edge.clone()));
+        self.process_edge(ctx, new_edge.clone());
 
         // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
         //  are sent during handshake.
@@ -284,7 +284,7 @@ impl PeerManagerActor {
     /// Returns single random peer with the most weight.
     fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
         // This finds max of weight and height and returns such height.
-        let height_with_max_weight = match self
+        let max_weight_and_score = match self
             .active_peers
             .values()
             .map(|active_peers| {
@@ -295,20 +295,20 @@ impl PeerManagerActor {
             })
             .max()
         {
-            Some((_, height)) => height,
+            Some((weight_and_score, _)) => weight_and_score,
             None => return vec![],
         };
         // Find all peers whose height is within `most_weighted_peer_height_horizon` from max weight peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if active_peer.full_peer_info.chain_info.height
-                    >= height_with_max_weight
-                        .saturating_sub(self.config.most_weighted_peer_height_horizon)
-                {
-                    Some(active_peer.full_peer_info.clone())
-                } else {
+                if max_weight_and_score.beyond_threshold(
+                    &active_peer.full_peer_info.chain_info.weight_and_score,
+                    self.config.most_weighted_peer_horizon,
+                ) {
                     None
+                } else {
+                    Some(active_peer.full_peer_info.clone())
                 }
             })
             .collect::<Vec<_>>()
@@ -754,12 +754,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, need_header, parts, target } => {
+            NetworkRequests::StateRequest { shard_id, sync_hash, need_header, parts, target } => {
                 match target {
                     AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
                         ctx,
                         &account_id,
-                        RoutedMessageBody::StateRequest(shard_id, hash, need_header, parts),
+                        RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts),
                     ),
                     peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
                     | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
@@ -768,7 +768,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                             target: peer_or_hash,
                             body: RoutedMessageBody::StateRequest(
                                 shard_id,
-                                hash,
+                                sync_hash,
                                 need_header,
                                 parts,
                             ),
