@@ -116,6 +116,7 @@ impl TrieViewer {
                 block_index,
                 block_timestamp,
                 account_balance: account.amount,
+                account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
                 attached_deposit: 0,
                 prepaid_gas: 0,

@@ -29,6 +29,8 @@ pub struct VMContext {
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
     pub account_balance: Balance,
+    /// The balance of locked tokens on the given account.
+    pub account_locked_balance: Balance,
     /// The account's storage usage before the contract execution
     pub storage_usage: StorageUsage,
     /// The balance that was attached to the call that will be immediately deposited before the

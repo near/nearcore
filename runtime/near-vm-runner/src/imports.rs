@@ -59,6 +59,7 @@ wrapped_imports! {
     // # Economics API #
     // #################
     account_balance<[balance_ptr: u64] -> []>,
+    account_locked_balance<[balance_ptr: u64] -> []>,
     attached_deposit<[balance_ptr: u64] -> []>,
     prepaid_gas<[] -> [u64]>,
     used_gas<[] -> [u64]>,
