@@ -668,7 +668,9 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default,
+)]
 pub struct ExecutionErrorView {
     pub error_message: String,
     pub error_type: String,
@@ -676,84 +678,74 @@ pub struct ExecutionErrorView {
 
 impl From<ExecutionError> for ExecutionErrorView {
     fn from(error: ExecutionError) -> Self {
-        ExecutionErrorView {
-            error_message: format!("{}", error),
-            error_type: match &error {
-                ExecutionError::Action(e) => match e {
-                    ActionError::AccountAlreadyExists(_) => {
-                        "ActionError::AccountAlreadyExists".to_string()
-                    }
-                    ActionError::AccountDoesNotExist(_, _) => {
-                        "ActionError::AccountDoesNotExist".to_string()
-                    }
-                    ActionError::CreateAccountNotAllowed(_, _) => {
-                        "ActionError::CreateAccountNotAllowed".to_string()
-                    }
-                    ActionError::ActorNoPermission(_, _, _) => {
-                        "ActionError::ActorNoPermission".to_string()
-                    }
-                    ActionError::DeleteKeyDoesNotExist(_) => {
-                        "ActionError::DeleteKeyDoesNotExist".to_string()
-                    }
-                    ActionError::AddKeyAlreadyExists(_) => {
-                        "ActionError::AddKeyAlreadyExists".to_string()
-                    }
-                    ActionError::DeleteAccountStaking(_) => {
-                        "ActionError::DeleteAccountStaking".to_string()
-                    }
-                    ActionError::DeleteAccountHasRent(_, _) => {
-                        "ActionError::DeleteAccountHasRent".to_string()
-                    }
-                    ActionError::RentUnpaid(_, _) => "ActionError::RentUnpaid".to_string(),
-                    ActionError::TriesToUnstake(_) => "ActionError::TriesToUnstake".to_string(),
-                    ActionError::TriesToStake(_, _, _, _) => {
-                        "ActionError::TriesToStake".to_string()
-                    }
-                    ActionError::FunctionCallError(_) => {
-                        "ActionError::FunctionCallError".to_string()
-                    }
-                },
-                ExecutionError::InvalidTx(e) => match e {
-                    InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),
-                    InvalidTxError::SignerDoesNotExist(_) => {
-                        "InvalidTxError::SignerDoesNotExist".to_string()
-                    }
-                    InvalidTxError::InvalidAccessKey(e) => match e {
-                        InvalidAccessKeyError::AccessKeyNotFound(_, _) => {
-                            "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
-                        }
-                        InvalidAccessKeyError::ReceiverMismatch(_, _) => {
-                            "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
-                        }
-                        InvalidAccessKeyError::MethodNameMismatch(_) => {
-                            "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
-                        }
-                        InvalidAccessKeyError::ActionError => {
-                            "InvalidTxError::InvalidAccessKey::ActionError".to_string()
-                        }
-                        InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
-                            "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
-                        }
-                    },
-                    InvalidTxError::InvalidNonce(_, _) => {
-                        "InvalidTxError::InvalidNonce".to_string()
-                    }
-                    InvalidTxError::InvalidReceiver(_) => {
-                        "InvalidTxError::InvalidReceiver".to_string()
-                    }
-                    InvalidTxError::InvalidSignature => {
-                        "InvalidTxError::InvalidSignature".to_string()
-                    }
-                    InvalidTxError::NotEnoughBalance(_, _, _) => {
-                        "InvalidTxError::NotEnoughBalance".to_string()
-                    }
-                    InvalidTxError::RentUnpaid(_, _) => "InvalidTxError::RentUnpaid".to_string(),
-                    InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
-                    InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
-                    InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
-                },
+        let error_type = match &error {
+            ExecutionError::Action(e) => match e {
+                ActionError::AccountAlreadyExists { .. } => {
+                    "ActionError::AccountAlreadyExists".to_string()
+                }
+                ActionError::AccountDoesNotExist { .. } => {
+                    "ActionError::AccountDoesNotExist".to_string()
+                }
+                ActionError::CreateAccountNotAllowed { .. } => {
+                    "ActionError::CreateAccountNotAllowed".to_string()
+                }
+                ActionError::ActorNoPermission { .. } => {
+                    "ActionError::ActorNoPermission".to_string()
+                }
+                ActionError::DeleteKeyDoesNotExist { .. } => {
+                    "ActionError::DeleteKeyDoesNotExist".to_string()
+                }
+                ActionError::AddKeyAlreadyExists { .. } => {
+                    "ActionError::AddKeyAlreadyExists".to_string()
+                }
+                ActionError::DeleteAccountStaking { .. } => {
+                    "ActionError::DeleteAccountStaking".to_string()
+                }
+                ActionError::DeleteAccountHasRent { .. } => {
+                    "ActionError::DeleteAccountHasRent".to_string()
+                }
+                ActionError::RentUnpaid { .. } => "ActionError::RentUnpaid".to_string(),
+                ActionError::TriesToUnstake { .. } => "ActionError::TriesToUnstake".to_string(),
+                ActionError::TriesToStake { .. } => "ActionError::TriesToStake".to_string(),
+                ActionError::FunctionCall { .. } => "ActionError::FunctionCall".to_string(),
             },
-        }
+            ExecutionError::InvalidTx(e) => match e {
+                InvalidTxError::InvalidSigner { .. } => "InvalidTxError::InvalidSigner".to_string(),
+                InvalidTxError::SignerDoesNotExist { .. } => {
+                    "InvalidTxError::SignerDoesNotExist".to_string()
+                }
+                InvalidTxError::InvalidAccessKey(e) => match e {
+                    InvalidAccessKeyError::AccessKeyNotFound { .. } => {
+                        "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
+                    }
+                    InvalidAccessKeyError::ReceiverMismatch { .. } => {
+                        "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
+                    }
+                    InvalidAccessKeyError::MethodNameMismatch { .. } => {
+                        "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
+                    }
+                    InvalidAccessKeyError::ActionError => {
+                        "InvalidTxError::InvalidAccessKey::ActionError".to_string()
+                    }
+                    InvalidAccessKeyError::NotEnoughAllowance { .. } => {
+                        "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
+                    }
+                },
+                InvalidTxError::InvalidNonce { .. } => "InvalidTxError::InvalidNonce".to_string(),
+                InvalidTxError::InvalidReceiver { .. } => {
+                    "InvalidTxError::InvalidReceiver".to_string()
+                }
+                InvalidTxError::InvalidSignature => "InvalidTxError::InvalidSignature".to_string(),
+                InvalidTxError::NotEnoughBalance { .. } => {
+                    "InvalidTxError::NotEnoughBalance".to_string()
+                }
+                InvalidTxError::RentUnpaid { .. } => "InvalidTxError::RentUnpaid".to_string(),
+                InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
+                InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
+                InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
+            },
+        };
+        ExecutionErrorView { error_message: format!("{}", error), error_type }
     }
 }
 

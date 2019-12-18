@@ -216,10 +216,13 @@ impl Runtime {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
-            return Err(InvalidTxError::InvalidSigner(signer_id.clone()).into());
+            return Err(InvalidTxError::InvalidSigner { signer_id: signer_id.clone() }.into());
         }
         if !is_valid_account_id(&transaction.receiver_id) {
-            return Err(InvalidTxError::InvalidReceiver(transaction.receiver_id.clone()).into());
+            return Err(InvalidTxError::InvalidReceiver {
+                receiver_id: transaction.receiver_id.clone(),
+            }
+            .into());
         }
 
         if !signed_transaction
@@ -231,7 +234,9 @@ impl Runtime {
         let mut signer = match get_account(state_update, signer_id)? {
             Some(signer) => signer,
             None => {
-                return Err(InvalidTxError::SignerDoesNotExist(signer_id.clone()).into());
+                return Err(
+                    InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into()
+                );
             }
         };
         let mut access_key =
@@ -239,17 +244,21 @@ impl Runtime {
                 Some(access_key) => access_key,
                 None => {
                     return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::AccessKeyNotFound(
-                            signer_id.clone(),
-                            transaction.public_key.clone(),
-                        ),
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: signer_id.clone(),
+                            public_key: transaction.public_key.clone(),
+                        },
                     )
                     .into());
                 }
             };
 
         if transaction.nonce <= access_key.nonce {
-            return Err(InvalidTxError::InvalidNonce(transaction.nonce, access_key.nonce).into());
+            return Err(InvalidTxError::InvalidNonce {
+                tx_nonce: transaction.nonce,
+                ak_nonce: access_key.nonce,
+            }
+            .into());
         }
 
         let sender_is_receiver = &transaction.receiver_id == signer_id;
@@ -266,7 +275,11 @@ impl Runtime {
         .map_err(|_| InvalidTxError::CostOverflow)?;
 
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
-            InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
+            InvalidTxError::NotEnoughBalance {
+                sender_id: signer_id.clone(),
+                balance: signer.amount,
+                cost: total_cost,
+            }
         })?;
 
         if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
@@ -274,19 +287,19 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance(
-                        signer_id.clone(),
-                        transaction.public_key.clone(),
-                        *allowance,
-                        total_cost,
-                    ))
+                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance {
+                        signer_id: signer_id.clone(),
+                        public_key: transaction.public_key.clone(),
+                        allowed: *allowance,
+                        cost: total_cost,
+                    })
                 })?;
             }
         }
 
         if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
         {
-            return Err(InvalidTxError::RentUnpaid(signer_id.clone(), amount).into());
+            return Err(InvalidTxError::RentUnpaid { account_id: signer_id.clone(), amount }.into());
         }
 
         if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
@@ -300,10 +313,10 @@ impl Runtime {
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
                     return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::ReceiverMismatch(
-                            transaction.receiver_id.clone(),
-                            function_call_permission.receiver_id.clone(),
-                        ),
+                        InvalidAccessKeyError::ReceiverMismatch {
+                            tx_receiver_id: transaction.receiver_id.clone(),
+                            ak_receiver_id: function_call_permission.receiver_id.clone(),
+                        },
                     )
                     .into());
                 }
@@ -314,9 +327,9 @@ impl Runtime {
                         .all(|method_name| &function_call.method_name != method_name)
                 {
                     return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::MethodNameMismatch(
-                            function_call.method_name.clone(),
-                        ),
+                        InvalidAccessKeyError::MethodNameMismatch {
+                            method_name: function_call.method_name.clone(),
+                        },
                     )
                     .into());
                 }
@@ -604,7 +617,10 @@ impl Runtime {
                     check_rent(account_id, account, &self.config, apply_state.epoch_length)
                 {
                     result.merge(ActionResult {
-                        result: Err(ActionError::RentUnpaid(account_id.clone(), amount)),
+                        result: Err(ActionError::RentUnpaid {
+                            receiver_id: account_id.clone(),
+                            amount,
+                        }),
                         ..Default::default()
                     })?;
                 } else {
