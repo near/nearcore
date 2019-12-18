@@ -2,6 +2,7 @@ from transaction import sign_payment_tx
 import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
+import sys
 
 class TxContext:
     def __init__(self, act_to_val, nodes):
@@ -94,6 +95,7 @@ with open('/tmp/python-rc.log') as f:
 
 from pprint import pprint
 
+
 def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
     """
     Query chain block approvals and chunks preceding of block of block_hash.
@@ -101,11 +103,17 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
     It query at most max_blocks, or if it's -1, all blocks back to genesis
     """
     if block_hash is None:
-        status = node.get_status() 
+        status = node.get_status()
         block_hash = status['sync_info']['latest_block_hash']
+
+    initial_validators = node.validators()
 
     if max_blocks == -1:
         while True:
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
             block = node.get_block(block_hash)['result']
             block_handler(block)     
             block_hash = block['header']['prev_hash']
@@ -114,6 +122,10 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
                 break
     else:
         for _ in range(max_blocks):
+            validators = node.validators()
+            if validators != initial_validators:
+                print(f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}')
+                sys.exit(1)
             block = node.get_block(block_hash)['result']
             block_handler(block)
             block_hash = block['header']['prev_hash']

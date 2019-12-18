@@ -108,6 +108,9 @@ class BaseNode(object):
 
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
+    
+    def validators(self):
+        return set(map(lambda v: v['account_id'], self.get_status()['validators']))
 
 
 class RpcNode(BaseNode):
