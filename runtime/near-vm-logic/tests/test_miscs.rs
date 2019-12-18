@@ -57,7 +57,7 @@ fn test_valid_null_terminated_utf8() {
     let mut string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
     string_bytes.push(0u8);
     let bytes_len = string_bytes.len();
-    logic_builder.config.max_log_len = string_bytes.len() as u64;
+    logic_builder.config.limit_config.max_log_len = string_bytes.len() as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
     logic
         .log_utf8(std::u64::MAX, string_bytes.as_ptr() as _)
@@ -84,7 +84,7 @@ fn test_valid_null_terminated_utf8() {
 fn test_log_max_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
-    logic_builder.config.max_log_len = (string_bytes.len() - 1) as u64;
+    logic_builder.config.limit_config.max_log_len = (string_bytes.len() - 1) as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     assert_eq!(
@@ -105,7 +105,7 @@ fn test_log_max_limit() {
 fn test_log_utf8_max_limit_null_terminated() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
-    logic_builder.config.max_log_len = (string_bytes.len() - 1) as u64;
+    logic_builder.config.limit_config.max_log_len = (string_bytes.len() - 1) as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     string_bytes.push(0u8);
@@ -157,7 +157,7 @@ fn test_valid_log_utf16() {
 #[test]
 fn test_valid_log_utf16_max_log_len_not_even() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.max_log_len = 5;
+    logic_builder.config.limit_config.max_log_len = 5;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let string = "ab";
     let mut utf16_bytes: Vec<u8> = Vec::new();
@@ -193,8 +193,8 @@ fn test_valid_log_utf16_max_log_len_not_even() {
 
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: logic_builder.config.max_log_len/2 + 1,
-        ExtCosts::read_memory_byte: 2*(logic_builder.config.max_log_len/2 + 1),
+        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_log_len/2 + 1,
+        ExtCosts::read_memory_byte: 2*(logic_builder.config.limit_config.max_log_len/2 + 1),
         ExtCosts::utf16_decoding_base: 1,
     });
 }
@@ -204,14 +204,14 @@ fn test_log_utf8_max_limit_null_terminated_fail() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut string_bytes = "abcd".as_bytes().to_vec();
     string_bytes.push(0u8);
-    logic_builder.config.max_log_len = 3;
+    logic_builder.config.limit_config.max_log_len = 3;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let res = logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _);
     assert_eq!(res, Err(HostError::BadUTF8.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: logic_builder.config.max_log_len + 1,
-        ExtCosts::read_memory_byte: logic_builder.config.max_log_len + 1,
+        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_log_len + 1,
+        ExtCosts::read_memory_byte: logic_builder.config.limit_config.max_log_len + 1,
         ExtCosts::utf8_decoding_base: 1,
     });
 }

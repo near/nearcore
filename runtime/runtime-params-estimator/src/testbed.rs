@@ -50,11 +50,11 @@ impl RuntimeTestbed {
         let root = state_roots[0];
 
         let mut runtime_config = RuntimeConfig::default();
-        runtime_config.wasm_config.max_log_len = std::u64::MAX;
-        runtime_config.wasm_config.max_number_registers = std::u64::MAX;
-        runtime_config.wasm_config.max_gas_burnt = std::u64::MAX;
-        runtime_config.wasm_config.max_register_size = std::u64::MAX;
-        runtime_config.wasm_config.max_number_logs = std::u64::MAX;
+        runtime_config.wasm_config.limit_config.max_log_len = std::u64::MAX;
+        runtime_config.wasm_config.limit_config.max_number_registers = std::u64::MAX;
+        runtime_config.wasm_config.limit_config.max_gas_burnt = std::u64::MAX;
+        runtime_config.wasm_config.limit_config.max_register_size = std::u64::MAX;
+        runtime_config.wasm_config.limit_config.max_number_logs = std::u64::MAX;
         let runtime = Runtime::new(runtime_config);
         let prev_receipts = vec![];
 
