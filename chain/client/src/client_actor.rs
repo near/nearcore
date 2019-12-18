@@ -36,6 +36,7 @@ use crate::types::{
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use near_chain::test_utils::format_hash;
 use std::cmp::Ordering;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -914,7 +915,11 @@ impl ClientActor {
 
         if is_syncing {
             if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
-                info!(target: "client", "Sync: synced at weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
+                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, most weight peer: {} @ {:?}",
+                      head.height, head.weight_and_score, format_hash(head.last_block_hash),
+                    full_peer_info.peer_info.id,
+                    full_peer_info.chain_info.height, full_peer_info.chain_info.weight_and_score
+                );
                 is_syncing = false;
             }
         } else {
@@ -927,10 +932,11 @@ impl ClientActor {
             {
                 info!(
                     target: "client",
-                    "Sync: height/weight/score: {}/{}/{}, peer height/weight/score: {}/{}/{}, enabling sync",
+                    "Sync: height/weight/score: {}/{}/{}, peer id/height/weight/score: {}/{}/{}/{}, enabling sync",
                     head.height,
                     head.weight_and_score.weight,
                     head.weight_and_score.score,
+                    full_peer_info.peer_info.id,
                     full_peer_info.chain_info.height,
                     full_peer_info.chain_info.weight_and_score.weight,
                     full_peer_info.chain_info.weight_and_score.score,
@@ -1078,6 +1084,7 @@ impl ClientActor {
                     })
                     .collect();
                 match unwrap_or_run_later!(self.client.state_sync.run(
+                    me,
                     sync_hash,
                     &mut new_shard_sync,
                     &mut self.client.chain,

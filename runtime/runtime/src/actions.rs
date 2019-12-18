@@ -155,6 +155,7 @@ pub(crate) fn action_function_call(
         block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
         account_balance: account.amount,
+        account_locked_balance: account.locked,
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,

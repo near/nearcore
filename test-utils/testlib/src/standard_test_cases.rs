@@ -178,7 +178,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
     assert_eq!(transaction_result.receipts.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-    assert_eq!(transaction_result.receipts[0].outcome.logs[0], "LOG: hello".to_string());
+    assert_eq!(transaction_result.receipts[0].outcome.logs[0], "hello".to_string());
 }
 
 pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
