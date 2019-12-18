@@ -707,7 +707,7 @@ impl From<ExecutionError> for ExecutionErrorView {
                 ActionError::RentUnpaid { .. } => "ActionError::RentUnpaid".to_string(),
                 ActionError::TriesToUnstake { .. } => "ActionError::TriesToUnstake".to_string(),
                 ActionError::TriesToStake { .. } => "ActionError::TriesToStake".to_string(),
-                ActionError::FunctionCall { .. } => "ActionError::FunctionCall".to_string(),
+                ActionError::FunctionCallError { .. } => "ActionError::FunctionCall".to_string(),
             },
             ExecutionError::InvalidTx(e) => match e {
                 InvalidTxError::InvalidSigner { .. } => "InvalidTxError::InvalidSigner".to_string(),
