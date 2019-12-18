@@ -266,6 +266,7 @@ pub(crate) fn action_create_account(
     account.as_mut().unwrap().storage_usage = fee_config.storage_usage_config.account_cost;
 }
 
+// TODO(#1461): Add Safe Math
 pub(crate) fn action_deploy_contract(
     fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -308,6 +309,7 @@ pub(crate) fn action_delete_account(
     Ok(())
 }
 
+// TODO(#1461): Add Safe Math
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -335,6 +337,7 @@ pub(crate) fn action_delete_key(
     Ok(())
 }
 
+// TODO(#1461): Add Safe Math
 pub(crate) fn action_add_key(
     fees_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
