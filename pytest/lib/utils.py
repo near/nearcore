@@ -91,3 +91,32 @@ with open('/tmp/python-rc.log') as f:
             return ret
         else:
             raise NotImplementedError()
+
+from pprint import pprint
+
+def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
+    """
+    Query chain block approvals and chunks preceding of block of block_hash.
+    If block_hash is None, it query latest block hash
+    It query at most max_blocks, or if it's -1, all blocks back to genesis
+    """
+    if block_hash is None:
+        status = node.get_status() 
+        block_hash = status['sync_info']['latest_block_hash']
+
+    if max_blocks == -1:
+        while True:
+            block = node.get_block(block_hash)['result']
+            block_handler(block)     
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break
+    else:
+        for _ in range(max_blocks):
+            block = node.get_block(block_hash)['result']
+            block_handler(block)
+            block_hash = block['header']['prev_hash']
+            block_height = block['header']['height']
+            if block_height == 0:
+                break

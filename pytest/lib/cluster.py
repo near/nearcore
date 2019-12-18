@@ -109,6 +109,18 @@ class BaseNode(object):
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
 
+
+class RpcNode(BaseNode):
+    """ A running node only interact by rpc queries """
+    def __init__(self, host, rpc_port):
+        super(RpcNode, self).__init__()
+        self.host = host
+        self.rpc_port = rpc_port
+    
+    def rpc_addr(self):
+        return (self.host, self.rpc_port)
+
+
 class LocalNode(BaseNode):
     def __init__(self, port, rpc_port, near_root, node_dir):
         super(LocalNode, self).__init__()
@@ -186,30 +198,43 @@ class BotoNode(BaseNode):
 
 
 class GCloudNode(BaseNode):
-    def __init__(self, instance_name, zone, node_dir, binary):
-        self.instance_name = instance_name
-        self.port = 24567
-        self.rpc_port = 3030
-        self.node_dir = node_dir
-        self.machine = gcloud.create(
-            name=instance_name,
-            machine_type='n1-standard-2',
-            disk_size='50G',
-            image_project='gce-uefi-images',
-            image_family='ubuntu-1804-lts',
-            zone=zone,
-            firewall_allows=['tcp:3030', 'tcp:24567'],
-            min_cpu_platform='Intel Skylake',
-            preemptible=False,
-        )
-        self.ip = self.machine.ip
-        self._upload_config_files(node_dir)
-        self._download_binary(binary)
-        with remote_nodes_lock:
-            global cleanup_remote_nodes_atexit_registered
-            if not cleanup_remote_nodes_atexit_registered:
-                atexit.register(atexit_cleanup_remote)
-                cleanup_remote_nodes_atexit_registered = True
+    def __init__(self, *args):
+        if len(args) == 1:
+            # Get existing instance assume it's ready to run
+            name = args[0]
+            self.instance_name = name
+            self.port = 24567
+            self.rpc_port = 3030
+            self.machine = gcloud.get(name)
+            self.ip = self.machine.ip
+        elif len(args) == 4:
+            # Create new instance from scratch
+            instance_name, zone, node_dir, binary = args
+            self.instance_name = instance_name
+            self.port = 24567
+            self.rpc_port = 3030
+            self.node_dir = node_dir
+            self.machine = gcloud.create(
+                name=instance_name,
+                machine_type='n1-standard-2',
+                disk_size='50G',
+                image_project='gce-uefi-images',
+                image_family='ubuntu-1804-lts',
+                zone=zone,
+                firewall_allows=['tcp:3030', 'tcp:24567'],
+                min_cpu_platform='Intel Skylake',
+                preemptible=False,
+            )
+            self.ip = self.machine.ip
+            self._upload_config_files(node_dir)
+            self._download_binary(binary)
+            with remote_nodes_lock:
+                global cleanup_remote_nodes_atexit_registered
+                if not cleanup_remote_nodes_atexit_registered:
+                    atexit.register(atexit_cleanup_remote)
+                    cleanup_remote_nodes_atexit_registered = True
+        else:
+            raise Exception()
 
 
     def _upload_config_files(self, node_dir):
