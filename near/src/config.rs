@@ -100,7 +100,7 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
 /// Initial gas price.
-pub const INITIAL_GAS_PRICE: Balance = 5000;
+pub const MIN_GAS_PRICE: Balance = 5000;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
