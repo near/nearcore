@@ -625,6 +625,10 @@ impl Client {
         let process_result = self
             .shards_mgr
             .process_partial_encoded_chunk(partial_encoded_chunk.clone(), self.chain.mut_store())?;
+        /*if self.block_producer.as_ref().map(|x| x.account_id.clone()).as_ref().unwrap() == "test1.2"
+        {
+            println!("XXX {:?} {:?}", partial_encoded_chunk.chunk_hash, process_result);
+        }*/
 
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
@@ -633,6 +637,16 @@ impl Client {
             }
             ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
                 self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                Ok(vec![])
+            }
+            ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceiptsForOrphan(
+                ancestor_hash,
+                epoch_id,
+                chunk_header,
+            ) => {
+                self.shards_mgr
+                    .request_chunks_for_orphan(ancestor_hash, epoch_id, vec![chunk_header])
+                    .unwrap();
                 Ok(vec![])
             }
         }

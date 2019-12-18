@@ -4,6 +4,7 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::future;
     use futures::future::Future;
+    use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
     use near_chain::test_utils::account_id_to_shard_id;
     use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
@@ -650,11 +651,16 @@ mod tests {
     }
 
     #[test]
-    fn test_catchup_orphans_under_epoch() {
+    fn test_catchup_orphans_short_epoch() {
         test_catchup_orphans_common(2, 5)
     }
 
-    fn test_catchup_orphans_common(height_hold: u64, height_release: u64) {
+    #[test]
+    fn test_catchup_orphans_long_epoch() {
+        test_catchup_orphans_common(2, 15)
+    }
+
+    fn test_catchup_orphans_common(height_hold: u64, epoch_length: u64) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -695,7 +701,7 @@ mod tests {
                 block_prod_time,
                 false,
                 false,
-                5,
+                epoch_length,
                 Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -748,6 +754,11 @@ mod tests {
                                     return (NetworkResponses::NoResponse, false);
                                 }
                             }
+                            if let NetworkRequests::BlockHeadersRequest {..} = msg {
+                                if from_whom == "test1.2" {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
+                            }
                             if let NetworkRequests::Block { block } = msg {
                                 for chunk in block.chunks.iter() {
                                     add_hash(chunk.hash.clone(), block.header.inner_lite.height);
@@ -757,17 +768,17 @@ mod tests {
                                     block.header.inner_lite.height
                                 );
 
-                                if block.header.inner_lite.height >= height_release {
+                                if block.header.inner_lite.height >= epoch_length {
                                     let chunk_heights = chunk_heights.read().unwrap();
                                     let block_heights = block_heights.read().unwrap();
-                                    for i in 0..height_release + 1 {
+                                    for i in 0..epoch_length + 1 {
                                         println!("BLOCK HEIGHT FOUND = {:?}, CHUNK HEIGHT REQUESTED = {:?}", block_heights.get(&i), chunk_heights.get(&i));
                                     }
-                                    let mut total_requests = 0;
-                                    for i in 2..height_release - 1 {
+                                    let mut total_chunk_requests = 0;
+                                    for i in 2..epoch_length - 1 {
                                         if let Some(_) = block_heights.get(&i) {
                                             if chunk_heights.get(&i).is_some() {
-                                                total_requests += 1;
+                                                total_chunk_requests += 1;
                                             }
                                         }
                                     }
@@ -776,13 +787,16 @@ mod tests {
                                     // total_requests should be greater than 1 because
                                     // requesting chunks for height 2 is trivial
                                     // while for at least another one is not.
-                                    assert!(total_requests > 1);
-                                    assert!(total_requests > height_release - height_hold - 2);
+                                    /*assert!(total_chunk_requests > 1);
+                                    assert!(total_chunk_requests <= NUM_ORPHAN_ANCESTORS_CHECK);
                                     if height_hold == 2 {
-                                        if height_release == 5 {
-                                            assert_eq!(total_requests, 2);
+                                        if epoch_length == 5 {
+                                            assert_eq!(total_chunk_requests, 2);
                                         }
-                                    }
+                                        if epoch_length == 15 {
+                                            assert_eq!(total_chunk_requests, 5);
+                                        }
+                                    }*/
                                     *phase = OrphansPhases::ValidatingOrphans;
                                 } else {
                                     let mut block_heights1 = block_heights.write().unwrap();
@@ -791,22 +805,33 @@ mod tests {
                             }
                         }
                         OrphansPhases::ValidatingOrphans => {
+                            /*if let NetworkRequests::PartialEncodedChunkRequest { request, .. } = msg
+                            {
+                                if from_whom == "test1.2" {
+                                    println!("=== {:?}", request);
+                                }
+                            }
+                            if let NetworkRequests::PartialEncodedChunkResponse { partial_encoded_chunk,.. } = msg
+                            {
+                                println!("%%% {:?}", partial_encoded_chunk.chunk_hash);
+                            }*/
                             if let NetworkRequests::Block { block } = msg {
                                 println!(
                                     "VALIDATING PHASE, HEIGHT = {:?}",
                                     block.header.inner_lite.height
                                 );
-                                assert!(block.header.inner_lite.height >= height_release);
-                                assert!(block.header.inner_lite.height <= height_release + 15);
-                                if block.header.inner_lite.height == height_release + 15 {
+                                assert!(block.header.inner_lite.height >= epoch_length);
+                                assert!(block.header.inner_lite.height <= epoch_length * 6);
+                                if block.header.inner_lite.height == epoch_length * 6 {
                                     let connectors_done = connectors_done.read().unwrap();
                                     for i in 0..16 {
                                         assert!(connectors_done.get(&i).is_some());
                                     }
                                     System::current().stop();
                                 }
-                                if block.header.inner_lite.height >= height_release + 5 {
+                                if block.header.inner_lite.height >= epoch_length * 6 {
                                     for i in 0..16 {
+                                        let x = block.header.inner_lite.height;
                                         let connectors_done1 = connectors_done.clone();
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
@@ -817,7 +842,9 @@ mod tests {
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
-                                                    println!("CHECKING CONNECTOR {:?} {:?}", i, res_inner);
+                                                    if i == 1 {
+                                                        println!("CHECKING HEIGHT {:?} {:?}", x, res_inner);
+                                                    }
                                                     if let Ok(Some(query_response)) = res_inner {
                                                         let mut connectors_done = connectors_done1.write().unwrap();
                                                         if let ViewAccount(view_account_result) =

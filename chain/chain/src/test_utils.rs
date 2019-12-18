@@ -172,14 +172,14 @@ impl KeyValueRuntime {
 
     fn get_prev_height(
         &self,
-        prev_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
     ) -> Result<BlockIndex, Box<dyn std::error::Error>> {
-        if prev_hash == &CryptoHash::default() {
+        if ancestor_hash == &CryptoHash::default() {
             return Ok(0);
         }
         let prev_block_header = self
-            .get_block_header(prev_hash)?
-            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
+            .get_block_header(ancestor_hash)?
+            .ok_or_else(|| format!("Missing block {} when computing the epoch", ancestor_hash))?;
         Ok(prev_block_header.inner_lite.height)
     }
 
@@ -347,15 +347,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.num_shards
     }
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
+    fn num_total_parts(&self, ancestor_hash: &CryptoHash) -> usize {
+        //let height = self.get_prev_height(ancestor_hash).unwrap();
+        //1 + self.num_data_parts(ancestor_hash) * (2 + (height as usize) % 2)
+        20
     }
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
+    fn num_data_parts(&self, ancestor_hash: &CryptoHash) -> usize {
+        //let height = self.get_prev_height(ancestor_hash).unwrap();
         // Test changing number of data parts
-        12 + 2 * ((height as usize) % 4)
+        //12 + 2 * ((height as usize) % 4)
+        10
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {

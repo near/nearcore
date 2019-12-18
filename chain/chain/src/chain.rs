@@ -1075,9 +1075,7 @@ impl Chain {
         F: Copy + FnMut((CryptoHash, EpochId, Vec<ShardChunkHeader>)) -> (),
     {
         let mut orphan_hashes = vec![];
-        for (orphan_hash, orphan) in
-            self.blocks_with_missing_chunks.orphans.iter().chain(self.orphans.orphans.iter())
-        {
+        for (orphan_hash, orphan) in self.orphans.orphans.iter() {
             let mut accepted_ancestor = false;
             let mut accepted_ancestor_hash = CryptoHash::default();
             let mut all_ancestors_known = true;
@@ -1130,12 +1128,7 @@ impl Chain {
             &self.block_economics_config,
         );
         for (ancestor_hash, orphan_hash) in orphan_hashes.into_iter() {
-            let orphan = self
-                .orphans
-                .orphans
-                .get(&orphan_hash)
-                .or(self.blocks_with_missing_chunks.orphans.get(&orphan_hash))
-                .unwrap();
+            let orphan = self.orphans.orphans.get(&orphan_hash).unwrap();
             match chain_update.ping_missing_chunks(me, ancestor_hash, &orphan.block) {
                 Err(e) => match e.kind() {
                     ErrorKind::ChunksMissing(missing) => {

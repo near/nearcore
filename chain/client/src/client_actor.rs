@@ -387,6 +387,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                /*if self
+                    .client
+                    .block_producer
+                    .as_ref()
+                    .map(|x| x.account_id.clone())
+                    .as_ref()
+                    .unwrap()
+                    == "test1.2"
+                {
+                    println!("YYY {:?}", partial_encoded_chunk);
+                }*/
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk(partial_encoded_chunk)
                 {
