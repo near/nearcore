@@ -70,14 +70,14 @@ pub enum ActionError {
     AccountDoesNotExist { action: String, account_id: AccountId },
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
     ActorNoPermission { account_id: AccountId, actor_id: AccountId, action: String },
-    DeleteKeyDoesNotExist { account_id: AccountId },
-    AddKeyAlreadyExists { public_key: PublicKey },
+    DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
+    AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     DeleteAccountStaking { account_id: AccountId },
     DeleteAccountHasRent { account_id: AccountId, balance: Balance },
     RentUnpaid { account_id: AccountId, amount: Balance },
     TriesToUnstake { account_id: AccountId },
     TriesToStake { account_id: AccountId, stake: Balance, locked: Balance, balance: Balance },
-    FunctionCallError(String), // TODO type
+    FunctionCall(String), // TODO type
 }
 
 impl Display for InvalidTxError {
@@ -314,12 +314,12 @@ impl Display for ActionError {
                 "The new account_id {:?} can't be created by {:?}",
                 account_id, predecessor_id
             ),
-            ActionError::DeleteKeyDoesNotExist { account_id } => write!(
+            ActionError::DeleteKeyDoesNotExist { account_id, .. } => write!(
                 f,
                 "Account {:?} tries to remove an access key that doesn't exist",
                 account_id
             ),
-            ActionError::AddKeyAlreadyExists { public_key } => write!(
+            ActionError::AddKeyAlreadyExists { public_key, .. } => write!(
                 f,
                 "The public key {:?} is already used for an existing access key",
                 public_key
@@ -332,7 +332,7 @@ impl Display for ActionError {
                 "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
                 account_id, balance
             ),
-            ActionError::FunctionCallError(s) => write!(f, "{}", s),
+            ActionError::FunctionCall(s) => write!(f, "{}", s),
         }
     }
 }

@@ -276,7 +276,7 @@ impl Runtime {
 
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             InvalidTxError::NotEnoughBalance {
-                sender_id: signer_id.clone(),
+                signer_id: signer_id.clone(),
                 balance: signer.amount,
                 cost: total_cost,
             }
@@ -288,9 +288,9 @@ impl Runtime {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                     InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance {
-                        signer_id: signer_id.clone(),
+                        account_id: signer_id.clone(),
                         public_key: transaction.public_key.clone(),
-                        allowed: *allowance,
+                        allowance: *allowance,
                         cost: total_cost,
                     })
                 })?;
@@ -299,7 +299,7 @@ impl Runtime {
 
         if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
         {
-            return Err(InvalidTxError::RentUnpaid { account_id: signer_id.clone(), amount }.into());
+            return Err(InvalidTxError::RentUnpaid { signer_id: signer_id.clone(), amount }.into());
         }
 
         if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
@@ -314,8 +314,8 @@ impl Runtime {
                 if transaction.receiver_id != function_call_permission.receiver_id {
                     return Err(InvalidTxError::InvalidAccessKey(
                         InvalidAccessKeyError::ReceiverMismatch {
-                            tx_receiver_id: transaction.receiver_id.clone(),
-                            ak_receiver_id: function_call_permission.receiver_id.clone(),
+                            tx_receiver: transaction.receiver_id.clone(),
+                            ak_receiver: function_call_permission.receiver_id.clone(),
                         },
                     )
                     .into());
@@ -618,7 +618,7 @@ impl Runtime {
                 {
                     result.merge(ActionResult {
                         result: Err(ActionError::RentUnpaid {
-                            receiver_id: account_id.clone(),
+                            account_id: account_id.clone(),
                             amount,
                         }),
                         ..Default::default()

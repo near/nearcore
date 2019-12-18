@@ -122,7 +122,7 @@ pub(crate) fn action_function_call(
             let error = VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::CodeDoesNotExist(account_id.clone()),
             ));
-            result.result = Err(ActionError::FunctionCall(error));
+            result.result = Err(ActionError::FunctionCall(error.to_string()));
             return Ok(());
         }
         Err(e) => {
@@ -179,7 +179,7 @@ pub(crate) fn action_function_call(
                 borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
             return Err(err);
         }
-        result.result = Err(ActionError::FunctionCall(err));
+        result.result = Err(ActionError::FunctionCall(err.to_string()));
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
             result.gas_burnt_for_function_call += outcome.burnt_gas;
@@ -215,7 +215,7 @@ pub(crate) fn action_stake(
     if account.amount >= increment {
         if account.locked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
-            result.result = Err(ActionError::TriesToUnstake { receiver_id: account_id.clone() });
+            result.result = Err(ActionError::TriesToUnstake { account_id: account_id.clone() });
             return;
         }
         result.validator_proposals.push(ValidatorStake {
@@ -229,10 +229,10 @@ pub(crate) fn action_stake(
         }
     } else {
         result.result = Err(ActionError::TriesToStake {
-            receiver_id: account_id.clone(),
+            account_id: account_id.clone(),
             stake: stake.stake,
-            staked: account.locked,
-            amount: account.amount,
+            locked: account.locked,
+            balance: account.amount,
         });
     }
 }
@@ -254,8 +254,8 @@ pub(crate) fn action_create_account(
         && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
     {
         result.result = Err(ActionError::CreateAccountNotAllowed {
-            receiver_id: account_id.clone(),
-            sender_id: receipt.predecessor_id.clone(),
+            account_id: account_id.clone(),
+            predecessor_id: receipt.predecessor_id.clone(),
         });
         return;
     }
@@ -319,7 +319,7 @@ pub(crate) fn action_delete_key(
     if access_key.is_none() {
         result.result = Err(ActionError::DeleteKeyDoesNotExist {
             public_key: delete_key.public_key.clone(),
-            receiver_id: account_id.clone(),
+            account_id: account_id.clone(),
         });
         return Ok(());
     }
@@ -347,7 +347,7 @@ pub(crate) fn action_add_key(
     let account = account.as_mut().unwrap();
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
         result.result = Err(ActionError::AddKeyAlreadyExists {
-            receiver_id: account_id.to_owned(),
+            account_id: account_id.to_owned(),
             public_key: add_key.public_key.clone(),
         });
         return Ok(());
@@ -376,15 +376,15 @@ pub(crate) fn check_actor_permissions(
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
             if actor_id != account_id {
                 return Err(ActionError::ActorNoPermission {
-                    sender_id: actor_id.clone(),
-                    receiver_id: account_id.clone(),
+                    account_id: actor_id.clone(),
+                    actor_id: account_id.clone(),
                     action: action_type_as_string(action).to_owned(),
                 });
             }
         }
         Action::DeleteAccount(_) => {
             if account.as_ref().unwrap().locked != 0 {
-                return Err(ActionError::DeleteAccountStaking { receiver_id: account_id.clone() });
+                return Err(ActionError::DeleteAccountStaking { account_id: account_id.clone() });
             }
             if actor_id != account_id
                 && check_rent(
@@ -396,8 +396,8 @@ pub(crate) fn check_actor_permissions(
                 .is_ok()
             {
                 return Err(ActionError::DeleteAccountHasRent {
-                    receiver_id: account_id.clone(),
-                    amount: account.as_ref().unwrap().amount,
+                    account_id: account_id.clone(),
+                    balance: account.as_ref().unwrap().amount,
                 });
             }
         }
@@ -427,7 +427,7 @@ pub(crate) fn check_account_existence(
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
-                return Err(ActionError::AccountAlreadyExists { receiver_id: account_id.clone() });
+                return Err(ActionError::AccountAlreadyExists { account_id: account_id.clone() });
             }
         }
         Action::DeployContract(_)
@@ -440,7 +440,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return Err(ActionError::AccountDoesNotExist {
                     action: action_type_as_string(action).to_owned(),
-                    receiver_id: account_id.clone(),
+                    account_id: account_id.clone(),
                 });
             }
         }
