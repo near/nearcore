@@ -11,7 +11,7 @@ sys.path.append('lib')
 
 from cluster import start_cluster
 
-TIMEOUT = 200
+TIMEOUT = 120
 FIRST_STEP_WAIT = 20
 SECOND_STEP_WAIT = 30
 FINAL_HEIGHT_THRESHOLD = 80
