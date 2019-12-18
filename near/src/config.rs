@@ -128,7 +128,7 @@ pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
 
 /// How much height horizon to give to consider peer up to date.
-pub const MOST_WEIGHTED_PEER_HEIGHT_HORIZON: BlockIndex = 5;
+pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -366,7 +366,7 @@ impl NearConfig {
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
-                most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,
