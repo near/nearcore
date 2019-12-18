@@ -142,9 +142,9 @@ fn test_evil_abort() {
         .unwrap();
     assert_eq!(
         res.status,
-        FinalExecutionStatus::Failure(ActionError::FunctionCallError(VMError::FunctionExecError(
-            FunctionExecError::HostError(HostError::BadUTF16)
-        ))),
+        FinalExecutionStatus::Failure(
+            ActionError::FunctionCall("String encoding is bad UTF-16 sequence.".to_string()).into()
+        ),
         "{:?}",
         res
     );
