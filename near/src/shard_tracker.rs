@@ -290,7 +290,7 @@ mod tests {
                     prev_h,
                     proposals,
                     vec![],
-                    HashSet::default(),
+                    vec![],
                     0,
                     0,
                     DEFAULT_TOTAL_SUPPLY,

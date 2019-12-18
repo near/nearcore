@@ -190,7 +190,7 @@ impl GenesisBuilder {
         let genesis = Block::genesis(
             genesis_chunks.into_iter().map(|chunk| chunk.header).collect(),
             self.config.genesis_time,
-            self.config.gas_price,
+            self.config.min_gas_price,
             self.config.total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
@@ -232,7 +232,10 @@ impl GenesisBuilder {
             );
         }
 
-        let head = Tip::from_header(&genesis.header);
+        let head = Tip::from_header_and_prev_timestamp(
+            &genesis.header,
+            genesis.header.inner_lite.timestamp,
+        );
         store_update.save_head(&head).unwrap();
         store_update.save_sync_head(&head);
         store_update.commit().unwrap();

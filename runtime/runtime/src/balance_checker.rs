@@ -73,7 +73,7 @@ pub(crate) fn check_balance(
             all_accounts_ids.extend(validator_accounts_update.stake_info.keys().cloned());
             all_accounts_ids.extend(validator_accounts_update.validator_rewards.keys().cloned());
             all_accounts_ids.extend(validator_accounts_update.last_proposals.keys().cloned());
-            all_accounts_ids.extend(validator_accounts_update.slashed_accounts.iter().cloned());
+            all_accounts_ids.extend(validator_accounts_update.slashing_info.keys().cloned());
             if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
                 all_accounts_ids.insert(account_id.clone());
             }

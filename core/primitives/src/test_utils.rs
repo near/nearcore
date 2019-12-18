@@ -18,6 +18,8 @@ lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
 }
 
+const TEST_TIME_DELTA: u64 = 20;
+
 pub fn heavy_test<F>(f: F)
 where
     F: FnOnce() -> (),
@@ -145,6 +147,12 @@ impl Block {
             vec![],
             signer,
             next_bp_hash,
+            if prev.header.prev_hash == CryptoHash::default() {
+                0
+            } else {
+                TEST_TIME_DELTA as u128
+            },
+            1,
         )
     }
 
@@ -177,8 +185,10 @@ impl Block {
         approvals: Vec<Approval>,
         signer: &dyn Signer,
         next_bp_hash: CryptoHash,
+        time_delta: u128,
+        weight_delta: u128,
     ) -> Self {
-        Block::produce(
+        let mut ret = Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
@@ -186,14 +196,24 @@ impl Block {
             next_epoch_id,
             approvals,
             0,
+            0,
             Some(0),
             vec![],
             vec![],
             signer,
+            time_delta,
+            weight_delta,
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
             next_bp_hash,
-        )
+        );
+        // Make blocks to be `TEST_TIME_DELTA` apart from each other so that the fork choice rule behaves predictably.
+        // Tests that test the fork choice rule itself (such as `fork_choice.rs`) change the time when
+        // needed on their end.
+        ret.header.inner_lite.timestamp = prev.header.inner_lite.timestamp + TEST_TIME_DELTA;
+        ret.header.init();
+        ret.header.signature = signer.sign(ret.header.hash.as_ref());
+        ret
     }
 }

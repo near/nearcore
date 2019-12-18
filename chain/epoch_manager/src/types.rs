@@ -3,6 +3,7 @@ use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
@@ -73,7 +74,7 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
-    pub slashed: HashSet<AccountId>,
+    pub slashed: HashMap<AccountId, SlashState>,
     /// Total rent paid in this block.
     pub rent_paid: Balance,
     /// Total validator reward in this block.
@@ -93,7 +94,7 @@ impl BlockInfo {
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
-        slashed: HashSet<AccountId>,
+        slashed: Vec<SlashedValidator>,
         rent_paid: Balance,
         validator_reward: Balance,
         total_supply: Balance,
@@ -104,7 +105,14 @@ impl BlockInfo {
             prev_hash,
             proposals,
             chunk_mask: validator_mask,
-            slashed,
+            slashed: slashed
+                .into_iter()
+                .map(|s| {
+                    let slash_state =
+                        if s.is_double_sign { SlashState::DoubleSign } else { SlashState::Other };
+                    (s.account_id, slash_state)
+                })
+                .collect(),
             rent_paid,
             validator_reward,
             total_supply,
@@ -224,4 +232,15 @@ pub struct EpochSummary {
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
+}
+
+/// State that a slashed validator can be in.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum SlashState {
+    /// Double Sign, will be partially slashed.
+    DoubleSign,
+    /// Malicious behavior but is already slashed (tokens taken away from account).
+    AlreadySlashed,
+    /// All other cases (tokens should be entirely slashed),
+    Other,
 }

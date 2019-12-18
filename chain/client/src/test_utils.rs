@@ -455,7 +455,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::StateRequest {
                             shard_id,
-                            hash,
+                            sync_hash,
                             need_header,
                             parts,
                             target: target_account_id,
@@ -472,7 +472,7 @@ pub fn setup_mock_all_validators(
                                             .0
                                             .send(NetworkClientMessages::StateRequest(
                                                 *shard_id,
-                                                *hash,
+                                                *sync_hash,
                                                 *need_header,
                                                 parts.clone(),
                                                 my_address,
@@ -805,7 +805,7 @@ impl TestEnv {
     }
 
     pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
-        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+        let block = self.clients[id].produce_block(height, Duration::from_millis(20)).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }
 

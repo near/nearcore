@@ -776,9 +776,10 @@ pub struct NetworkConfig {
     pub ttl_account_id_router: Duration,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Height horizon for most weighted peers. For example if one peer is 1 block ahead of 100s of others,
+    /// Weight horizon for most weighted peers, measured in stake seconds.
+    /// For example if one peer is 1 stake second away from max weight peer,
     /// we still want to use the rest to query for state/headers/blocks.
-    pub most_weighted_peer_height_horizon: BlockIndex,
+    pub most_weighted_peer_horizon: u128,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
 }
@@ -980,7 +981,7 @@ pub enum NetworkRequests {
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
-        hash: CryptoHash,
+        sync_hash: CryptoHash,
         need_header: bool,
         parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,

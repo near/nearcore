@@ -255,10 +255,10 @@ fn test_transfer_memory() {
 
 #[test]
 fn test_contract_call_disk() {
-    template_test(TransactionType::ContractCall, DataBaseType::Disk, 100);
+    template_test(TransactionType::ContractCall, DataBaseType::Disk, 90);
 }
 
 #[test]
 fn test_contract_call_memory() {
-    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 100);
+    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 90);
 }

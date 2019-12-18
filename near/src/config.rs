@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
+use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
@@ -127,7 +128,7 @@ pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
 
 /// How much height horizon to give to consider peer up to date.
-pub const MOST_WEIGHTED_PEER_HEIGHT_HORIZON: BlockIndex = 5;
+pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -313,6 +314,13 @@ impl NearConfig {
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
+                header_sync_initial_timeout: Duration::from_secs(10),
+                header_sync_progress_timeout: Duration::from_secs(2),
+                header_sync_stall_ban_timeout: Duration::from_secs(40),
+                // weight is measured in WM * ns, so if we expect `k` headers per second
+                // synced, and assuming most headers have most approvals, the value should
+                // be `k * WM * 1B`
+                header_sync_expected_weight_per_second: WEIGHT_MULTIPLIER * 1_000_000_000 * 10,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -358,7 +366,7 @@ impl NearConfig {
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
-                most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,
@@ -420,8 +428,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: Gas,
-    /// Initial gas price.
-    pub gas_price: Balance,
+    /// Minimum gas price. It is also the initial gas price.
+    pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
@@ -468,7 +476,7 @@ impl From<GenesisConfig> for ChainGenesis {
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
-            genesis_config.gas_price,
+            genesis_config.min_gas_price,
             genesis_config.total_supply,
             genesis_config.max_inflation_rate,
             genesis_config.gas_price_adjustment_rate,
@@ -543,7 +551,6 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
-            gas_price: INITIAL_GAS_PRICE,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
@@ -558,6 +565,7 @@ impl GenesisConfig {
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
+            min_gas_price: MIN_GAS_PRICE,
         }
     }
 
@@ -751,7 +759,6 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
-                gas_price: INITIAL_GAS_PRICE,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
@@ -770,6 +777,7 @@ pub fn init_configs(
                 protocol_treasury_account: account_id,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
+                min_gas_price: MIN_GAS_PRICE,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
