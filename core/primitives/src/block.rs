@@ -707,7 +707,7 @@ impl WeightAndScore {
         Self { weight: weight.into(), score: score.into() }
     }
 
-    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is losely
+    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is loosely
     /// defined as either having the score exceeding by the `threshold` (finality gadget is working
     /// fine, and the last reported final block is way ahead of the last known to us), or having the
     /// same score, but the weight exceeding by the `threshold` (finality gadget is down, and the

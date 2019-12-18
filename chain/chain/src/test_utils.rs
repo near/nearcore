@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
+use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
@@ -1051,4 +1052,52 @@ pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemorySigner)
     block.header.inner_lite.timestamp += delta;
     block.header.init();
     block.header.signature = signer.sign(block.header.hash().as_ref());
+}
+
+pub fn new_block_no_epoch_switches(
+    prev_block: &Block,
+    height: BlockIndex,
+    approvals: Vec<&str>,
+    signer: &InMemorySigner,
+    time: u64,
+    time_delta: u128,
+) -> Block {
+    let num_approvals = approvals.len() as u128;
+    let approvals = approvals
+        .into_iter()
+        .map(|x| Approval::new(prev_block.hash(), prev_block.hash(), signer, x.to_string()))
+        .collect();
+    let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
+        (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
+    } else {
+        (
+            prev_block.header.inner_lite.epoch_id.clone(),
+            prev_block.header.inner_lite.next_epoch_id.clone(),
+        )
+    };
+    let weight_delta = std::cmp::max(1, num_approvals * WEIGHT_MULTIPLIER / 5);
+    let mut block = Block::produce(
+        &prev_block.header,
+        height,
+        prev_block.chunks.clone(),
+        epoch_id,
+        next_epoch_id,
+        approvals,
+        0,
+        0,
+        Some(0),
+        vec![],
+        vec![],
+        signer,
+        time_delta,
+        weight_delta,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        prev_block.header.inner_lite.next_bp_hash.clone(),
+    );
+    block.header.inner_lite.timestamp = time;
+    block.header.init();
+    block.header.signature = signer.sign(block.header.hash.as_ref());
+    block
 }

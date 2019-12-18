@@ -715,7 +715,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice,
-    ) -> Result<Option<Vec<u8>>, StorageError> {
+    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
 
         loop {
@@ -728,10 +728,9 @@ impl Trie {
             })?;
 
             match node.node {
-                RawTrieNode::Leaf(existing_key, _, value_hash) => {
+                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        let value = self.retrieve_raw_bytes(&value_hash)?;
-                        return Ok(Some(value));
+                        return Ok(Some((value_length, value_hash)));
                     } else {
                         return Ok(None);
                     }
@@ -748,9 +747,8 @@ impl Trie {
                 RawTrieNode::Branch(mut children, value) => {
                     if key.is_empty() {
                         match value {
-                            Some((_, value_hash)) => {
-                                let value = self.retrieve_raw_bytes(&value_hash)?;
-                                return Ok(Some(value));
+                            Some((value_length, value_hash)) => {
+                                return Ok(Some((value_length, value_hash)));
                             }
                             None => return Ok(None),
                         }
@@ -768,9 +766,20 @@ impl Trie {
         }
     }
 
-    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get_ref(
+        &self,
+        root: &CryptoHash,
+        key: &[u8],
+    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let key = NibbleSlice::new(key);
         self.lookup(root, key)
+    }
+
+    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        match self.get_ref(root, key)? {
+            Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
+            None => Ok(None),
+        }
     }
 
     fn convert_to_insertions_and_deletions(

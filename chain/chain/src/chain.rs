@@ -963,7 +963,7 @@ impl Chain {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                     // Or someone is attacking with invalid chain.
                     debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.height, block.hash());
-                    Ok(Some(prev_head))
+                    Err(e)
                 }
                 ErrorKind::Unfit(ref msg) => {
                     debug!(
@@ -2443,6 +2443,13 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
+        {
+            return Err(ErrorKind::EpochOutOfBounds.into());
+        }
+
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
@@ -2873,14 +2880,16 @@ impl<'a> ChainUpdate<'a> {
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
         let now = to_timestamp(Utc::now());
-        if self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now)
-            > self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now)
-        {
+        let new_adjusted_weight =
+            self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now);
+        let head_adjusted_weight =
+            self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now);
+        if new_adjusted_weight > head_adjusted_weight {
             let tip = Tip::from_header_and_prev_timestamp(&block.header, prev_timestamp);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.height, new_adjusted_weight, head_adjusted_weight);
             Ok(Some(tip))
         } else {
             Ok(None)
