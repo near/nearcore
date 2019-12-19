@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, NumBlockProducers, NumBlocks, NumSeats, NumShards,
+    NumValidators, ValidatorId, ValidatorStake,
 };
 use near_primitives::utils::get_num_block_producers_per_shard;
 use near_store::test_utils::create_test_store;
@@ -74,10 +75,10 @@ pub fn epoch_info(
 }
 
 pub fn epoch_config(
-    epoch_length: BlockIndex,
-    num_shards: ShardId,
-    num_block_producers: ValidatorId,
-    num_hidden_validators: ValidatorId,
+    epoch_length: NumBlocks,
+    num_shards: NumShards,
+    num_block_producers: NumBlockProducers,
+    num_hidden_validators: NumValidators,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
@@ -86,7 +87,7 @@ pub fn epoch_config(
         epoch_length,
         num_shards,
         num_block_producers,
-        block_producers_per_shard: get_num_block_producers_per_shard(
+        num_block_producers_per_shard: get_num_block_producers_per_shard(
             num_shards,
             num_block_producers,
         ),
@@ -105,7 +106,7 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
 pub fn reward_calculator(
     max_inflation_rate: u8,
     num_blocks_per_year: u64,
-    epoch_length: u64,
+    epoch_length: NumBlocks,
     validator_reward_percentage: u8,
     protocol_reward_percentage: u8,
     protocol_treasury_account: AccountId,
@@ -138,10 +139,10 @@ pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
 
 pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
-    epoch_length: BlockIndex,
-    num_shards: ShardId,
-    num_seats: ValidatorId,
-    num_hidden_validators: ValidatorId,
+    epoch_length: NumBlocks,
+    num_shards: NumShards,
+    num_seats: NumSeats,
+    num_hidden_validators: NumValidators,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
@@ -168,10 +169,10 @@ pub fn setup_epoch_manager(
 
 pub fn setup_default_epoch_manager(
     validators: Vec<(&str, Balance)>,
-    epoch_length: BlockIndex,
-    num_shards: ShardId,
-    num_seats: ValidatorId,
-    num_hidden_validators: ValidatorId,
+    epoch_length: NumBlocks,
+    num_shards: NumShards,
+    num_seats: NumSeats,
+    num_hidden_validators: NumValidators,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {

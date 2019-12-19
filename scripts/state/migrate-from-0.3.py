@@ -77,7 +77,8 @@ for value in q['records']:
 q['records'] = new_records
 q['protocol_version'] = 4
 q['dynamic_resharding'] = False
-q['block_producers_per_shard'] = [50] * 8
+# TODO please check this variable
+q['num_block_producers_per_shard'] = [50] * 8
 q['avg_fisherman_per_shard'] = [0] * 8
 q['num_blocks_per_year'] = 31536000
 q['gas_limit'] = 10000000

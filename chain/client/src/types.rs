@@ -12,7 +12,9 @@ use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
+use near_primitives::types::{
+    AccountId, BlockIndex, NumBlockProducers, NumBlocks, ShardId, Version,
+};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -114,9 +116,9 @@ pub struct ClientConfig {
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Epoch length.
-    pub epoch_length: BlockIndex,
+    pub epoch_length: NumBlocks,
     /// Total number of block producers
-    pub num_block_producers: ValidatorId,
+    pub num_block_producers: NumBlockProducers,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
     /// Time to persist Accounts Id in the router without removing them.
@@ -142,7 +144,7 @@ impl ClientConfig {
         skip_sync_wait: bool,
         min_block_prod_time: u64,
         max_block_prod_time: u64,
-        num_block_producers: ValidatorId,
+        num_block_producers: NumBlockProducers,
     ) -> Self {
         ClientConfig {
             version: Default::default(),

@@ -5,15 +5,15 @@ use tempdir::TempDir;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::{BlockIndex, ValidatorId};
+use near_primitives::types::{NumBlockProducers, NumBlocks, NumShards, NumValidators};
 use testlib::start_nodes;
 
 fn run_nodes(
-    num_shards: usize,
-    num_nodes: ValidatorId,
-    num_validators: ValidatorId,
-    epoch_length: BlockIndex,
-    num_blocks: BlockIndex,
+    num_shards: NumShards,
+    num_nodes: NumBlockProducers,
+    num_validators: NumValidators,
+    epoch_length: NumBlocks,
+    num_blocks: NumBlocks,
 ) {
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)

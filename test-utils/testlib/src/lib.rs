@@ -10,7 +10,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndex, ShardId, ValidatorId};
+use near_primitives::types::{NumBlocks, NumShards, NumValidators, ShardId};
 use near_store::test_utils::create_test_store;
 
 pub mod actix_utils;
@@ -68,11 +68,11 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
 }
 
 pub fn start_nodes(
-    num_shards: usize,
+    num_shards: NumShards,
     dirs: &[TempDir],
-    num_validators: ValidatorId,
+    num_validators: NumValidators,
     num_lightclient: usize,
-    epoch_length: BlockIndex,
+    epoch_length: NumBlocks,
 ) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
@@ -104,7 +104,8 @@ pub fn start_nodes(
         }
         // if non validator, add some shards to track.
         if i >= (num_validators as usize) && i < num_tracking_nodes {
-            let shards_per_node = num_shards / (num_tracking_nodes - num_validators as usize);
+            let shards_per_node =
+                num_shards as usize / (num_tracking_nodes - num_validators as usize);
             let (from, to) = (
                 ((i - num_validators as usize) * shards_per_node) as ShardId,
                 ((i - (num_validators as usize) + 1) * shards_per_node) as ShardId,

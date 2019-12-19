@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId};
+use near_primitives::types::{AccountId, BlockIndex, NumBlocks, NumShards, ValidatorId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -54,14 +54,14 @@ impl MockNetworkAdapter {
 pub fn setup(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
-    num_shards: ShardId,
-    epoch_length: u64,
+    num_shards: NumShards,
+    epoch_length: NumBlocks,
     account_id: &str,
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     network_adapter: Arc<dyn NetworkAdapter>,
-    tx_validity_period: BlockIndex,
+    tx_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
@@ -217,7 +217,7 @@ pub fn setup_mock_all_validators(
     block_prod_time: u64,
     drop_chunks: bool,
     tamper_with_fg: bool,
-    epoch_length: u64,
+    epoch_length: NumBlocks,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -236,7 +236,7 @@ pub fn setup_mock_all_validators(
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
-    let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as ShardId;
+    let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height_weight =
         Arc::new(RwLock::new(vec![(0, WeightAndScore::from_ints(0, 0)); key_pairs.len()]));
@@ -695,7 +695,7 @@ pub fn setup_client(
     store: Arc<Store>,
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
-    num_shards: ShardId,
+    num_shards: NumShards,
     account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,

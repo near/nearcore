@@ -6,7 +6,7 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, NumShards, ShardId, ValidatorId, ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
@@ -219,7 +219,7 @@ impl EpochManager {
         let all_proposals: Vec<_> = proposals.into_iter().map(|(_, v)| v).collect();
 
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
-        let num_shards = last_block_info.chunk_mask.len() as ShardId;
+        let num_shards = last_block_info.chunk_mask.len() as NumShards;
         let prev_epoch_last_block_hash =
             self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
         let prev_epoch_last_block_index = self.get_block_info(&prev_epoch_last_block_hash)?.index;
@@ -787,7 +787,7 @@ impl EpochManager {
     fn get_num_expected_chunks(
         &mut self,
         epoch_info: &EpochInfo,
-        num_shards: ShardId,
+        num_shards: NumShards,
         prev_epoch_last_block_index: BlockIndex,
         epoch_last_block_index: BlockIndex,
         produced_block_indices: &HashSet<BlockIndex>,

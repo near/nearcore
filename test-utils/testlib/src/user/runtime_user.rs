@@ -7,7 +7,7 @@ use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, MerkleHash, NumBlocks};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
     ExecutionStatusView, ViewStateResult,
@@ -27,7 +27,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
-    pub epoch_length: BlockIndex,
+    pub epoch_length: NumBlocks,
 }
 
 impl MockClient {

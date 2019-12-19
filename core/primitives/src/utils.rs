@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, ShardId, ValidatorId};
+use crate::types::{AccountId, NumBlockProducers, NumShards};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::cmp::max;
@@ -262,9 +262,9 @@ pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
 /// Compute number of block producers per shard given total number of block producers and number
 /// of shards.
 pub fn get_num_block_producers_per_shard(
-    num_shards: ShardId,
-    num_block_producers: ValidatorId,
-) -> Vec<ValidatorId> {
+    num_shards: NumShards,
+    num_block_producers: NumBlockProducers,
+) -> Vec<NumBlockProducers> {
     (0..num_shards)
         .map(|i| {
             let remainder = num_block_producers % num_shards;

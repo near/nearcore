@@ -150,7 +150,8 @@ pub fn proposals_to_epoch_info(
     // Collect proposals into block producer assignments.
     let mut chunk_producers: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
-    for num_seats in epoch_config.block_producers_per_shard.iter() {
+    // TODO MOO #1855 seats or block producers?
+    for num_seats in epoch_config.num_block_producers_per_shard.iter() {
         let mut cp: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats {
             let proposal_index =
@@ -224,7 +225,7 @@ mod tests {
                     epoch_length: 2,
                     num_shards: 5,
                     num_block_producers: 6,
-                    block_producers_per_shard: vec![6, 2, 2, 2, 2],
+                    num_block_producers_per_shard: vec![6, 2, 2, 2, 2],
                     avg_hidden_validators_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
                     chunk_producer_kickout_threshold: 60,

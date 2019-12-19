@@ -25,7 +25,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, Nonce, NumBlocks, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -66,7 +66,7 @@ pub struct ApplyState {
     /// Currently building block index.
     pub block_index: BlockIndex,
     /// Current epoch length.
-    pub epoch_length: BlockIndex,
+    pub epoch_length: NumBlocks,
     /// Price for the gas.
     pub gas_price: Balance,
     /// A block timestamp

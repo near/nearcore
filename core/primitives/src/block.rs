@@ -8,7 +8,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
@@ -367,7 +367,7 @@ pub struct Block {
 
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
-    num_shards: ShardId,
+    num_shards: NumShards,
     initial_gas_limit: Gas,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));

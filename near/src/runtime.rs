@@ -25,8 +25,8 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
-    ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
+    StateRootNode, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -75,12 +75,12 @@ impl NightshadeRuntime {
         let trie = Arc::new(Trie::new(store.clone()));
         let runtime = Runtime::new(genesis_config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
-        let num_shards = genesis_config.block_producers_per_shard.len() as ShardId;
+        let num_shards = genesis_config.num_block_producers_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis_config.epoch_length,
             num_shards,
             num_block_producers: genesis_config.num_block_producers,
-            block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
+            num_block_producers_per_shard: genesis_config.num_block_producers_per_shard.clone(),
             avg_hidden_validators_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
             block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
@@ -155,7 +155,7 @@ impl NightshadeRuntime {
     fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
-        let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
+        let num_shards = self.genesis_config.num_block_producers_per_shard.len() as NumShards;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
         for record in self.genesis_config.records.iter() {
@@ -337,7 +337,7 @@ impl NightshadeRuntime {
     }
 }
 
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId) -> ShardId {
+pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
     match &state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
@@ -573,9 +573,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_shards(&self) -> ShardId {
+    fn num_shards(&self) -> NumShards {
         // TODO: should be dynamic.
-        self.genesis_config.block_producers_per_shard.len() as ShardId
+        self.genesis_config.num_block_producers_per_shard.len() as NumShards
     }
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
@@ -1169,8 +1169,8 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, ValidatorId,
-        ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, NumBlocks, NumShards, ShardId,
+        StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -1255,7 +1255,7 @@ mod test {
         pub fn new(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
-            epoch_length: BlockIndex,
+            epoch_length: NumBlocks,
             initial_tracked_accounts: Vec<AccountId>,
             initial_tracked_shards: Vec<ShardId>,
             has_reward: bool,
@@ -1328,8 +1328,8 @@ mod test {
         ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards();
-            assert_eq!(transactions.len() as ShardId, num_shards);
-            assert_eq!(chunk_mask.len() as ShardId, num_shards);
+            assert_eq!(transactions.len() as NumShards, num_shards);
+            assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
             let mut new_receipts = HashMap::new();
             for i in 0..num_shards {

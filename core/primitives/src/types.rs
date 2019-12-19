@@ -27,6 +27,23 @@ pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
 
+/// Number (or amount) of blocks (or block heights) in current context.
+// TODO discuss
+// Technically, blocks size is not equal to heights difference.
+// For example, 50 blocks don't imply heights from H to (H + 50).
+// It may lead to incorrect assumptions in future.
+// We can replace NumBlocks with HeightHorizon or something better.
+pub type NumBlocks = u64;
+/// Number of shards in current group.
+pub type NumShards = u64;
+/// Number of validators in current group.
+pub type NumValidators = u64;
+/// Number of block producers in current group.
+pub type NumBlockProducers = u64;
+/// Number of seats of block producers in current group.
+// TODO MOO #1855: understand the difference between NumValidators, NumBlockProducers and NumSeats clearly
+pub type NumSeats = u64;
+
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 

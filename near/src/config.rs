@@ -23,7 +23,10 @@ use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, Gas, NumBlockProducers, NumBlocks, NumShards, NumValidators,
+    ShardId, ValidatorId,
+};
 use near_primitives::utils::{generate_random_string, get_num_block_producers_per_shard};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
@@ -125,7 +128,8 @@ pub const MAX_INFLATION_RATE: u8 = 5;
 pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 
 /// Number of seats for block producers
-pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
+// TODO MOO #1855 rename
+pub const NUM_BLOCK_PRODUCERS: u64 = 50;
 
 /// How much height horizon to give to consider peer up to date.
 pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
@@ -417,15 +421,16 @@ pub struct GenesisConfig {
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
     /// Number of block producer seats at genesis.
-    pub num_block_producers: ValidatorId,
+    // TODO MOO #1855 seats or producers?
+    pub num_block_producers: NumBlockProducers,
     /// Defines number of shards and number of validators per each shard at genesis.
-    pub block_producers_per_shard: Vec<ValidatorId>,
+    pub num_block_producers_per_shard: Vec<NumBlockProducers>,
     /// Expected number of fisherman per shard.
-    pub avg_fisherman_per_shard: Vec<ValidatorId>,
+    pub avg_fisherman_per_shard: Vec<NumValidators>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
-    pub epoch_length: BlockIndex,
+    pub epoch_length: NumBlocks,
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
@@ -546,7 +551,7 @@ impl GenesisConfig {
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producers: num_validators,
-            block_producers_per_shard: validators_per_shard.clone(),
+            num_block_producers_per_shard: validators_per_shard.clone(),
             avg_fisherman_per_shard: validators_per_shard.iter().map(|_| 0).collect(),
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
@@ -751,7 +756,7 @@ pub fn init_configs(
                 genesis_time: Utc::now(),
                 chain_id,
                 num_block_producers: NUM_BLOCK_PRODUCERS,
-                block_producers_per_shard: get_num_block_producers_per_shard(
+                num_block_producers_per_shard: get_num_block_producers_per_shard(
                     num_shards,
                     NUM_BLOCK_PRODUCERS,
                 ),
@@ -787,11 +792,11 @@ pub fn init_configs(
 
 pub fn create_testnet_configs_from_seeds(
     seeds: Vec<String>,
-    num_shards: usize,
-    num_non_validators: usize,
+    num_shards: NumShards,
+    num_non_validators: NumValidators,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
-    let num_validators = (seeds.len() - num_non_validators) as ValidatorId;
+    let num_validators = (seeds.len() - num_non_validators as usize) as NumValidators;
     let signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
@@ -803,7 +808,7 @@ pub fn create_testnet_configs_from_seeds(
     let genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
         num_validators,
-        get_num_block_producers_per_shard(num_shards as u64, num_validators),
+        get_num_block_producers_per_shard(num_shards as NumShards, num_validators),
     );
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -832,9 +837,9 @@ pub fn create_testnet_configs_from_seeds(
 /// Create testnet configuration. If `local_ports` is true,
 /// sets up new ports for all nodes except the first one and sets boot node to it.
 pub fn create_testnet_configs(
-    num_shards: usize,
-    num_validators: usize,
-    num_non_validators: usize,
+    num_shards: NumShards,
+    num_validators: NumValidators,
+    num_non_validators: NumValidators,
     prefix: &str,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
@@ -850,14 +855,14 @@ pub fn create_testnet_configs(
 
 pub fn init_testnet_configs(
     dir: &Path,
-    num_shards: usize,
-    num_validators: usize,
-    num_non_validators: usize,
+    num_shards: NumShards,
+    num_validators: NumValidators,
+    num_non_validators: NumValidators,
     prefix: &str,
 ) {
     let (configs, signers, network_signers, genesis_config) =
         create_testnet_configs(num_shards, num_validators, num_non_validators, prefix, false);
-    for i in 0..(num_validators + num_non_validators) {
+    for i in 0..(num_validators + num_non_validators) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 

@@ -22,7 +22,8 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId, ValidatorStake,
+    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, NumBlocks, ShardId,
+    ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
@@ -172,8 +173,8 @@ pub struct ChainGenesis {
     pub total_supply: Balance,
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
-    pub transaction_validity_period: BlockIndex,
-    pub epoch_length: BlockIndex,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: NumBlocks,
 }
 
 impl ChainGenesis {
@@ -184,8 +185,8 @@ impl ChainGenesis {
         total_supply: Balance,
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
-        transaction_validity_period: BlockIndex,
-        epoch_length: BlockIndex,
+        transaction_validity_period: NumBlocks,
+        epoch_length: NumBlocks,
     ) -> Self {
         Self {
             time,
@@ -208,8 +209,8 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
-    pub transaction_validity_period: BlockIndex,
-    pub epoch_length: BlockIndex,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: NumBlocks,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
 }
@@ -2000,8 +2001,8 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
-    transaction_validity_period: BlockIndex,
-    epoch_length: BlockIndex,
+    transaction_validity_period: NumBlocks,
+    epoch_length: NumBlocks,
     block_economics_config: &'a BlockEconomicsConfig,
 }
 
@@ -2011,8 +2012,8 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
-        transaction_validity_period: BlockIndex,
-        epoch_length: BlockIndex,
+        transaction_validity_period: NumBlocks,
+        epoch_length: NumBlocks,
         block_economics_config: &'a BlockEconomicsConfig,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();

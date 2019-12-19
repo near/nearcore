@@ -10,12 +10,11 @@ use near::config::{
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
-use near_primitives::types::Balance;
-use near_primitives::types::ShardId;
+use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_block_producers_per_shard;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const NUM_SHARDS: usize = 8;
+const NUM_SHARDS: NumShards = 8;
 
 fn verify_total_supply(total_supply: Balance, chain_id: &String) {
     if chain_id == "mainnet" {
@@ -37,7 +36,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Verify that key files exist.
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 
-    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS as ShardId) {
+    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS) {
         panic!("Trying to track a shard that does not exist");
     }
 
@@ -62,8 +61,8 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         genesis_time,
         chain_id,
         num_block_producers: 50,
-        block_producers_per_shard: get_num_block_producers_per_shard(
-            NUM_SHARDS as ShardId,
+        num_block_producers_per_shard: get_num_block_producers_per_shard(
+            NUM_SHARDS,
             NUM_BLOCK_PRODUCERS,
         ),
         avg_fisherman_per_shard: (0..NUM_SHARDS).map(|_| 0).collect(),
