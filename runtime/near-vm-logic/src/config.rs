@@ -83,7 +83,7 @@ impl Default for VMConfig {
         VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
-            regular_op_cost: 1,
+            regular_op_cost: 3856371,
             limit_config: VMLimitConfig::default(),
         }
     }
@@ -104,7 +104,11 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
-            limit_config: VMLimitConfig::default(),
+            limit_config: VMLimitConfig {
+                max_gas_burnt: std::u64::MAX,
+                max_gas_burnt_view: std::u64::MAX,
+                ..Default::default()
+            },
         }
     }
 }
@@ -112,8 +116,8 @@ impl VMConfig {
 impl Default for VMLimitConfig {
     fn default() -> Self {
         Self {
-            max_gas_burnt: 10u64.pow(9),
-            max_gas_burnt_view: 10u64.pow(9),
+            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
+            max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
 
             max_stack_height: 16 * 1024,        // 16Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
@@ -257,47 +261,47 @@ pub struct ExtCostsConfig {
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
-            base: 1,
-            read_memory_base: 1,
-            read_memory_byte: 1,
-            write_memory_base: 1,
-            write_memory_byte: 1,
-            read_register_base: 1,
-            read_register_byte: 1,
-            write_register_base: 1,
-            write_register_byte: 1,
-            utf8_decoding_base: 1,
-            utf8_decoding_byte: 1,
-            utf16_decoding_base: 1,
-            utf16_decoding_byte: 1,
-            sha256_base: 1,
-            sha256_byte: 1,
-            log_base: 1,
-            log_byte: 1,
-            storage_write_base: 1,
-            storage_write_key_byte: 1,
-            storage_write_value_byte: 1,
-            storage_write_evicted_byte: 1,
-            storage_read_base: 1,
-            storage_read_key_byte: 1,
-            storage_read_value_byte: 1,
-            storage_remove_base: 1,
-            storage_remove_key_byte: 1,
-            storage_remove_ret_value_byte: 1,
-            storage_has_key_base: 1,
-            storage_has_key_byte: 1,
-            storage_iter_create_prefix_base: 1,
-            storage_iter_create_prefix_byte: 1,
-            storage_iter_create_range_base: 1,
-            storage_iter_create_from_byte: 1,
-            storage_iter_create_to_byte: 1,
-            storage_iter_next_base: 1,
-            storage_iter_next_key_byte: 1,
-            storage_iter_next_value_byte: 1,
+            base: 126224222,
+            read_memory_base: 1629369577,
+            read_memory_byte: 123816,
+            write_memory_base: 76445225,
+            write_memory_byte: 809907,
+            read_register_base: 639340699,
+            read_register_byte: 63637,
+            write_register_base: 0,
+            write_register_byte: 0,
+            utf8_decoding_base: 0,
+            utf8_decoding_byte: 591904,
+            utf16_decoding_base: 0,
+            utf16_decoding_byte: 9095538,
+            sha256_base: 710092630,
+            sha256_byte: 5536829,
+            log_base: 0,
+            log_byte: 0,
+            storage_write_base: 21058769282,
+            storage_write_key_byte: 23447086,
+            storage_write_value_byte: 9437547,
+            storage_write_evicted_byte: 0,
+            storage_read_base: 19352220621,
+            storage_read_key_byte: 4792496,
+            storage_read_value_byte: 139743,
+            storage_remove_base: 109578968621,
+            storage_remove_key_byte: 9512022,
+            storage_remove_ret_value_byte: 0,
+            storage_has_key_base: 20019912030,
+            storage_has_key_byte: 4647597,
+            storage_iter_create_prefix_base: 28443562030,
+            storage_iter_create_prefix_byte: 442354,
+            storage_iter_create_range_base: 25804628282,
+            storage_iter_create_from_byte: 429608,
+            storage_iter_create_to_byte: 1302886,
+            storage_iter_next_base: 24213271567,
+            storage_iter_next_key_byte: 0,
+            storage_iter_next_value_byte: 1343211668,
             touching_trie_node: 1,
-            promise_and_base: 1,
-            promise_and_per_promise: 1,
-            promise_return: 1,
+            promise_and_base: 0,
+            promise_and_per_promise: 672136,
+            promise_return: 34854215,
         }
     }
 }

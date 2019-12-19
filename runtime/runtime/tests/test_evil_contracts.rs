@@ -1,6 +1,5 @@
 use near_primitives::errors::ActionError;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::Gas;
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
@@ -8,7 +7,11 @@ use testlib::node::{Node, RuntimeNode};
 #[cfg(test)]
 use assert_matches::assert_matches;
 
-const FUNCTION_CALL_GAS_AMOUNT: Gas = 1_000_000_000;
+/// Initial balance used in tests.
+pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
@@ -19,7 +22,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
             account_id.clone(),
             "test_contract".to_string(),
             node.signer().public_key(),
-            10u128.pow(14),
+            TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
@@ -51,15 +54,13 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "insert_strings",
                 input_data.to_vec(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(18),
                 0,
             )
             .unwrap();
         println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
-    let mut first_gas_burnt = 0;
-    let mut last_gas_burnt = 0;
     (0..50).rev().for_each(|i| {
         println!("deleteStrings #{}", i);
         let from = i * 10 as u64;
@@ -74,22 +75,13 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "delete_strings",
                 input_data.to_vec(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(18),
                 0,
             )
             .unwrap();
-        if i == 0 {
-            first_gas_burnt = res.receipts[0].outcome.gas_burnt;
-        }
-        if i == 49 {
-            last_gas_burnt = res.receipts[0].outcome.gas_burnt;
-        }
         println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
-    // storage_remove also has to get previous value from trie which is expensive
-    // ExtCostsConfig.touching_trie_node should be high enough to be more noticeable than cpu costs
-    assert!(last_gas_burnt > first_gas_burnt * 15);
 }
 
 #[test]
@@ -107,7 +99,7 @@ fn test_evil_deep_recursion() {
                 "test_contract".to_string(),
                 "recurse",
                 n_bytes.clone(),
-                FUNCTION_CALL_GAS_AMOUNT,
+                10u64.pow(18),
                 0,
             )
             .unwrap();
@@ -135,7 +127,7 @@ fn test_evil_abort() {
             "test_contract".to_string(),
             "abort_with_zero",
             vec![],
-            FUNCTION_CALL_GAS_AMOUNT,
+            10u64.pow(18),
             0,
         )
         .unwrap();
