@@ -455,7 +455,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::StateRequest {
                             shard_id,
-                            hash,
+                            sync_hash,
                             need_header,
                             parts,
                             target: target_account_id,
@@ -472,7 +472,7 @@ pub fn setup_mock_all_validators(
                                             .0
                                             .send(NetworkClientMessages::StateRequest(
                                                 *shard_id,
-                                                *hash,
+                                                *sync_hash,
                                                 *need_header,
                                                 parts.clone(),
                                                 my_address,

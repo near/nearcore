@@ -1,3 +1,4 @@
+use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -31,13 +32,32 @@ impl std::error::Error for StorageError {}
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum InvalidTxError {
     InvalidAccessKey(InvalidAccessKeyError),
-    InvalidSigner { signer_id: AccountId },
-    SignerDoesNotExist { signer_id: AccountId },
-    InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
-    InvalidReceiver { receiver_id: AccountId },
+    InvalidSigner {
+        signer_id: AccountId,
+    },
+    SignerDoesNotExist {
+        signer_id: AccountId,
+    },
+    InvalidNonce {
+        tx_nonce: Nonce,
+        ak_nonce: Nonce,
+    },
+    InvalidReceiver {
+        receiver_id: AccountId,
+    },
     InvalidSignature,
-    NotEnoughBalance { signer_id: AccountId, balance: Balance, cost: Balance },
-    RentUnpaid { signer_id: AccountId, amount: Balance },
+    NotEnoughBalance {
+        signer_id: AccountId,
+        #[serde(with = "u128_dec_format")]
+        balance: Balance,
+        #[serde(with = "u128_dec_format")]
+        cost: Balance,
+    },
+    RentUnpaid {
+        signer_id: AccountId,
+        #[serde(with = "u128_dec_format")]
+        amount: Balance,
+    },
     CostOverflow,
     InvalidChain,
     Expired,
@@ -60,24 +80,63 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
         allowance: Balance,
+        #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ActionError {
-    AccountAlreadyExists { account_id: AccountId },
-    AccountDoesNotExist { action: String, account_id: AccountId },
-    CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
-    ActorNoPermission { account_id: AccountId, actor_id: AccountId, action: String },
-    DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
-    AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
-    DeleteAccountStaking { account_id: AccountId },
-    DeleteAccountHasRent { account_id: AccountId, balance: Balance },
-    RentUnpaid { account_id: AccountId, amount: Balance },
-    TriesToUnstake { account_id: AccountId },
-    TriesToStake { account_id: AccountId, stake: Balance, locked: Balance, balance: Balance },
+    AccountAlreadyExists {
+        account_id: AccountId,
+    },
+    AccountDoesNotExist {
+        action: String,
+        account_id: AccountId,
+    },
+    CreateAccountNotAllowed {
+        account_id: AccountId,
+        predecessor_id: AccountId,
+    },
+    ActorNoPermission {
+        account_id: AccountId,
+        actor_id: AccountId,
+        action: String,
+    },
+    DeleteKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    AddKeyAlreadyExists {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    DeleteAccountStaking {
+        account_id: AccountId,
+    },
+    DeleteAccountHasRent {
+        account_id: AccountId,
+        balance: Balance,
+    },
+    RentUnpaid {
+        account_id: AccountId,
+        #[serde(with = "u128_dec_format")]
+        amount: Balance,
+    },
+    TriesToUnstake {
+        account_id: AccountId,
+    },
+    TriesToStake {
+        account_id: AccountId,
+        #[serde(with = "u128_dec_format")]
+        stake: Balance,
+        #[serde(with = "u128_dec_format")]
+        locked: Balance,
+        #[serde(with = "u128_dec_format")]
+        balance: Balance,
+    },
     FunctionCall(String), // TODO type
 }
 

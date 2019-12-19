@@ -948,3 +948,9 @@ pub struct LightClientBlockView {
     pub qc_approvals: Vec<Option<LightClientApprovalView>>,
     pub prev_hash: CryptoHash,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GasPriceView {
+    #[serde(with = "u128_dec_format")]
+    pub gas_price: Balance,
+}

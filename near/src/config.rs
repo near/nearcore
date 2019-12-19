@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
+use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
@@ -35,8 +36,8 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
-/// One NEAR, divisible by 10^18.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
@@ -96,10 +97,10 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
-/// Minimum gas price.
-pub const MIN_GAS_PRICE: Balance = 100;
+/// Initial gas price.
+pub const MIN_GAS_PRICE: Balance = 5000;
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
@@ -127,7 +128,7 @@ pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 pub const NUM_BLOCK_PRODUCERS: ValidatorId = 50;
 
 /// How much height horizon to give to consider peer up to date.
-pub const MOST_WEIGHTED_PEER_HEIGHT_HORIZON: BlockIndex = 5;
+pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -313,6 +314,13 @@ impl NearConfig {
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
+                header_sync_initial_timeout: Duration::from_secs(10),
+                header_sync_progress_timeout: Duration::from_secs(2),
+                header_sync_stall_ban_timeout: Duration::from_secs(40),
+                // weight is measured in WM * ns, so if we expect `k` headers per second
+                // synced, and assuming most headers have most approvals, the value should
+                // be `k * WM * 1B`
+                header_sync_expected_weight_per_second: WEIGHT_MULTIPLIER * 1_000_000_000 * 10,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -358,7 +366,7 @@ impl NearConfig {
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
-                most_weighted_peer_height_horizon: MOST_WEIGHTED_PEER_HEIGHT_HORIZON,
+                most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
             },
             telemetry_config: config.telemetry,

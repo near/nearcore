@@ -133,12 +133,12 @@ def_test_ext!(
 def_test_ext!(ext_signer_pk, b"ext_signer_pk", &SIGNER_ACCOUNT_PK);
 def_test_ext!(ext_random_seed, b"ext_random_seed", &[0, 1, 2]);
 
-def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(9)).to_le_bytes());
+def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes());
 def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &19u64.to_le_bytes());
+def_test_ext!(ext_used_gas, b"ext_used_gas", &[116, 54, 169, 11, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",
@@ -158,8 +158,8 @@ pub fn test_out_of_memory() {
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&[]);
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let config = VMConfig::free();
+    let fees = RuntimeFeesConfig::free();
 
     let promise_results = vec![];
     let result = run(

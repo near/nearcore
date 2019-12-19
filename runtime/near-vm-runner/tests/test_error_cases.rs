@@ -35,7 +35,7 @@ fn test_infinite_initializer() {
     assert_eq!(
         make_simple_contract_call(&infinite_initializer_contract(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1000000)),
+            Some(vm_outcome_with_gas(100000000000000)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
         )
     );
@@ -130,7 +130,7 @@ fn test_trap_contract() {
     assert_eq!(
         make_simple_contract_call(&trap_contract(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
+            Some(vm_outcome_with_gas(3856371)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
         )
     );
@@ -154,7 +154,7 @@ fn test_trap_initializer() {
     assert_eq!(
         make_simple_contract_call(&trap_initializer(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1)),
+            Some(vm_outcome_with_gas(3856371)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
         )
     );
@@ -227,7 +227,7 @@ fn test_guest_panic() {
     assert_eq!(
         make_simple_contract_call(&guest_panic(), b"hello"),
         (
-            Some(vm_outcome_with_gas(2)),
+            Some(vm_outcome_with_gas(130080593)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
                 "explicit guest panic".to_string()
             ))))
@@ -252,7 +252,7 @@ fn test_stack_overflow() {
     assert_eq!(
         make_simple_contract_call(&stack_overflow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(16384)),
+            Some(vm_outcome_with_gas(63182782464)),
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
         )
     );
@@ -282,7 +282,7 @@ fn test_memory_grow() {
     assert_eq!(
         make_simple_contract_call(&memory_grow(), b"hello"),
         (
-            Some(vm_outcome_with_gas(1000000)),
+            Some(vm_outcome_with_gas(100000000000000)),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
         )
     );

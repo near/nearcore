@@ -10,7 +10,7 @@ use log::{debug, error, info};
 use near_primitives::block::{genesis_chunks, Approval, WeightAndScore};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    SlashedValidator,
+    MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
@@ -41,7 +41,10 @@ use crate::types::{
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
 };
-use crate::validate::{validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
+    validate_chunk_with_chunk_extra,
+};
 use crate::{byzantine_assert, create_light_client_block_view};
 use near_primitives::utils::to_timestamp;
 
@@ -963,7 +966,7 @@ impl Chain {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                     // Or someone is attacking with invalid chain.
                     debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.height, block.hash());
-                    Ok(Some(prev_head))
+                    Err(e)
                 }
                 ErrorKind::Unfit(ref msg) => {
                     debug!(
@@ -1327,7 +1330,7 @@ impl Chain {
         } = &shard_state_header;
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -2089,7 +2092,7 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_proof = ChunkProofs {
                     block_header: block.header.try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: encoded_chunk.clone(),
+                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
                 };
                 return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
             }
@@ -2296,20 +2299,21 @@ impl<'a> ChainUpdate<'a> {
                     let chunk =
                         self.chain_store_update.get_chunk_clone_from_header(&chunk_header)?;
 
-                    let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
-                        self.chain_store_update
-                            .get_chain_store()
-                            .check_blocks_on_same_chain(
-                                &block.header,
-                                &t.transaction.block_hash,
-                                self.transaction_validity_period,
-                            )
-                            .is_err()
-                    });
-                    if any_transaction_is_invalid {
-                        debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
-                        return Err(ErrorKind::InvalidTransactions.into());
+                    if !validate_chunk_transactions(
+                        self.chain_store_update.get_chain_store(),
+                        &chunk.transactions,
+                        &block.header,
+                        self.transaction_validity_period,
+                    ) {
+                        let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+                        let chunk_proof = ChunkProofs {
+                            block_header: block.header.try_to_vec().expect("Failed to serialize"),
+                            merkle_proof: merkle_paths[shard_id as usize].clone(),
+                            chunk: MaybeEncodedShardChunk::Decoded(chunk),
+                        };
+                        return Err(Error::from(ErrorKind::InvalidChunkProofs(chunk_proof)));
                     }
+
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply transactions and receipts.
@@ -2429,6 +2433,13 @@ impl<'a> ChainUpdate<'a> {
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
+
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if let Err(_) = self.runtime_adapter.get_epoch_inflation(&block.header.inner_lite.epoch_id)
+        {
+            return Err(ErrorKind::EpochOutOfBounds.into());
+        }
 
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
@@ -2860,14 +2871,16 @@ impl<'a> ChainUpdate<'a> {
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
         let now = to_timestamp(Utc::now());
-        if self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now)
-            > self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now)
-        {
+        let new_adjusted_weight =
+            self.adjust_weight(&block.header.inner_rest.weight_and_score(), prev_timestamp, now);
+        let head_adjusted_weight =
+            self.adjust_weight(&head.weight_and_score, head.prev_timestamp, now);
+        if new_adjusted_weight > head_adjusted_weight {
             let tip = Tip::from_header_and_prev_timestamp(&block.header, prev_timestamp);
 
             self.chain_store_update.save_body_head(&tip)?;
             near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.height, new_adjusted_weight, head_adjusted_weight);
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -3169,8 +3182,14 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(&*self.runtime_adapter, &epoch_id, &prev_block_hash, challenge)
-            {
+            match validate_challenge(
+                self.chain_store_update.get_chain_store(),
+                &*self.runtime_adapter,
+                &epoch_id,
+                &prev_block_hash,
+                challenge,
+                self.transaction_validity_period,
+            ) {
                 Ok((hash, account_ids)) => {
                     let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.

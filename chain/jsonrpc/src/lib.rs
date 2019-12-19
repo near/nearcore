@@ -18,8 +18,8 @@ use async_utils::{delay, timeout};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetNetworkInfo, GetNextLightClientBlock, GetValidatorInfo,
-    Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
+    GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
@@ -181,6 +181,7 @@ impl JsonRpcHandler {
             "chunk" => self.chunk(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
+            "gas_price" => self.gas_price(request.params).await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
     }
@@ -345,6 +346,16 @@ impl JsonRpcHandler {
 
     async fn network_info(&self) -> Result<Value, RpcError> {
         jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
+    }
+
+    async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (block_id,) = parse_params::<(Option<BlockId>,)>(params)?;
+        let gas_price_request = match block_id {
+            None => GetGasPrice::None,
+            Some(BlockId::Height(height)) => GetGasPrice::Height(height),
+            Some(BlockId::Hash(hash)) => GetGasPrice::Hash(hash),
+        };
+        jsonify(self.view_client_addr.send(gas_price_request).compat().await)
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {

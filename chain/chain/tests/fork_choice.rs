@@ -1,63 +1,9 @@
 use chrono::Duration;
-use near_chain::chain::WEIGHT_MULTIPLIER;
-use near_chain::test_utils::setup_with_validators;
-use near_chain::{Block, ErrorKind, Provenance};
-use near_crypto::{InMemorySigner, Signer};
-use near_primitives::block::Approval;
-use near_primitives::hash::CryptoHash;
+use near_chain::test_utils::{new_block_no_epoch_switches, setup_with_validators};
+use near_chain::{ErrorKind, Provenance};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndex, EpochId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use std::{thread, time};
-
-fn new_block(
-    prev_block: &Block,
-    height: BlockIndex,
-    approvals: Vec<&str>,
-    signer: &InMemorySigner,
-    time: u64,
-    time_delta: u128,
-) -> Block {
-    init_integration_logger();
-    let num_approvals = approvals.len() as u128;
-    let approvals = approvals
-        .into_iter()
-        .map(|x| Approval::new(prev_block.hash(), prev_block.hash(), signer, x.to_string()))
-        .collect();
-    let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
-        (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
-    } else {
-        (
-            prev_block.header.inner_lite.epoch_id.clone(),
-            prev_block.header.inner_lite.next_epoch_id.clone(),
-        )
-    };
-    let weight_delta = std::cmp::max(1, num_approvals * WEIGHT_MULTIPLIER / 5);
-    let mut block = Block::produce(
-        &prev_block.header,
-        height,
-        prev_block.chunks.clone(),
-        epoch_id,
-        next_epoch_id,
-        approvals,
-        0,
-        0,
-        Some(0),
-        vec![],
-        vec![],
-        signer,
-        time_delta,
-        weight_delta,
-        0.into(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        prev_block.header.inner_lite.next_bp_hash.clone(),
-    );
-    block.header.inner_lite.timestamp = time;
-    block.header.init();
-    block.header.signature = signer.sign(block.header.hash.as_ref());
-    block
-}
 
 /// Testing various aspects of the fork choice rule.
 ///
@@ -78,6 +24,7 @@ fn new_block(
 /// The test also separately tests that the block that is more than two minutes in the future doesn't
 /// get accepted
 fn longer_adversarial_chain_common(reverse: bool) {
+    init_integration_logger();
     let (mut chain, _, signers) = setup_with_validators(
         vec!["test0", "test1", "test2", "test3", "test4"].iter().map(|x| x.to_string()).collect(),
         1,
@@ -88,10 +35,22 @@ fn longer_adversarial_chain_common(reverse: bool) {
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
     let now = genesis.header.inner_lite.timestamp;
-    let honest1 =
-        new_block(&genesis, 1, vec!["test0", "test1", "test2"], &*signers[1], now + 400, 0);
-    let honest2 =
-        new_block(&honest1, 2, vec!["test0", "test1", "test2"], &*signers[2], now + 420, 400);
+    let honest1 = new_block_no_epoch_switches(
+        &genesis,
+        1,
+        vec!["test0", "test1", "test2"],
+        &*signers[1],
+        now + 400_000,
+        0,
+    );
+    let honest2 = new_block_no_epoch_switches(
+        &honest1,
+        2,
+        vec!["test0", "test1", "test2"],
+        &*signers[2],
+        now + 420_000,
+        400_000,
+    );
 
     let last_honest_hash = honest2.hash();
 
@@ -104,31 +63,31 @@ fn longer_adversarial_chain_common(reverse: bool) {
 
     let mut last_block = &genesis;
     for i in 0..=20 {
-        let adversarial = new_block(
+        let adversarial = new_block_no_epoch_switches(
             last_block,
             3 + i * 5,
             vec!["test3", "test4"],
             &*signers[3],
-            now + 20 * (1 + i) as u64,
-            if last_block == &genesis { 0 } else { 20 },
+            now + 20_000 * (1 + i) as u64,
+            if last_block == &genesis { 0 } else { 20_000 },
         );
         all_blocks.push(adversarial);
         last_block = &all_blocks.last().unwrap();
     }
 
     let last_adversarial_hash = last_block.hash();
-    let one_more_adversarial_block = new_block(
+    let one_more_adversarial_block = new_block_no_epoch_switches(
         last_block,
         996,
         vec!["test3", "test4"],
         &*signers[996 % 5],
         to_timestamp(from_timestamp(now) + Duration::seconds(118)),
-        20,
+        20_000,
     );
     // We need the `and_one_more` because the weight of the block is the time delta between the two
     // *preceding* blocks, so for the large time delta of `one_more_adversarial_block` to take any
     // effect there must be one more block on top of it
-    let and_one_more = new_block(
+    let and_one_more = new_block_no_epoch_switches(
         &one_more_adversarial_block,
         997,
         vec!["test3", "test4"],
@@ -138,40 +97,40 @@ fn longer_adversarial_chain_common(reverse: bool) {
             - last_block.header.inner_lite.timestamp) as u128,
     );
     // This block is just to test that blocks more than two minutes in the future cannot be accepted
-    let too_far_adversarial_block = new_block(
+    let too_far_adversarial_block = new_block_no_epoch_switches(
         last_block,
         999,
         vec!["test3", "test4"],
         &*signers[999 % 5],
         to_timestamp(from_timestamp(now) + Duration::seconds(150)),
-        20,
+        20_000,
     );
     // This block is only few seconds into the future, so we can add it, make sure it doesn't become
-    // the head, sleep the corresponding number of seconds, and add it again, this time expecting it
-    // to become the head
-    let block_close_future_1 = new_block(
+    // the head, sleep the corresponding number of seconds, and add a block on top of it again, this
+    // time expecting it to become the head
+    let block_close_future_1 = new_block_no_epoch_switches(
         last_block,
         500,
-        vec!["test3", "test4"],
+        vec!["test3"],
         &*signers[500 % 5],
         to_timestamp(from_timestamp(now) + Duration::seconds(2)),
-        20,
+        20_000,
     );
-    let block_close_future_2 = new_block(
+    let block_close_future_2 = new_block_no_epoch_switches(
         &block_close_future_1,
         501,
-        vec!["test3", "test4"],
+        vec!["test3"],
         &*signers[501 % 5],
-        to_timestamp(from_timestamp(now) + Duration::seconds(2)) + 20,
+        to_timestamp(from_timestamp(now) + Duration::seconds(2)) + 20_000,
         (block_close_future_1.header.inner_lite.timestamp - last_block.header.inner_lite.timestamp)
             as u128,
     );
-    let block_close_future_3 = new_block(
+    let block_close_future_3 = new_block_no_epoch_switches(
         &block_close_future_1,
         502,
-        vec!["test3", "test4"],
+        vec!["test3"],
         &*signers[502 % 5],
-        to_timestamp(from_timestamp(now) + Duration::seconds(2)) + 20,
+        to_timestamp(from_timestamp(now) + Duration::seconds(2)) + 20_000,
         (block_close_future_1.header.inner_lite.timestamp - last_block.header.inner_lite.timestamp)
             as u128,
     );
@@ -181,15 +140,15 @@ fn longer_adversarial_chain_common(reverse: bool) {
     // to the weight will be that block weight multiplied by the former block time delta), so
     // intentionally leave the first of the two blocks with no approvals to make sure they don't
     // matter
-    let block_with_three_approvals_in_the_future_1 = new_block(
+    let block_with_three_approvals_in_the_future_1 = new_block_no_epoch_switches(
         last_block,
         700,
         vec![],
         &*signers[700 % 5],
         to_timestamp(from_timestamp(now) + Duration::seconds(118)),
-        20,
+        20_000,
     );
-    let block_with_three_approvals_in_the_future_2 = new_block(
+    let block_with_three_approvals_in_the_future_2 = new_block_no_epoch_switches(
         &block_with_three_approvals_in_the_future_1,
         701,
         vec!["test2", "test3", "test4"],
@@ -203,7 +162,7 @@ fn longer_adversarial_chain_common(reverse: bool) {
         all_blocks.append(&mut honest_blocks);
     }
 
-    thread::sleep(time::Duration::from_nanos(420));
+    thread::sleep(time::Duration::from_nanos(420_000));
 
     for block in all_blocks {
         chain.process_block(&None, block, Provenance::NONE, |_| {}, |_| {}, |_| {}).unwrap();

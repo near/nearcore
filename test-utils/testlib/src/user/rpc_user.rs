@@ -11,7 +11,6 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
 use near_jsonrpc_client::BlockId;
-use near_primitives::errors::ExecutionError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};

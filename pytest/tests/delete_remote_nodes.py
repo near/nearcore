@@ -5,11 +5,18 @@
 # DANGER: make sure not delete production nodes!
 
 from rc import gcloud, pmap
+from distutils.util import strtobool
 
-to_delete = [f'near-pytest-{i}' for i in range(10)]
-def delete_machine(machine_name):
-    m = gcloud.get(machine_name)
-    if m:
-        m.delete()
 
-pmap(delete_machine, to_delete)
+machines = gcloud.list()
+to_delete = list(filter(lambda m: m.name.startswith("near-pytest"), machines))
+
+if to_delete:
+    a = input(f"going to delete {list(map(lambda m: m.name, to_delete))}\ny/n: ")
+    if strtobool(a):
+        def delete_machine(m):
+            print(f'deleting {m.name}')
+            m.delete()
+            print(f'{m.name} deleted')
+
+        pmap(delete_machine, to_delete)
