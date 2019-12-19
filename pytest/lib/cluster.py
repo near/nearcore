@@ -100,6 +100,21 @@ class BaseNode(object):
         r.raise_for_status()
         return json.loads(r.content)
 
+    def get_all_heights(self):
+        status = self.get_status()
+        hash_ = status['sync_info']['latest_block_hash']
+        heights = []
+
+        while True:
+            block = self.get_block(hash_)
+            height = block['result']['header']['height']
+            if height == 0:
+                break
+            heights.append(height)
+            hash_ = block['result']['header']['prev_hash']
+
+        return list(reversed(heights))
+
     def get_account(self, acc):
         print(f'get account {acc}')
         # if acc == 'test2':
