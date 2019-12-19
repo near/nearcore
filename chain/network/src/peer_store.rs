@@ -128,11 +128,13 @@ impl PeerStore {
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
+    /// Peers with unknown addresses are filtered out
     pub fn unconnected_peers(&self, ignore_list: &HashSet<PeerId>) -> Vec<PeerInfo> {
         self.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_list.contains(&p.peer_info.id)
+                    && p.peer_info.addr.is_some()
             },
             0,
         )

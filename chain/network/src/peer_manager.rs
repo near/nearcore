@@ -41,6 +41,7 @@ use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
+use std::net::SocketAddr;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -104,6 +105,7 @@ impl PeerManagerActor {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
+        debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
         let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
@@ -122,6 +124,10 @@ impl PeerManagerActor {
 
     fn num_active_peers(&self) -> usize {
         self.active_peers.len()
+    }
+
+    fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
+        self.config.blacklist.iter().any(|pattern| pattern.contains(addr))
     }
 
     /// Register a direct connection to a new peer. This will be called after successfully
@@ -1074,6 +1080,11 @@ impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+        if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
+            debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
+            return ConsolidateResponse::Reject;
+        }
+
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);

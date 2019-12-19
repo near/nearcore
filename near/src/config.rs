@@ -238,6 +238,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    pub blacklist: Vec<String>,
 }
 
 impl Default for Config {
@@ -252,6 +253,7 @@ impl Default for Config {
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            blacklist: vec![],
         }
     }
 }
@@ -368,6 +370,11 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
+                blacklist: config
+                    .blacklist
+                    .iter()
+                    .filter_map(|x| x.parse().map(|p| Some(p)).unwrap_or(None))
+                    .collect(),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
