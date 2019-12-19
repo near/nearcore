@@ -25,7 +25,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
-use near_primitives::errors::ExecutionError;
+use near_primitives::errors::{ExecutionError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
@@ -126,12 +126,24 @@ pub enum ServerError {
     Closed,
 }
 
+impl From<InvalidTxError> for ServerError {
+    fn from(e: InvalidTxError) -> ServerError {
+        ServerError::TxExecutionError(ExecutionError::InvalidTx(e))
+    }
+}
+
 impl From<MailboxError> for ServerError {
     fn from(e: MailboxError) -> Self {
         match e {
             MailboxError::Closed => ServerError::Closed,
             MailboxError::Timeout => ServerError::Timeout,
         }
+    }
+}
+
+impl From<ServerError> for RpcError {
+    fn from(e: ServerError) -> RpcError {
+        RpcError::server_error(Some(e))
     }
 }
 

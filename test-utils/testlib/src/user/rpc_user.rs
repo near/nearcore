@@ -55,11 +55,14 @@ impl User for RpcUser {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
-            .map_err(|err| err.to_string())?;
+            .map_err(|e| {
+                serde_json::from_value::<ServerError>(e.data.expect("server error must carry data"))
+                    .expect("deserialize server error must be ok")
+            })?;
         Ok(())
     }
 
@@ -81,7 +84,7 @@ impl User for RpcUser {
         }
     }
 
-    fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
+    fn add_receipt(&self, _receipt: Receipt) -> Result<(), ServerError> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
     }

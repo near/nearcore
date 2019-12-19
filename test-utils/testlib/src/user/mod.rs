@@ -32,14 +32,14 @@ pub trait User {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
-    fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), String>;
+    fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), ServerError>;
 
     fn commit_transaction(
         &self,
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError>;
 
     fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
         self.get_access_key(account_id, &self.signer().public_key())

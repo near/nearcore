@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
-use near_primitives::errors::RuntimeError;
+use near_primitives::errors::{ExecutionError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
@@ -82,7 +82,9 @@ impl RuntimeUser {
                     &HashSet::new(),
                 )
                 .map_err(|e| match e {
-                    RuntimeError::InvalidTxError(e) => format!("{}", e),
+                    RuntimeError::InvalidTxError(e) => {
+                        ServerError::TxExecutionError(ExecutionError::InvalidTx(e))
+                    }
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                     RuntimeError::UnexpectedIntegerOverflow => {
@@ -183,7 +185,7 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
@@ -196,7 +198,7 @@ impl User for RuntimeUser {
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError> {
         self.apply_all(self.apply_state(), vec![receipt], vec![])?;
         Ok(())
     }
