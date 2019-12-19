@@ -643,7 +643,7 @@ pub enum FinalExecutionStatus {
     /// The execution has started and still going.
     Started,
     /// The execution has failed with the given error.
-    Failure(ExecutionErrorView),
+    Failure(ExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
 }
@@ -668,29 +668,11 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default,
-)]
-pub struct ExecutionErrorView {
-    pub error: String,
-}
-
-impl From<ExecutionError> for ExecutionErrorView {
-    fn from(error: ExecutionError) -> Self {
-        Self { error: serde_json::to_string(&error).expect("error serialize cannot fail") }
-    }
-}
-
-impl From<ActionError> for ExecutionErrorView {
-    fn from(error: ActionError) -> Self {
-        ExecutionError::Action(error).into()
-    }
-}
-
-impl From<InvalidTxError> for ExecutionErrorView {
-    fn from(error: InvalidTxError) -> Self {
-        ExecutionError::InvalidTx(error).into()
-    }
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum ServerError {
+    TxExecutionError(ExecutionError),
+    Timeout,
+    Closed,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -698,7 +680,7 @@ pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
     /// The execution has failed.
-    Failure(ExecutionErrorView),
+    Failure(ExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
     /// The final action of the receipt returned a promise or the signed transaction was converted
@@ -726,7 +708,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     fn from(outcome: ExecutionStatus) -> Self {
         match outcome {
             ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
-            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e.into()),
+            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e),
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 ExecutionStatusView::SuccessReceiptId(receipt_id)

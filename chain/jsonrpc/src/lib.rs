@@ -25,11 +25,12 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
+use near_primitives::errors::ExecutionError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
+use near_primitives::views::FinalExecutionStatus;
 
 mod metrics;
 pub mod test_utils;
@@ -118,12 +119,24 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
     })
 }
 
-fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
-    ExecutionErrorView { error: "MailBoxError".to_string() }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum ServerError {
+    TxExecutionError(ExecutionError),
+    Timeout,
+    Closed,
+}
+
+impl From<MailboxError> for ServerError {
+    fn from(e: MailboxError) -> Self {
+        match e {
+            MailboxError::Closed => ServerError::Closed,
+            MailboxError::Timeout => ServerError::Timeout,
+        }
+    }
 }
 
 fn timeout_err() -> RpcError {
-    RpcError::server_error(Some(ExecutionErrorView { error: "TimeoutError".to_string() }))
+    RpcError::server_error(Some(ServerError::Timeout))
 }
 
 struct JsonRpcHandler {
@@ -207,7 +220,7 @@ impl JsonRpcHandler {
         let result = self
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
-            .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
+            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
             .compat()
             .await?;
         match result {
@@ -215,12 +228,10 @@ impl JsonRpcHandler {
                 self.tx_polling(tx_hash, signer_account_id).await
             }
             NetworkClientResponses::InvalidTx(err) => {
-                Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
+                Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
             }
             NetworkClientResponses::NoResponse => {
-                Err(RpcError::server_error(Some(ExecutionErrorView {
-                    error: "TimeoutError".to_string(),
-                })))
+                Err(RpcError::server_error(Some(ServerError::Timeout)))
             }
             _ => unreachable!(),
         }

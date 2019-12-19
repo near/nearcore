@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
+use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::{ActionError, InvalidAccessKeyError, InvalidTxError};
+use near_primitives::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
@@ -472,10 +473,9 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             .unwrap_err();
         assert_eq!(
             transaction_result,
-            format!(
-                "{}",
+            ServerError::TxExecutionError(ExecutionError::InvalidTx(
                 InvalidTxError::InvalidReceiver { receiver_id: invalid_account_name.to_string() }
-            )
+            ))
         );
     }
 }
@@ -832,12 +832,9 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         .unwrap_err();
     assert_eq!(
         transaction_result,
-        format!(
-            "{}",
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::MethodNameMismatch {
-                method_name: "run_test".to_string()
-            })
-        )
+        ServerError::TxExecutionError(ExecutionError::InvalidTx(InvalidTxError::InvalidAccessKey(
+            InvalidAccessKeyError::MethodNameMismatch { method_name: "run_test".to_string() }
+        )))
     );
 }
 
@@ -861,13 +858,12 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         .unwrap_err();
     assert_eq!(
         transaction_result,
-        format!(
-            "{}",
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ReceiverMismatch {
+        ServerError::TxExecutionError(ExecutionError::InvalidTx(InvalidTxError::InvalidAccessKey(
+            InvalidAccessKeyError::ReceiverMismatch {
                 tx_receiver: eve_dot_alice_account(),
                 ak_receiver: bob_account()
-            })
-        )
+            }
+        )))
     );
 }
 
@@ -890,7 +886,9 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap_err();
     assert_eq!(
         transaction_result,
-        format!("{}", InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError))
+        ServerError::TxExecutionError(ExecutionError::InvalidTx(InvalidTxError::InvalidAccessKey(
+            InvalidAccessKeyError::ActionError
+        )))
     );
 }
 
@@ -981,7 +979,9 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
         node_user.stake(new_account_id.clone(), node.block_signer().public_key(), 5).unwrap();
     assert_matches!(
         &transaction_result.status,
-        FinalExecutionStatus::Failure(e) if e.error_type == "ActionError::RentUnpaid"
+        FinalExecutionStatus::Failure(e) if e == &ExecutionError::Action(ActionError::RentUnpaid{
+            account_id: alice_account(), amount: 0u128
+        })
     );
     assert_eq!(transaction_result.receipts.len(), 1);
 }

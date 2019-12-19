@@ -3,6 +3,7 @@ use std::sync::Arc;
 use futures::Future;
 
 use near_crypto::{PublicKey, Signer};
+use near_jsonrpc::ServerError;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -36,7 +37,7 @@ pub trait User {
     fn commit_transaction(
         &self,
         signed_transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String>;
+    ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
 
@@ -72,7 +73,7 @@ pub trait User {
         signer_id: AccountId,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
@@ -90,7 +91,7 @@ pub trait User {
         signer_id: AccountId,
         receiver_id: AccountId,
         amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             receiver_id,
@@ -102,7 +103,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         code: Vec<u8>,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -118,7 +119,7 @@ pub trait User {
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             contract_id,
@@ -137,7 +138,7 @@ pub trait User {
         new_account_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             new_account_id,
@@ -154,7 +155,7 @@ pub trait User {
         signer_id: AccountId,
         public_key: PublicKey,
         access_key: AccessKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -166,7 +167,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         public_key: PublicKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -180,7 +181,7 @@ pub trait User {
         old_public_key: PublicKey,
         new_public_key: PublicKey,
         access_key: AccessKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -195,7 +196,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             receiver_id,
@@ -208,7 +209,7 @@ pub trait User {
         signer_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -222,49 +223,49 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = AccountView, Error = String>>;
+    ) -> Box<dyn Future<Item = AccountView, Error = ServerError>>;
 
     fn view_balance(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = Balance, Error = String>> {
+    ) -> Box<dyn Future<Item = Balance, Error = ServerError>> {
         Box::new(self.view_account(account_id).map(|acc| acc.amount))
     }
 
     fn view_state(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = ViewStateResult, Error = String>>;
+    ) -> Box<dyn Future<Item = ViewStateResult, Error = ServerError>>;
 
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+    ) -> Box<dyn Future<Item = (), Error = ServerError> + Send>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Box<dyn Future<Item = (), Error = String>>;
+    fn add_receipt(&self, receipt: Receipt) -> Box<dyn Future<Item = (), Error = ServerError>>;
 
     fn get_account_nonce(
         &self,
         account_id: &AccountId,
     ) -> Box<dyn Future<Item = u64, Error = String>>;
 
-    fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = String>>;
+    fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = ServerError>>;
 
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = ExecutionOutcome, Error = String>>;
+    ) -> Box<dyn Future<Item = ExecutionOutcome, Error = ServerError>>;
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = String>>;
+    ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = ServerError>>;
 
-    fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
+    fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = ServerError>>;
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
+    ) -> Box<dyn Future<Item = Option<AccessKey>, Error = ServerError>>;
 }

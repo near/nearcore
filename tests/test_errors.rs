@@ -49,10 +49,10 @@ fn test_check_tx_error_log() {
         tx_result,
         format!(
             "{}",
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::AccessKeyNotFound(
-                "bob.near".to_string(),
-                signer.public_key.clone()
-            ))
+            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: "bob.near".to_string(),
+                public_key: signer.public_key.clone()
+            })
         ),
     );
 }
@@ -88,11 +88,11 @@ fn test_deliver_tx_error_log() {
         tx_result,
         format!(
             "{}",
-            InvalidTxError::NotEnoughBalance(
-                "alice.near".to_string(),
-                TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-                TESTING_INIT_BALANCE + 1 + cost
-            )
+            InvalidTxError::NotEnoughBalance {
+                signer_id: "alice.near".to_string(),
+                balance: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
+                cost: TESTING_INIT_BALANCE + 1 + cost
+            }
         ),
     );
 }

@@ -9,15 +9,17 @@ use borsh::BorshSerialize;
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
+use near_jsonrpc::ServerError;
 use near_jsonrpc_client::BlockId;
+use near_primitives::errors::ExecutionError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
+    QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -64,7 +66,7 @@ impl User for RpcUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let result = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
@@ -75,9 +77,7 @@ impl User for RpcUser {
         }
         match result {
             Ok(outcome) => Ok(outcome),
-            Err(err) => Err(serde_json::from_value::<ExecutionErrorView>(err.data.unwrap())
-                .unwrap()
-                .error_message),
+            Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
 
