@@ -119,14 +119,11 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 }
 
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
-    ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
+    ExecutionErrorView { error: "MailBoxError".to_string() }
 }
 
 fn timeout_err() -> RpcError {
-    RpcError::server_error(Some(ExecutionErrorView {
-        error_message: "send_tx_commit has timed out".to_string(),
-        error_type: "TimeoutError".to_string(),
-    }))
+    RpcError::server_error(Some(ExecutionErrorView { error: "TimeoutError".to_string() }))
 }
 
 struct JsonRpcHandler {
@@ -222,8 +219,7 @@ impl JsonRpcHandler {
             }
             NetworkClientResponses::NoResponse => {
                 Err(RpcError::server_error(Some(ExecutionErrorView {
-                    error_message: "send_tx_commit has timed out".to_string(),
-                    error_type: "TimeoutError".to_string(),
+                    error: "TimeoutError".to_string(),
                 })))
             }
             _ => unreachable!(),

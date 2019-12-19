@@ -10,7 +10,7 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
+use crate::errors::{ActionError, ExecutionError, InvalidTxError};
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::merkle::MerklePath;
@@ -672,80 +672,12 @@ impl Default for FinalExecutionStatus {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default,
 )]
 pub struct ExecutionErrorView {
-    pub error_message: String,
-    pub error_type: String,
+    pub error: String,
 }
 
 impl From<ExecutionError> for ExecutionErrorView {
     fn from(error: ExecutionError) -> Self {
-        let error_type = match &error {
-            ExecutionError::Action(e) => match e {
-                ActionError::AccountAlreadyExists { .. } => {
-                    "ActionError::AccountAlreadyExists".to_string()
-                }
-                ActionError::AccountDoesNotExist { .. } => {
-                    "ActionError::AccountDoesNotExist".to_string()
-                }
-                ActionError::CreateAccountNotAllowed { .. } => {
-                    "ActionError::CreateAccountNotAllowed".to_string()
-                }
-                ActionError::ActorNoPermission { .. } => {
-                    "ActionError::ActorNoPermission".to_string()
-                }
-                ActionError::DeleteKeyDoesNotExist { .. } => {
-                    "ActionError::DeleteKeyDoesNotExist".to_string()
-                }
-                ActionError::AddKeyAlreadyExists { .. } => {
-                    "ActionError::AddKeyAlreadyExists".to_string()
-                }
-                ActionError::DeleteAccountStaking { .. } => {
-                    "ActionError::DeleteAccountStaking".to_string()
-                }
-                ActionError::DeleteAccountHasRent { .. } => {
-                    "ActionError::DeleteAccountHasRent".to_string()
-                }
-                ActionError::RentUnpaid { .. } => "ActionError::RentUnpaid".to_string(),
-                ActionError::TriesToUnstake { .. } => "ActionError::TriesToUnstake".to_string(),
-                ActionError::TriesToStake { .. } => "ActionError::TriesToStake".to_string(),
-                ActionError::FunctionCall { .. } => "ActionError::FunctionCall".to_string(),
-            },
-            ExecutionError::InvalidTx(e) => match e {
-                InvalidTxError::InvalidSigner { .. } => "InvalidTxError::InvalidSigner".to_string(),
-                InvalidTxError::SignerDoesNotExist { .. } => {
-                    "InvalidTxError::SignerDoesNotExist".to_string()
-                }
-                InvalidTxError::InvalidAccessKey(e) => match e {
-                    InvalidAccessKeyError::AccessKeyNotFound { .. } => {
-                        "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
-                    }
-                    InvalidAccessKeyError::ReceiverMismatch { .. } => {
-                        "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
-                    }
-                    InvalidAccessKeyError::MethodNameMismatch { .. } => {
-                        "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
-                    }
-                    InvalidAccessKeyError::ActionError => {
-                        "InvalidTxError::InvalidAccessKey::ActionError".to_string()
-                    }
-                    InvalidAccessKeyError::NotEnoughAllowance { .. } => {
-                        "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
-                    }
-                },
-                InvalidTxError::InvalidNonce { .. } => "InvalidTxError::InvalidNonce".to_string(),
-                InvalidTxError::InvalidReceiver { .. } => {
-                    "InvalidTxError::InvalidReceiver".to_string()
-                }
-                InvalidTxError::InvalidSignature => "InvalidTxError::InvalidSignature".to_string(),
-                InvalidTxError::NotEnoughBalance { .. } => {
-                    "InvalidTxError::NotEnoughBalance".to_string()
-                }
-                InvalidTxError::RentUnpaid { .. } => "InvalidTxError::RentUnpaid".to_string(),
-                InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
-                InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
-                InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
-            },
-        };
-        ExecutionErrorView { error_message: format!("{}", error), error_type }
+        Self { error: serde_json::to_string(&error).expect("error serialize cannot fail") }
     }
 }
 
