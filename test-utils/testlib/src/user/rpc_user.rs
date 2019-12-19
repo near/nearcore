@@ -119,7 +119,7 @@ impl User for RpcUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, String> {
+    ) -> Result<AccessKeyView, String> {
         self.query(format!("access_key/{}/{}", account_id, public_key), &[])?.try_into()
     }
 

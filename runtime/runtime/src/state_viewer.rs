@@ -42,12 +42,13 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKey, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        get_access_key(state_update, account_id, public_key).map_err(|e| Box::new(e).into())
+        get_access_key(state_update, account_id, public_key)?
+            .ok_or_else(|| format!("access key {} does not exist while viewing", public_key).into())
     }
 
     pub fn view_state(
@@ -68,7 +69,7 @@ impl TrieViewer {
             if let Ok(Some(value)) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
-        });
+        })?;
         Ok(ViewStateResult { values })
     }
 
@@ -115,6 +116,7 @@ impl TrieViewer {
                 block_index,
                 block_timestamp,
                 account_balance: account.amount,
+                account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
                 attached_deposit: 0,
                 prepaid_gas: 0,

@@ -235,6 +235,7 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
             .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
     }
 }
+
 impl From<&PublicKey> for String {
     fn from(public_key: &PublicKey) -> Self {
         match public_key {

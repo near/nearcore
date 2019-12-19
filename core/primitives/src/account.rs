@@ -6,7 +6,7 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 /// Per account information stored in the state.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    /// The sum of `amount` and `staked` is the total value of the account.
+    /// The total not locked tokens.
     pub amount: Balance,
     /// The amount locked due to staking
     pub locked: Balance,

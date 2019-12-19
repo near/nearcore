@@ -8,14 +8,15 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
+use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, LightClientBlockView,
-    QueryResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    LightClientBlockView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -98,6 +99,14 @@ pub struct ClientConfig {
     pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockIndex,
+    /// How much time to wait after initial header sync
+    pub header_sync_initial_timeout: Duration,
+    /// How much time to wait after some progress is made in header sync
+    pub header_sync_progress_timeout: Duration,
+    /// How much time to wait before banning a peer in header sync if sync is too slow
+    pub header_sync_stall_ban_timeout: Duration,
+    /// Expected increase of header head weight per second during header sync
+    pub header_sync_expected_weight_per_second: u128,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -153,6 +162,10 @@ impl ClientConfig {
             sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
+            header_sync_initial_timeout: Duration::from_secs(10),
+            header_sync_progress_timeout: Duration::from_secs(2),
+            header_sync_stall_ban_timeout: Duration::from_secs(30),
+            header_sync_expected_weight_per_second: 1_000_000_000,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
@@ -200,6 +213,8 @@ pub struct DownloadStatus {
     pub run_me: bool,
     pub error: bool,
     pub done: bool,
+    pub state_requests_count: u64,
+    pub last_target: Option<AccountOrPeerIdOrHash>,
 }
 
 /// Various status of syncing a specific shard.
@@ -301,6 +316,16 @@ pub struct GetNetworkInfo {}
 
 impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
+}
+
+pub enum GetGasPrice {
+    Height(BlockIndex),
+    Hash(CryptoHash),
+    None,
+}
+
+impl Message for GetGasPrice {
+    type Result = Result<GasPriceView, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -33,8 +33,18 @@ pub struct ChunkProofs {
     pub block_header: Vec<u8>,
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
-    /// Invalid chunk in encoded form.
-    pub chunk: EncodedShardChunk,
+    /// Invalid chunk in an encoded form or in a decoded form.
+    pub chunk: MaybeEncodedShardChunk,
+}
+
+/// Either `EncodedShardChunk` or `ShardChunk`. Used for `ChunkProofs`.
+/// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
+/// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
+/// decoded.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum MaybeEncodedShardChunk {
+    Encoded(EncodedShardChunk),
+    Decoded(ShardChunk),
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
@@ -88,6 +98,18 @@ impl Challenge {
 
 pub type Challenges = Vec<Challenge>;
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct SlashedValidator {
+    pub account_id: AccountId,
+    pub is_double_sign: bool,
+}
+
+impl SlashedValidator {
+    pub fn new(account_id: AccountId, is_double_sign: bool) -> Self {
+        SlashedValidator { account_id, is_double_sign }
+    }
+}
+
 /// Result of checking challenge, contains which accounts to slash.
 /// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
-pub type ChallengesResult = Vec<AccountId>;
+pub type ChallengesResult = Vec<SlashedValidator>;

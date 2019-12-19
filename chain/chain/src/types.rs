@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -18,10 +18,11 @@ use near_primitives::types::{
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
+use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::Error;
 use near_pool::types::PoolIterator;
 use near_primitives::errors::InvalidTxError;
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -115,12 +116,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>);
 
-    /// Verify block producer validity and return weight of given block for fork choice rule.
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error>;
+    /// Verify block producer validity
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
 
     /// Validates a given signed transaction on top of the given state root.
     /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
@@ -306,7 +303,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         last_finalized_height: BlockIndex,
         proposals: Vec<ValidatorStake>,
-        slashed_validators: Vec<AccountId>,
+        slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -429,7 +426,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
+    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
         for shard_id in 0..self.num_shards() {
             // importance to save the same order while filtering
@@ -438,9 +435,49 @@ pub trait RuntimeAdapter: Send + Sync {
                 .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec()?));
+            receipts_hashes
+                .push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap()));
         }
-        Ok(receipts_hashes)
+        receipts_hashes
+    }
+}
+
+impl dyn RuntimeAdapter {
+    pub fn compute_block_weight_delta(
+        &self,
+        approvals: Vec<&String>,
+        prev_epoch: &EpochId,
+        prev_hash: &CryptoHash,
+    ) -> Result<u128, Error> {
+        let block_producers = self.get_epoch_block_producers(prev_epoch, prev_hash)?;
+        let mut account_to_stake = HashMap::new();
+
+        let mut approved_stake = 0;
+        let mut total_stake = 0;
+
+        for bp in block_producers {
+            account_to_stake.insert(bp.0.account_id, bp.0.amount);
+            total_stake += bp.0.amount;
+        }
+
+        for approval in approvals {
+            approved_stake += *account_to_stake.get(approval).unwrap_or(&0u128);
+            account_to_stake.insert(approval.clone(), 0);
+        }
+
+        debug_assert!(approved_stake <= total_stake);
+
+        // Compute ret as
+        //
+        //    ret = WEIGHT_MULTIPLIER * approved_stake / total_stake
+        //
+        // carefully handling the overflow
+        let ret = if approved_stake >= std::u128::MAX / WEIGHT_MULTIPLIER {
+            approved_stake / (total_stake / WEIGHT_MULTIPLIER)
+        } else {
+            WEIGHT_MULTIPLIER * approved_stake / total_stake
+        };
+        Ok(max(ret, 1))
     }
 }
 
@@ -468,18 +505,21 @@ pub struct Tip {
     pub prev_block_hash: CryptoHash,
     /// Total weight on that fork
     pub weight_and_score: WeightAndScore,
+    /// The timestamp of the head block
+    pub prev_timestamp: u64,
     /// Previous epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
 }
 
 impl Tip {
     /// Creates a new tip based on provided header.
-    pub fn from_header(header: &BlockHeader) -> Tip {
+    pub fn from_header_and_prev_timestamp(header: &BlockHeader, prev_timestamp: u64) -> Tip {
         Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
             weight_and_score: header.inner_rest.weight_and_score(),
+            prev_timestamp,
             epoch_id: header.inner_lite.epoch_id.clone(),
         }
     }
@@ -554,9 +594,11 @@ mod tests {
             approvals,
             &signer,
             genesis.header.inner_lite.next_bp_hash,
+            20,
+            1,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
+        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 21);
     }
 
     #[test]

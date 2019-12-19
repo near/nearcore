@@ -1,6 +1,6 @@
 [package]
 name = "near"
-version = "0.4.10"
+version = "0.4.11"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -37,5 +37,4 @@ near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
 tempdir = "0.3"
-tokio = "0.1"
 testlib = { path = "../test-utils/testlib" }

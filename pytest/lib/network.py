@@ -6,7 +6,7 @@ def _run_process(cmd):
     return (process.returncode, out, err)
 
 def init_network_pillager():
-    _run_process(["mkdir", "/sys/fs/cgroup/net_cls/block"])
+    _run_process(["mkdir", "-p", "/sys/fs/cgroup/net_cls/block"])
     try:
         with open("/sys/fs/cgroup/net_cls/block/net_cls.classid", 'w') as f:
             f.write("42")
@@ -35,7 +35,7 @@ def resume_network(pid):
 if __name__ == "__main__":
     import time
     init_network_pillager()
-    handle = subprocess.Popen(["ping", "8.8.8.8"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    handle = subprocess.Popen(["ping", "8.8.8.8"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     print(handle.pid)
     time.sleep(3)
     stop_network(handle.pid)

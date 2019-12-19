@@ -19,19 +19,20 @@ if len(sys.argv) < 3:
 mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
 
-from cluster import init_cluster, spin_up_node
+from cluster import init_cluster, spin_up_node, load_config
 from utils import TxContext, LogTracker
 
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
-config = {'local': True, 'near_root': '../target/debug/'}
-near_root, node_dirs = init_cluster(2, 1, 1, config, [["gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
+config = load_config()
+near_root, node_dirs = init_cluster(2, 1, 1, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {2: {"tracked_shards": [0]}})
 
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
+#time.sleep(3)
 
 ctx = TxContext([0, 0], [boot_node, node1])
 last_balances = [x for x in ctx.expected_balances]
@@ -65,6 +66,7 @@ if mode == 'onetx':
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 tracker = LogTracker(node2)
+time.sleep(3)
 
 catch_up_height = 0
 while catch_up_height < observed_height:
@@ -88,9 +90,9 @@ while catch_up_height < observed_height:
 assert catch_up_height in seen_boot_heights, "%s not in %s" % (catch_up_height, seen_boot_heights)
 
 if catch_up_height >= 100:
-    assert tracker.check("State 0")
+    assert tracker.check("transition to State Sync")
 elif catch_up_height <= 30:
-    assert not tracker.check("State 0")
+    assert not tracker.check("transition to State Sync")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

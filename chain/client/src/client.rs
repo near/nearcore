@@ -10,6 +10,8 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
+use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter, Tip,
@@ -33,7 +35,6 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -81,7 +82,13 @@ impl Client {
             network_adapter.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(network_adapter.clone());
+        let header_sync = HeaderSync::new(
+            network_adapter.clone(),
+            config.header_sync_initial_timeout,
+            config.header_sync_progress_timeout,
+            config.header_sync_stall_ban_timeout,
+            config.header_sync_expected_weight_per_second,
+        );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producers = config.num_block_producers as usize;
@@ -185,8 +192,9 @@ impl Client {
         let prev_prev_hash = prev.prev_hash;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
         let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
+        let prev_timestamp = prev.inner_lite.timestamp;
 
-        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -292,6 +300,19 @@ impl Client {
             prev_next_bp_hash
         };
 
+        let weight_delta = self.runtime_adapter.compute_block_weight_delta(
+            approvals.iter().map(|x| &x.account_id).collect(),
+            &prev_epoch_id,
+            &prev_hash,
+        )?;
+
+        let time_delta = if prev_prev_hash == CryptoHash::default() {
+            1
+        } else {
+            (prev_timestamp - self.chain.get_block_header(&prev_prev_hash)?.inner_lite.timestamp)
+                as u128
+        };
+
         // Get block extra from previous block.
         let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
@@ -331,6 +352,8 @@ impl Client {
             prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,
+            time_delta,
+            weight_delta,
             score,
             quorums.last_quorum_pre_vote,
             quorums.last_quorum_pre_commit,
@@ -431,7 +454,7 @@ impl Client {
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
@@ -1048,6 +1071,7 @@ impl Client {
             );
 
             match state_sync.run(
+                me,
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,
