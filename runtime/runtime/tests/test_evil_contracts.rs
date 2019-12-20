@@ -79,7 +79,7 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
-        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
 }
