@@ -125,7 +125,7 @@ class BaseNode(object):
         return self.json_rpc('block', [block_hash])
 
 class LocalNode(BaseNode):
-    def __init__(self, port, rpc_port, near_root, node_dir):
+    def __init__(self, port, rpc_port, near_root, node_dir, blacklist):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
@@ -138,6 +138,7 @@ class LocalNode(BaseNode):
         # just a sanity assert that the setting name didn't change
         assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json['consensus']['min_num_peers']
         config_json['network']['addr'] = '0.0.0.0:%s' % port
+        config_json['network']['blacklist'] = blacklist
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
         config_json['consensus']['min_num_peers'] = 1
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
@@ -292,15 +293,19 @@ chmod +x near
         rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop', input='yes\n')
 
 
-def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
+def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blacklist=[]):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal, ("as BOOT NODE" if boot_addr is None else (
         "with boot=%s@%s:%s" % (boot_key, boot_addr[0], boot_addr[1])))))
     if is_local:
+        blacklist = ["127.0.0.1:%s" % (24567 + 10 + bl_ordinal) for bl_ordinal in blacklist]
         node = LocalNode(24567 + 10 + ordinal, 3030 +
-                         10 + ordinal, near_root, node_dir)
+                         10 + ordinal, near_root, node_dir, blacklist)
     else:
+        # TODO: Figure out how to know IP address beforehand for remote deployment.
+        assert len(blacklist) == 0, "Blacklist is only supporte with LOCAL deployment."
+
         instance_name = '{}-{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal, uuid.uuid4())
         zones = config['remote']['zones']
         zone = zones[ordinal % len(zones)]

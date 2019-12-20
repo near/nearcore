@@ -156,6 +156,9 @@ pub struct Network {
     pub skip_sync_wait: bool,
     /// Ban window for peers who misbehave.
     pub ban_window: Duration,
+    /// List of addresses that will not be accepted as valid neighbors.
+    /// It can be IP:Port or IP (to blacklist all connections coming from this address).
+    pub blacklist: Vec<String>,
 }
 
 impl Default for Network {
@@ -169,6 +172,7 @@ impl Default for Network {
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
             ban_window: Duration::from_secs(3 * 60 * 60),
+            blacklist: vec![],
         }
     }
 }
@@ -238,7 +242,6 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
-    pub blacklist: Vec<String>,
 }
 
 impl Default for Config {
@@ -253,7 +256,6 @@ impl Default for Config {
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
-            blacklist: vec![],
         }
     }
 }
@@ -371,6 +373,7 @@ impl NearConfig {
                 most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
                 blacklist: config
+                    .network
                     .blacklist
                     .iter()
                     .filter_map(|x| x.parse().map(|p| Some(p)).unwrap_or(None))
