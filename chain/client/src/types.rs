@@ -284,11 +284,13 @@ pub struct Query {
     pub path: String,
     pub data: Vec<u8>,
     pub id: String,
+    /// Whether to only query results that are final
+    pub is_final: bool,
 }
 
 impl Query {
-    pub fn new(path: String, data: Vec<u8>) -> Self {
-        Query { path, data, id: generate_random_string(10) }
+    pub fn new(path: String, data: Vec<u8>, is_final: bool) -> Self {
+        Query { path, data, id: generate_random_string(10), is_final }
     }
 }
 

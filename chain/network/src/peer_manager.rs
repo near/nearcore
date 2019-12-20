@@ -831,11 +831,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::Query { account_id, path, data, id } => {
+            NetworkRequests::Query { account_id, path, data, id, is_final } => {
                 self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::QueryRequest { path, data, id },
+                    RoutedMessageBody::QueryRequest { path, data, id, is_final },
                 );
                 NetworkResponses::NoResponse
             }

@@ -226,6 +226,7 @@ fn test_validator_kickout() {
                                                 test_nodes[i as usize].account_id.clone()
                                             ),
                                             vec![],
+                                            false,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -254,6 +255,7 @@ fn test_validator_kickout() {
                                                 test_nodes[i as usize].account_id.clone()
                                             ),
                                             vec![],
+                                            false,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -371,6 +373,7 @@ fn test_validator_join() {
                                     .send(Query::new(
                                         format!("account/{}", test_nodes[1].account_id.clone()),
                                         vec![],
+                                        false,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -388,6 +391,7 @@ fn test_validator_join() {
                                     .send(Query::new(
                                         format!("account/{}", test_nodes[2].account_id.clone()),
                                         vec![],
+                                        false,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {

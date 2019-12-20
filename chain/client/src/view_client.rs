@@ -84,7 +84,13 @@ impl ViewClientActor {
             self.query_requests.cache_remove(&msg.id);
             return response.map(Some);
         }
-        let header = self.chain.head_header().map_err(|e| e.to_string())?.clone();
+        let head = self.chain.head().map_err(|e| e.to_string())?;
+        let header = if msg.is_final {
+            self.chain.get_block_header(&head.last_final_block_hash).map_err(|e| e.to_string())?
+        } else {
+            self.chain.get_block_header(&head.last_block_hash).map_err(|e| e.to_string())?
+        }
+        .clone();
         let path_parts: Vec<&str> = msg.path.split('/').collect();
         if path_parts.len() <= 1 {
             return Err("Not enough query parameters provided".to_string());
@@ -127,6 +133,7 @@ impl ViewClientActor {
                         path: msg.path.clone(),
                         data: msg.data.clone(),
                         id: msg.id.clone(),
+                        is_final: msg.is_final,
                     });
                 }
 
@@ -347,8 +354,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { path, data, id } => {
-                let query = Query { path, data, id: id.clone() };
+            NetworkViewClientMessages::Query { path, data, id, is_final } => {
+                let query = Query { path, data, id: id.clone(), is_final };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { response: Ok(r), id }

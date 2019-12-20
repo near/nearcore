@@ -184,7 +184,7 @@ macro_rules! jsonrpc_client {
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
+    pub fn query(&mut self, path: String, data: String, is_final: bool) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;

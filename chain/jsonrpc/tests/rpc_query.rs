@@ -125,7 +125,7 @@ fn test_query_account() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(
+        actix::spawn(client.query("account/test".to_string(), "".to_string(), false).then(
             |query_response| {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);
@@ -160,7 +160,7 @@ fn test_query_access_keys() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("access_key/test".to_string(), "".to_string()).then(
+        actix::spawn(client.query("access_key/test".to_string(), "".to_string(), false).then(
             |query_response| {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);
@@ -193,7 +193,7 @@ fn test_query_access_key() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("access_key/test/xxx".to_string(), "".to_string()).then(
+        actix::spawn(client.query("access_key/test/xxx".to_string(), "".to_string(), false).then(
             |query_response| {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);

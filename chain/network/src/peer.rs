@@ -277,8 +277,8 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = message.hash();
                 match message.body {
-                    RoutedMessageBody::QueryRequest { path, data, id } => {
-                        NetworkViewClientMessages::Query { path, data, id }
+                    RoutedMessageBody::QueryRequest { path, data, id, is_final } => {
+                        NetworkViewClientMessages::Query { path, data, id, is_final }
                     }
                     RoutedMessageBody::QueryResponse { response, id } => {
                         NetworkViewClientMessages::QueryResponse { response, id }

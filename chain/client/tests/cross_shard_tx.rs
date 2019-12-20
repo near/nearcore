@@ -49,7 +49,7 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
+                    .send(Query::new("account/".to_string() + flat_validators[i], vec![], false))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
@@ -187,7 +187,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_owned() + &account_id, vec![]))
+                        .send(Query::new("account/".to_owned() + &account_id, vec![], false))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -278,6 +278,7 @@ mod tests {
                                 .send(Query::new(
                                     "account/".to_string() + validators[i].clone(),
                                     vec![],
+                                    false,
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -324,7 +325,7 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_string() + &account_id, vec![]))
+                        .send(Query::new("account/".to_string() + &account_id, vec![], false))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -431,6 +432,7 @@ mod tests {
                         .send(Query::new(
                             "account/".to_string() + flat_validators[i].clone(),
                             vec![],
+                            false,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(

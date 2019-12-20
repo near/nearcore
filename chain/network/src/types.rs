@@ -303,6 +303,7 @@ pub enum RoutedMessageBody {
         path: String,
         data: Vec<u8>,
         id: String,
+        is_final: bool,
     },
     QueryResponse {
         response: Result<QueryResponse, String>,
@@ -1020,6 +1021,7 @@ pub enum NetworkRequests {
         path: String,
         data: Vec<u8>,
         id: String,
+        is_final: bool,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1209,7 +1211,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { path: String, data: Vec<u8>, id: String },
+    Query { path: String, data: Vec<u8>, id: String, is_final: bool },
     /// Query response
     QueryResponse { response: Result<QueryResponse, String>, id: String },
     /// Request for receipt outcome

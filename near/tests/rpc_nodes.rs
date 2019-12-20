@@ -8,6 +8,7 @@ use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeout;
+use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
@@ -302,11 +303,12 @@ fn test_rpc_routing() {
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
-                    if res.unwrap().unwrap().header.height > 1 {
+                    if res.unwrap().unwrap().header.last_quorum_pre_commit != CryptoHash::default()
+                    {
                         let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
-                                .query("account/near.2".to_string(), "".to_string())
+                                .query("account/near.2".to_string(), "".to_string(), true)
                                 .map_err(|err| {
                                     println!("Error retrieving account: {:?}", err);
                                 })
@@ -348,11 +350,12 @@ fn test_rpc_routing_error() {
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
-                    if res.unwrap().unwrap().header.height > 1 {
+                    if res.unwrap().unwrap().header.last_quorum_pre_commit != CryptoHash::default()
+                    {
                         let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
-                                .query("account/nonexistent".to_string(), "".to_string())
+                                .query("account/nonexistent".to_string(), "".to_string(), true)
                                 .map_err(|err| {
                                     println!("error: {}", err.to_string());
                                     System::current().stop();

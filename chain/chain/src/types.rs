@@ -503,6 +503,8 @@ pub struct Tip {
     pub last_block_hash: CryptoHash,
     /// Previous block
     pub prev_block_hash: CryptoHash,
+    /// Last final block hash
+    pub last_final_block_hash: CryptoHash,
     /// Total weight on that fork
     pub weight_and_score: WeightAndScore,
     /// The timestamp of the head block
@@ -518,6 +520,7 @@ impl Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
+            last_final_block_hash: header.inner_rest.last_quorum_pre_commit,
             weight_and_score: header.inner_rest.weight_and_score(),
             prev_timestamp,
             epoch_id: header.inner_lite.epoch_id.clone(),

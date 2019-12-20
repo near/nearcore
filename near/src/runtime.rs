@@ -1312,6 +1312,7 @@ mod test {
                     epoch_id: EpochId::default(),
                     prev_timestamp: 0,
                     weight_and_score: WeightAndScore::from_ints(0, 0),
+                    last_final_block_hash: Default::default(),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1383,6 +1384,7 @@ mod test {
                     self.head.weight_and_score.weight.to_num() + 1,
                     self.head.weight_and_score.score.to_num(),
                 ),
+                last_final_block_hash: Default::default(),
             };
         }
 

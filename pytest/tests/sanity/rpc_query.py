@@ -29,8 +29,9 @@ for i in range(4):
             if 'error' in result:
                 assert False, result
 
-time.sleep(2)
+# sleep some time to wait for blocks to be finalized
+time.sleep(10)
 for i in range(4):
     query_result1 = nodes[-2].get_account("test%s" % i)
     query_result2 = nodes[-1].get_account("test%s" % i)
-    assert query_result1 == query_result2, "query same account gives different result"
+    assert query_result1 == query_result2, "query same account gives different result: %s, %s" % (query_result1, query_result2)

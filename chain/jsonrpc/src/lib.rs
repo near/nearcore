@@ -248,7 +248,7 @@ impl JsonRpcHandler {
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (path, data) = parse_params::<(String, String)>(params)?;
+        let (path, data, is_final) = parse_params::<(String, String, bool)>(params)?;
         let data = from_base_or_parse_err(data)?;
         let query_data_size = path.len() + data.len();
         if query_data_size > QUERY_DATA_MAX_SIZE {
@@ -257,7 +257,7 @@ impl JsonRpcHandler {
                 query_data_size
             ))));
         }
-        let query = Query::new(path, data);
+        let query = Query::new(path, data, is_final);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).compat().await;

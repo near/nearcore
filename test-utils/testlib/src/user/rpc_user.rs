@@ -39,7 +39,7 @@ impl RpcUser {
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         System::new("actix")
-            .block_on(self.client.write().unwrap().query(path, to_base(data)))
+            .block_on(self.client.write().unwrap().query(path, to_base(data), true))
             .map_err(|err| err.to_string())
     }
 }

@@ -290,6 +290,7 @@ mod tests {
                                                 .send(Query::new(
                                                     "account/".to_string() + &account_to,
                                                     vec![],
+                                                    false,
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
@@ -481,6 +482,7 @@ mod tests {
                                                     .send(Query::new(
                                                         "account/".to_string() + flat_validators[j],
                                                         vec![],
+                                                        false,
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
