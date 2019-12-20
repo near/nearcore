@@ -16,7 +16,8 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+    ActionError, ActionErrorKind, ExecutionError, InvalidAccessKeyError, InvalidTxError,
+    RuntimeError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
@@ -605,7 +606,8 @@ impl Runtime {
                 is_last_action,
             )?)?;
             // TODO storage error
-            if result.result.is_err() {
+            if let Err(ref mut res) = result.result {
+                res.index = Some(action_index as u64);
                 break;
             }
         }
@@ -617,9 +619,13 @@ impl Runtime {
                     check_rent(account_id, account, &self.config, apply_state.epoch_length)
                 {
                     result.merge(ActionResult {
-                        result: Err(ActionError::RentUnpaid {
-                            account_id: account_id.clone(),
-                            amount,
+                        result: Err(ActionError {
+                            // TODO: looks like this shouldn't be in a ActionError category (which action where failed?)
+                            index: None,
+                            kind: ActionErrorKind::RentUnpaid {
+                                account_id: account_id.clone(),
+                                amount,
+                            },
                         }),
                         ..Default::default()
                     })?;

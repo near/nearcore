@@ -10,7 +10,7 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::errors::{ActionError, ExecutionError, InvalidTxError};
+use crate::errors::ExecutionError;
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::merkle::MerklePath;

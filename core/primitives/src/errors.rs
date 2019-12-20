@@ -88,7 +88,13 @@ pub enum InvalidAccessKeyError {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub enum ActionError {
+pub struct ActionError {
+    pub index: Option<u64>,
+    pub kind: ActionErrorKind,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ActionErrorKind {
     AccountAlreadyExists {
         account_id: AccountId,
     },
@@ -138,6 +144,12 @@ pub enum ActionError {
         balance: Balance,
     },
     FunctionCall(String), // TODO type
+}
+
+impl From<ActionErrorKind> for ActionError {
+    fn from(e: ActionErrorKind) -> ActionError {
+        ActionError { index: None, kind: e }
+    }
 }
 
 impl Display for InvalidTxError {
@@ -342,57 +354,63 @@ impl From<InvalidTxError> for RuntimeError {
 
 impl Display for ActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "Action #{}: {}", self.index.unwrap_or_default(), self.kind)
+    }
+}
+
+impl Display for ActionErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            ActionError::AccountAlreadyExists { account_id } => {
+            ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)
             }
-            ActionError::AccountDoesNotExist { action, account_id } => write!(
+            ActionErrorKind::AccountDoesNotExist { action, account_id } => write!(
                 f,
                 "Can't complete the action {:?}, because account {:?} doesn't exist",
                 action, account_id
             ),
-            ActionError::ActorNoPermission { actor_id, account_id, action } => write!(
+            ActionErrorKind::ActorNoPermission { actor_id, account_id, action } => write!(
                 f,
                 "Actor {:?} doesn't have permission to account {:?} to complete the action {:?}",
                 actor_id, account_id, action
             ),
-            ActionError::RentUnpaid { account_id, amount } => write!(
+            ActionErrorKind::RentUnpaid { account_id, amount } => write!(
                 f,
                 "The account {} wouldn't have enough balance to pay required rent {}",
                 account_id, amount
             ),
-            ActionError::TriesToUnstake { account_id } => {
+            ActionErrorKind::TriesToUnstake { account_id } => {
                 write!(f, "Account {:?} is not yet staked, but tries to unstake", account_id)
             }
-            ActionError::TriesToStake { account_id, stake, locked, balance } => write!(
+            ActionErrorKind::TriesToStake { account_id, stake, locked, balance } => write!(
                 f,
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionError::CreateAccountNotAllowed { account_id, predecessor_id } => write!(
+            ActionErrorKind::CreateAccountNotAllowed { account_id, predecessor_id } => write!(
                 f,
                 "The new account_id {:?} can't be created by {:?}",
                 account_id, predecessor_id
             ),
-            ActionError::DeleteKeyDoesNotExist { account_id, .. } => write!(
+            ActionErrorKind::DeleteKeyDoesNotExist { account_id, .. } => write!(
                 f,
                 "Account {:?} tries to remove an access key that doesn't exist",
                 account_id
             ),
-            ActionError::AddKeyAlreadyExists { public_key, .. } => write!(
+            ActionErrorKind::AddKeyAlreadyExists { public_key, .. } => write!(
                 f,
                 "The public key {:?} is already used for an existing access key",
                 public_key
             ),
-            ActionError::DeleteAccountStaking { account_id } => {
+            ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionError::DeleteAccountHasRent { account_id, balance } => write!(
+            ActionErrorKind::DeleteAccountHasRent { account_id, balance } => write!(
                 f,
                 "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
                 account_id, balance
             ),
-            ActionError::FunctionCall(s) => write!(f, "{}", s),
+            ActionErrorKind::FunctionCall(s) => write!(f, "{}", s),
         }
     }
 }
