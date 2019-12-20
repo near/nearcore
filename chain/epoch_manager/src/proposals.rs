@@ -226,7 +226,6 @@ mod tests {
                 &EpochConfig {
                     epoch_length: 2,
                     num_shards: 5,
-                    // TODO MOO total number of num_block_producer_seats is different to sum of _per_shard
                     num_block_producer_seats: 6,
                     num_block_producer_seats_per_shard: vec![6, 2, 2, 2, 2],
                     avg_fishermen_per_shard: vec![6, 2, 2, 2, 2],

@@ -16,7 +16,7 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, HeightDelta, ShardId,
+    AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, NumBlocks, ShardId,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -452,7 +452,7 @@ impl ChainStore {
         &mut self,
         cur_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        max_difference_in_height: HeightDelta,
+        max_difference_in_blocks: NumBlocks,
     ) -> Result<(), InvalidTxError> {
         // first step: update cache head
         if self.header_history.is_empty() {
@@ -483,20 +483,20 @@ impl ChainStore {
                 self.header_history = HeaderList::from_headers(header_list);
             }
             // It is possible that cur_len is max_difference_in_height + 1 after the above update.
-            let cur_len = self.header_history.len() as u64;
-            if cur_len > max_difference_in_height {
-                for _ in 0..cur_len - max_difference_in_height {
+            let cur_len = self.header_history.len() as NumBlocks;
+            if cur_len > max_difference_in_blocks {
+                for _ in 0..cur_len - max_difference_in_blocks {
                     self.header_history.pop_back();
                 }
             }
         }
 
         // second step: check if `base_block_hash` exists
-        assert!(max_difference_in_height >= self.header_history.len() as u64);
+        assert!(max_difference_in_blocks >= self.header_history.len() as NumBlocks);
         if self.header_history.contains(base_block_hash) {
             return Ok(());
         }
-        let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
+        let num_to_fetch = max_difference_in_blocks - self.header_history.len() as NumBlocks;
         // here the queue cannot be empty so it is safe to unwrap
         let last_hash = self.header_history.queue.back().unwrap();
         prev_block_hash = self.header_history.headers.get(last_hash).unwrap().prev_hash;

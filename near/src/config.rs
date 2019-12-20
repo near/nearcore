@@ -24,7 +24,8 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, HeightDelta, NumFishermen, NumSeats, NumShards, ShardId,
+    AccountId, Balance, BlockIndex, Gas, HeightDelta, NumBlocks, NumFishermen, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::views::AccountView;
@@ -123,8 +124,8 @@ pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
 
-/// Block heights within a given transaction is valid
-pub const TRANSACTION_VALIDITY_PERIOD: HeightDelta = 100;
+/// Number of blocks for which a given transaction is valid
+pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: u64 = 50;
@@ -444,8 +445,8 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Records in storage at genesis (get split into shards at genesis creation).
     pub records: Vec<StateRecord>,
-    /// Block heights within a given transaction is valid
-    pub transaction_validity_period: HeightDelta,
+    /// Number of blocks for which a given transaction is valid
+    pub transaction_validity_period: NumBlocks,
     /// Developer reward percentage (this is a number between 0 and 100)
     pub developer_reward_percentage: u8,
     /// Protocol treasury percentage (this is a number between 0 and 100)

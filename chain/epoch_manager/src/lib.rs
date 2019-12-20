@@ -876,7 +876,6 @@ impl EpochManager {
         //     has height 120, 119 has the quorum pre-commit and 118 is finalized.
         // 121 - 118 = 3, hence the `last_finalized_height + 3`
         Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
-            // TODO MOO check if num_block_producer_seats meant here
             || self.config.num_block_producer_seats < 4)
             && block_info.index + 1 >= estimated_next_epoch_start)
     }
