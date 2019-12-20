@@ -7,7 +7,7 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, NumBlocks, NumFishermen, NumSeats, NumShards,
+    AccountId, Balance, BlockIndex, EpochId, HeightDelta, NumFishermen, NumSeats, NumShards,
     ValidatorId, ValidatorStake,
 };
 
@@ -18,7 +18,7 @@ pub type RngSeed = [u8; 32];
 #[derive(Clone)]
 pub struct EpochConfig {
     /// Epoch length in blocks.
-    pub epoch_length: NumBlocks,
+    pub epoch_length: HeightDelta,
     /// Number of shards currently.
     pub num_shards: NumShards,
     /// Number of seats for block producers.

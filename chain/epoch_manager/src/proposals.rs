@@ -2,7 +2,9 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, NumFishermen, NumSeats, ValidatorId, ValidatorStake,
+};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -78,7 +80,7 @@ pub fn proposals_to_epoch_info(
         if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
-            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
+            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as NumFishermen);
             fishermen.push(r.clone())
         }
     }
@@ -101,7 +103,7 @@ pub fn proposals_to_epoch_info(
         } else if p.amount >= epoch_config.fishermen_threshold {
             // Do not return stake back since they will become fishermen
             stake_change.entry(account_id.clone()).or_insert((p.amount, 0));
-            fishermen_to_index.insert(account_id, fishermen.len() as ValidatorId);
+            fishermen_to_index.insert(account_id, fishermen.len() as NumFishermen);
             fishermen.push(p);
         } else {
             stake_change

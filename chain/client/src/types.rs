@@ -12,7 +12,7 @@ use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{AccountId, BlockIndex, NumBlocks, NumSeats, ShardId, Version};
+use near_primitives::types::{AccountId, BlockIndex, HeightDelta, NumSeats, ShardId, Version};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -114,7 +114,7 @@ pub struct ClientConfig {
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Epoch length.
-    pub epoch_length: NumBlocks,
+    pub epoch_length: HeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
     /// Maximum blocks ahead of us before becoming validators to announce account.

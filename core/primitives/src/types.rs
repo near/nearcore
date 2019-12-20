@@ -27,8 +27,6 @@ pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
 
-/// Number of blocks in current context.
-pub type NumBlocks = u64;
 /// Number of shards in current group.
 pub type NumShards = u64;
 /// Number of seats of validators (block producer or hidden ones) in current group.
