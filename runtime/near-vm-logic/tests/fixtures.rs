@@ -14,7 +14,7 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         storage_usage: 0,
         account_locked_balance: 0,
         attached_deposit: 10,
-        prepaid_gas: 10u64.pow(9),
+        prepaid_gas: 10_u64.pow(14),
         random_seed: vec![],
         is_view,
         output_data_receivers: vec![],
