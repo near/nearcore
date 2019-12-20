@@ -1137,6 +1137,13 @@ pub struct FullPeerInfo {
     pub edge_info: EdgeInfo,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<SocketAddr>,
+    pub peer_id: PeerId,
+}
+
 #[derive(Debug)]
 pub struct NetworkInfo {
     pub active_peers: Vec<FullPeerInfo>,
@@ -1146,7 +1153,7 @@ pub struct NetworkInfo {
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
-    pub known_producers: Vec<AccountId>,
+    pub known_producers: Vec<KnownProducer>,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkInfo

@@ -33,6 +33,7 @@ members = [
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
+    "tools/restaked"
 ]
 
 [dev-dependencies]

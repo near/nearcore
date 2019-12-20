@@ -6,30 +6,30 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::{Cors, CorsFactory};
-use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
 use borsh::BorshDeserialize;
+use futures::{FutureExt, TryFutureExt};
 use futures::Future;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::time::{delay_for, timeout};
 
-use futures::{FutureExt, TryFutureExt};
-use message::Message;
 use message::{Request, RpcError};
+use message::Message;
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
     GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, BlockId, ChunkId};
+use near_jsonrpc_client::{ChunkId, message};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, from_base64, BaseEncode};
+use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
-use tokio::time::{delay_for, timeout};
 
 mod metrics;
 pub mod test_utils;
@@ -109,13 +109,6 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let bytes = from_base64_or_parse_err(encoded)?;
     SignedTransaction::try_from_slice(&bytes)
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
-}
-
-fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
-    let (encoded,) = parse_params::<(String,)>(params)?;
-    from_base_or_parse_err(encoded).and_then(|bytes| {
-        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-    })
 }
 
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
@@ -317,13 +310,8 @@ impl JsonRpcHandler {
     }
 
     async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(Option<BlockId>,)>(params)?;
-        let gas_price_request = match block_id {
-            None => GetGasPrice::None,
-            Some(BlockId::Height(height)) => GetGasPrice::Height(height),
-            Some(BlockId::Hash(hash)) => GetGasPrice::Hash(hash),
-        };
-        jsonify(self.view_client_addr.send(gas_price_request).await)
+        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
+        jsonify(self.view_client_addr.send(GetGasPrice { block_id }).await)
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
@@ -336,8 +324,8 @@ impl JsonRpcHandler {
     }
 
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorInfo { last_block_hash: block_hash }).await)
+        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
+        jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
     }
 }
 

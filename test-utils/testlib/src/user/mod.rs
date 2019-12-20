@@ -207,12 +207,12 @@ pub trait User {
         &self,
         signer_id: AccountId,
         public_key: PublicKey,
-        amount: Balance,
+        stake: Balance,
     ) -> Result<FinalExecutionOutcomeView, String> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::Stake(StakeAction { stake: amount, public_key })],
+            vec![Action::Stake(StakeAction { stake, public_key })],
         )
     }
 }

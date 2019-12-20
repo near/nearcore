@@ -156,7 +156,7 @@ fn try_sign_json(
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
+        SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height == 0 {
                 0

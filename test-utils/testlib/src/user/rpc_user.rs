@@ -5,20 +5,19 @@ use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
-
 use futures::Future;
+
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_jsonrpc_client::BlockId;
+use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionErrorView,
+    ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -56,6 +55,11 @@ impl RpcUser {
         self.actix(move |client| client.write().unwrap().query(path, data))
             .map_err(|err| err.to_string())
     }
+
+    pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
+        self.actix(move |client| client.write().unwrap().validators(block_id))
+            .map_err(|err| err.to_string())
+    }
 }
 
 impl User for RpcUser {
@@ -89,9 +93,12 @@ impl User for RpcUser {
         }
         match result {
             Ok(outcome) => Ok(outcome),
-            Err(err) => Err(serde_json::from_value::<ExecutionErrorView>(err.data.unwrap())
-                .unwrap()
-                .error_message),
+            Err(err) => {
+                match serde_json::from_value::<ExecutionErrorView>(err.clone().data.unwrap()) {
+                    Ok(error_view) => Err(error_view.error_message),
+                    Err(_) => Err(serde_json::to_string(&err).unwrap()),
+                }
+            }
         }
     }
 
