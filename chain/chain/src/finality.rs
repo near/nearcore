@@ -193,7 +193,7 @@ impl FinalityGadget {
         let mut stake_surrounding_no_quorum = 0 as Balance;
 
         let account_id_to_stake =
-            stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+            stakes.iter().map(|x| (&x.account_id, x.stake)).collect::<HashMap<_, _>>();
         assert!(account_id_to_stake.len() == stakes.len());
         let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 

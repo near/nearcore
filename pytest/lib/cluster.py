@@ -100,10 +100,11 @@ class BaseNode(object):
         r.raise_for_status()
         return json.loads(r.content)
 
+    def get_validators(self):
+        return self.json_rpc('validators', [None])
+
     def get_account(self, acc):
         print(f'get account {acc}')
-        # if acc == 'test2':
-        #     input('pause')
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
     def get_block(self, block_hash):

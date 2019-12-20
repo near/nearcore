@@ -7,7 +7,7 @@ use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryResponse,
@@ -65,6 +65,17 @@ impl ViewClientActor {
             query_responses: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             receipt_outcome_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
         })
+    }
+
+    fn maybe_block_id_to_block_hash(
+        &mut self,
+        block_id: MaybeBlockId,
+    ) -> Result<CryptoHash, near_chain::Error> {
+        match block_id {
+            None => Ok(self.chain.head()?.last_block_hash),
+            Some(BlockId::Height(height)) => Ok(self.chain.get_header_by_height(height)?.hash()),
+            Some(BlockId::Hash(block_hash)) => Ok(block_hash),
+        }
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut SizedCache<K, Instant>) -> bool {
@@ -159,7 +170,7 @@ impl ViewClientActor {
             let tx_result = self.chain.get_final_transaction_result(&tx_hash)?;
             match tx_result.status {
                 FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {
-                    for receipt_view in tx_result.receipts.iter() {
+                    for receipt_view in tx_result.receipts_outcome.iter() {
                         let dst_shard_id = *self
                             .chain
                             .get_shard_id_for_receipt_id(&receipt_view.id)
@@ -230,7 +241,15 @@ impl Handler<GetBlock> for ViewClientActor {
             GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
-        .map(|block| block.into())
+        .and_then(|block| {
+            self.runtime_adapter
+                .get_block_producer(
+                    &block.header.inner_lite.epoch_id,
+                    block.header.inner_lite.height,
+                )
+                .map(|author| (author, block))
+        })
+        .map(|(author, block)| BlockView::from_author_block(author, block))
         .map_err(|err| err.to_string())
     }
 }
@@ -256,7 +275,21 @@ impl Handler<GetChunk> for ViewClientActor {
                 })
             }
         }
-        .map(|chunk| chunk.into())
+        .and_then(|chunk| {
+            self.chain
+                .get_block_by_height(chunk.header.height_included)
+                .map(|block| (block.header.inner_lite.epoch_id.clone(), chunk))
+        })
+        .and_then(|(epoch_id, chunk)| {
+            self.runtime_adapter
+                .get_chunk_producer(
+                    &epoch_id,
+                    chunk.header.inner.height_created,
+                    chunk.header.inner.shard_id,
+                )
+                .map(|author| (author, chunk))
+        })
+        .map(|(author, chunk)| ChunkView::from_author_chunk(author, chunk))
         .map_err(|err| err.to_string())
     }
 }
@@ -273,7 +306,9 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     type Result = Result<EpochValidatorInfo, String>;
 
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Context<Self>) -> Self::Result {
-        self.runtime_adapter.get_validator_info(&msg.last_block_hash).map_err(|e| e.to_string())
+        self.maybe_block_id_to_block_hash(msg.block_id)
+            .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
+            .map_err(|err| err.to_string())
     }
 }
 
@@ -341,7 +376,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::TxStatusResponse(tx_result) => {
-                let tx_hash = tx_result.transaction.id;
+                let tx_hash = tx_result.transaction_outcome.id;
                 if self.tx_status_requests.cache_remove(&tx_hash).is_some() {
                     self.tx_status_response.cache_set(tx_hash, tx_result);
                 }
@@ -409,11 +444,9 @@ impl Handler<GetGasPrice> for ViewClientActor {
     type Result = Result<GasPriceView, String>;
 
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
-        let header = match msg {
-            GetGasPrice::None => self.chain.head_header(),
-            GetGasPrice::Height(height) => self.chain.get_header_by_height(height),
-            GetGasPrice::Hash(block_hash) => self.chain.get_block_header(&block_hash),
-        };
+        let header = self
+            .maybe_block_id_to_block_hash(msg.block_id)
+            .and_then(|block_hash| self.chain.get_block_header(&block_hash));
         header
             .map(|b| GasPriceView { gas_price: b.inner_rest.gas_price })
             .map_err(|e| e.to_string())

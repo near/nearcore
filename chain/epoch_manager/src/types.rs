@@ -7,7 +7,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockChunkValidatorStats, BlockIndex, EpochId, ShardId, ValidatorId,
+    ValidatorStake, ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -82,7 +83,7 @@ pub struct BlockInfo {
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+    pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
 }
@@ -129,27 +130,27 @@ impl BlockInfo {
         &mut self,
         epoch_info: &EpochInfo,
         prev_block_index: BlockIndex,
-        mut prev_block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+        mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
     ) {
         let block_producer_id = epoch_info.block_producers
             [(self.index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
-            .and_modify(|(produced, expected)| {
-                *produced += 1;
-                *expected += 1;
+            .and_modify(|validator_stats| {
+                validator_stats.produced += 1;
+                validator_stats.expected += 1;
             })
-            .or_insert((1, 1));
+            .or_insert(ValidatorStats { produced: 1, expected: 1 });
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for index in prev_block_index + 1..self.index {
             let bp = epoch_info.block_producers
                 [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize];
             prev_block_tracker
                 .entry(bp)
-                .and_modify(|(_produced, expected)| {
-                    *expected += 1;
+                .and_modify(|validator_stats| {
+                    validator_stats.expected += 1;
                 })
-                .or_insert((0, 1));
+                .or_insert(ValidatorStats { produced: 0, expected: 1 });
         }
         self.block_tracker = prev_block_tracker;
     }
@@ -229,7 +230,7 @@ pub struct EpochSummary {
     pub last_block_hash: CryptoHash,
     pub all_proposals: Vec<ValidatorStake>,
     pub validator_kickout: HashSet<AccountId>,
-    pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
+    pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
 }

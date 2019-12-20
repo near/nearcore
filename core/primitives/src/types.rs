@@ -1,8 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_crypto::PublicKey;
+
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
-use near_crypto::PublicKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -67,12 +68,12 @@ pub struct ValidatorStake {
     /// Public key of the proposed validator.
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
-    pub amount: Balance,
+    pub stake: Balance,
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
-        ValidatorStake { account_id, public_key, amount }
+    pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
+        ValidatorStake { account_id, public_key, stake }
     }
 }
 
@@ -132,4 +133,24 @@ impl ChunkExtra {
 pub struct Version {
     pub version: String,
     pub build: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockId {
+    Height(BlockIndex),
+    Hash(CryptoHash),
+}
+
+pub type MaybeBlockId = Option<BlockId>;
+
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+pub struct ValidatorStats {
+    pub produced: BlockIndex,
+    pub expected: BlockIndex,
+}
+
+pub struct BlockChunkValidatorStats {
+    pub block_stats: ValidatorStats,
+    pub chunk_stats: ValidatorStats,
 }

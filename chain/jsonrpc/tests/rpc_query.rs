@@ -7,12 +7,12 @@ use futures::future::Future;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
-use near_jsonrpc_client::{BlockId, ChunkId};
+use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockId, ShardId};
 use near_primitives::views::QueryResponseKind;
 
 /// Retrieve blocks via json rpc
@@ -27,6 +27,7 @@ fn test_block() {
 
         actix::spawn(client.block(BlockId::Height(0)).then(|res| {
             let res = res.unwrap();
+            assert_eq!(res.author, "test1");
             assert_eq!(res.header.height, 0);
             assert_eq!(res.header.epoch_id.0.as_ref(), &[0; 32]);
             assert_eq!(res.header.hash.0.as_ref().len(), 32);
@@ -81,6 +82,7 @@ fn test_chunk_by_hash() {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64))).then(
                 move |chunk| {
                     let chunk = chunk.unwrap();
+                    assert_eq!(chunk.author, "test2");
                     assert_eq!(chunk.header.balance_burnt, 0);
                     assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
                     assert_eq!(chunk.header.encoded_length, 8);

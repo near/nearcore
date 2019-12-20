@@ -63,6 +63,9 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
 
+/// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
+const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     pub gas_price_adjustment_rate: u8,
@@ -370,7 +373,7 @@ impl Chain {
         for bp in bps.iter() {
             arr.append(&mut hash(bp.account_id.as_bytes()).into());
             arr.append(&mut hash(bp.public_key.try_to_vec()?.as_ref()).into());
-            arr.append(&mut hash(bp.amount.try_to_vec()?.as_ref()).into());
+            arr.append(&mut hash(bp.stake.try_to_vec()?.as_ref()).into());
         }
 
         Ok(hash(&arr))
@@ -909,15 +912,13 @@ impl Chain {
                     }
                     None => {}
                 }
-                // Sum validator balances in full NEARs (divided by 10**18)
+                // Sum validator balances in full NEARs (divided by 10**24)
                 let sum = block
                     .header
                     .inner_rest
                     .validator_proposals
                     .iter()
-                    .map(|validator_stake| {
-                        (validator_stake.amount / 1_000_000_000_000_000_000) as i64
-                    })
+                    .map(|validator_stake| (validator_stake.stake / NEAR_BASE) as i64)
                     .sum::<i64>();
                 near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
@@ -1775,7 +1776,19 @@ impl Chain {
             })
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
-        Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
+        let transaction = self
+            .store
+            .get_transaction(hash)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Transaction {} is not found", hash))?
+            .clone()
+            .into();
+        Ok(FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome: outcomes.pop().unwrap(),
+            receipts_outcome: receipts,
+        })
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
@@ -2377,6 +2390,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
+                    self.chain_store_update.save_transactions(chunk.transactions);
                 } else {
                     let mut new_extra = self
                         .chain_store_update

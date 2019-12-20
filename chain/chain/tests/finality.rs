@@ -24,7 +24,7 @@ fn compute_quorums_slow(
     let mut all_heights_and_hashes = vec![];
 
     let account_id_to_stake =
-        stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+        stakes.iter().map(|x| (&x.account_id, x.stake)).collect::<HashMap<_, _>>();
     assert!(account_id_to_stake.len() == stakes.len());
     let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
@@ -300,7 +300,7 @@ fn test_finality_basic() {
 fn test_finality_weight() {
     let (mut chain, _, signer) = setup();
     let mut stakes = gen_stakes(4);
-    stakes[0].amount = 8;
+    stakes[0].stake = 8;
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 

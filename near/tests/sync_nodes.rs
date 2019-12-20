@@ -76,7 +76,7 @@ fn add_blocks(
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {
                 account_id: "other".to_string(),
                 public_key: signer.public_key(),
-                amount: TESTING_INIT_STAKE,
+                stake: TESTING_INIT_STAKE,
             }])
             .unwrap(),
         );

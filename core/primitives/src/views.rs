@@ -11,7 +11,7 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
-use crate::hash::CryptoHash;
+use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -478,13 +478,15 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockView {
+    pub author: AccountId,
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
 }
 
-impl From<Block> for BlockView {
-    fn from(block: Block) -> Self {
+impl BlockView {
+    pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
+            author,
             header: block.header.into(),
             chunks: block.chunks.into_iter().map(Into::into).collect(),
         }
@@ -493,14 +495,16 @@ impl From<Block> for BlockView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkView {
+    pub author: AccountId,
     pub header: ChunkHeaderView,
     pub transactions: Vec<SignedTransactionView>,
     pub receipts: Vec<ReceiptView>,
 }
 
-impl From<ShardChunk> for ChunkView {
-    fn from(chunk: ShardChunk) -> Self {
+impl ChunkView {
+    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
         Self {
+            author,
             header: chunk.header.into(),
             transactions: chunk.transactions.into_iter().map(Into::into).collect(),
             receipts: chunk.receipts.into_iter().map(Into::into).collect(),
@@ -508,7 +512,7 @@ impl From<ShardChunk> for ChunkView {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub enum ActionView {
     CreateAccount,
     DeployContract {
@@ -547,7 +551,7 @@ impl From<Action> for ActionView {
         match action {
             Action::CreateAccount(_) => ActionView::CreateAccount,
             Action::DeployContract(action) => {
-                ActionView::DeployContract { code: to_base64(&action.code) }
+                ActionView::DeployContract { code: to_base64(&hash(&action.code)) }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
@@ -605,15 +609,15 @@ impl TryFrom<ActionView> for Action {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct SignedTransactionView {
-    signer_id: AccountId,
-    public_key: PublicKey,
-    nonce: Nonce,
-    receiver_id: AccountId,
-    actions: Vec<ActionView>,
-    signature: Signature,
-    hash: CryptoHash,
+    pub signer_id: AccountId,
+    pub public_key: PublicKey,
+    pub nonce: Nonce,
+    pub receiver_id: AccountId,
+    pub actions: Vec<ActionView>,
+    pub signature: Signature,
+    pub hash: CryptoHash,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -839,6 +843,7 @@ pub struct ExecutionOutcomeWithIdView {
     pub id: CryptoHash,
     pub outcome: ExecutionOutcomeView,
     pub proof: MerklePath,
+    pub block_hash: CryptoHash,
 }
 
 impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
@@ -847,6 +852,7 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
             id: outcome_with_id_and_proof.outcome_with_id.id,
             outcome: outcome_with_id_and_proof.outcome_with_id.outcome.into(),
             proof: outcome_with_id_and_proof.proof,
+            block_hash: outcome_with_id_and_proof.block_hash,
         }
     }
 }
@@ -856,10 +862,12 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,
+    /// Signed Transaction
+    pub transaction: SignedTransactionView,
     /// The execution outcome of the signed transaction.
-    pub transaction: ExecutionOutcomeWithIdView,
+    pub transaction_outcome: ExecutionOutcomeWithIdView,
     /// The execution outcome of receipts.
-    pub receipts: Vec<ExecutionOutcomeWithIdView>,
+    pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
 }
 
 impl fmt::Debug for FinalExecutionOutcomeView {
@@ -867,7 +875,11 @@ impl fmt::Debug for FinalExecutionOutcomeView {
         f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
             .field("transaction", &self.transaction)
-            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
+            .field("transaction_outcome", &self.transaction_outcome)
+            .field(
+                "receipts_outcome",
+                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
+            )
             .finish()
     }
 }
@@ -877,18 +889,18 @@ pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
-    pub amount: Balance,
+    pub stake: Balance,
 }
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self { account_id: stake.account_id, public_key: stake.public_key, amount: stake.amount }
+        Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self { account_id: view.account_id, public_key: view.public_key, amount: view.amount }
+        Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
     }
 }
 
@@ -1006,7 +1018,7 @@ pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
-    pub next_validators: Vec<ValidatorStakeView>,
+    pub next_validators: Vec<NextEpochValidatorInfo>,
     /// Fishermen for the current epoch
     pub current_fishermen: Vec<ValidatorStakeView>,
     /// Fishermen for the next epoch
@@ -1018,10 +1030,22 @@ pub struct EpochValidatorInfo {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
+    pub public_key: PublicKey,
     pub is_slashed: bool,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub num_missing_blocks: BlockIndex,
+    pub shards: Vec<ShardId>,
+    pub num_produced_blocks: BlockIndex,
+    pub num_expected_blocks: BlockIndex,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NextEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub shards: Vec<ShardId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]

@@ -47,10 +47,10 @@ pub fn epoch_info(
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
-            .map(|(account_id, amount)| ValidatorStake {
+            .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
-                amount,
+                stake,
             })
             .collect()
     };

@@ -8,9 +8,10 @@ use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::BlockId;
 use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
 use testlib::{genesis_block, start_nodes};
 
@@ -44,6 +45,7 @@ fn test_tx_propagation() {
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
+                let transaction_copy1 = transaction.clone();
                 let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
@@ -69,7 +71,8 @@ fn test_tx_propagation() {
                             match &res {
                                 Ok(Ok(Some(feo)))
                                     if feo.status
-                                        == FinalExecutionStatus::SuccessValue("".to_string()) =>
+                                        == FinalExecutionStatus::SuccessValue("".to_string())
+                                        && feo.transaction == transaction_copy1.into() =>
                                 {
                                     System::current().stop();
                                 }
@@ -394,7 +397,7 @@ fn test_get_validator_info_rpc() {
                         let block_hash = res.header.hash;
                         actix::spawn(
                             client
-                                .validators(to_base(&block_hash))
+                                .validators(Some(BlockId::Hash(block_hash)))
                                 .map_err(|err| {
                                     panic!(format!("error: {:?}", err));
                                 })

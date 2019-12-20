@@ -142,7 +142,7 @@ fn try_sign_json(
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
+        SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height == 0 {
                 0
@@ -158,10 +158,12 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
+            let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
+            shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
                 res = res
                     + format!(
-                        "{}: {}",
+                        "[{}: {}]",
                         shard_id,
                         match shard_status.status {
                             ShardSyncStatus::StateDownloadHeader => format!("header"),

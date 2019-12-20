@@ -31,11 +31,11 @@ use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
-    PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal,
-    SyncData, Unregister,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
+    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -667,7 +667,17 @@ impl PeerManagerActor {
             most_weight_peers: self.most_weight_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,
-            known_producers: self.routing_table.get_accounts_keys(),
+            known_producers: self
+                .routing_table
+                .get_announce_accounts()
+                .iter()
+                .map(|announce_account| KnownProducer {
+                    account_id: announce_account.account_id.clone(),
+                    peer_id: announce_account.peer_id.clone(),
+                    // TODO: fill in the address.
+                    addr: None,
+                })
+                .collect(),
         }
     }
 
