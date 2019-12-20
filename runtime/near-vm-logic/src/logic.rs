@@ -35,6 +35,9 @@ pub struct VMLogic<'a> {
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
     current_account_balance: Balance,
+    /// Current amount of locked tokens, does not automatically change when staking transaction is
+    /// issued.
+    current_account_locked_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
     gas_counter: GasCounter,
@@ -104,6 +107,7 @@ impl<'a> VMLogic<'a> {
         ext.reset_touched_nodes_counter();
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
+        let current_account_locked_balance = context.account_locked_balance;
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             config.max_gas_burnt,
@@ -118,6 +122,7 @@ impl<'a> VMLogic<'a> {
             promise_results,
             memory,
             current_account_balance,
+            current_account_locked_balance,
             current_storage_usage,
             gas_counter,
             return_data: ReturnData::None,
@@ -537,8 +542,17 @@ impl<'a> VMLogic<'a> {
     /// `base + memory_write_base + memory_write_size * 16`
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-
         self.memory_set_u128(balance_ptr, self.current_account_balance)
+    }
+
+    /// The current amount of tokens locked due to staking.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16`
+    pub fn account_locked_balance(&mut self, balance_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(balance_ptr, self.current_account_locked_balance)
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
@@ -1567,7 +1581,7 @@ impl<'a> VMLogic<'a> {
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(message);
         Ok(())
     }
 
@@ -1590,7 +1604,7 @@ impl<'a> VMLogic<'a> {
             log_byte,
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(message);
         Ok(())
     }
 

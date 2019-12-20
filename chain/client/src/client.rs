@@ -10,6 +10,8 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
+use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown, ReceiptResponse};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter, Tip,
@@ -33,7 +35,6 @@ use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
@@ -193,7 +194,7 @@ impl Client {
         let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
         let prev_timestamp = prev.inner_lite.timestamp;
 
-        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -453,7 +454,7 @@ impl Client {
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(

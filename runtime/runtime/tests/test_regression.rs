@@ -39,7 +39,12 @@ const NUM_BLOCKS: usize = 10;
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
 
-const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+/// Initial balance used in tests.
+pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+
 const TESTING_INIT_STAKE: Balance = 50_000_000;
 
 enum TransactionType {
@@ -145,7 +150,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                         Action::FunctionCall(FunctionCallAction {
                             method_name: "benchmark_storage_8b".to_string(),
                             args: (&arg).to_vec(),
-                            gas: 10_000_000,
+                            gas: 10u64.pow(18),
                             deposit: 0,
                         })
                     }

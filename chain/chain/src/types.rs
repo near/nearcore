@@ -426,7 +426,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Ordering, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
+    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
         for shard_id in 0..self.num_shards() {
             // importance to save the same order while filtering
@@ -435,9 +435,10 @@ pub trait RuntimeAdapter: Send + Sync {
                 .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec()?));
+            receipts_hashes
+                .push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap()));
         }
-        Ok(receipts_hashes)
+        receipts_hashes
     }
 }
 
