@@ -4,7 +4,9 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ExecutionError, InvalidAccessKeyError, InvalidTxError,
+};
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
@@ -77,7 +79,11 @@ pub fn test_smart_contract_panic(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCall("Smart contract panicked: WAT?".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCall("Smart contract panicked: WAT?".to_string())
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -109,7 +115,11 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCall("MethodNotFound".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCall("MethodNotFound".to_string())
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -127,7 +137,11 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCall("MethodEmptyName".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCall("MethodEmptyName".to_string())
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -145,7 +159,11 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCall("MethodEmptyName".to_string()).into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCall("MethodEmptyName".to_string())
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -346,9 +364,9 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountDoesNotExist {
-                action: "Transfer".to_string(),
-                account_id: eve_dot_alice_account()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountDoesNotExist { account_id: eve_dot_alice_account() }
             }
             .into()
         )
@@ -441,7 +459,11 @@ pub fn test_create_account_again(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountAlreadyExists { account_id: eve_dot_alice_account() }.into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountAlreadyExists { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -503,7 +525,11 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountAlreadyExists { account_id: bob_account() }.into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountAlreadyExists { account_id: bob_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 2);
@@ -581,9 +607,12 @@ pub fn test_add_existing_key(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AddKeyAlreadyExists {
-                account_id: account_id.clone(),
-                public_key: node.signer().public_key()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AddKeyAlreadyExists {
+                    account_id: account_id.clone(),
+                    public_key: node.signer().public_key()
+                }
             }
             .into()
         )
@@ -630,9 +659,12 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::DeleteKeyDoesNotExist {
-                account_id: account_id.clone(),
-                public_key: signer2.public_key.clone()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteKeyDoesNotExist {
+                    account_id: account_id.clone(),
+                    public_key: signer2.public_key.clone()
+                }
             }
             .into()
         )
@@ -965,7 +997,11 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::TriesToUnstake { account_id: eve_dot_alice_account() }.into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::TriesToUnstake { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -1001,8 +1037,8 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
         &transaction_result.status,
         FinalExecutionStatus::Failure(e) => match &e {
             &ExecutionError::Action(action_err) =>
-                match action_err {
-                    ActionError::RentUnpaid{..} => {},
+                match action_err.kind {
+                    ActionErrorKind::RentUnpaid{..} => {},
                     _ => panic!("should be RentUnpaid")
                 }
             _ => panic!("should be Action")
@@ -1049,7 +1085,11 @@ pub fn test_delete_account_fail(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::DeleteAccountStaking { account_id: bob_account() }.into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteAccountStaking { account_id: bob_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -1067,9 +1107,9 @@ pub fn test_delete_account_no_account(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::AccountDoesNotExist {
-                action: "DeleteAccount".to_string(),
-                account_id: eve_dot_alice_account()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::AccountDoesNotExist { account_id: eve_dot_alice_account() }
             }
             .into()
         )
@@ -1098,7 +1138,11 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::Failure(
-            ActionError::DeleteAccountStaking { account_id: eve_dot_alice_account() }.into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::DeleteAccountStaking { account_id: eve_dot_alice_account() }
+            }
+            .into()
         )
     );
     assert_eq!(transaction_result.receipts.len(), 1);

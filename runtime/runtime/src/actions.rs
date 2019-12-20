@@ -387,7 +387,6 @@ pub(crate) fn check_actor_permissions(
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: actor_id.clone(),
                     actor_id: account_id.clone(),
-                    action: action_type_as_string(action).to_owned(),
                 }
                 .into());
             }
@@ -420,19 +419,6 @@ pub(crate) fn check_actor_permissions(
     Ok(())
 }
 
-fn action_type_as_string(action: &Action) -> &'static str {
-    match action {
-        Action::CreateAccount(_) => "CreateAccount",
-        Action::DeployContract(_) => "DeployContract",
-        Action::FunctionCall(_) => "FunctionCall",
-        Action::Transfer(_) => "Transfer",
-        Action::Stake(_) => "Stake",
-        Action::AddKey(_) => "AddKey",
-        Action::DeleteKey(_) => "DeleteKey",
-        Action::DeleteAccount(_) => "DeleteAccount",
-    }
-}
-
 pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
@@ -456,7 +442,6 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
-                    action: action_type_as_string(action).to_owned(),
                     account_id: account_id.clone(),
                 }
                 .into());

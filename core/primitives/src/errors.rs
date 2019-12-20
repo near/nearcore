@@ -99,7 +99,6 @@ pub enum ActionErrorKind {
         account_id: AccountId,
     },
     AccountDoesNotExist {
-        action: String,
         account_id: AccountId,
     },
     CreateAccountNotAllowed {
@@ -109,7 +108,6 @@ pub enum ActionErrorKind {
     ActorNoPermission {
         account_id: AccountId,
         actor_id: AccountId,
-        action: String,
     },
     DeleteKeyDoesNotExist {
         account_id: AccountId,
@@ -364,15 +362,15 @@ impl Display for ActionErrorKind {
             ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)
             }
-            ActionErrorKind::AccountDoesNotExist { action, account_id } => write!(
+            ActionErrorKind::AccountDoesNotExist { account_id } => write!(
                 f,
-                "Can't complete the action {:?}, because account {:?} doesn't exist",
-                action, account_id
+                "Can't complete the action because account {:?} doesn't exist",
+                account_id
             ),
-            ActionErrorKind::ActorNoPermission { actor_id, account_id, action } => write!(
+            ActionErrorKind::ActorNoPermission { actor_id, account_id } => write!(
                 f,
-                "Actor {:?} doesn't have permission to account {:?} to complete the action {:?}",
-                actor_id, account_id, action
+                "Actor {:?} doesn't have permission to account {:?} to complete the action",
+                actor_id, account_id
             ),
             ActionErrorKind::RentUnpaid { account_id, amount } => write!(
                 f,
