@@ -349,8 +349,9 @@ impl PeerManagerActor {
         }
         future::try_join_all(requests)
             .into_actor(self)
-            .map(|x, _, _| x.map_err(|e| error!("Failed sending broadcast message: {}", e)))
-            .map(|_, _, _| ())
+            .map(|x, _, _| {
+                let _ignore = x.map_err(|e| error!("Failed sending broadcast message: {}", e));
+            })
             .spawn(ctx);
     }
 
@@ -429,7 +430,7 @@ impl PeerManagerActor {
                 .into_actor(self)
                 .map(|result, _, _| result.map_err(|err| error!("Failed sending message: {}", err)))
                 .map(move |res, act, _| {
-                    res.map(|res| {
+                    let _ignore = res.map(|res| {
                         if res.is_abusive {
                             trace!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
                             // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
@@ -443,9 +444,8 @@ impl PeerManagerActor {
                             active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
                             active_peer.received_bytes_per_sec = res.received_bytes_per_sec;
                         }
-                    })
+                    });
                 })
-                .map(|_, _, _| ())
                 .spawn(ctx);
         }
 
@@ -708,13 +708,17 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
-            let listener = std::net::TcpListener::bind(&server_addr).unwrap();
-            let listener = TcpListener::from_std(listener).unwrap();
-            let incoming = IncomingCrutch { listener };
-            info!(target: "info", "Server listening at {}@{}", self.peer_id, server_addr);
-            ctx.add_message_stream(
-                incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
-            );
+            ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
+                move |listener, act, ctx| {
+                    let listener = listener.unwrap();
+                    let incoming = IncomingCrutch { listener };
+                    info!(target: "info", "Server listening at {}@{}", act.peer_id, server_addr);
+                    ctx.add_message_stream(
+                        incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
+                    );
+                    actix::fut::ready(())
+                },
+            ));
         }
 
         // Periodically push network information to client
