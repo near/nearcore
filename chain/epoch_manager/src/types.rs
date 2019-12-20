@@ -7,8 +7,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, NumBlockProducers, NumBlocks, NumShards,
-    NumValidators, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, NumBlocks, NumFishermen, NumSeats, NumShards,
+    ValidatorId, ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -21,12 +21,12 @@ pub struct EpochConfig {
     pub epoch_length: NumBlocks,
     /// Number of shards currently.
     pub num_shards: NumShards,
-    /// Number of block producers.
-    pub num_block_producers: NumBlockProducers,
-    /// Number of block producers per each shard.
-    pub num_block_producers_per_shard: Vec<NumBlockProducers>,
-    /// Expected number of fisherman per each shard.
-    pub avg_hidden_validators_per_shard: Vec<NumValidators>,
+    /// Number of seats for block producers.
+    pub num_block_producer_seats: NumSeats,
+    /// Number of seats of block producers per each shard.
+    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
+    /// Expected number of fishermen seats per each shard.
+    pub avg_fishermen_per_shard: Vec<NumFishermen>,
     /// Criterion for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.
@@ -50,6 +50,7 @@ pub struct EpochInfo {
     /// Per each shard, ids and seats of validators that are responsible.
     pub chunk_producers: Vec<Vec<ValidatorId>>,
     /// Weight of given validator used to determine how many shards they will validate.
+    // TODO MOO check what is this
     pub hidden_validators: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStake>,

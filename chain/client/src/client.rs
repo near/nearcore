@@ -91,7 +91,7 @@ impl Client {
         );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
-        let num_block_producers = config.num_block_producers as usize;
+        let num_block_producer_seats = config.num_block_producer_seats as usize;
         Ok(Self {
             config,
             sync_status,
@@ -101,7 +101,7 @@ impl Client {
             network_adapter,
             block_producer,
             approvals: SizedCache::with_size(NUM_BLOCKS_FOR_APPROVAL),
-            pending_approvals: SizedCache::with_size(num_block_producers),
+            pending_approvals: SizedCache::with_size(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             header_sync,
             block_sync,

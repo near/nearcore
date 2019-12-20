@@ -19,7 +19,7 @@ use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{EpochId, NumBlocks, ValidatorStake};
+use near_primitives::types::{EpochId, HeightDelta, ValidatorStake};
 use testlib::genesis_block;
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
@@ -27,7 +27,7 @@ fn add_blocks(
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
     num: usize,
-    epoch_length: NumBlocks,
+    epoch_length: HeightDelta,
     signer: &dyn Signer,
 ) -> Vec<Block> {
     let mut prev_prev_timestamp = if blocks.len() == 1 {

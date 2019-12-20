@@ -2,12 +2,12 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
-fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, EpochError> {
+fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, EpochError> {
     let stakes_sum: Balance = stakes.iter().sum();
     if stakes_sum < num_seats.into() {
         return Err(EpochError::ThresholdError(stakes_sum, num_seats));
@@ -84,10 +84,11 @@ pub fn proposals_to_epoch_info(
     }
 
     // Get the threshold given current number of seats and stakes.
-    let num_hidden_validator_seats: u64 = epoch_config.avg_hidden_validators_per_shard.iter().sum();
-    let num_seats = epoch_config.num_block_producers + num_hidden_validator_seats;
+    let num_fishermen: u64 = epoch_config.avg_fishermen_per_shard.iter().sum();
+    // TODO MOO fishermen don't take seats, check and rename it
+    let num_total_seats = epoch_config.num_block_producer_seats + num_fishermen;
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
-    let threshold = find_threshold(&stakes, num_seats)?;
+    let threshold = find_threshold(&stakes, num_total_seats)?;
     // Remove proposals under threshold.
     let mut final_proposals = vec![];
 
@@ -133,8 +134,8 @@ pub fn proposals_to_epoch_info(
         .enumerate()
         .flat_map(|(i, p)| iter::repeat(i as u64).take((p.amount / threshold) as usize))
         .collect::<Vec<_>>();
-    if dup_proposals.len() < num_seats as usize {
-        return Err(EpochError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_seats));
+    if dup_proposals.len() < num_total_seats as usize {
+        return Err(EpochError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_total_seats));
     }
     {
         use protocol_defining_rand::seq::SliceRandom;
@@ -144,22 +145,21 @@ pub fn proposals_to_epoch_info(
         dup_proposals.shuffle(&mut rng);
     }
 
-    // Block producers are first `num_block_producers` proposals.
-    let block_producers = dup_proposals[..epoch_config.num_block_producers as usize].to_vec();
+    // Block producers are first `num_block_producer_seats` proposals.
+    let block_producers = dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
 
     // Collect proposals into block producer assignments.
     let mut chunk_producers: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
-    // TODO MOO #1855 seats or block producers?
-    for num_seats in epoch_config.num_block_producers_per_shard.iter() {
+    for num_seats_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
         let mut cp: Vec<ValidatorId> = vec![];
-        for i in 0..*num_seats {
+        for i in 0..*num_seats_shard {
             let proposal_index =
-                dup_proposals[((i + last_index) % epoch_config.num_block_producers) as usize];
+                dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
             cp.push(proposal_index);
         }
         chunk_producers.push(cp);
-        last_index = (last_index + num_seats) % epoch_config.num_block_producers;
+        last_index = (last_index + num_seats_shard) % epoch_config.num_block_producer_seats;
     }
 
     // TODO(1050): implement fishermen allocation.
@@ -224,9 +224,10 @@ mod tests {
                 &EpochConfig {
                     epoch_length: 2,
                     num_shards: 5,
-                    num_block_producers: 6,
-                    num_block_producers_per_shard: vec![6, 2, 2, 2, 2],
-                    avg_hidden_validators_per_shard: vec![6, 2, 2, 2, 2],
+                    // TODO MOO total number of num_block_producer_seats is different to sum of _per_shard
+                    num_block_producer_seats: 6,
+                    num_block_producer_seats_per_shard: vec![6, 2, 2, 2, 2],
+                    avg_fishermen_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
                     chunk_producer_kickout_threshold: 60,
                     fishermen_threshold: 10

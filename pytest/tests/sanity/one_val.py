@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 TIMEOUT = 240
 
 
-nodes = start_cluster(2, 1, 8, None, [["num_block_producers", 199], ["num_block_producers_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]], ["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
+nodes = start_cluster(2, 1, 8, None, [["num_block_producer_seats", 199], ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]], ["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
 time.sleep(3)
 nodes[1].kill()
 

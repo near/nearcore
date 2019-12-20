@@ -75,13 +75,15 @@ impl NightshadeRuntime {
         let trie = Arc::new(Trie::new(store.clone()));
         let runtime = Runtime::new(genesis_config.runtime_config.clone());
         let trie_viewer = TrieViewer::new();
-        let num_shards = genesis_config.num_block_producers_per_shard.len() as NumShards;
+        let num_shards = genesis_config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis_config.epoch_length,
             num_shards,
-            num_block_producers: genesis_config.num_block_producers,
-            num_block_producers_per_shard: genesis_config.num_block_producers_per_shard.clone(),
-            avg_hidden_validators_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
+            num_block_producer_seats: genesis_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config
+                .num_block_producer_seats_per_shard
+                .clone(),
+            avg_fishermen_per_shard: genesis_config.avg_fishermen_per_shard.clone(),
             block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
             fishermen_threshold: genesis_config.fishermen_threshold,
@@ -155,7 +157,7 @@ impl NightshadeRuntime {
     fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
-        let num_shards = self.genesis_config.num_block_producers_per_shard.len() as NumShards;
+        let num_shards = self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards;
         let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
         let mut has_protocol_account = false;
         for record in self.genesis_config.records.iter() {
@@ -575,7 +577,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn num_shards(&self) -> NumShards {
         // TODO: should be dynamic.
-        self.genesis_config.num_block_producers_per_shard.len() as NumShards
+        self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
     }
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
@@ -1169,7 +1171,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, NumBlocks, NumShards, ShardId,
+        AccountId, Balance, BlockIndex, EpochId, Gas, HeightDelta, Nonce, NumShards, ShardId,
         StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
@@ -1255,7 +1257,7 @@ mod test {
         pub fn new(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
-            epoch_length: NumBlocks,
+            epoch_length: HeightDelta,
             initial_tracked_accounts: Vec<AccountId>,
             initial_tracked_shards: Vec<ShardId>,
             has_reward: bool,

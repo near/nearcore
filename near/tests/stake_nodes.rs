@@ -16,7 +16,7 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ValidatorId};
+use near_primitives::types::{AccountId, HeightDelta, NumSeats};
 use near_primitives::views::{QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
@@ -32,18 +32,18 @@ struct TestNode {
 
 fn init_test_staking(
     paths: Vec<&Path>,
-    num_nodes: ValidatorId,
-    num_validators: ValidatorId,
-    epoch_length: u64,
+    num_node_seats: NumSeats,
+    num_validator_seats: NumSeats,
+    epoch_length: HeightDelta,
     enable_rewards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
 
-    let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
+    let seeds = (0..num_node_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis_config =
-        GenesisConfig::test(seeds.iter().map(|s| s.as_str()).collect(), num_validators);
+        GenesisConfig::test(seeds.iter().map(|s| s.as_str()).collect(), num_validator_seats);
     genesis_config.epoch_length = epoch_length;
-    genesis_config.num_block_producers = num_nodes;
+    genesis_config.num_block_producer_seats = num_node_seats;
     genesis_config.block_producer_kickout_threshold = 20;
     genesis_config.chunk_producer_kickout_threshold = 20;
     if !enable_rewards {
@@ -52,7 +52,7 @@ fn init_test_staking(
     }
     let first_node = open_port();
 
-    let configs = (0..num_nodes).map(|i| {
+    let configs = (0..num_node_seats).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
@@ -61,7 +61,7 @@ fn init_test_staking(
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
         }
-        config.client_config.min_num_peers = num_nodes as usize - 1;
+        config.client_config.min_num_peers = num_node_seats as usize - 1;
         config
     });
     configs

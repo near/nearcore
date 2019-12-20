@@ -15,7 +15,9 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, HeightDelta, ShardId,
+};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockIndex, ColBlockMisc,
@@ -450,7 +452,7 @@ impl ChainStore {
         &mut self,
         cur_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        max_difference_in_height: u64,
+        max_difference_in_height: HeightDelta,
     ) -> Result<(), InvalidTxError> {
         // first step: update cache head
         if self.header_history.is_empty() {

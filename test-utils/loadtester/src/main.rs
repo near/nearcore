@@ -15,7 +15,7 @@ use git_version::git_version;
 use near::config::create_testnet_configs;
 use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
-use near_primitives::types::{NumShards, NumValidators, Version};
+use near_primitives::types::{NumSeats, NumShards, Version};
 use near_store::{create_store, ColState};
 use remote_node::RemoteNode;
 
@@ -168,7 +168,7 @@ pub const CONFIG_FILENAME: &str = "config.json";
 
 fn create_genesis(matches: &clap::ArgMatches) {
     let n = value_t_or_exit!(matches, "accounts", u64) as u64;
-    let v = value_t_or_exit!(matches, "validators", u64) as NumValidators;
+    let v = value_t_or_exit!(matches, "validators", u64) as NumSeats;
     let s = value_t_or_exit!(matches, "shards", u64) as NumShards;
     let prefix = value_t_or_exit!(matches, "prefix", String);
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);

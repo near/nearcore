@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, NumBlocks, NumShards, ValidatorId};
+use near_primitives::types::{AccountId, BlockIndex, HeightDelta, NumSeats, NumShards};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -55,17 +55,17 @@ pub fn setup(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: NumShards,
-    epoch_length: NumBlocks,
+    epoch_length: HeightDelta,
     account_id: &str,
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     network_adapter: Arc<dyn NetworkAdapter>,
-    tx_validity_period: NumBlocks,
+    tx_validity_period: HeightDelta,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
-    let num_validators = validators.iter().map(|x| x.len()).sum::<usize>() as ValidatorId;
+    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
@@ -99,7 +99,7 @@ pub fn setup(
         skip_sync_wait,
         min_block_prod_time,
         max_block_prod_time,
-        num_validators,
+        num_validator_seats,
     );
     let client = ClientActor::new(
         config,
@@ -202,7 +202,7 @@ fn sample_binary(n: u64, k: u64) -> bool {
 ///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
-/// `epoch_length` - approximate number of heights per epoch
+/// `epoch_length` - approximate number of blocks per epoch
 /// `network_mock` - the callback that is called for each message sent. The `mock` is called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
 ///                 `perform_default` is false, then the message is not processed or broadcasted
@@ -217,7 +217,7 @@ pub fn setup_mock_all_validators(
     block_prod_time: u64,
     drop_chunks: bool,
     tamper_with_fg: bool,
-    epoch_length: NumBlocks,
+    epoch_length: HeightDelta,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -674,7 +674,7 @@ impl BlockProducer {
 
 pub fn setup_client_with_runtime(
     store: Arc<Store>,
-    num_validators: ValidatorId,
+    num_validator_seats: NumSeats,
     account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
@@ -682,7 +682,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let block_producer =
         account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
-    let mut config = ClientConfig::test(true, 10, 20, num_validators);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client =
         Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
@@ -700,7 +700,7 @@ pub fn setup_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
-    let num_validators = validators.iter().map(|x| x.len()).sum::<usize>() as ValidatorId;
+    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
@@ -710,7 +710,7 @@ pub fn setup_client(
     ));
     setup_client_with_runtime(
         store,
-        num_validators,
+        num_validator_seats,
         account_id,
         network_adapter,
         chain_genesis,
@@ -751,7 +751,7 @@ impl TestEnv {
     pub fn new_with_runtime(
         chain_genesis: ChainGenesis,
         num_clients: usize,
-        num_validators: ValidatorId,
+        num_validator_seats: NumSeats,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
     ) -> Self {
         let network_adapters: Vec<Arc<MockNetworkAdapter>> =
@@ -759,7 +759,7 @@ impl TestEnv {
         Self::new_with_runtime_and_network_adapter(
             chain_genesis,
             num_clients,
-            num_validators,
+            num_validator_seats,
             runtime_adapters,
             network_adapters,
         )
@@ -768,18 +768,18 @@ impl TestEnv {
     pub fn new_with_runtime_and_network_adapter(
         chain_genesis: ChainGenesis,
         num_clients: usize,
-        num_validators: ValidatorId,
+        num_validator_seats: NumSeats,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
     ) -> Self {
         let validators: Vec<AccountId> =
-            (0..num_validators).map(|i| format!("test{}", i)).collect();
+            (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
                 let store = create_test_store();
                 setup_client_with_runtime(
                     store.clone(),
-                    num_validators,
+                    num_validator_seats,
                     Some(&format!("test{}", i)),
                     network_adapters[i].clone(),
                     chain_genesis.clone(),

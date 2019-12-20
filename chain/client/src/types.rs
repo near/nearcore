@@ -12,9 +12,7 @@ use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockIndex, NumBlockProducers, NumBlocks, ShardId, Version,
-};
+use near_primitives::types::{AccountId, BlockIndex, NumBlocks, NumSeats, ShardId, Version};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -117,8 +115,8 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: NumBlocks,
-    /// Total number of block producers
-    pub num_block_producers: NumBlockProducers,
+    /// Number of block producer seats
+    pub num_block_producer_seats: NumSeats,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
     /// Time to persist Accounts Id in the router without removing them.
@@ -144,7 +142,7 @@ impl ClientConfig {
         skip_sync_wait: bool,
         min_block_prod_time: u64,
         max_block_prod_time: u64,
-        num_block_producers: NumBlockProducers,
+        num_block_producer_seats: NumSeats,
     ) -> Self {
         ClientConfig {
             version: Default::default(),
@@ -172,7 +170,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
-            num_block_producers,
+            num_block_producer_seats,
             announce_account_horizon: 5,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,

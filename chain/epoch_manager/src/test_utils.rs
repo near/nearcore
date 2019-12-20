@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, NumBlockProducers, NumBlocks, NumSeats, NumShards,
-    NumValidators, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, NumBlocks, NumFishermen, NumSeats, NumShards, ValidatorId,
+    ValidatorStake,
 };
-use near_primitives::utils::get_num_block_producers_per_shard;
+use near_primitives::utils::get_num_seats_per_shard;
 use near_store::test_utils::create_test_store;
 
 use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
@@ -77,8 +77,8 @@ pub fn epoch_info(
 pub fn epoch_config(
     epoch_length: NumBlocks,
     num_shards: NumShards,
-    num_block_producers: NumBlockProducers,
-    num_hidden_validators: NumValidators,
+    num_block_producer_seats: NumSeats,
+    num_fishermen: NumFishermen,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
@@ -86,12 +86,14 @@ pub fn epoch_config(
     EpochConfig {
         epoch_length,
         num_shards,
-        num_block_producers,
-        num_block_producers_per_shard: get_num_block_producers_per_shard(
+        num_block_producer_seats,
+        num_block_producer_seats_per_shard: get_num_seats_per_shard(
             num_shards,
-            num_block_producers,
+            num_block_producer_seats,
         ),
-        avg_hidden_validators_per_shard: (0..num_shards).map(|_| num_hidden_validators).collect(),
+        // TODO MOO that's weird because avg_fishermen_per_shard will be summarize
+        // later and used in total number of seats
+        avg_fishermen_per_shard: (0..num_shards).map(|_| num_fishermen).collect(),
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
@@ -141,8 +143,8 @@ pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: NumBlocks,
     num_shards: NumShards,
-    num_seats: NumSeats,
-    num_hidden_validators: NumValidators,
+    num_block_producer_seats: NumSeats,
+    num_fishermen: NumFishermen,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
@@ -152,8 +154,8 @@ pub fn setup_epoch_manager(
     let config = epoch_config(
         epoch_length,
         num_shards,
-        num_seats,
-        num_hidden_validators,
+        num_block_producer_seats,
+        num_fishermen,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
@@ -171,8 +173,8 @@ pub fn setup_default_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: NumBlocks,
     num_shards: NumShards,
-    num_seats: NumSeats,
-    num_hidden_validators: NumValidators,
+    num_block_producer_seats: NumSeats,
+    num_fishermen: NumFishermen,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {
@@ -180,8 +182,8 @@ pub fn setup_default_epoch_manager(
         validators,
         epoch_length,
         num_shards,
-        num_seats,
-        num_hidden_validators,
+        num_block_producer_seats,
+        num_fishermen,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         1,

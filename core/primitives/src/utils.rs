@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, NumBlockProducers, NumShards};
+use crate::types::{AccountId, NumSeats, NumShards};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::cmp::max;
@@ -259,19 +259,15 @@ pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 
-/// Compute number of block producers per shard given total number of block producers and number
-/// of shards.
-pub fn get_num_block_producers_per_shard(
-    num_shards: NumShards,
-    num_block_producers: NumBlockProducers,
-) -> Vec<NumBlockProducers> {
+/// Compute number of seats per shard for given total number of seats and number of shards.
+pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
     (0..num_shards)
         .map(|i| {
-            let remainder = num_block_producers % num_shards;
+            let remainder = num_seats % num_shards;
             let num = if i < remainder as u64 {
-                num_block_producers / num_shards + 1
+                num_seats / num_shards + 1
             } else {
-                num_block_producers / num_shards
+                num_seats / num_shards
             };
             max(num, 1)
         })
@@ -506,10 +502,10 @@ mod tests {
 
     #[test]
     fn test_num_chunk_producers() {
-        for num_block_producers in 1..50 {
+        for num_seats in 1..50 {
             for num_shards in 1..50 {
-                let assignment = get_num_block_producers_per_shard(num_shards, num_block_producers);
-                assert_eq!(assignment.iter().sum::<u64>(), max(num_block_producers, num_shards));
+                let assignment = get_num_seats_per_shard(num_shards, num_seats);
+                assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
             }
         }
     }
