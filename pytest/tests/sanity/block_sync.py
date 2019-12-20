@@ -1,4 +1,4 @@
-# Spins up two validating nodes.
+# Spins up two validating nodes. Make one validator produce block every 100 seconds.
 # Let the validators produce blocks for a while and then shut one of them down, remove data and restart.
 # Check that it can sync to the validator through block sync.
 
@@ -9,10 +9,12 @@ sys.path.append('lib')
 
 from cluster import start_cluster
 
-BLOCKS = 20
+BLOCKS = 10
 TIMEOUT = 10
 
-nodes = start_cluster(4, 0, 4, None, [["epoch_length", 100]], {0: {"consensus": {"block_fetch_horizon": 30, "block_header_fetch_horizon": 30}}})
+consensus_config0 = {"consensus": {"block_fetch_horizon": 30, "block_header_fetch_horizon": 30}}
+consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "nanos": 0}, "max_block_production_delay": {"secs": 110, "nanos": 0}, "max_block_wait_delay": {"secs": 200, "nanos": 0}}}
+nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100]], {0: consensus_config0, 1: consensus_config1})
 time.sleep(3)
 
 node0_height = 0
@@ -23,12 +25,7 @@ while node0_height < BLOCKS:
 
 print("kill node 0")
 nodes[0].kill()
-
-while True:
-    node1_status = nodes[1].get_status()
-    node1_height = node1_status['sync_info']['latest_block_height']
-    if node1_height > node0_height + 10:
-        break
+nodes[0].reset_data()
 
 print("restart node 0")
 nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
