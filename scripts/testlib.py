@@ -60,6 +60,7 @@ def run_test(test_binary, isolate=True):
                'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
     else:
         cmd = [test_binary]
+    print(f'========= run test {test_binary}')
     p = subprocess.Popen(cmd,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     stdout, stderr = p.communicate()
