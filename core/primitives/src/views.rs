@@ -870,8 +870,12 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
-            .field("transaction", &self.transaction_outcome)
-            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)))
+            .field("transaction", &self.transaction)
+            .field("transaction_outcome", &self.transaction_outcome)
+            .field(
+                "receipts_outcome",
+                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
+            )
             .finish()
     }
 }
