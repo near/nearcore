@@ -121,7 +121,7 @@ class LocalNode(BaseNode):
         assert config_json['network']['addr'] == '0.0.0.0:24567', config_json['network']['addr']
         assert config_json['rpc']['addr'] == '0.0.0.0:3030', config_json['rpc']['addr']
         # just a sanity assert that the setting name didn't change
-        assert 1 <= config_json['consensus']['min_num_peers'] <= 3
+        assert 0 <= config_json['consensus']['min_num_peers'] <= 3, config_json['consensus']['min_num_peers']
         config_json['network']['addr'] = '0.0.0.0:%s' % port
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
         config_json['consensus']['min_num_peers'] = 1
@@ -171,11 +171,11 @@ class LocalNode(BaseNode):
         if os.path.exists(target_path) and os.path.isdir(target_path):
             shutil.rmtree(target_path)
         os.rename(self.node_dir, target_path)
-    
+
     def stop_network(self):
         print("Stopping network for process %s" % self.pid.value)
         network.stop(self.pid.value)
-    
+
     def resume_network(self):
         print("Resuming network for process %s" % self.pid.value)
         network.resume_network(self.pid.value)
@@ -261,10 +261,10 @@ chmod +x near
         rc.run(f'mkdir -p /tmp/pytest_remote_log')
         self.machine.download('/tmp/python-rc.log', f'/tmp/pytest_remote_log/{self.machine.name}.log')
         self.destroy_machine()
-    
+
     def json_rpc(self, method, params, timeout=10):
         return super().json_rpc(method, params, timeout=timeout)
-    
+
     def get_status(self):
         r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=10)
         r.raise_for_status()
@@ -272,7 +272,7 @@ chmod +x near
 
     def stop_network(self):
         rc.run(f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}')
-    
+
     def resume_network(self):
         rc.run(f'gcloud compute firewall-rules delete {self.machine.name}-stop', input='yes\n')
 
@@ -364,7 +364,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     else:
         near_root = config['near_root']
         node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
-        node_dirs = list(node_dirs.filter(lambda n: not n.endswith('_finished'), node_dirs))
+        node_dirs = list(filter(lambda n: not n.endswith('_finished'), node_dirs))
     ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
