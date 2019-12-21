@@ -16,7 +16,7 @@ from tqdm import tqdm
 # it works with your gcloud credentials
 
 # After you're done, fill image_name here
-image_name = 'near-staging-20191219-bo'
+image_name = 'near-staging-20191219'
 
 machine_name_prefix = 'pytest-node-'
 
@@ -26,7 +26,7 @@ genesis_time = (datetime.datetime.utcnow() -
 num_machines = 100
 
 # 25 zones, each zone 4 instances
-# 5 asia, 1 australia, 5 europe, 1 canada, 1 southamerica, 12 us
+# 5 asia, 1 australia, 5 europe, 1 canada, 13 us
 zones = [
     'asia-east1-a',
     # 'asia-east1-b',
@@ -69,7 +69,7 @@ zones = [
     # 'northamerica-northeast1-a',
     # 'northamerica-northeast1-b',
     'northamerica-northeast1-c',
-    'southamerica-east1-a',
+    # 'southamerica-east1-a',
     # 'southamerica-east1-b',
     # 'southamerica-east1-c',
     'us-central1-a',
@@ -84,7 +84,7 @@ zones = [
     # 'us-east4-c',
     'us-west1-a',
     'us-west1-b',
-    # 'us-west1-c',
+    'us-west1-c',
     'us-west2-a',
     'us-west2-b',
     'us-west2-c',
@@ -112,7 +112,8 @@ for i in range(num_machines):
     p = run('bash', input=f'''
 mkdir -p /tmp/near/node{i}
 # deactivate virtualenv doesn't work in non interactive shell, explicitly run with python2
-/usr/bin/python2 ../scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
+cd ..
+/usr/bin/python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
 ''')
     assert p.returncode == 0
 

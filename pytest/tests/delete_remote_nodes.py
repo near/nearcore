@@ -9,7 +9,7 @@ from distutils.util import strtobool
 
 
 machines = gcloud.list()
-to_delete = list(filter(lambda m: m.name.startswith("near-pytest"), machines))
+to_delete = list(filter(lambda m: m.name.startswith("pytest-node"), machines))
 
 if to_delete:
     a = input(f"going to delete {list(map(lambda m: m.name, to_delete))}\ny/n: ")
