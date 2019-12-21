@@ -62,7 +62,9 @@ def run_test(test_binary, isolate=True):
     else:
         cmd = [test_binary]
     print(f'========= run test {test_binary}')
-    p = subprocess.Popen(cmd,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    stdout, stderr = p.communicate()
-    return (p.returncode, stdout, stderr)
+    if os.path.isfile(test_binary):
+        p = subprocess.Popen(cmd,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        stdout, stderr = p.communicate()
+        return (p.returncode, stdout, stderr)
+    return -1, '', f'{test_binary} does not exist'
