@@ -24,8 +24,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, HeightDelta, NumBlocks, NumFishermen, NumSeats, NumShards,
-    ShardId,
+    AccountId, Balance, BlockIndex, Gas, HeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::views::AccountView;
@@ -128,7 +127,7 @@ pub const MAX_INFLATION_RATE: u8 = 5;
 pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 
 /// Number of seats for block producers
-pub const NUM_BLOCK_PRODUCER_SEATS: u64 = 50;
+pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
 /// How much height horizon to give to consider peer up to date.
 pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
@@ -423,8 +422,8 @@ pub struct GenesisConfig {
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of fishermen per shard.
-    pub avg_fishermen_per_shard: Vec<NumFishermen>,
+    /// Expected number of hidden validators per shard.
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
@@ -551,7 +550,10 @@ impl GenesisConfig {
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
-            avg_fishermen_per_shard: num_validator_seats_per_shard.iter().map(|_| 0).collect(),
+            avg_hidden_validator_seats_per_shard: num_validator_seats_per_shard
+                .iter()
+                .map(|_| 0)
+                .collect(),
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
@@ -760,7 +762,7 @@ pub fn init_configs(
                     num_shards,
                     NUM_BLOCK_PRODUCER_SEATS,
                 ),
-                avg_fishermen_per_shard: (0..num_shards).map(|_| 0).collect(),
+                avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,

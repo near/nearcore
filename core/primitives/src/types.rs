@@ -33,8 +33,6 @@ pub type NumBlocks = u64;
 pub type NumShards = u64;
 /// Number of seats of validators (block producer or hidden ones) in current group.
 pub type NumSeats = u64;
-/// Number of fishermen in current group.
-pub type NumFishermen = u64;
 /// Height delta.
 pub type HeightDelta = u64;
 

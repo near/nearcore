@@ -7,8 +7,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, HeightDelta, NumFishermen, NumSeats, NumShards,
-    ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, HeightDelta, NumSeats, NumShards, ValidatorId,
+    ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -25,8 +25,8 @@ pub struct EpochConfig {
     pub num_block_producer_seats: NumSeats,
     /// Number of seats of block producers per each shard.
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of fishermen seats per each shard.
-    pub avg_fishermen_per_shard: Vec<NumFishermen>,
+    /// Expected number of hidden validator seats per each shard.
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Criterion for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.

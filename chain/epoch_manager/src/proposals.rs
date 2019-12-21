@@ -2,9 +2,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::types::{
-    AccountId, Balance, NumFishermen, NumSeats, ValidatorId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -80,15 +78,15 @@ pub fn proposals_to_epoch_info(
         if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
-            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as NumFishermen);
+            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as u64);
             fishermen.push(r.clone())
         }
     }
 
     // Get the threshold given current number of seats and stakes.
-    let num_fishermen: u64 = epoch_config.avg_fishermen_per_shard.iter().sum();
-    // TODO MOO fishermen don't take seats, check and rename it
-    let num_total_seats = epoch_config.num_block_producer_seats + num_fishermen;
+    let num_hidden_validator_seats: NumSeats =
+        epoch_config.avg_hidden_validator_seats_per_shard.iter().sum();
+    let num_total_seats = epoch_config.num_block_producer_seats + num_hidden_validator_seats;
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
     let threshold = find_threshold(&stakes, num_total_seats)?;
     // Remove proposals under threshold.
@@ -103,7 +101,7 @@ pub fn proposals_to_epoch_info(
         } else if p.amount >= epoch_config.fishermen_threshold {
             // Do not return stake back since they will become fishermen
             stake_change.entry(account_id.clone()).or_insert((p.amount, 0));
-            fishermen_to_index.insert(account_id, fishermen.len() as NumFishermen);
+            fishermen_to_index.insert(account_id, fishermen.len() as u64);
             fishermen.push(p);
         } else {
             stake_change
@@ -153,15 +151,15 @@ pub fn proposals_to_epoch_info(
     // Collect proposals into block producer assignments.
     let mut chunk_producers: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
-    for num_seats_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
+    for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
         let mut cp: Vec<ValidatorId> = vec![];
-        for i in 0..*num_seats_shard {
+        for i in 0..*num_seats_in_shard {
             let proposal_index =
                 dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
             cp.push(proposal_index);
         }
         chunk_producers.push(cp);
-        last_index = (last_index + num_seats_shard) % epoch_config.num_block_producer_seats;
+        last_index = (last_index + num_seats_in_shard) % epoch_config.num_block_producer_seats;
     }
 
     // TODO(1050): implement fishermen allocation.
@@ -228,7 +226,7 @@ mod tests {
                     num_shards: 5,
                     num_block_producer_seats: 6,
                     num_block_producer_seats_per_shard: vec![6, 2, 2, 2, 2],
-                    avg_fishermen_per_shard: vec![6, 2, 2, 2, 2],
+                    avg_hidden_validator_seats_per_shard: vec![6, 2, 2, 2, 2],
                     block_producer_kickout_threshold: 90,
                     chunk_producer_kickout_threshold: 60,
                     fishermen_threshold: 10

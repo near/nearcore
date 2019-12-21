@@ -80,7 +80,7 @@ q['dynamic_resharding'] = False
 # TODO please check this variable
 q['num_block_producer_seats_per_shard'] = [50] * 8
 # TODO please check this variable
-q['avg_fishermen_per_shard'] = [0] * 8
+q['avg_hidden_validator_seats_per_shard'] = [0] * 8
 q['num_blocks_per_year'] = 31536000
 q['gas_limit'] = 10000000
 q['gas_price'] = 100

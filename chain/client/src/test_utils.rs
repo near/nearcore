@@ -202,7 +202,8 @@ fn sample_binary(n: u64, k: u64) -> bool {
 ///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
-/// `epoch_length` - approximate number of blocks per epoch
+/// `epoch_length` - approximate length of the epoch as measured
+///                 by the height difference of it's last and first block.
 /// `network_mock` - the callback that is called for each message sent. The `mock` is called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
 ///                 `perform_default` is false, then the message is not processed or broadcasted

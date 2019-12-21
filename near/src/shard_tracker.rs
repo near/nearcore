@@ -246,7 +246,7 @@ mod tests {
             num_shards,
             num_block_producer_seats: 1,
             num_block_producer_seats_per_shard: vec![1],
-            avg_fishermen_per_shard: vec![],
+            avg_hidden_validator_seats_per_shard: vec![],
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 60,
             fishermen_threshold: 0,

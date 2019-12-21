@@ -83,7 +83,9 @@ impl NightshadeRuntime {
             num_block_producer_seats_per_shard: genesis_config
                 .num_block_producer_seats_per_shard
                 .clone(),
-            avg_fishermen_per_shard: genesis_config.avg_fishermen_per_shard.clone(),
+            avg_hidden_validator_seats_per_shard: genesis_config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
             block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
             fishermen_threshold: genesis_config.fishermen_threshold,
