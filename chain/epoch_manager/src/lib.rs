@@ -6,7 +6,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, NumShards, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, NumSeats, NumShards, Seat, ShardId, ValidatorId,
+    ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
@@ -201,12 +202,12 @@ impl EpochManager {
 
             produced_block_indices.insert(info.index);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
-                let chunk_validator_id =
-                    self.chunk_producer_from_info(&epoch_info, info.index, i as ShardId);
+                let chunk_seat =
+                    self.chunk_producer_seat_from_info(&epoch_info, info.index, i as ShardId);
                 let tracker =
                     chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
                 if *mask {
-                    tracker.entry(chunk_validator_id).and_modify(|e| *e += 1).or_insert(1);
+                    tracker.entry(chunk_seat.tenant).and_modify(|e| *e += 1).or_insert(1);
                 }
             }
 
@@ -426,16 +427,16 @@ impl EpochManager {
         Ok(store_update)
     }
 
-    /// Given epoch id and index, returns validator information that suppose to produce
-    /// the block at that index. We don't require caller to know about EpochIds.
+    /// Given epoch id and height, returns validator information that suppose to produce
+    /// the block at that height. We don't require caller to know about EpochIds.
     pub fn get_block_producer_info(
         &mut self,
         epoch_id: &EpochId,
-        index: BlockIndex,
+        height: BlockIndex,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let validator_id = Self::block_producer_from_info(&epoch_info, index) as usize;
-        Ok(epoch_info.validators[validator_id].clone())
+        let seat = Self::block_producer_seat_from_info(&epoch_info, height);
+        Ok(epoch_info.validators[seat.tenant as usize].clone())
     }
 
     pub fn get_all_block_producer_info(
@@ -447,8 +448,8 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
-        for validator_id in epoch_info.block_producers.iter() {
-            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
+        for seat in epoch_info.block_producers.iter() {
+            let validator_stake = epoch_info.validators[seat.tenant as usize].clone();
             if !validators.contains(&validator_stake.account_id) {
                 let is_slashed = slashed.contains_key(&validator_stake.account_id);
                 validators.insert(validator_stake.account_id.clone());
@@ -471,16 +472,16 @@ impl EpochManager {
             .collect())
     }
 
-    /// Given epoch id, index and shard id return validator that is chunk producer.
+    /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &mut self,
         epoch_id: &EpochId,
-        index: BlockIndex,
+        height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let validator_id = self.chunk_producer_from_info(&epoch_info, index, shard_id) as usize;
-        Ok(epoch_info.validators[validator_id].clone())
+        let seat = self.chunk_producer_seat_from_info(&epoch_info, height, shard_id);
+        Ok(epoch_info.validators[seat.tenant as usize].clone())
     }
 
     /// Returns validator for given account id for given epoch.
@@ -776,8 +777,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        for validator_id in epoch_info.chunk_producers[shard_id as usize].iter() {
-            if &epoch_info.validators[*validator_id as usize].account_id == account_id {
+        for seat in epoch_info.chunk_producers[shard_id as usize].iter() {
+            if &epoch_info.validators[seat.tenant as usize].account_id == account_id {
                 return Ok(true);
             }
         }
@@ -808,7 +809,10 @@ impl EpochManager {
                     num_expected_chunks
                         .entry(i)
                         .or_insert_with(HashMap::new)
-                        .entry(self.chunk_producer_from_info(epoch_info, index, i as ShardId))
+                        .entry(
+                            self.chunk_producer_seat_from_info(epoch_info, index, i as ShardId)
+                                .tenant,
+                        )
                         .and_modify(|e| *e += 1)
                         .or_insert(1);
                 }
@@ -817,19 +821,19 @@ impl EpochManager {
         Ok(num_expected_chunks)
     }
 
-    fn block_producer_from_info(epoch_info: &EpochInfo, index: BlockIndex) -> ValidatorId {
+    fn block_producer_seat_from_info(epoch_info: &EpochInfo, height: BlockIndex) -> Seat {
         epoch_info.block_producers
-            [(index % (epoch_info.block_producers.len() as BlockIndex)) as usize]
+            [(height % (epoch_info.block_producers.len() as NumSeats)) as usize]
     }
 
-    fn chunk_producer_from_info(
+    fn chunk_producer_seat_from_info(
         &self,
         epoch_info: &EpochInfo,
-        index: BlockIndex,
+        height: BlockIndex,
         shard_id: ShardId,
-    ) -> ValidatorId {
+    ) -> Seat {
         epoch_info.chunk_producers[shard_id as usize]
-            [(index % (epoch_info.chunk_producers[shard_id as usize].len() as BlockIndex)) as usize]
+            [(height % (epoch_info.chunk_producers[shard_id as usize].len() as NumSeats)) as usize]
     }
 
     /// The epoch switches when a block at a particular height gets final. We cannot allow blocks
