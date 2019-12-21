@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -50,7 +50,7 @@ pub struct ClientActor {
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
     /// Last height we announced our accounts as validators.
-    last_validator_announce_height: Option<BlockIndex>,
+    last_validator_announce_height: Option<BlockHeight>,
     /// Last time we announced our accounts as validators.
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
@@ -682,11 +682,11 @@ impl ClientActor {
         });
     }
 
-    /// Produce block if we are block producer for given `next_height` index.
+    /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(
         &mut self,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<(), Error> {
         match self.client.produce_block(next_height, elapsed_since_last_block) {

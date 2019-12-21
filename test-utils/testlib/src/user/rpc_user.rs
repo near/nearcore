@@ -69,8 +69,8 @@ impl User for RpcUser {
         let result = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
-        let height = self.get_best_block_index().unwrap();
-        while height == self.get_best_block_index().unwrap() {
+        let height = self.get_best_block_height().unwrap();
+        while height == self.get_best_block_height().unwrap() {
             thread::sleep(Duration::from_millis(50));
         }
         match result {
@@ -86,7 +86,7 @@ impl User for RpcUser {
         unimplemented!()
     }
 
-    fn get_best_block_index(&self) -> Option<u64> {
+    fn get_best_block_height(&self) -> Option<u64> {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
@@ -94,9 +94,9 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_hash.into())
     }
 
-    fn get_block(&self, index: u64) -> Option<BlockView> {
+    fn get_block(&self, height: u64) -> Option<BlockView> {
         System::new("actix")
-            .block_on(self.client.write().unwrap().block(BlockId::Height(index)))
+            .block_on(self.client.write().unwrap().block(BlockId::Height(height)))
             .ok()
     }
 

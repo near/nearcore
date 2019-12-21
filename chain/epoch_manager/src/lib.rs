@@ -6,7 +6,7 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, NumSeats, NumShards, Seat, ShardId, ValidatorId,
+    AccountId, Balance, BlockHeight, EpochId, NumSeats, NumShards, Seat, ShardId, ValidatorId,
     ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -42,7 +42,7 @@ pub struct EpochManager {
     /// Cache of block information.
     blocks_info: SizedCache<CryptoHash, BlockInfo>,
     /// Cache of epoch id to epoch start height
-    epoch_id_to_start: SizedCache<EpochId, BlockIndex>,
+    epoch_id_to_start: SizedCache<EpochId, BlockHeight>,
 }
 
 impl EpochManager {
@@ -167,7 +167,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let mut proposals = BTreeMap::new();
         let mut validator_kickout = HashSet::new();
-        let mut produced_block_indices = HashSet::new();
+        let mut produced_block_heights = HashSet::new();
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
         let mut total_storage_rent = 0;
@@ -200,10 +200,10 @@ impl EpochManager {
                 break;
             }
 
-            produced_block_indices.insert(info.index);
+            produced_block_heights.insert(info.height);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
                 let chunk_seat =
-                    self.chunk_producer_seat_from_info(&epoch_info, info.index, i as ShardId);
+                    self.chunk_producer_seat_from_info(&epoch_info, info.height, i as ShardId);
                 let tracker =
                     chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
                 if *mask {
@@ -223,13 +223,13 @@ impl EpochManager {
         let num_shards = last_block_info.chunk_mask.len() as NumShards;
         let prev_epoch_last_block_hash =
             self.get_block_info(&last_block_info.epoch_first_block)?.prev_hash;
-        let prev_epoch_last_block_index = self.get_block_info(&prev_epoch_last_block_hash)?.index;
+        let prev_epoch_last_block_height = self.get_block_info(&prev_epoch_last_block_hash)?.height;
         let num_expected_chunks = self.get_num_expected_chunks(
             &epoch_info,
             num_shards,
-            prev_epoch_last_block_index,
-            last_block_info.index,
-            &produced_block_indices,
+            prev_epoch_last_block_height,
+            last_block_info.height,
+            &produced_block_heights,
         )?;
         let next_epoch_id = self.get_next_epoch_id(&last_block_hash)?;
         let prev_validator_kickout = self.get_epoch_info(&next_epoch_id)?.validator_kickout.clone();
@@ -401,7 +401,7 @@ impl EpochManager {
                 // Update block produced/expected tracker.
                 block_info.update_block_tracker(
                     &epoch_info,
-                    prev_block_info.index,
+                    prev_block_info.height,
                     if is_epoch_start { HashMap::default() } else { block_tracker },
                 );
                 if is_epoch_start {
@@ -409,7 +409,7 @@ impl EpochManager {
                     self.save_epoch_start(
                         &mut store_update,
                         &block_info.epoch_id,
-                        block_info.index,
+                        block_info.height,
                     )?;
                 } else {
                     all_proposals.extend(block_info.proposals.clone());
@@ -432,7 +432,7 @@ impl EpochManager {
     pub fn get_block_producer_info(
         &mut self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let seat = Self::block_producer_seat_from_info(&epoch_info, height);
@@ -476,7 +476,7 @@ impl EpochManager {
     pub fn get_chunk_producer_info(
         &mut self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
@@ -597,9 +597,9 @@ impl EpochManager {
     pub fn get_epoch_start_height(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Result<BlockIndex, EpochError> {
+    ) -> Result<BlockHeight, EpochError> {
         let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
-        Ok(self.get_block_info(&epoch_first_block)?.index)
+        Ok(self.get_block_info(&epoch_first_block)?.height)
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -789,28 +789,28 @@ impl EpochManager {
         &mut self,
         epoch_info: &EpochInfo,
         num_shards: NumShards,
-        prev_epoch_last_block_index: BlockIndex,
-        epoch_last_block_index: BlockIndex,
-        produced_block_indices: &HashSet<BlockIndex>,
+        prev_epoch_last_block_height: BlockHeight,
+        epoch_last_block_height: BlockHeight,
+        produced_block_heights: &HashSet<BlockHeight>,
     ) -> Result<HashMap<ShardId, HashMap<ValidatorId, u64>>, EpochError> {
         let mut num_expected_chunks = HashMap::default();
-        // We iterate from next index after previous epoch's last block
+        // We iterate from next height after previous epoch's last block
         // to the expected end of this epoch or the actual end, whichever is larger.
-        let end_index =
-            max(epoch_last_block_index, prev_epoch_last_block_index + self.config.epoch_length);
-        for index in (prev_epoch_last_block_index + 1)..=end_index {
+        let end_height =
+            max(epoch_last_block_height, prev_epoch_last_block_height + self.config.epoch_length);
+        for height in (prev_epoch_last_block_height + 1)..=end_height {
             for i in 0..num_shards {
                 // we only count a chunk as expected if the previous block exists. Otherwise
                 // the chunk cannot be produced.
-                let prev_block_index = index - 1;
-                if produced_block_indices.contains(&prev_block_index)
-                    || prev_block_index == prev_epoch_last_block_index
+                let prev_block_height = height - 1;
+                if produced_block_heights.contains(&prev_block_height)
+                    || prev_block_height == prev_epoch_last_block_height
                 {
                     num_expected_chunks
                         .entry(i)
                         .or_insert_with(HashMap::new)
                         .entry(
-                            self.chunk_producer_seat_from_info(epoch_info, index, i as ShardId)
+                            self.chunk_producer_seat_from_info(epoch_info, height, i as ShardId)
                                 .tenant,
                         )
                         .and_modify(|e| *e += 1)
@@ -821,7 +821,7 @@ impl EpochManager {
         Ok(num_expected_chunks)
     }
 
-    fn block_producer_seat_from_info(epoch_info: &EpochInfo, height: BlockIndex) -> Seat {
+    fn block_producer_seat_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> Seat {
         epoch_info.block_producers
             [(height % (epoch_info.block_producers.len() as NumSeats)) as usize]
     }
@@ -829,7 +829,7 @@ impl EpochManager {
     fn chunk_producer_seat_from_info(
         &self,
         epoch_info: &EpochInfo,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Seat {
         epoch_info.chunk_producers[shard_id as usize]
@@ -851,14 +851,14 @@ impl EpochManager {
         let block_info = self.get_block_info(&parent_hash)?;
         let epoch_first_block = block_info.epoch_first_block;
         let estimated_next_epoch_start =
-            self.get_block_info(&epoch_first_block)?.index + self.config.epoch_length;
+            self.get_block_info(&epoch_first_block)?.height + self.config.epoch_length;
 
         loop {
             let block_info = self.get_block_info(&last_final_hash)?;
             let prev_hash = block_info.prev_hash;
             let prev_block_info = self.get_block_info(&prev_hash)?;
             // See `is_next_block_in_next_epoch` for details on ` + 3`
-            if prev_block_info.index + 3 >= estimated_next_epoch_start {
+            if prev_block_info.height + 3 >= estimated_next_epoch_start {
                 last_final_hash = prev_hash;
             } else {
                 return Ok(last_final_hash);
@@ -873,7 +873,7 @@ impl EpochManager {
             return Ok(true);
         }
         let estimated_next_epoch_start =
-            self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length;
+            self.get_block_info(&block_info.epoch_first_block)?.height + self.config.epoch_length;
         // Say the epoch length is 10, and say all the blocks have all the approvals.
         // Say the first block of a particular epoch has height 111. We want the block 121 to be
         //     the first block of the next epoch. For 121 to be the next block, the current block
@@ -881,7 +881,7 @@ impl EpochManager {
         // 121 - 118 = 3, hence the `last_finalized_height + 3`
         Ok((block_info.last_finalized_height + 3 >= estimated_next_epoch_start
             || self.config.num_block_producer_seats < 4)
-            && block_info.index + 1 >= estimated_next_epoch_start)
+            && block_info.height + 1 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -963,7 +963,7 @@ impl EpochManager {
         &mut self,
         store_update: &mut StoreUpdate,
         epoch_id: &EpochId,
-        epoch_start: BlockIndex,
+        epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
         store_update
             .set_ser(ColEpochStart, epoch_id.as_ref(), &epoch_start)
@@ -975,7 +975,7 @@ impl EpochManager {
     fn get_epoch_start_from_epoch_id(
         &mut self,
         epoch_id: &EpochId,
-    ) -> Result<BlockIndex, EpochError> {
+    ) -> Result<BlockHeight, EpochError> {
         if self.epoch_id_to_start.cache_get(epoch_id).is_none() {
             let epoch_start = self
                 .store
@@ -1626,7 +1626,7 @@ mod tests {
             .record_block_info(
                 &h[0],
                 BlockInfo {
-                    index: 0,
+                    height: 0,
                     last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
@@ -1647,7 +1647,7 @@ mod tests {
             .record_block_info(
                 &h[1],
                 BlockInfo {
-                    index: 1,
+                    height: 1,
                     last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
@@ -1668,7 +1668,7 @@ mod tests {
             .record_block_info(
                 &h[2],
                 BlockInfo {
-                    index: 2,
+                    height: 2,
                     last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
@@ -1739,7 +1739,7 @@ mod tests {
             .record_block_info(
                 &h[0],
                 BlockInfo {
-                    index: 0,
+                    height: 0,
                     last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
@@ -1760,7 +1760,7 @@ mod tests {
             .record_block_info(
                 &h[1],
                 BlockInfo {
-                    index: 1,
+                    height: 1,
                     last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
@@ -1781,7 +1781,7 @@ mod tests {
             .record_block_info(
                 &h[2],
                 BlockInfo {
-                    index: 2,
+                    height: 2,
                     last_finalized_height: 2,
                     prev_hash: h[1],
                     epoch_first_block: h[1],
@@ -1881,7 +1881,7 @@ mod tests {
             .record_block_info(
                 &h[0],
                 BlockInfo {
-                    index: 0,
+                    height: 0,
                     last_finalized_height: 0,
                     prev_hash: Default::default(),
                     epoch_first_block: h[0],
@@ -1902,7 +1902,7 @@ mod tests {
             .record_block_info(
                 &h[1],
                 BlockInfo {
-                    index: 1,
+                    height: 1,
                     last_finalized_height: 1,
                     prev_hash: h[0],
                     epoch_first_block: h[1],
@@ -1923,7 +1923,7 @@ mod tests {
             .record_block_info(
                 &h[3],
                 BlockInfo {
-                    index: 3,
+                    height: 3,
                     last_finalized_height: 3,
                     prev_hash: h[1],
                     epoch_first_block: h[2],
@@ -2047,7 +2047,7 @@ mod tests {
         em.record_block_info(
             &h[1],
             BlockInfo {
-                index: 1,
+                height: 1,
                 last_finalized_height: 1,
                 prev_hash: h[0],
                 epoch_first_block: h[1],
@@ -2067,7 +2067,7 @@ mod tests {
         em.record_block_info(
             &h[2],
             BlockInfo {
-                index: 2,
+                height: 2,
                 last_finalized_height: 2,
                 prev_hash: h[1],
                 epoch_first_block: h[1],
@@ -2087,7 +2087,7 @@ mod tests {
         em.record_block_info(
             &h[3],
             BlockInfo {
-                index: 3,
+                height: 3,
                 last_finalized_height: 3,
                 prev_hash: h[2],
                 epoch_first_block: h[3],

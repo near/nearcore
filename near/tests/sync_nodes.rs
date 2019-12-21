@@ -22,7 +22,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, HeightDelta, ValidatorStake};
 use testlib::genesis_block;
 
-// This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
+// This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,

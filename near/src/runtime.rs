@@ -25,7 +25,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
     StateRootNode, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
@@ -207,7 +207,7 @@ impl NightshadeRuntime {
         trie: Arc<Trie>,
         state_root: CryptoHash,
         shard_id: ShardId,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
@@ -220,8 +220,8 @@ impl NightshadeRuntime {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
-                   "block index: {}, is next_block_epoch_start {}",
-                   block_index,
+                   "block height: {}, is next_block_epoch_start {}",
+                   block_height,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
@@ -284,7 +284,7 @@ impl NightshadeRuntime {
         };
 
         let apply_state = ApplyState {
-            block_index,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -515,7 +515,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.account_id)
@@ -524,7 +524,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -656,7 +656,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
@@ -677,7 +677,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn validate_tx(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
@@ -685,7 +685,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            block_index,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -710,7 +710,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn prepare_transactions(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
@@ -721,7 +721,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            block_index,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -777,8 +777,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
-        block_index: BlockIndex,
-        last_finalized_height: BlockIndex,
+        block_height: BlockHeight,
+        last_finalized_height: BlockHeight,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         chunk_mask: Vec<bool>,
@@ -787,12 +787,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
-        assert!(block_index > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
-        debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
+        assert!(block_height > 0 || (proposals.is_empty() && slashed_validators.is_empty()));
+        debug!(target: "runtime", "add validator proposals at block height {} {:?}", block_height, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
-            block_index,
+            block_height,
             last_finalized_height,
             parent_hash,
             proposals,
@@ -815,7 +815,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -836,7 +836,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             trie,
             *state_root,
             shard_id,
-            block_index,
+            block_height,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -861,7 +861,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         partial_storage: PartialStorage,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -877,7 +877,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             trie.clone(),
             *state_root,
             shard_id,
-            block_index,
+            block_height,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -892,7 +892,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        block_height: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         _block_hash: &CryptoHash,
         path_parts: Vec<&str>,
@@ -1092,7 +1092,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn call_function(
         &self,
         state_root: MerkleHash,
-        height: BlockIndex,
+        height: BlockHeight,
         block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
@@ -1173,7 +1173,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, Gas, HeightDelta, Nonce, NumShards, ShardId,
+        AccountId, Balance, BlockHeight, EpochId, Gas, HeightDelta, Nonce, NumShards, ShardId,
         StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
@@ -1212,7 +1212,7 @@ mod test {
             &self,
             state_root: &StateRoot,
             shard_id: ShardId,
-            block_index: BlockIndex,
+            block_height: BlockHeight,
             block_timestamp: u64,
             prev_block_hash: &CryptoHash,
             block_hash: &CryptoHash,
@@ -1227,7 +1227,7 @@ mod test {
                 .apply_transactions(
                     shard_id,
                     &state_root,
-                    block_index,
+                    block_height,
                     block_timestamp,
                     prev_block_hash,
                     block_hash,
@@ -2276,7 +2276,7 @@ mod test {
             CryptoHash::default(),
         );
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             epoch_length: 2,
             gas_price: 10,
             block_timestamp: 100,

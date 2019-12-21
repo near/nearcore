@@ -27,7 +27,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
     ValidatorStake,
 };
 use near_primitives::views::{
@@ -173,7 +173,7 @@ impl KeyValueRuntime {
     fn get_prev_height(
         &self,
         prev_hash: &CryptoHash,
-    ) -> Result<BlockIndex, Box<dyn std::error::Error>> {
+    ) -> Result<BlockHeight, Box<dyn std::error::Error>> {
         if prev_hash == &CryptoHash::default() {
             return Ok(0);
         }
@@ -312,7 +312,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
@@ -321,7 +321,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
@@ -428,7 +428,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _state_update: StateRoot,
@@ -439,7 +439,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
@@ -459,8 +459,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
-        _block_index: u64,
-        _last_finalized_height: u64,
+        _block_height: BlockHeight,
+        _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
@@ -475,7 +475,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -650,7 +650,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _partial_storage: PartialStorage,
         _shard_id: ShardId,
         _state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -667,7 +667,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        block_height: BlockIndex,
+        block_height: BlockHeight,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
         path: Vec<&str>,
@@ -802,7 +802,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.inner_lite.height),
@@ -881,7 +881,7 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
 }
 
 pub fn setup_with_tx_validity_period(
-    validity: BlockIndex,
+    validity: BlockHeight,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
@@ -900,7 +900,7 @@ pub fn setup_with_validators(
     validator_groups: u64,
     num_shards: ShardId,
     epoch_length: u64,
-    validity_period: BlockIndex,
+    validity_period: BlockHeight,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
     let store = create_test_store();
     let signers = validators
@@ -1056,7 +1056,7 @@ pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemorySigner)
 
 pub fn new_block_no_epoch_switches(
     prev_block: &Block,
-    height: BlockIndex,
+    height: BlockHeight,
     approvals: Vec<&str>,
     signer: &InMemorySigner,
     time: u64,

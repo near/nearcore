@@ -25,7 +25,7 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, ShardId, StateRoot, StorageUsage,
     ValidatorStake, Version,
 };
 
@@ -38,7 +38,7 @@ pub struct AccountView {
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
-    pub storage_paid_at: BlockIndex,
+    pub storage_paid_at: BlockHeight,
 }
 
 impl From<Account> for AccountView {
@@ -172,13 +172,13 @@ pub enum QueryResponseKind {
 pub struct QueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
-    pub block_height: BlockIndex,
+    pub block_height: BlockHeight,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
-    pub latest_block_height: BlockIndex,
+    pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
@@ -252,7 +252,7 @@ impl From<Challenge> for ChallengeView {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
@@ -383,7 +383,7 @@ impl From<BlockHeaderView> for BlockHeader {
 
 #[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
@@ -400,8 +400,8 @@ pub struct ChunkHeaderView {
     pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
-    pub height_created: BlockIndex,
-    pub height_included: BlockIndex,
+    pub height_created: BlockHeight,
+    pub height_included: BlockHeight,
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
@@ -1029,7 +1029,7 @@ pub struct CurrentEpochValidatorInfo {
     pub is_slashed: bool,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub num_missing_blocks: BlockIndex,
+    pub num_missing_blocks: BlockHeight,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]

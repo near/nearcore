@@ -18,8 +18,8 @@ pub type StorageUsage = u64;
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
-/// Index of the block.
-pub type BlockIndex = u64;
+/// Height of the block.
+pub type BlockHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
@@ -33,7 +33,7 @@ pub type NumBlocks = u64;
 pub type NumShards = u64;
 /// Number of seats of validators (block producer or hidden ones) in current group.
 pub type NumSeats = u64;
-/// Height delta.
+/// Height delta that measures the difference between `BlockHeight`s.
 pub type HeightDelta = u64;
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]

@@ -114,7 +114,7 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
-            block_index: 0,
+            block_height: 0,
             block_timestamp: 0,
             epoch_length: client.epoch_length,
             gas_price: MIN_GAS_PRICE,
@@ -215,8 +215,8 @@ impl User for RuntimeUser {
         Ok(())
     }
 
-    fn get_best_block_index(&self) -> Option<u64> {
-        unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
+    fn get_best_block_height(&self) -> Option<u64> {
+        unimplemented!("get_best_block_height should not be implemented for RuntimeUser");
     }
 
     // This function is needed to sign transactions
@@ -224,7 +224,7 @@ impl User for RuntimeUser {
         Some(CryptoHash::default())
     }
 
-    fn get_block(&self, _index: u64) -> Option<BlockView> {
+    fn get_block(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 

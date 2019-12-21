@@ -32,7 +32,7 @@ fn test_catchup() {
         // Wait for the blocks to be produced.
         wait(
             || {
-                if let Some(ind) = nodes[0].read().unwrap().user().get_best_block_index() {
+                if let Some(ind) = nodes[0].read().unwrap().user().get_best_block_height() {
                     ind > (num_blocks_to_wait as u64)
                 } else {
                     false
@@ -45,11 +45,11 @@ fn test_catchup() {
         // Start the late node.
         late_node.write().unwrap().start();
 
-        // Wait for it to have the same block index as other nodes.
+        // Wait for it to have the same block height as other nodes.
         wait(
             || {
-                if let ind @ Some(_) = nodes[0].read().unwrap().user().get_best_block_index() {
-                    late_node.read().unwrap().user().get_best_block_index() == ind
+                if let ind @ Some(_) = nodes[0].read().unwrap().user().get_best_block_height() {
+                    late_node.read().unwrap().user().get_best_block_height() == ind
                 } else {
                     false
                 }

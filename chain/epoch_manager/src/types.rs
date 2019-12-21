@@ -7,7 +7,7 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
+    AccountId, Balance, BlockHeight, EpochId, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
     ValidatorStake,
 };
 
@@ -68,8 +68,8 @@ pub struct EpochInfo {
 /// Information per each block.
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct BlockInfo {
-    pub index: BlockIndex,
-    pub last_finalized_height: BlockIndex,
+    pub height: BlockHeight,
+    pub last_finalized_height: BlockHeight,
     pub prev_hash: CryptoHash,
     pub epoch_first_block: CryptoHash,
     pub epoch_id: EpochId,
@@ -83,15 +83,15 @@ pub struct BlockInfo {
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+    pub block_tracker: HashMap<ValidatorId, (BlockHeight, BlockHeight)>,
     /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
 }
 
 impl BlockInfo {
     pub fn new(
-        index: BlockIndex,
-        last_finalized_height: BlockIndex,
+        height: BlockHeight,
+        last_finalized_height: BlockHeight,
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
@@ -101,7 +101,7 @@ impl BlockInfo {
         total_supply: Balance,
     ) -> Self {
         Self {
-            index,
+            height,
             last_finalized_height,
             prev_hash,
             proposals,
@@ -129,11 +129,11 @@ impl BlockInfo {
     pub fn update_block_tracker(
         &mut self,
         epoch_info: &EpochInfo,
-        prev_block_index: BlockIndex,
-        mut prev_block_tracker: HashMap<ValidatorId, (BlockIndex, BlockIndex)>,
+        prev_block_height: BlockHeight,
+        mut prev_block_tracker: HashMap<ValidatorId, (BlockHeight, BlockHeight)>,
     ) {
         let block_producer_seat = epoch_info.block_producers
-            [(self.index % (epoch_info.block_producers.len() as NumSeats)) as usize];
+            [(self.height % (epoch_info.block_producers.len() as NumSeats)) as usize];
         prev_block_tracker
             .entry(block_producer_seat.tenant)
             .and_modify(|(produced, expected)| {
@@ -142,9 +142,9 @@ impl BlockInfo {
             })
             .or_insert((1, 1));
         // Iterate over all skipped blocks and increase the number of expected blocks.
-        for index in prev_block_index + 1..self.index {
+        for height in prev_block_height + 1..self.height {
             let seat = epoch_info.block_producers
-                [(index % (epoch_info.block_producers.len() as NumSeats)) as usize];
+                [(height % (epoch_info.block_producers.len() as NumSeats)) as usize];
             prev_block_tracker
                 .entry(seat.tenant)
                 .and_modify(|(_produced, expected)| {

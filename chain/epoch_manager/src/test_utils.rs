@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
+    AccountId, Balance, BlockHeight, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
     ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
@@ -204,13 +204,23 @@ pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
-    index: BlockIndex,
+    height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
     epoch_manager
         .record_block_info(
             &cur_h,
-            BlockInfo::new(index, 0, prev_h, proposals, vec![], vec![], 0, 0, DEFAULT_TOTAL_SUPPLY),
+            BlockInfo::new(
+                height,
+                0,
+                prev_h,
+                proposals,
+                vec![],
+                vec![],
+                0,
+                0,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
             [0; 32],
         )
         .unwrap()

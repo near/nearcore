@@ -76,7 +76,7 @@ impl TrieViewer {
     pub fn call_function(
         &self,
         mut state_update: TrieUpdate,
-        block_index: u64,
+        block_height: u64,
         block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
@@ -113,7 +113,7 @@ impl TrieViewer {
                 signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
                 predecessor_account_id: originator_id.clone(),
                 input: args.to_owned(),
-                block_index,
+                block_height,
                 block_timestamp,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,

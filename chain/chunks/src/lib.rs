@@ -25,7 +25,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
@@ -59,7 +59,7 @@ pub enum ProcessPartialEncodedChunkResult {
 
 #[derive(Clone, Debug)]
 struct ChunkRequestInfo {
-    height: BlockIndex,
+    height: BlockHeight,
     parent_hash: CryptoHash,
     shard_id: ShardId,
     added: Instant,
@@ -155,7 +155,7 @@ impl ShardsManager {
         }
     }
 
-    pub fn update_largest_seen_height(&mut self, new_height: BlockIndex) {
+    pub fn update_largest_seen_height(&mut self, new_height: BlockHeight) {
         self.encoded_chunks.update_largest_seen_height(
             new_height,
             &self.requested_partial_encoded_chunks.requests,
@@ -179,7 +179,7 @@ impl ShardsManager {
 
     fn request_partial_encoded_chunk(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_hash: &ChunkHash,

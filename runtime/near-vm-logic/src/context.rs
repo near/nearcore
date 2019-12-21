@@ -1,4 +1,4 @@
-use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey, StorageUsage};
+use crate::types::{AccountId, Balance, BlockHeight, Gas, PublicKey, StorageUsage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,8 +21,8 @@ pub struct VMContext {
     #[serde(with = "crate::serde_with::bytes_as_str")]
     /// The input to the contract call.
     pub input: Vec<u8>,
-    /// The current block index.
-    pub block_index: BlockIndex,
+    /// The current block height.
+    pub block_height: BlockHeight,
     /// The current block timestamp.
     pub block_timestamp: u64,
 

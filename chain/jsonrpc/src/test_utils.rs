@@ -5,7 +5,7 @@ use near_client::ViewClientActor;
 use near_network::test_utils::open_port;
 
 use crate::{start_http, RpcConfig};
-use near_primitives::types::BlockIndex;
+use near_primitives::types::BlockHeight;
 
 pub fn start_all(validator: bool) -> (Addr<ViewClientActor>, String) {
     start_all_with_validity_period(validator, 100)
@@ -13,7 +13,7 @@ pub fn start_all(validator: bool) -> (Addr<ViewClientActor>, String) {
 
 pub fn start_all_with_validity_period(
     validator: bool,
-    validity_period: BlockIndex,
+    validity_period: BlockHeight,
 ) -> (Addr<ViewClientActor>, String) {
     let (client_addr, view_client_addr) = setup_no_network_with_validity_period(
         vec!["test1", "test2"],

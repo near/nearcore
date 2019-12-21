@@ -10,7 +10,7 @@ mod tests {
     use near_primitives::block::{Approval, Block, BlockHeader, Weight};
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::combine_hash;
-    use near_primitives::types::{AccountId, BlockIndex, EpochId, ValidatorStake};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
     use near_primitives::views::ValidatorStakeView;
     use rand::seq::SliceRandom;
     use rand::Rng;
@@ -19,7 +19,7 @@ mod tests {
     fn create_block(
         em: &mut EpochManager,
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         chain_store: &mut ChainStore,
         signer: &dyn Signer,
         approvals: Vec<Approval>,
@@ -109,7 +109,7 @@ mod tests {
     fn check_safety(
         chain: &mut Chain,
         new_final_hash: CryptoHash,
-        old_final_height: BlockIndex,
+        old_final_height: BlockHeight,
         old_final_hash: CryptoHash,
     ) {
         let on_chain_hash =

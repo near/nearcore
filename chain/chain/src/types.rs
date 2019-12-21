@@ -12,7 +12,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
     ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
@@ -126,7 +126,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
@@ -142,7 +142,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
@@ -199,14 +199,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error>;
 
     /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error>;
 
@@ -284,7 +284,7 @@ pub trait RuntimeAdapter: Send + Sync {
         -> Result<EpochId, Error>;
 
     /// Get epoch start for given block hash.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
@@ -300,8 +300,8 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
-        block_index: BlockIndex,
-        last_finalized_height: BlockIndex,
+        block_height: BlockHeight,
+        last_finalized_height: BlockHeight,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
@@ -316,7 +316,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -330,7 +330,7 @@ pub trait RuntimeAdapter: Send + Sync {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
-            block_index,
+            block_height,
             block_timestamp,
             prev_block_hash,
             block_hash,
@@ -348,7 +348,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -366,7 +366,7 @@ pub trait RuntimeAdapter: Send + Sync {
         partial_storage: PartialStorage,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -382,7 +382,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn query(
         &self,
         state_root: &StateRoot,
-        height: BlockIndex,
+        height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
@@ -488,7 +488,7 @@ pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 pub struct LatestKnown {
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     pub seen: u64,
 }
 
@@ -498,7 +498,7 @@ pub struct LatestKnown {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     /// Last block pushed to the fork
     pub last_block_hash: CryptoHash,
     /// Previous block

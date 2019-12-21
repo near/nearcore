@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, HeightDelta, NumSeats, NumShards};
+use near_primitives::types::{AccountId, BlockHeight, HeightDelta, NumSeats, NumShards};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -142,7 +142,7 @@ pub fn setup_mock_with_validity_period(
             Addr<ClientActor>,
         ) -> NetworkResponses,
     >,
-    validity_period: BlockIndex,
+    validity_period: BlockHeight,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
     let (_, client, view_client) = setup(
@@ -656,7 +656,7 @@ pub fn setup_no_network_with_validity_period(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
-    validity_period: BlockIndex,
+    validity_period: BlockHeight,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     setup_mock_with_validity_period(
         validators,
@@ -805,7 +805,7 @@ impl TestEnv {
         }
     }
 
-    pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
+    pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height, Duration::from_millis(20)).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }

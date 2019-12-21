@@ -129,7 +129,7 @@ ext_costs = json.loads('''{
           "sha256_byte": 1,
           "attached_deposit": 1,
           "storage_usage": 1,
-          "block_index": 1,
+          "block_height": 1,
           "block_timestamp": 1,
           "current_account_id": 1,
           "current_account_id_byte": 1,

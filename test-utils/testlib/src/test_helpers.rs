@@ -46,7 +46,7 @@ where
 /// TODO it makes sense to have three types of wait checks:
 /// Wait until sufficient number of nodes is caught up (> 2/3). This can be checked by looking at the block indices and verifying that the blocks are produced;
 /// Wait until a certain node is caught up and participating in a consensus. Check first-layer BLS signatures;
-/// Wait until all nodes are more-or-less caught up. Check that the max_block_index - min_block_index < threshold;
+/// Wait until all nodes are more-or-less caught up. Check that the max_block_height - min_block_height < threshold;
 ///
 pub fn wait_for_catchup(nodes: &[Arc<RwLock<dyn Node>>]) {
     wait(
@@ -54,7 +54,7 @@ pub fn wait_for_catchup(nodes: &[Arc<RwLock<dyn Node>>]) {
             let tips: Vec<_> = nodes
                 .iter()
                 .filter(|node| node.read().unwrap().is_running())
-                .map(|node| node.read().unwrap().user().get_best_block_index())
+                .map(|node| node.read().unwrap().user().get_best_block_height())
                 .collect();
             tips.iter().min() == tips.iter().max()
         },

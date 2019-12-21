@@ -22,7 +22,7 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, HeightDelta, NumBlocks,
+    AccountId, Balance, BlockExtra, BlockHeight, ChunkExtra, EpochId, Gas, HeightDelta, NumBlocks,
     ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
@@ -59,7 +59,7 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 /// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
+pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeight = 4;
 
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
@@ -83,7 +83,7 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
@@ -393,7 +393,7 @@ impl Chain {
     pub fn compute_quorums(
         prev_hash: CryptoHash,
         epoch_id: EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         approvals: Vec<Approval>,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
@@ -702,7 +702,7 @@ impl Chain {
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
     pub fn check_state_needed(
         &mut self,
-        block_fetch_horizon: BlockIndex,
+        block_fetch_horizon: BlockHeight,
     ) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
@@ -1131,7 +1131,7 @@ impl Chain {
         &mut self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
-        last_height_included: BlockIndex,
+        last_height_included: BlockHeight,
     ) -> Result<ReceiptResponse, Error> {
         self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
     }
@@ -1848,7 +1848,7 @@ impl Chain {
 
     /// Gets a block from the current chain by height.
     #[inline]
-    pub fn get_block_by_height(&mut self, height: BlockIndex) -> Result<&Block, Error> {
+    pub fn get_block_by_height(&mut self, height: BlockHeight) -> Result<&Block, Error> {
         let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block(&hash)
     }
@@ -1861,7 +1861,7 @@ impl Chain {
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+    pub fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
         self.store.get_header_by_height(height)
     }
 
@@ -1870,7 +1870,7 @@ impl Chain {
     pub fn get_header_on_chain_by_height(
         &mut self,
         sync_hash: &CryptoHash,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&BlockHeader, Error> {
         self.store.get_header_on_chain_by_height(sync_hash, height)
     }

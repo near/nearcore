@@ -26,7 +26,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
@@ -156,11 +156,11 @@ impl Client {
         }
     }
 
-    /// Produce block if we are block producer for given `next_height` index.
+    /// Produce block if we are block producer for given `next_height` height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(
         &mut self,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
         // Check that this height is not known yet.
@@ -374,7 +374,7 @@ impl Client {
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {

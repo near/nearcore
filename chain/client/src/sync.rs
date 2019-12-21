@@ -12,7 +12,7 @@ use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex, ShardId, StateRootNode};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRootNode};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -53,8 +53,8 @@ pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPee
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
     network_adapter: Arc<dyn NetworkAdapter>,
-    history_locator: Vec<(BlockIndex, CryptoHash)>,
-    prev_header_sync: (DateTime<Utc>, Weight, BlockIndex),
+    history_locator: Vec<(BlockHeight, CryptoHash)>,
+    prev_header_sync: (DateTime<Utc>, Weight, BlockHeight),
     syncing_peer: Option<FullPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
 
@@ -89,7 +89,7 @@ impl HeaderSync {
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
-        highest_height: BlockIndex,
+        highest_height: BlockHeight,
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
@@ -309,15 +309,15 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
 /// Helper to track block syncing.
 pub struct BlockSync {
     network_adapter: Arc<dyn NetworkAdapter>,
-    blocks_requested: BlockIndex,
+    blocks_requested: BlockHeight,
     receive_timeout: DateTime<Utc>,
-    prev_blocks_received: BlockIndex,
+    prev_blocks_received: BlockHeight,
     /// How far to fetch blocks vs fetch state.
-    block_fetch_horizon: BlockIndex,
+    block_fetch_horizon: BlockHeight,
 }
 
 impl BlockSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, block_fetch_horizon: BlockIndex) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, block_fetch_horizon: BlockHeight) -> Self {
         BlockSync {
             network_adapter,
             blocks_requested: 0,
@@ -333,7 +333,7 @@ impl BlockSync {
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
-        highest_height: BlockIndex,
+        highest_height: BlockHeight,
         most_weight_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.block_sync_due(chain)? {
@@ -354,7 +354,7 @@ impl BlockSync {
         &mut self,
         chain: &mut Chain,
         most_weight_peers: &[FullPeerInfo],
-        block_fetch_horizon: BlockIndex,
+        block_fetch_horizon: BlockHeight,
     ) -> Result<bool, near_chain::Error> {
         let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
         if state_needed {

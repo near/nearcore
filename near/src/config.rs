@@ -24,7 +24,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, HeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, Balance, BlockHeight, Gas, HeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::views::AccountView;
@@ -198,11 +198,11 @@ pub struct Consensus {
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockIndex,
+    pub block_fetch_horizon: BlockHeight,
     /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: BlockIndex,
+    pub state_fetch_horizon: BlockHeight,
     /// Behind this horizon header fetch kicks in.
-    pub block_header_fetch_horizon: BlockIndex,
+    pub block_header_fetch_horizon: BlockHeight,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.

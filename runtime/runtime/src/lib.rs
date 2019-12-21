@@ -25,7 +25,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, HeightDelta, Nonce, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, Gas, HeightDelta, Nonce, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -63,8 +63,8 @@ mod store;
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// Currently building block index.
-    pub block_index: BlockIndex,
+    /// Currently building block height.
+    pub block_height: BlockHeight,
     /// Current epoch length.
     pub epoch_length: HeightDelta,
     /// Price for the gas.
@@ -254,7 +254,7 @@ impl Runtime {
 
         let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-        let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
+        let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_height, &self.config);
         access_key.nonce = transaction.nonce;
 
         let (gas_burnt, gas_used, total_cost) = tx_cost(
@@ -566,7 +566,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_height, &self.config);
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
@@ -1332,7 +1332,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 0,
+            block_height: 0,
             epoch_length: 3,
             gas_price: GAS_PRICE,
             block_timestamp: 100,

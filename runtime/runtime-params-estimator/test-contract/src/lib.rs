@@ -25,7 +25,7 @@ extern "C" {
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
-    fn block_index() -> u64;
+    fn block_height() -> u64;
     fn storage_usage() -> u64;
     // #################
     // # Economics API #
@@ -178,11 +178,11 @@ pub fn payload() {
 #[no_mangle]
 pub fn noop() {}
 
-// Function that we use to measure `base` cost by calling `block_index` many times.
+// Function that we use to measure `base` cost by calling `block_height` many times.
 #[no_mangle]
 pub unsafe fn base_1M() {
     for _ in 0..1_000_000 {
-        block_index();
+        block_height();
     }
 }
 
