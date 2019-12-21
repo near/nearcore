@@ -5,6 +5,7 @@ sys.path.append('lib')
 
 from cluster import GCloudNode, RpcNode
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import datetime
 
 validators = [None]*100
 
@@ -21,5 +22,6 @@ while True:
     
     for v in validators[1:]:
         assert v == validators[0]
-        
-    print(validators[0])
+    
+    v0 = sorted(list(validators[0]))
+    print(f'{datetime.datetime.now()}, {len(v0)}, {v0}')

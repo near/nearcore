@@ -348,38 +348,46 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
 
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
-        # apply genesis_config.json changes
-        fname = os.path.join(node_dir, 'genesis.json')
-        with open(fname) as f:
-            genesis_config = json.loads(f.read())
-        for change in genesis_config_changes:
-            cur = genesis_config
-            for s in change[:-2]:
-                cur = cur[s]
-            assert change[-2] in cur
-            cur[change[-2]] = change[-1]
-        with open(fname, 'w') as f:
-            f.write(json.dumps(genesis_config, indent=2))
-
-        # apply config.json changes
-        fname = os.path.join(node_dir, 'config.json')
-        with open(fname) as f:
-            config_json = json.loads(f.read())
-
+        apply_genesis_changes(node_dir, genesis_config_changes)
         if i in client_config_changes:
-            for k, v in client_config_changes[i].items():
-                assert k in config_json
-                if isinstance(v, dict):
-                    for key, value in v.items():
-                        assert key in config_json[k]
-                        config_json[k][key] = value
-                else:
-                    config_json[k] = v
-
-        with open(fname, 'w') as f:
-            f.write(json.dumps(config_json, indent=2))
+            client_config_change = client_config_changes[i]
+            apply_config_changes(node_dir, client_config_change)
 
     return near_root, node_dirs
+
+
+def apply_genesis_changes(node_dir, genesis_config_changes):
+    # apply genesis.json changes
+    fname = os.path.join(node_dir, 'genesis.json')
+    with open(fname) as f:
+        genesis_config = json.loads(f.read())
+    for change in genesis_config_changes:
+        cur = genesis_config
+        for s in change[:-2]:
+            cur = cur[s]
+        assert change[-2] in cur
+        cur[change[-2]] = change[-1]
+    with open(fname, 'w') as f:
+        f.write(json.dumps(genesis_config, indent=2))
+
+
+def apply_config_changes(node_dir, client_config_change):
+    # apply config.json changes
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as f:
+        config_json = json.loads(f.read())
+
+    for k, v in client_config_change.items():
+        assert k in config_json
+        if isinstance(v, dict):
+            for key, value in v.items():
+                assert key in config_json[k]
+                config_json[k][key] = value
+        else:
+            config_json[k] = v
+
+    with open(fname, 'w') as f:
+        f.write(json.dumps(config_json, indent=2))
 
 
 def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):

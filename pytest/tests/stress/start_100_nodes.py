@@ -5,6 +5,10 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from tqdm import tqdm
+import sys
+
+sys.path.append('lib')
+from cluster import apply_config_changes, apply_genesis_changes
 
 # Go to gcloud, create a powerful instance (recommend 32vcpu), install dep,
 # install rust, compile all release binaries so that start_stakewars doesn't
@@ -22,6 +26,41 @@ machine_name_prefix = 'pytest-node-'
 
 genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
+
+# binary search this to observe if network forks, default is 1
+block_production_time = 10
+
+client_config_changes = {
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": block_production_time,
+            "nanos": 0,
+        },
+        "max_block_production_delay": {
+            "secs": 2 * block_production_time,
+            "nanos": 0,
+        },
+        "max_block_wait_delay": {
+            "secs": 6 * block_production_time,            
+            "nanos": 0,
+        },
+    }
+}
+
+# default is 50; 7,7,6,6,6,6,6,6
+genesis_config_changes = [
+  ["num_block_producers", 100],
+  ["block_producers_per_shard", [
+    13,
+    13,
+    13,
+    13,
+    12,
+    12,
+    12,
+    12
+  ]],
+]
 
 num_machines = 100
 
@@ -158,7 +197,17 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
             'peer_info': f'{get_pubkey(i)}@{machines[i].ip}:24567'
         })
 
-pbar = tqdm(total=num_machines, desc=' upload keys and accounts.csv')
+# Generate config and genesis locally, apply changes to config/genesis locally
+for i in range(num_machines):
+    p=run('bash', input=f'''
+cp /tmp/near/accounts.csv /tmp/near/node{i}
+cd ..
+target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id stakewars --tracked-shards=0,1,2,3,4,5,6,7
+''')
+    apply_config_changes(f'/tmp/near/node{i}', client_config_changes)
+    apply_genesis_changes(f'/tmp/near/node{i}', genesis_config_changes)
+
+pbar = tqdm(total=num_machines, desc=' upload nodedir')
 # Upload json and accounts.csv
 def upload_genesis_files(i):
     # stop if already start
@@ -166,12 +215,9 @@ def upload_genesis_files(i):
     time.sleep(2)
     machines[i].kill_detach_tmux()
     machines[i].run('rm -rf ~/.near')
-    # upload keys and account.csv
+    # upload keys, config, genesis
     machines[i].upload(f'/tmp/near/node{i}', f'/home/{machines[i].username}/.near')
-    machines[i].upload(f'/tmp/near/accounts.csv',
-                       f'/home/{machines[i].username}/.near/')
     pbar.update(1)
-
 
 pmap(upload_genesis_files, range(num_machines))
 pbar.close()
@@ -179,7 +225,7 @@ pbar.close()
 pbar = tqdm(total=num_machines, desc=' start near')
 def start_nearcore(m):
     m.run_detach_tmux(
-        'cd nearcore && scripts/start_stakewars.py --local --tracked-shards=0,1,2,3,4,5,6,7')
+        'cd nearcore && target/release/near run')
     pbar.update(1)
 
 pmap(start_nearcore, machines)
