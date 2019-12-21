@@ -21,9 +21,10 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         block_index: 10,
         block_timestamp: 42,
         account_balance: 2u128,
+        account_locked_balance: 0,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(9),
+        prepaid_gas: 10_u64.pow(14),
         random_seed: vec![0, 1, 2],
         is_view: false,
         output_data_receivers: vec![],
@@ -54,7 +55,7 @@ pub fn make_simple_contract_call(
     code: &[u8],
     method_name: &[u8],
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas(code, method_name, 1_000_000)
+    make_simple_contract_call_with_gas(code, method_name, 10u64.pow(14))
 }
 
 #[allow(dead_code)]
