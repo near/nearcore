@@ -44,6 +44,7 @@ fn test_tx_propagation() {
             Box::new(move |_ctx| {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let transaction_copy = transaction.clone();
+                let transaction_copy1 = transaction.clone();
                 let tx_hash_clone = tx_hash.clone();
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
@@ -70,7 +71,8 @@ fn test_tx_propagation() {
                             match &res {
                                 Ok(Ok(Some(feo)))
                                     if feo.status
-                                        == FinalExecutionStatus::SuccessValue("".to_string()) =>
+                                        == FinalExecutionStatus::SuccessValue("".to_string())
+                                        && feo.transaction == transaction_copy1.into() =>
                                 {
                                     System::current().stop();
                                 }
