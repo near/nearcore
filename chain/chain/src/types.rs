@@ -449,7 +449,6 @@ impl dyn RuntimeAdapter {
         prev_epoch: &EpochId,
         prev_hash: &CryptoHash,
     ) -> Result<u128, Error> {
-        // TODO #1855: need seats here?
         let block_producers = self.get_epoch_block_producers_ordered(prev_epoch, prev_hash)?;
         let mut account_to_stake = HashMap::new();
 

@@ -469,7 +469,6 @@ impl Handler<Status> for ClientActor {
         let validators = self
             .client
             .runtime_adapter
-            // TODO #1855: need seats here?
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
             .map_err(|err| err.to_string())?
             .into_iter()
@@ -577,9 +576,10 @@ impl ClientActor {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if let Ok(validators) =
-        // TODO #1855: need seats here?
-            self.client.runtime_adapter.get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
+        if let Ok(validators) = self
+            .client
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
                 (validator_stake.account_id == block_producer.account_id)
@@ -1155,7 +1155,6 @@ impl ClientActor {
             let validators = unwrap_or_return!(act
                 .client
                 .runtime_adapter
-                // TODO #1855: need seats here?
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let account_id = act.client.block_producer.as_ref().map(|x| x.account_id.clone());

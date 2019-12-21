@@ -478,7 +478,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
-            // TODO #1855: need seats here?
             .get_all_block_producers_ordered(epoch_id, prev_block_hash)
             .map_err(Error::from)?;
         let approvals_hash_map =
@@ -589,7 +588,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         if let Ok(block_producer_seats) =
-            // TODO 1855: check this usage of get_all_block_producer_seats
             epoch_manager.get_all_block_producer_seats(&epoch_id, &parent_hash)
         {
             let ret = block_producer_seats.len();
@@ -621,7 +619,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let block_producer_seats =
             epoch_manager.get_all_block_producer_seats(&epoch_id, parent_hash)?;
-        Ok(block_producer_seats[part_id as usize % block_producer_seats.len()].1.account_id.clone())
+        Ok(block_producer_seats[part_id as usize % block_producer_seats.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(

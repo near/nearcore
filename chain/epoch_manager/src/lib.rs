@@ -444,14 +444,14 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(Seat, ValidatorStake, bool)>, EpochError> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut result = vec![];
         for seat in epoch_info.block_producers.iter() {
             let validator_stake = epoch_info.validators[seat.tenant as usize].clone();
             let is_slashed = slashed.contains_key(&validator_stake.account_id);
-            result.push((seat.clone(), validator_stake, is_slashed));
+            result.push((validator_stake, is_slashed));
         }
         Ok(result)
     }
@@ -466,7 +466,7 @@ impl EpochManager {
             self.get_all_block_producer_seats(epoch_id, last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
-        for (_seat, validator_stake, is_slashed) in block_producer_seats.into_iter() {
+        for (validator_stake, is_slashed) in block_producer_seats.into_iter() {
             if !validators.contains(&validator_stake.account_id) {
                 validators.insert(validator_stake.account_id.clone());
                 result.push((validator_stake, is_slashed));
