@@ -60,6 +60,7 @@ pub fn init_integration_logger() {
 
 static SET_PANIC_HOOK: Once = Once::new();
 
+/// This is a workaround to make actix/tokio runtime stop when a task panics.
 pub fn init_stop_on_panic() {
     SET_PANIC_HOOK.call_once(|| {
         let default_hook = std::panic::take_hook();
