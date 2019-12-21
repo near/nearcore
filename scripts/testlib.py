@@ -55,6 +55,7 @@ def run_test(test_binary, isolate=True):
     """ Run a single test, save exitcode, stdout and stderr """
     if isolate:
         cmd = ['docker', 'run', '--rm',
+               '-u', f'{os.getuid()}:{os.getgid()}',
                '-v', f'{test_binary}:{test_binary}',
                'ailisp/near-test-runtime',
                'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
