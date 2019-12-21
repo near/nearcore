@@ -424,7 +424,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
             })
-            .data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
+            .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to(rpc_handler)))
             .service(
