@@ -300,7 +300,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,

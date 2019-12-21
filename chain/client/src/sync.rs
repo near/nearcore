@@ -690,7 +690,7 @@ impl StateSync {
             Ok(shard_sync_download)
         );
         let possible_targets = unwrap_or_return!(
-            runtime_adapter.get_epoch_block_producers(&epoch_hash, &sync_hash),
+            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash),
             Ok(shard_sync_download)
         )
         .iter()

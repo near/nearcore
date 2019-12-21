@@ -212,7 +212,8 @@ impl Client {
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let block_producers =
-            self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
+            // TODO #1855: need seats here?
+            self.runtime_adapter.get_epoch_block_producers_ordered(&head.epoch_id, &prev_hash)?;
         let total_block_producers = block_producers.len();
         let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, head.height)?
             == block_producer.account_id.clone();
@@ -825,7 +826,11 @@ impl Client {
         {
             if let Ok(validators) = self
                 .runtime_adapter
-                .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
+                // TODO #1855: need seats here?
+                .get_epoch_block_producers_ordered(
+                    &block_header.inner_lite.epoch_id,
+                    &block_header.hash(),
+                )
             {
                 if let Some((_, is_slashed)) =
                     validators.into_iter().find(|v| v.0.account_id == block_producer.account_id)
@@ -886,7 +891,8 @@ impl Client {
         // If given account is not current block proposer.
         let position = match self
             .runtime_adapter
-            .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
+            // TODO #1855: need seats here?
+            .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
                 let position = validators.iter().position(|x| &(x.0.account_id) == account_id);

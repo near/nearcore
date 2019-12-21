@@ -282,7 +282,8 @@ impl ShardsManager {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
         for (validator_stake, is_slashed) in
-            self.runtime_adapter.get_epoch_block_producers(&epoch_id, parent_hash)?
+            // TODO #1855: need seats here?
+            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
         {
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(

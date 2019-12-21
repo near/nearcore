@@ -439,37 +439,40 @@ impl EpochManager {
         Ok(epoch_info.validators[seat.tenant as usize].clone())
     }
 
-    pub fn get_all_block_producer_info(
+    /// Returns seats with all block producers in current epoch, with indicator on whether they are slashed or not.
+    pub fn get_all_block_producer_seats(
+        &mut self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+    ) -> Result<Vec<(Seat, ValidatorStake, bool)>, EpochError> {
+        let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let mut result = vec![];
+        for seat in epoch_info.block_producers.iter() {
+            let validator_stake = epoch_info.validators[seat.tenant as usize].clone();
+            let is_slashed = slashed.contains_key(&validator_stake.account_id);
+            result.push((seat.clone(), validator_stake, is_slashed));
+        }
+        Ok(result)
+    }
+
+    /// Returns all unique block producers in current epoch sorted by account_id, with indicator on whether they are slashed or not.
+    pub fn get_all_block_producers_ordered(
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
-        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let block_producer_seats =
+            self.get_all_block_producer_seats(epoch_id, last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
-        for seat in epoch_info.block_producers.iter() {
-            let validator_stake = epoch_info.validators[seat.tenant as usize].clone();
+        for (_seat, validator_stake, is_slashed) in block_producer_seats.into_iter() {
             if !validators.contains(&validator_stake.account_id) {
-                let is_slashed = slashed.contains_key(&validator_stake.account_id);
                 validators.insert(validator_stake.account_id.clone());
                 result.push((validator_stake, is_slashed));
             }
         }
         Ok(result)
-    }
-
-    /// Returns all block producers in current epoch, with indicator on whether they are slashed or not.
-    pub fn get_all_block_producers(
-        &mut self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        Ok(self
-            .get_all_block_producer_info(epoch_id, last_known_block_hash)?
-            .into_iter()
-            .map(|(v, is_slashed)| (v, is_slashed))
-            .collect())
     }
 
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
@@ -1132,7 +1135,7 @@ mod tests {
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
             epoch_manager
-                .get_all_block_producers(&epoch1, &h[1])
+                .get_all_block_producers_ordered(&epoch1, &h[1])
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
@@ -1147,7 +1150,7 @@ mod tests {
         let epoch2_1 = epoch_manager.get_epoch_id(&h[13]).unwrap();
         assert_eq!(
             epoch_manager
-                .get_all_block_producers(&epoch2_1, &h[1])
+                .get_all_block_producers_ordered(&epoch2_1, &h[1])
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
@@ -1158,7 +1161,7 @@ mod tests {
         let epoch2_2 = epoch_manager.get_epoch_id(&h[11]).unwrap();
         assert_eq!(
             epoch_manager
-                .get_all_block_producers(&epoch2_2, &h[1])
+                .get_all_block_producers_ordered(&epoch2_2, &h[1])
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
@@ -1366,7 +1369,7 @@ mod tests {
         let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
             epoch_manager
-                .get_all_block_producers(&epoch_id, &h[1])
+                .get_all_block_producers_ordered(&epoch_id, &h[1])
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))

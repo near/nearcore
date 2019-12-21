@@ -383,7 +383,8 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter
-            .get_epoch_block_producers(&epoch_id, last_known_hash)?
+            // TODO #1855: need seats here?
+            .get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?
             .iter()
             .map(|x| x.0.clone())
             .collect();
@@ -400,7 +401,8 @@ impl Chain {
         push_back_if_needed: bool,
     ) -> Result<FinalityGadgetQuorums, Error> {
         let stakes = runtime_adapter
-            .get_epoch_block_producers(&epoch_id, &prev_hash)?
+            // TODO #1855: need seats here?
+            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
             .iter()
             .map(|x| x.0.clone())
             .collect();
@@ -898,8 +900,11 @@ impl Chain {
                             &metrics::VALIDATOR_ACTIVE_TOTAL,
                             match self
                                 .runtime_adapter
-                                .get_epoch_block_producers(&tip.epoch_id, &tip.last_block_hash)
-                            {
+                                // TODO #1855: need seats here?
+                                .get_epoch_block_producers_ordered(
+                                    &tip.epoch_id,
+                                    &tip.last_block_hash,
+                                ) {
                                 Ok(value) => value
                                     .iter()
                                     .map(|(_, is_slashed)| if *is_slashed { 0 } else { 1 })
