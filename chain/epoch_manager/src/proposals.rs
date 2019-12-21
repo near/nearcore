@@ -135,7 +135,10 @@ pub fn proposals_to_epoch_info(
         .flat_map(|(i, p)| iter::repeat(i as u64).take((p.amount / threshold) as usize))
         .collect::<Vec<_>>();
     if dup_proposals.len() < num_total_seats as usize {
-        return Err(EpochError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_total_seats));
+        return Err(EpochError::SelectedSeatsMismatch(
+            dup_proposals.len() as NumSeats,
+            num_total_seats,
+        ));
     }
     {
         use protocol_defining_rand::seq::SliceRandom;

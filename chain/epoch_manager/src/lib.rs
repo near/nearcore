@@ -6,8 +6,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, NumSeats, NumShards, Seat, ShardId, ValidatorId,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, NumShards, Seat, ShardId,
+    ValidatorId, ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
@@ -87,7 +87,7 @@ impl EpochManager {
     fn compute_kickout_info(
         &self,
         epoch_info: &EpochInfo,
-        block_validator_tracker: &HashMap<ValidatorId, (u64, u64)>,
+        block_validator_tracker: &HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         num_expected_chunks: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
         slashed: &HashMap<AccountId, SlashState>,

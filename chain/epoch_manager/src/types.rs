@@ -7,8 +7,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, HeightDelta, NumBlocks, NumSeats, NumShards, Seat,
+    ValidatorId, ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -17,7 +17,7 @@ pub type RngSeed = [u8; 32];
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
 #[derive(Clone)]
 pub struct EpochConfig {
-    /// Epoch length in blocks.
+    /// Epoch length in block heights.
     pub epoch_length: HeightDelta,
     /// Number of shards currently.
     pub num_shards: NumShards,
@@ -83,7 +83,7 @@ pub struct BlockInfo {
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, (BlockHeight, BlockHeight)>,
+    pub block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
     /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
 }
@@ -130,7 +130,7 @@ impl BlockInfo {
         &mut self,
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
-        mut prev_block_tracker: HashMap<ValidatorId, (BlockHeight, BlockHeight)>,
+        mut prev_block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
     ) {
         let block_producer_seat = epoch_info.block_producers
             [(self.height % (epoch_info.block_producers.len() as NumSeats)) as usize];
@@ -164,7 +164,7 @@ pub enum EpochError {
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
     /// Number of selected seats doesn't match requested.
-    SelectedSeatsMismatch(u64, ValidatorId),
+    SelectedSeatsMismatch(NumSeats, NumSeats),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Other error.
@@ -200,8 +200,8 @@ impl fmt::Display for EpochError {
                 write!(f, "ThresholdError({}, {})", stake, num_seats)
             }
             EpochError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
-            EpochError::SelectedSeatsMismatch(num_seats, validator) => {
-                write!(f, "SelectedSeatsMismatch({}, {})", num_seats, validator)
+            EpochError::SelectedSeatsMismatch(selected, required) => {
+                write!(f, "SelectedSeatsMismatch({}, {})", selected, required)
             }
             EpochError::MissingBlock(hash) => write!(f, "MissingBlock({})", hash),
             EpochError::Other(err) => write!(f, "Other({})", err),
