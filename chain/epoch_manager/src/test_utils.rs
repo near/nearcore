@@ -90,9 +90,6 @@ pub fn epoch_config(
             num_shards,
             num_block_producer_seats,
         ),
-        // TODO MOO that's weird because avg_hidden_validator_seats_per_shard will be summarize
-        // later and used in total number of seats.
-        // get_num_seats_per_shard may be use instead.
         avg_hidden_validator_seats_per_shard: (0..num_shards)
             .map(|_| num_hidden_validator_seats)
             .collect(),
