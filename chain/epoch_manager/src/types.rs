@@ -7,7 +7,7 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, HeightDelta, NumBlocks, NumSeats, NumShards, Seat,
+    AccountId, Balance, BlockHeight, EpochId, HeightDelta, NumBlocks, NumSeats, NumShards,
     ValidatorId, ValidatorStake,
 };
 
@@ -46,11 +46,11 @@ pub struct EpochInfo {
     /// Validator account id to index in proposals.
     pub validator_to_index: HashMap<AccountId, ValidatorId>,
     /// List of seats occupied by validators responsible for block production.
-    pub block_producers: Vec<Seat>,
+    pub block_producer_seats: Vec<ValidatorId>,
     /// Per each shard, list of seats occupied by validators that are responsible.
-    pub chunk_producers: Vec<Vec<Seat>>,
-    /// Weight of given validator used to determine how many shards they will validate.
-    pub hidden_validators: Vec<ValidatorWeight>,
+    pub chunk_producer_seats: Vec<Vec<ValidatorId>>,
+    /// List of seats of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validator_seats: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
@@ -132,10 +132,10 @@ impl BlockInfo {
         prev_block_height: BlockHeight,
         mut prev_block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
     ) {
-        let block_producer_seat = epoch_info.block_producers
-            [(self.height % (epoch_info.block_producers.len() as NumSeats)) as usize];
+        let validator_id = epoch_info.block_producer_seats
+            [(self.height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize];
         prev_block_tracker
-            .entry(block_producer_seat.tenant)
+            .entry(validator_id)
             .and_modify(|(produced, expected)| {
                 *produced += 1;
                 *expected += 1;
@@ -143,10 +143,10 @@ impl BlockInfo {
             .or_insert((1, 1));
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for height in prev_block_height + 1..self.height {
-            let seat = epoch_info.block_producers
-                [(height % (epoch_info.block_producers.len() as NumSeats)) as usize];
+            let validator_id = epoch_info.block_producer_seats
+                [(height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize];
             prev_block_tracker
-                .entry(seat.tenant)
+                .entry(validator_id)
                 .and_modify(|(_produced, expected)| {
                     *expected += 1;
                 })

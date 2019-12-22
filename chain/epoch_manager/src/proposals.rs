@@ -2,7 +2,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 
-use near_primitives::types::{AccountId, Balance, NumSeats, Seat, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, NumSeats, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -149,22 +149,20 @@ pub fn proposals_to_epoch_info(
     }
 
     // Block producers are first `num_block_producer_seats` proposals.
-    let block_producers = dup_proposals[..epoch_config.num_block_producer_seats as usize]
-        .iter()
-        .map(|tenant| Seat { tenant: tenant.clone() })
-        .collect();
+    let block_producer_seats =
+        dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
 
     // Collect proposals into block producer assignments.
-    let mut chunk_producers: Vec<Vec<Seat>> = vec![];
+    let mut chunk_producer_seats: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
     for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
-        let mut cp: Vec<Seat> = vec![];
+        let mut shard_seats: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats_in_shard {
             let proposal_index =
                 dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
-            cp.push(Seat { tenant: proposal_index });
+            shard_seats.push(proposal_index);
         }
-        chunk_producers.push(cp);
+        chunk_producer_seats.push(shard_seats);
         last_index = (last_index + num_seats_in_shard) % epoch_config.num_block_producer_seats;
     }
 
@@ -176,9 +174,9 @@ pub fn proposals_to_epoch_info(
         validators: final_proposals,
         fishermen,
         validator_to_index,
-        block_producers,
-        chunk_producers,
-        hidden_validators: vec![],
+        block_producer_seats,
+        chunk_producer_seats,
+        hidden_validator_seats: vec![],
         stake_change: final_stake_change,
         validator_reward,
         inflation,

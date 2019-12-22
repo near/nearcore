@@ -36,11 +36,6 @@ pub type NumSeats = u64;
 /// Height delta that measures the difference between `BlockHeight`s.
 pub type HeightDelta = u64;
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Seat {
-    pub tenant: ValidatorId,
-}
-
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 

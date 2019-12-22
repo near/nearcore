@@ -6,8 +6,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, NumShards, Seat, ShardId,
-    ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, NumShards, ShardId, ValidatorId,
+    ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
@@ -202,12 +202,12 @@ impl EpochManager {
 
             produced_block_heights.insert(info.height);
             for (i, mask) in info.chunk_mask.iter().enumerate() {
-                let chunk_seat =
-                    self.chunk_producer_seat_from_info(&epoch_info, info.height, i as ShardId);
+                let chunk_validator_id =
+                    Self::chunk_producer_from_info(&epoch_info, info.height, i as ShardId);
                 let tracker =
                     chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
                 if *mask {
-                    tracker.entry(chunk_seat.tenant).and_modify(|e| *e += 1).or_insert(1);
+                    tracker.entry(chunk_validator_id).and_modify(|e| *e += 1).or_insert(1);
                 }
             }
 
@@ -435,8 +435,8 @@ impl EpochManager {
         height: BlockHeight,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let seat = Self::block_producer_seat_from_info(&epoch_info, height);
-        Ok(epoch_info.validators[seat.tenant as usize].clone())
+        let validator_id = Self::block_producer_from_info(&epoch_info, height);
+        Ok(epoch_info.validators[validator_id as usize].clone())
     }
 
     /// Returns seats with all block producers in current epoch, with indicator on whether they are slashed or not.
@@ -448,8 +448,8 @@ impl EpochManager {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut result = vec![];
-        for seat in epoch_info.block_producers.iter() {
-            let validator_stake = epoch_info.validators[seat.tenant as usize].clone();
+        for validator_id in epoch_info.block_producer_seats.iter() {
+            let validator_stake = epoch_info.validators[*validator_id as usize].clone();
             let is_slashed = slashed.contains_key(&validator_stake.account_id);
             result.push((validator_stake, is_slashed));
         }
@@ -483,8 +483,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let seat = self.chunk_producer_seat_from_info(&epoch_info, height, shard_id);
-        Ok(epoch_info.validators[seat.tenant as usize].clone())
+        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
+        Ok(epoch_info.validators[validator_id as usize].clone())
     }
 
     /// Returns validator for given account id for given epoch.
@@ -780,8 +780,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        for seat in epoch_info.chunk_producers[shard_id as usize].iter() {
-            if &epoch_info.validators[seat.tenant as usize].account_id == account_id {
+        for validator_id in epoch_info.chunk_producer_seats[shard_id as usize].iter() {
+            if &epoch_info.validators[*validator_id as usize].account_id == account_id {
                 return Ok(true);
             }
         }
@@ -812,10 +812,7 @@ impl EpochManager {
                     num_expected_chunks
                         .entry(i)
                         .or_insert_with(HashMap::new)
-                        .entry(
-                            self.chunk_producer_seat_from_info(epoch_info, height, i as ShardId)
-                                .tenant,
-                        )
+                        .entry(Self::chunk_producer_from_info(epoch_info, height, i as ShardId))
                         .and_modify(|e| *e += 1)
                         .or_insert(1);
                 }
@@ -824,19 +821,19 @@ impl EpochManager {
         Ok(num_expected_chunks)
     }
 
-    fn block_producer_seat_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> Seat {
-        epoch_info.block_producers
-            [(height % (epoch_info.block_producers.len() as NumSeats)) as usize]
+    fn block_producer_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> ValidatorId {
+        epoch_info.block_producer_seats
+            [(height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize]
     }
 
-    fn chunk_producer_seat_from_info(
-        &self,
+    fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Seat {
-        epoch_info.chunk_producers[shard_id as usize]
-            [(height % (epoch_info.chunk_producers[shard_id as usize].len() as NumSeats)) as usize]
+    ) -> ValidatorId {
+        epoch_info.chunk_producer_seats[shard_id as usize][(height
+            % (epoch_info.chunk_producer_seats[shard_id as usize].len() as NumSeats))
+            as usize]
     }
 
     /// The epoch switches when a block at a particular height gets final. We cannot allow blocks

@@ -482,7 +482,7 @@ impl ChainStore {
             if !found_ancestor {
                 self.header_history = HeaderList::from_headers(header_list);
             }
-            // It is possible that cur_len is max_difference_in_height + 1 after the above update.
+            // It is possible that cur_len is max_difference_in_blocks + 1 after the above update.
             let cur_len = self.header_history.len() as NumBlocks;
             if cur_len > max_difference_in_blocks {
                 for _ in 0..cur_len - max_difference_in_blocks {

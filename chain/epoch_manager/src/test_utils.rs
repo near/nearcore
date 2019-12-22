@@ -3,8 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, HeightDelta, NumSeats, NumShards, Seat, ValidatorId,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, HeightDelta, NumSeats, NumShards, ValidatorId, ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
 use near_store::test_utils::create_test_store;
@@ -30,9 +29,9 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 
 pub fn epoch_info(
     mut accounts: Vec<(&str, Balance)>,
-    block_producers: Vec<ValidatorId>,
-    chunk_producers: Vec<Vec<ValidatorId>>,
-    hidden_validators: Vec<ValidatorWeight>,
+    block_producer_seats: Vec<ValidatorId>,
+    chunk_producer_seats: Vec<Vec<ValidatorId>>,
+    hidden_validator_seats: Vec<ValidatorWeight>,
     fishermen: Vec<(&str, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
     validator_reward: HashMap<AccountId, Balance>,
@@ -59,18 +58,12 @@ pub fn epoch_info(
         .iter()
         .filter_map(|(account, balance)| if *balance == 0 { Some(account.clone()) } else { None })
         .collect();
-    let block_producers =
-        block_producers.iter().map(|tenant| Seat { tenant: tenant.clone() }).collect();
-    let chunk_producers = chunk_producers
-        .iter()
-        .map(|v| v.iter().map(|tenant| Seat { tenant: tenant.clone() }).collect())
-        .collect();
     EpochInfo {
         validators: account_to_validators(accounts),
         validator_to_index,
-        block_producers,
-        chunk_producers,
-        hidden_validators,
+        block_producer_seats,
+        chunk_producer_seats,
+        hidden_validator_seats,
         fishermen: account_to_validators(fishermen),
         fishermen_to_index,
         stake_change,
