@@ -478,7 +478,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let info = epoch_manager
-            .get_all_block_producer_info(epoch_id, prev_block_hash)
+            .get_all_block_producers_ordered(epoch_id, prev_block_hash)
             .map_err(Error::from)?;
         let approvals_hash_map =
             approvals.iter().map(|x| (x.account_id.clone(), x)).collect::<HashMap<_, _>>();
@@ -503,13 +503,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(signatures_verified == approvals.len())
     }
 
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_all_block_producers(epoch_id, last_known_block_hash).map_err(Error::from)
+        epoch_manager
+            .get_all_block_producers_ordered(epoch_id, last_known_block_hash)
+            .map_err(Error::from)
     }
 
     fn get_block_producer(
@@ -585,9 +587,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        if let Ok(block_producers) = epoch_manager.get_all_block_producers(&epoch_id, &parent_hash)
+        if let Ok(block_producer_seats) =
+            epoch_manager.get_all_block_producer_seats(&epoch_id, &parent_hash)
         {
-            let ret = block_producers.len();
+            let ret = block_producer_seats.len();
             if ret > 1 {
                 ret
             } else {
@@ -614,8 +617,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
-        Ok(block_producers[part_id as usize % block_producers.len()].0.account_id.clone())
+        let block_producer_seats =
+            epoch_manager.get_all_block_producer_seats(&epoch_id, parent_hash)?;
+        Ok(block_producer_seats[part_id as usize % block_producer_seats.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(
@@ -1487,7 +1491,7 @@ mod test {
         let epoch_id = env.runtime.get_epoch_id_from_prev_block(&env.head.last_block_hash).unwrap();
         assert_eq!(
             env.runtime
-                .get_epoch_block_producers(&epoch_id, &env.head.last_block_hash)
+                .get_epoch_block_producers_ordered(&epoch_id, &env.head.last_block_hash)
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
@@ -2075,7 +2079,7 @@ mod test {
         assert_eq!(env.view_account("test2").locked, 0);
         assert_eq!(
             env.runtime
-                .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
+                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))
@@ -2125,7 +2129,7 @@ mod test {
         assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
         assert_eq!(
             env.runtime
-                .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
+                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
                 .unwrap()
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.1))

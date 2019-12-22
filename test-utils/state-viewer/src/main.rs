@@ -179,7 +179,9 @@ fn print_chain(
                     println!(
                         "Epoch {} Validators {:?}",
                         format_hash(epoch_id.0),
-                        runtime.get_epoch_block_producers(&epoch_id, &header.hash()).unwrap()
+                        runtime
+                            .get_epoch_block_producers_ordered(&epoch_id, &header.hash())
+                            .unwrap()
                     );
                 }
                 let block_producer =

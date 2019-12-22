@@ -187,9 +187,9 @@ pub trait RuntimeAdapter: Send + Sync {
         approvals: &[Approval],
     ) -> Result<bool, Error>;
 
-    /// Epoch block producers (ordered by their order in the proposals) for given shard.
+    /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
@@ -449,7 +449,7 @@ impl dyn RuntimeAdapter {
         prev_epoch: &EpochId,
         prev_hash: &CryptoHash,
     ) -> Result<u128, Error> {
-        let block_producers = self.get_epoch_block_producers(prev_epoch, prev_hash)?;
+        let block_producers = self.get_epoch_block_producers_ordered(prev_epoch, prev_hash)?;
         let mut account_to_stake = HashMap::new();
 
         let mut approved_stake = 0;
