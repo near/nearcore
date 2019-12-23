@@ -46,6 +46,7 @@ pub struct RuntimeUser {
     pub transaction_results: RefCell<HashMap<CryptoHash, ExecutionOutcomeView>>,
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
+    pub transactions: RefCell<HashSet<SignedTransaction>>,
 }
 
 impl RuntimeUser {
@@ -57,6 +58,7 @@ impl RuntimeUser {
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
+            transactions: RefCell::new(Default::default()),
         }
     }
 
@@ -67,6 +69,9 @@ impl RuntimeUser {
         transactions: Vec<SignedTransaction>,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
+        for transaction in transactions.iter() {
+            self.transactions.borrow_mut().insert(transaction.clone());
+        }
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
@@ -126,8 +131,12 @@ impl RuntimeUser {
     ) -> Vec<ExecutionOutcomeWithIdView> {
         let outcome = self.get_transaction_result(hash);
         let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions =
-            vec![ExecutionOutcomeWithIdView { id: *hash, outcome, proof: vec![] }];
+        let mut transactions = vec![ExecutionOutcomeWithIdView {
+            id: *hash,
+            outcome,
+            proof: vec![],
+            block_hash: Default::default(),
+        }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
@@ -165,7 +174,13 @@ impl RuntimeUser {
             })
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
-        FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts }
+        let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
+        FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome: outcomes.pop().unwrap(),
+            receipts_outcome: receipts,
+        }
     }
 }
 
