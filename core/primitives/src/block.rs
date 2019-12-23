@@ -5,37 +5,42 @@ use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct BlockHeaderInner {
+pub struct BlockHeaderInnerLite {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
     /// Epoch start hash of this block's epoch.
     /// Used for retrieving validator information
     pub epoch_id: EpochId,
-    /// Hash of the block previous to this in the chain.
-    pub prev_hash: CryptoHash,
+    pub next_epoch_id: EpochId,
     /// Root hash of the state at the previous block.
     pub prev_state_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts.
+    pub outcome_root: MerkleHash,
+    /// Timestamp at which the block was built.
+    pub timestamp: u64,
+    /// Hash of the next epoch block producers set
+    pub next_bp_hash: CryptoHash,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockHeaderInnerRest {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
-    /// Root of the outcomes of transactions and receipts.
-    pub outcome_root: MerkleHash,
     /// Number of chunks included into the block.
     pub chunks_included: u64,
-    /// Timestamp at which the block was built.
-    pub timestamp: u64,
     /// Total weight.
     pub total_weight: Weight,
     /// Score.
@@ -64,17 +69,37 @@ pub struct BlockHeaderInner {
     pub approvals: Vec<Approval>,
 }
 
-impl BlockHeaderInner {
+impl BlockHeaderInnerLite {
     pub fn new(
         height: BlockIndex,
         epoch_id: EpochId,
-        prev_hash: CryptoHash,
+        next_epoch_id: EpochId,
         prev_state_root: MerkleHash,
+        outcome_root: MerkleHash,
+        timestamp: u64,
+        next_bp_hash: CryptoHash,
+    ) -> Self {
+        Self {
+            height,
+            epoch_id,
+            next_epoch_id,
+            prev_state_root,
+            outcome_root,
+            timestamp,
+            next_bp_hash,
+        }
+    }
+
+    pub fn hash(&self) -> CryptoHash {
+        hash(&self.try_to_vec().expect("Failed to serialize"))
+    }
+}
+
+impl BlockHeaderInnerRest {
+    pub fn new(
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        outcome_root: MerkleHash,
-        timestamp: u64,
         chunks_included: u64,
         total_weight: Weight,
         score: Weight,
@@ -90,15 +115,9 @@ impl BlockHeaderInner {
         approvals: Vec<Approval>,
     ) -> Self {
         Self {
-            height,
-            epoch_id,
-            prev_hash,
-            prev_state_root,
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            outcome_root,
-            timestamp,
             chunks_included,
             total_weight,
             score,
@@ -117,6 +136,10 @@ impl BlockHeaderInner {
 
     pub fn weight_and_score(&self) -> WeightAndScore {
         WeightAndScore { weight: self.total_weight, score: self.score }
+    }
+
+    pub fn hash(&self) -> CryptoHash {
+        hash(&self.try_to_vec().expect("Failed to serialize"))
     }
 }
 
@@ -172,8 +195,12 @@ impl ApprovalMessage {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeader {
-    /// Inner part of the block header that gets hashed.
-    pub inner: BlockHeaderInner,
+    pub prev_hash: CryptoHash,
+
+    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
+    ///    to light clients, and the rest
+    pub inner_lite: BlockHeaderInnerLite,
+    pub inner_rest: BlockHeaderInnerRest,
 
     /// Signature of the block producer.
     pub signature: Signature,
@@ -184,8 +211,27 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
+    pub fn compute_inner_hash(
+        inner_lite: &BlockHeaderInnerLite,
+        inner_rest: &BlockHeaderInnerRest,
+    ) -> CryptoHash {
+        let hash_lite = inner_lite.hash();
+        let hash_rest = inner_rest.hash();
+        combine_hash(hash_lite, hash_rest)
+    }
+
+    pub fn compute_hash(
+        prev_hash: CryptoHash,
+        inner_lite: &BlockHeaderInnerLite,
+        inner_rest: &BlockHeaderInnerRest,
+    ) -> CryptoHash {
+        let hash_inner = BlockHeader::compute_inner_hash(inner_lite, inner_rest);
+
+        return combine_hash(hash_inner, prev_hash);
+    }
+
     pub fn init(&mut self) {
-        self.hash = hash(&self.inner.try_to_vec().expect("Failed to serialize"));
+        self.hash = BlockHeader::compute_hash(self.prev_hash, &self.inner_lite, &self.inner_rest);
     }
 
     pub fn new(
@@ -203,6 +249,7 @@ impl BlockHeader {
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
         gas_price: Balance,
         rent_paid: Balance,
         validator_reward: Balance,
@@ -212,17 +259,21 @@ impl BlockHeader {
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
         approvals: Vec<Approval>,
+        next_bp_hash: CryptoHash,
     ) -> Self {
-        let inner = BlockHeaderInner::new(
+        let inner_lite = BlockHeaderInnerLite::new(
             height,
             epoch_id,
-            prev_hash,
+            next_epoch_id,
             prev_state_root,
+            outcome_root,
+            timestamp,
+            next_bp_hash,
+        );
+        let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            outcome_root,
-            timestamp,
             chunks_included,
             total_weight,
             score,
@@ -237,8 +288,8 @@ impl BlockHeader {
             last_quorum_pre_commit,
             approvals,
         );
-        let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: signer.sign(hash.as_ref()), hash }
+        let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
+        Self { prev_hash, inner_lite, inner_rest, signature: signer.sign(hash.as_ref()), hash }
     }
 
     pub fn genesis(
@@ -250,17 +301,21 @@ impl BlockHeader {
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
+        next_bp_hash: CryptoHash,
     ) -> Self {
-        let inner = BlockHeaderInner::new(
+        let inner_lite = BlockHeaderInnerLite::new(
             0,
             EpochId::default(),
-            CryptoHash::default(),
+            EpochId::default(),
             state_root,
+            CryptoHash::default(),
+            to_timestamp(timestamp),
+            next_bp_hash,
+        );
+        let inner_rest = BlockHeaderInnerRest::new(
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            CryptoHash::default(),
-            to_timestamp(timestamp),
             chunks_included,
             0.into(),
             0.into(),
@@ -275,8 +330,14 @@ impl BlockHeader {
             CryptoHash::default(),
             vec![],
         );
-        let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
+        let hash = BlockHeader::compute_hash(CryptoHash::default(), &inner_lite, &inner_rest);
+        Self {
+            prev_hash: CryptoHash::default(),
+            inner_lite,
+            inner_rest,
+            signature: Signature::empty(KeyType::ED25519),
+            hash,
+        }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -289,11 +350,11 @@ impl BlockHeader {
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
-        from_timestamp(self.inner.timestamp)
+        from_timestamp(self.inner_lite.timestamp)
     }
 
     pub fn num_approvals(&self) -> u64 {
-        self.inner.approvals.len() as u64
+        self.inner_rest.approvals.len() as u64
     }
 }
 
@@ -345,6 +406,7 @@ impl Block {
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
+        next_bp_hash: CryptoHash,
     ) -> Self {
         Block {
             header: BlockHeader::genesis(
@@ -356,6 +418,7 @@ impl Block {
                 timestamp,
                 initial_gas_price,
                 initial_total_supply,
+                next_bp_hash,
             ),
             chunks,
             challenges: vec![],
@@ -368,15 +431,20 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
         approvals: Vec<Approval>,
         gas_price_adjustment_rate: u8,
+        min_gas_price: Balance,
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
+        time_delta: u128,
+        weight_delta: u128,
         score: Weight,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        next_bp_hash: CryptoHash,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -401,18 +469,22 @@ impl Block {
             }
         }
         let new_gas_price = Self::compute_new_gas_price(
-            prev.inner.gas_price,
+            prev.inner_rest.gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
         );
+        let new_gas_price = std::cmp::max(new_gas_price, min_gas_price);
 
-        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0) - balance_burnt;
+        let new_total_supply =
+            prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
-        let num_approvals: u128 = approvals.len() as u128;
-        let total_weight = prev.inner.total_weight.next(num_approvals);
         let now = to_timestamp(Utc::now());
-        let time = if now <= prev.inner.timestamp { prev.inner.timestamp + 1 } else { now };
+        let time =
+            if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
+        let time_delta = std::cmp::max(time_delta, 1);
+
+        let total_weight = prev.inner_rest.total_weight.next(weight_delta * time_delta);
 
         Block {
             header: BlockHeader::new(
@@ -430,6 +502,7 @@ impl Block {
                 validator_proposals,
                 chunk_mask,
                 epoch_id,
+                next_epoch_id,
                 new_gas_price,
                 storage_rent,
                 validator_reward,
@@ -439,22 +512,28 @@ impl Block {
                 last_quorum_pre_vote,
                 last_quorum_pre_commit,
                 approvals,
+                next_bp_hash,
             ),
             chunks,
             challenges,
         }
     }
 
-    pub fn verify_gas_price(&self, prev_gas_price: Balance, gas_price_adjustment_rate: u8) -> bool {
-        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner.height);
-        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner.height);
+    pub fn verify_gas_price(
+        &self,
+        prev_gas_price: Balance,
+        min_gas_price: Balance,
+        gas_price_adjustment_rate: u8,
+    ) -> bool {
+        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
+        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
         let expected_price = Self::compute_new_gas_price(
             prev_gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
         );
-        expected_price == self.header.inner.gas_price
+        self.header.inner_rest.gas_price == max(expected_price, min_gas_price)
     }
 
     pub fn compute_new_gas_price(
@@ -554,32 +633,32 @@ impl Block {
     pub fn check_validity(&self) -> bool {
         // Check that state root stored in the header matches the state root of the chunks
         let state_root = Block::compute_state_root(&self.chunks);
-        if self.header.inner.prev_state_root != state_root {
+        if self.header.inner_lite.prev_state_root != state_root {
             return false;
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root = Block::compute_chunk_receipts_root(&self.chunks);
-        if self.header.inner.chunk_receipts_root != chunk_receipts_root {
+        if self.header.inner_rest.chunk_receipts_root != chunk_receipts_root {
             return false;
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
-        if self.header.inner.chunk_headers_root != chunk_headers_root {
+        if self.header.inner_rest.chunk_headers_root != chunk_headers_root {
             return false;
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(&self.chunks);
-        if self.header.inner.chunk_tx_root != chunk_tx_root {
+        if self.header.inner_rest.chunk_tx_root != chunk_tx_root {
             return false;
         }
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunks_included_root =
-            Block::compute_chunks_included(&self.chunks, self.header.inner.height);
-        if self.header.inner.chunks_included != chunks_included_root {
+            Block::compute_chunks_included(&self.chunks, self.header.inner_lite.height);
+        if self.header.inner_rest.chunks_included != chunks_included_root {
             return false;
         }
 
@@ -607,7 +686,7 @@ impl Weight {
     }
 
     pub fn next(self, num: u128) -> Self {
-        Weight { num: self.num + num + 1 }
+        Weight { num: self.num + num }
     }
 }
 
@@ -628,7 +707,7 @@ impl WeightAndScore {
         Self { weight: weight.into(), score: score.into() }
     }
 
-    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is losely
+    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is loosely
     /// defined as either having the score exceeding by the `threshold` (finality gadget is working
     /// fine, and the last reported final block is way ahead of the last known to us), or having the
     /// same score, but the weight exceeding by the `threshold` (finality gadget is down, and the

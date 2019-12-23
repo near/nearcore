@@ -7,7 +7,7 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
-use crate::{HostError, HostErrorOrStorageError};
+use crate::{ExtCosts, HostError, HostErrorOrStorageError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,9 @@ pub struct VMLogic<'a> {
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
     current_account_balance: Balance,
+    /// Current amount of locked tokens, does not automatically change when staking transaction is
+    /// issued.
+    current_account_locked_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
     gas_counter: GasCounter,
@@ -104,6 +107,7 @@ impl<'a> VMLogic<'a> {
         ext.reset_touched_nodes_counter();
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
+        let current_account_locked_balance = context.account_locked_balance;
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             config.max_gas_burnt,
@@ -118,6 +122,7 @@ impl<'a> VMLogic<'a> {
             promise_results,
             memory,
             current_account_balance,
+            current_account_locked_balance,
             current_storage_usage,
             gas_counter,
             return_data: ReturnData::None,
@@ -203,7 +208,7 @@ impl<'a> VMLogic<'a> {
             self.gas_counter.pay_per_byte(read_register_byte, data.len() as _)?;
             Ok(data.clone())
         } else {
-            Err(HostError::InvalidRegisterId.into())
+            Err(HostError::InvalidRegisterId(register_id).into())
         }
     }
 
@@ -537,8 +542,17 @@ impl<'a> VMLogic<'a> {
     /// `base + memory_write_base + memory_write_size * 16`
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-
         self.memory_set_u128(balance_ptr, self.current_account_balance)
+    }
+
+    /// The current amount of tokens locked due to staking.
+    ///
+    /// # Cost
+    ///
+    /// `base + memory_write_base + memory_write_size * 16`
+    pub fn account_locked_balance(&mut self, balance_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(balance_ptr, self.current_account_locked_balance)
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
@@ -635,8 +649,8 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
-    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
+    /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
+    /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
         self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
     }
@@ -814,8 +828,10 @@ impl<'a> VMLogic<'a> {
 
         let mut receipt_dependencies = vec![];
         for promise_idx in &promise_indices {
-            let promise =
-                self.promises.get(*promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+            let promise = self
+                .promises
+                .get(*promise_idx as usize)
+                .ok_or(HostError::InvalidPromiseIndex(*promise_idx))?;
             match &promise.promise_to_receipt {
                 PromiseToReceipts::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
@@ -901,8 +917,10 @@ impl<'a> VMLogic<'a> {
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         // Update the DAG and return new promise idx.
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
         let receipt_dependencies = match &promise.promise_to_receipt {
             PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
             PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
@@ -935,8 +953,10 @@ impl<'a> VMLogic<'a> {
         &self,
         promise_idx: u64,
     ) -> Result<(ReceiptIndex, bool)> {
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let promise = self
+            .promises
+            .get(promise_idx as usize)
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
         let receipt_idx = match &promise.promise_to_receipt {
             PromiseToReceipts::Receipt(receipt_idx) => Ok(*receipt_idx),
             PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
@@ -1416,7 +1436,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `result_id` does not correspond to an existing result returns `InvalidResultIndex`;
+    /// * If `result_id` does not correspond to an existing result returns `InvalidPromiseResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
@@ -1431,7 +1451,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promise_results
             .get(result_idx as usize)
-            .ok_or(HostError::InvalidPromiseResultIndex)?
+            .ok_or(HostError::InvalidPromiseResultIndex(result_idx))?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
@@ -1462,7 +1482,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promises
             .get(promise_idx as usize)
-            .ok_or(HostError::InvalidPromiseIndex)?
+            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?
             .promise_to_receipt
         {
             PromiseToReceipts::Receipt(receipt_idx) => {
@@ -1561,7 +1581,7 @@ impl<'a> VMLogic<'a> {
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(message);
         Ok(())
     }
 
@@ -1584,7 +1604,7 @@ impl<'a> VMLogic<'a> {
             log_byte,
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
-        self.logs.push(format!("LOG: {}", message));
+        self.logs.push(message);
         Ok(())
     }
 
@@ -1673,7 +1693,13 @@ impl<'a> VMLogic<'a> {
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         self.gas_counter.pay_per_byte(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per_byte(storage_write_value_byte, value.len() as u64)?;
-        let evicted = self.ext.storage_set(&key, &value)?;
+        let nodes_before = self.ext.get_touched_nodes_count();
+        let evicted_ptr = self.ext.storage_get(&key)?;
+        let evicted =
+            Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
+        self.gas_counter
+            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+        self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
             Some(old_value) => {
@@ -1681,8 +1707,6 @@ impl<'a> VMLogic<'a> {
                     (old_value.len() as u64) * storage_config.value_cost_per_byte;
                 self.current_storage_usage +=
                     value.len() as u64 * storage_config.value_cost_per_byte;
-                self.gas_counter
-                    .pay_per_byte(storage_write_evicted_byte, old_value.len() as u64)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
             }
@@ -1693,6 +1717,20 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage += storage_config.data_record_cost;
                 Ok(0)
             }
+        }
+    }
+
+    fn deref_value<'s>(
+        gas_counter: &mut GasCounter,
+        cost_per_byte: ExtCosts,
+        value_ptr: Option<Box<dyn ValuePtr + 's>>,
+    ) -> Result<Option<Vec<u8>>> {
+        match value_ptr {
+            Some(value_ptr) => {
+                gas_counter.pay_per_byte(cost_per_byte, value_ptr.len() as u64)?;
+                value_ptr.deref().map(Some)
+            }
+            None => Ok(None),
         }
     }
 
@@ -1722,9 +1760,9 @@ impl<'a> VMLogic<'a> {
         let read = self.ext.storage_get(&key);
         self.gas_counter
             .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
-        match read? {
+        let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+        match read {
             Some(value) => {
-                self.gas_counter.pay_per_byte(storage_read_value_byte, value.len() as u64)?;
                 self.internal_write_register(register_id, value)?;
                 Ok(1)
             }
@@ -1761,13 +1799,16 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per_byte(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
-        let removed = self.ext.storage_remove(&key);
+        let removed_ptr = self.ext.storage_get(&key)?;
+        let removed =
+            Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
+
+        self.ext.storage_remove(&key)?;
         self.gas_counter
             .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         let storage_config = &self.fees_config.storage_usage_config;
-        match removed? {
+        match removed {
             Some(value) => {
-                self.gas_counter.pay_per_byte(storage_remove_ret_value_byte, value.len() as u64)?;
                 self.current_storage_usage -=
                     (value.len() as u64) * storage_config.value_cost_per_byte;
                 self.current_storage_usage -= key.len() as u64 * storage_config.key_cost_per_byte;
@@ -1904,19 +1945,27 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_iter_next_base)?;
         if self.invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated.into());
+            return Err(HostError::IteratorWasInvalidated(iterator_id).into());
         } else if !self.valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex.into());
+            return Err(HostError::InvalidIteratorIndex(iterator_id).into());
         }
 
         let nodes_before = self.ext.get_touched_nodes_count();
-        let value = self.ext.storage_iter_next(iterator_id);
+
+        let key_value = match self.ext.storage_iter_next(iterator_id)? {
+            Some((key, value_ptr)) => {
+                self.gas_counter.pay_per_byte(storage_iter_next_key_byte, key.len() as u64)?;
+                self.gas_counter
+                    .pay_per_byte(storage_iter_next_value_byte, value_ptr.len() as u64)?;
+                let value = value_ptr.deref()?;
+                Some((key, value))
+            }
+            None => None,
+        };
         self.gas_counter
             .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
-        match value? {
+        match key_value {
             Some((key, value)) => {
-                self.gas_counter.pay_per_byte(storage_iter_next_key_byte, key.len() as u64)?;
-                self.gas_counter.pay_per_byte(storage_iter_next_value_byte, value.len() as u64)?;
                 self.internal_write_register(key_register_id, key)?;
                 self.internal_write_register(value_register_id, value)?;
                 Ok(1)

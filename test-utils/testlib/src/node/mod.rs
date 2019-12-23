@@ -1,7 +1,8 @@
+use std::fs;
+use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::{fs, panic};
 
 use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
@@ -11,13 +12,13 @@ use near_crypto::{InMemorySigner, Signer};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::views::AccountView;
 use node_runtime::StateRecord;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
-use near_primitives::views::AccountView;
 
 mod process_node;
 mod runtime_node;
@@ -150,6 +151,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = to_base64(&fs::read(path).unwrap());
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
+    genesis_config.gas_price_adjustment_rate = 0;
     for seed in seeds {
         genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }

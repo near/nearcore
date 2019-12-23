@@ -8,11 +8,11 @@ use serde::Serialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
-    StatusResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    QueryResponse, StatusResponse,
 };
 
-use crate::message::{from_slice, Message};
+use crate::message::{from_slice, Message, RpcError};
 
 pub mod message;
 
@@ -34,7 +34,7 @@ pub enum ChunkId {
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 type HttpRequest<T> = Box<dyn Future<Item = T, Error = String>>;
-type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
+type RpcRequest<T> = Box<dyn Future<Item = T, Error = RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -50,21 +50,23 @@ where
             .post(server_addr)
             .header("Content-Type", "application/json")
             .send_json(&request)
-            .map_err(|err| err.to_string())
+            .map_err(|_| RpcError::invalid_request())
             .and_then(|mut response| {
                 response.body().then(|body| match body {
-                    Ok(bytes) => {
-                        from_slice(&bytes).map_err(|err| format!("Error {:?} in {:?}", err, bytes))
+                    Ok(bytes) => from_slice(&bytes).map_err(|err| {
+                        RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
+                    }),
+                    Err(err) => {
+                        Err(RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err)))
                     }
-                    Err(_) => Err("Payload error: {:?}".to_string()),
                 })
             })
             .and_then(|message| match message {
-                Message::Response(resp) => resp
-                    .result
-                    .map_err(|x| format!("{:?}", x))
-                    .and_then(|x| serde_json::from_value(x).map_err(|x| x.to_string())),
-                _ => Err("Invalid message type".to_string()),
+                Message::Response(resp) => resp.result.and_then(|x| {
+                    serde_json::from_value(x)
+                        .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
+                }),
+                _ => Err(RpcError::invalid_request()),
             }),
     )
 }
@@ -189,6 +191,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
+    pub fn gas_price(&mut self, id: Option<BlockId>) -> RpcRequest<GasPriceView>;
 });
 
 fn create_client() -> Client {

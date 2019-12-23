@@ -6,7 +6,7 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 /// Per account information stored in the state.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    /// The sum of `amount` and `staked` is the total value of the account.
+    /// The total not locked tokens.
     pub amount: Balance,
     /// The amount locked due to staking
     pub locked: Balance,
@@ -57,8 +57,7 @@ pub enum AccessKeyPermission {
     FullAccess,
 }
 
-/// Grants limited permission to issue transactions with a single function call action.
-/// Those function calls can't have attached balance.
+/// Grants limited permission to make transactions with FunctionCallActions
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.

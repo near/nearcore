@@ -5,26 +5,19 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    WrapFuture,
-};
-use cached::Cached;
+use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{
-    AcceptedBlock, ShardStateSyncResponse, ValidatorSignatureVerificationResult,
-};
+use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
+    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
 };
-use near_chunks::{NetworkAdapter, NetworkRecipient};
 use near_crypto::Signature;
 use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -43,19 +36,14 @@ use crate::types::{
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use near_chain::test_utils::format_hash;
+use std::cmp::Ordering;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
-enum AccountAnnounceVerificationResult {
-    Valid,
-    UnknownEpoch,
-    Invalid(ReasonForBan),
-}
-
 pub struct ClientActor {
     client: Client,
-    network_actor: Recipient<NetworkRequests>,
     network_adapter: Arc<dyn NetworkAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
@@ -88,7 +76,7 @@ impl ClientActor {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
-        network_actor: Recipient<NetworkRequests>,
+        network_adapter: Arc<dyn NetworkAdapter>,
         block_producer: Option<BlockProducer>,
         telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
@@ -97,7 +85,6 @@ impl ClientActor {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
         let info_helper = InfoHelper::new(telemetry_actor, &config, block_producer.clone());
-        let network_adapter = Arc::new(NetworkRecipient::new(network_actor.clone()));
         let client = Client::new(
             config,
             store,
@@ -109,7 +96,6 @@ impl ClientActor {
 
         Ok(ClientActor {
             client,
-            network_actor,
             network_adapter,
             node_id,
             network_info: NetworkInfo {
@@ -129,28 +115,20 @@ impl ClientActor {
     fn check_signature_account_announce(
         &self,
         announce_account: &AnnounceAccount,
-    ) -> AccountAnnounceVerificationResult {
+    ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = unwrap_or_return!(
-            self.client.chain.head(),
-            AccountAnnounceVerificationResult::UnknownEpoch
-        );
+        let head = self.client.chain.head()?;
 
-        match self.client.runtime_adapter.verify_validator_signature(
-            &announce_account.epoch_id,
-            &head.last_block_hash,
-            &announce_account.account_id,
-            announce_hash.as_ref(),
-            &announce_account.signature,
-        ) {
-            ValidatorSignatureVerificationResult::Valid => AccountAnnounceVerificationResult::Valid,
-            ValidatorSignatureVerificationResult::Invalid => {
-                AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature)
-            }
-            ValidatorSignatureVerificationResult::UnknownEpoch => {
-                AccountAnnounceVerificationResult::UnknownEpoch
-            }
-        }
+        self.client
+            .runtime_adapter
+            .verify_validator_signature(
+                &announce_account.epoch_id,
+                &head.last_block_hash,
+                &announce_account.account_id,
+                announce_hash.as_ref(),
+                &announce_account.signature,
+            )
+            .map_err(|e| e.into())
     }
 }
 
@@ -172,9 +150,6 @@ impl Actor for ClientActor {
         // Start catchup job.
         self.catchup(ctx);
 
-        // Start fetching information from network.
-        self.fetch_network_info(ctx);
-
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
     }
@@ -186,35 +161,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
-            NetworkClientMessages::TxStatus { tx_hash, signer_account_id } => {
-                self.client.get_tx_status(tx_hash, signer_account_id)
-            }
-            NetworkClientMessages::TxStatusResponse(tx_result) => {
-                let tx_hash = tx_result.transaction.id;
-                if self.client.tx_status_requests.cache_remove(&tx_hash).is_some() {
-                    self.client.tx_status_response.cache_set(tx_hash, tx_result);
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::Query { path, data, id } => {
-                self.client.handle_query(path, data, id)
-            }
-            NetworkClientMessages::QueryResponse { response, id } => {
-                if self.client.query_requests.cache_remove(&id).is_some() {
-                    self.client.query_responses.cache_set(id, response);
-                }
-                NetworkClientResponses::NoResponse
-            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                     if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
-                        if block.hash() == header.inner.prev_hash {
+                        if block.hash() == header.prev_hash {
                             if let Err(_) = self.client.chain.save_block(&block) {
                                 error!(target: "client", "Failed to save a block during state sync");
                             }
+                            return NetworkClientResponses::NoResponse;
+                        } else if &block.hash() == sync_hash {
+                            self.client.chain.save_orphan(&block);
                             return NetworkClientResponses::NoResponse;
                         }
                     }
@@ -438,17 +397,30 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_accounts) => {
                 let mut filtered_announce_accounts = Vec::new();
 
-                for announce_account in announce_accounts.into_iter() {
-                    match self.check_signature_account_announce(&announce_account) {
-                        AccountAnnounceVerificationResult::Invalid(ban_reason) => {
-                            return NetworkClientResponses::Ban { ban_reason };
+                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                    if let Some(last_epoch) = last_epoch {
+                        match self
+                            .client
+                            .runtime_adapter
+                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                        {
+                            Ok(Ordering::Less) => {}
+                            _ => continue,
                         }
-                        AccountAnnounceVerificationResult::Valid => {
+                    }
+
+                    match self.check_signature_account_announce(&announce_account) {
+                        Ok(true) => {
                             filtered_announce_accounts.push(announce_account);
                         }
+                        Ok(false) => {
+                            return NetworkClientResponses::Ban {
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            };
+                        }
                         // Filter this account
-                        AccountAnnounceVerificationResult::UnknownEpoch => {
-                            info!(target: "client", "{:?} failed to validate account announce signature: unknown epoch in {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), announce_account);
+                        Err(e) => {
+                            info!(target: "client", "{:?} failed to validate account announce signature: {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), e);
                         }
                     }
                 }
@@ -464,6 +436,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::NetworkInfo(network_info) => {
+                self.network_info = network_info;
+                NetworkClientResponses::NoResponse
+            }
         }
     }
 }
@@ -471,22 +447,24 @@ impl Handler<NetworkClientMessages> for ClientActor {
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
-    fn handle(&mut self, _: Status, _: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
-        let prev_header = self
+        let header = self
             .client
             .chain
             .get_block_header(&head.last_block_hash)
             .map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.inner.timestamp.clone();
-        let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
-        if elapsed
-            > Duration::from_millis(
-                self.client.config.max_block_production_delay.as_millis() as u64
-                    * STATUS_WAIT_TIME_MULTIPLIER,
-            )
-        {
-            return Err(format!("No blocks for {:?}.", elapsed));
+        let latest_block_time = header.inner_lite.timestamp.clone();
+        if msg.is_health_check {
+            let elapsed = (Utc::now() - from_timestamp(latest_block_time)).to_std().unwrap();
+            if elapsed
+                > Duration::from_millis(
+                    self.client.config.max_block_production_delay.as_millis() as u64
+                        * STATUS_WAIT_TIME_MULTIPLIER,
+                )
+            {
+                return Err(format!("No blocks for {:?}.", elapsed));
+            }
         }
         let validators = self
             .client
@@ -494,7 +472,10 @@ impl Handler<Status> for ClientActor {
             .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
             .map_err(|err| err.to_string())?
             .into_iter()
-            .map(|(account_id, is_slashed)| ValidatorInfo { account_id, is_slashed })
+            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                account_id: validator_stake.account_id,
+                is_slashed,
+            })
             .collect();
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
@@ -504,7 +485,7 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: prev_header.inner.prev_state_root.clone().into(),
+                latest_state_root: header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
@@ -598,7 +579,9 @@ impl ClientActor {
         if let Ok(validators) =
             self.client.runtime_adapter.get_epoch_block_producers(&next_epoch_id, &prev_block_hash)
         {
-            if validators.iter().any(|(account_id, _)| (account_id == &block_producer.account_id)) {
+            if validators.iter().any(|(validator_stake, _)| {
+                (validator_stake.account_id == block_producer.account_id)
+            }) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
@@ -746,8 +729,8 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner.height);
-            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner.height);
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
 
             self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
@@ -777,8 +760,8 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
-        let prev_hash = block.header.inner.prev_hash;
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
+        let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(block, provenance) {
@@ -790,7 +773,7 @@ impl ClientActor {
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    info!(target: "client", "Error on receival of block: {}", err);
+                    debug!(target: "client", "Error on receival of block: {}", err);
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
@@ -825,7 +808,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner.height, peer_info);
+        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner_lite.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.client.process_block_header(&header);
@@ -837,12 +820,17 @@ impl ClientActor {
                 return NetworkClientResponses::NoResponse;
             }
             Err(ref e) if e.is_bad_data() => {
-                debug!(target: "client", "Error on receival of header: {}", e);
+                error!(target: "client", "Error on receival of header: {}", e);
                 return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of header: {}", e);
+                match e.kind() {
+                    ErrorKind::DBNotFoundErr(_) => {}
+                    _ => {
+                        error!(target: "client", "Error on receival of header: {}", e);
+                    }
+                }
                 return NetworkClientResponses::NoResponse;
             }
             // Got an error when trying to process the block header, but it's not due to
@@ -899,7 +887,7 @@ impl ClientActor {
         let mut headers = vec![];
         let max_height = self.client.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.inner.height + 1..=max_height {
+        for h in header.inner_lite.height + 1..=max_height {
             if let Ok(header) = self.client.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -927,7 +915,11 @@ impl ClientActor {
 
         if is_syncing {
             if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
-                info!(target: "client", "Sync: synced at weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
+                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, most weight peer: {} @ {:?}",
+                      head.height, head.weight_and_score, format_hash(head.last_block_hash),
+                    full_peer_info.peer_info.id,
+                    full_peer_info.chain_info.height, full_peer_info.chain_info.weight_and_score
+                );
                 is_syncing = false;
             }
         } else {
@@ -940,10 +932,11 @@ impl ClientActor {
             {
                 info!(
                     target: "client",
-                    "Sync: height/weight/score: {}/{}/{}, peer height/weight/score: {}/{}/{}, enabling sync",
+                    "Sync: height/weight/score: {}/{}/{}, peer id/height/weight/score: {}/{}/{}/{}, enabling sync",
                     head.height,
                     head.weight_and_score.weight,
                     head.weight_and_score.score,
+                    full_peer_info.peer_info.id,
                     full_peer_info.chain_info.height,
                     full_peer_info.chain_info.weight_and_score.weight,
                     full_peer_info.chain_info.weight_and_score.score,
@@ -973,7 +966,7 @@ impl ClientActor {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = self.client.chain.get_block_header(&sync_hash)?.inner.prev_hash;
+            sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash;
         }
         Ok(sync_hash)
     }
@@ -1091,6 +1084,7 @@ impl ClientActor {
                     })
                     .collect();
                 match unwrap_or_run_later!(self.client.state_sync.run(
+                    me,
                     sync_hash,
                     &mut new_shard_sync,
                     &mut self.client.chain,
@@ -1106,7 +1100,7 @@ impl ClientActor {
                         {
                             if fetch_block {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                                    let prev_hash = header.inner.prev_hash;
+                                    let prev_hash = header.prev_hash;
                                     self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
                                 }
                             }
@@ -1152,34 +1146,6 @@ impl ClientActor {
         });
     }
 
-    /// Periodically fetch network info.
-    fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
-        // TODO: replace with push from network?
-        self.network_actor
-            .send(NetworkRequests::FetchInfo)
-            .into_actor(self)
-            .then(move |res, act, _ctx| match res {
-                Ok(NetworkResponses::Info(network_info)) => {
-                    act.network_info = network_info;
-                    actix::fut::ok(())
-                }
-                Err(_)
-                | Ok(NetworkResponses::BanPeer(_))
-                | Ok(NetworkResponses::RoutingTableInfo(_))
-                | Ok(NetworkResponses::PingPongInfo { .. })
-                | Ok(NetworkResponses::NoResponse)
-                | Ok(NetworkResponses::EdgeUpdate(_)) => {
-                    error!(target: "client", "Sync: received error or incorrect result.");
-                    actix::fut::err(())
-                }
-            })
-            .wait(ctx);
-
-        ctx.run_later(self.client.config.fetch_info_period, move |act, ctx| {
-            act.fetch_network_info(ctx);
-        });
-    }
-
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
@@ -1189,13 +1155,27 @@ impl ClientActor {
                 .runtime_adapter
                 .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
-            let is_validator = if let Some(block_producer) = &act.client.block_producer {
-                if let Some((_, is_slashed)) =
-                    validators.into_iter().find(|x| x.0 == block_producer.account_id)
-                {
-                    !is_slashed
-                } else {
-                    false
+            let account_id = act.client.block_producer.as_ref().map(|x| x.account_id.clone());
+            let is_validator = if let Some(ref account_id) = account_id {
+                match act.client.runtime_adapter.get_validator_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+            let is_fishermen = if let Some(ref account_id) = account_id {
+                match act.client.runtime_adapter.get_fisherman_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
                 }
             } else {
                 false
@@ -1207,6 +1187,7 @@ impl ClientActor {
                 &act.node_id,
                 &act.network_info,
                 is_validator,
+                is_fishermen,
                 num_validators,
             );
 

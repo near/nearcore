@@ -9,18 +9,19 @@ use futures::{future, Future};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
-use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, SyncData};
+use near_network::test_utils::{
+    convert_boot_nodes, open_port, vec_ref_to_str, GetInfo, WaitOrTimeout,
+};
+use near_network::types::{AnnounceAccount, NetworkViewClientResponses, PeerId, SyncData};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor,
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRecipient,
+    NetworkRequests, PeerManagerActor,
 };
 use near_primitives::block::{GenesisId, WeightAndScore};
-use near_primitives::hash::hash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::EpochId;
+use near_primitives::types::ValidatorId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use testlib::test_helpers::heavy_test;
@@ -42,7 +43,7 @@ pub fn setup_network_node(
 
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    let num_validators = validators.len();
+    let num_validators = validators.len() as ValidatorId;
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -62,20 +63,33 @@ pub fn setup_network_node(
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
+        let network_adapter = Arc::new(NetworkRecipient::new());
+        network_adapter.set_recipient(ctx.address().recipient());
         let client_actor = ClientActor::new(
             ClientConfig::test(false, 100, 200, num_validators),
             store.clone(),
-            chain_genesis,
-            runtime,
+            chain_genesis.clone(),
+            runtime.clone(),
             config.public_key.clone().into(),
-            ctx.address().recipient(),
+            network_adapter.clone(),
             Some(block_producer),
             telemetry_actor,
         )
         .unwrap()
         .start();
 
-        PeerManagerActor::new(store.clone(), config, client_actor.recipient()).unwrap()
+        let view_client_actor =
+            ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone(), network_adapter)
+                .unwrap()
+                .start();
+
+        PeerManagerActor::new(
+            store.clone(),
+            config,
+            client_actor.recipient(),
+            view_client_actor.recipient(),
+        )
+        .unwrap()
     });
 
     peer_manager
@@ -131,19 +145,16 @@ fn check_account_id_propagation(
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
 
                     if count.load(Ordering::Relaxed) == 0 {
-                        actix::spawn(pm.send(NetworkRequests::FetchInfo).then(move |res| {
-                            if let NetworkResponses::Info(NetworkInfo { known_producers, .. }) =
-                                res.unwrap()
-                            {
-                                if known_producers.len() == total_nodes {
-                                    count.fetch_add(1, Ordering::Relaxed);
+                        actix::spawn(pm.send(GetInfo {}).then(move |res| {
+                            let info = res.unwrap();
+                            if info.known_producers.len() == total_nodes {
+                                count.fetch_add(1, Ordering::Relaxed);
 
-                                    if counters
-                                        .iter()
-                                        .all(|counter| counter.load(Ordering::Relaxed) == 1)
-                                    {
-                                        System::current().stop();
-                                    }
+                                if counters
+                                    .iter()
+                                    .all(|counter| counter.load(Ordering::Relaxed) == 1)
+                                {
+                                    System::current().stop();
                                 }
                             }
                             future::result(Ok(()))
@@ -180,7 +191,9 @@ pub fn make_peer_manager(
                 if !accounts.is_empty() {
                     counter1.fetch_add(1, Ordering::SeqCst);
                 }
-                Box::new(Some(NetworkClientResponses::AnnounceAccount(accounts.clone())))
+                Box::new(Some(NetworkClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
             }
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
@@ -194,8 +207,17 @@ pub fn make_peer_manager(
         }
     }))
     .start();
+    let view_client_addr = ViewClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkViewClientResponses::NoResponse))
+    }))
+    .start();
     let peer_id = config.public_key.clone().into();
-    (PeerManagerActor::new(store, config, client_addr.recipient()).unwrap(), peer_id, counter)
+    (
+        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
+            .unwrap(),
+        peer_id,
+        counter,
+    )
 }
 
 #[test]
@@ -332,6 +354,7 @@ fn circle_extra_connection() {
 }
 
 type ClientMock = Mocker<ClientActor>;
+type ViewClientMock = Mocker<ClientActor>;
 
 #[test]
 fn test_infinite_loop() {
@@ -339,25 +362,25 @@ fn test_infinite_loop() {
     System::run(|| {
         let (port1, port2) = (open_port(), open_port());
         let (pm1, peer_id1, counter1) = make_peer_manager("test1", port1, vec![], 10);
-        let (pm2, _, counter2) = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
+        let (pm2, peer_id2, counter2) =
+            make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         let pm1 = pm1.start();
         let pm2 = pm2.start();
-        let peer_id = peer_id1.clone();
         let request1 = NetworkRequests::Sync {
-            peer_id: peer_id.clone(),
+            peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
                 account_id: "near".to_string(),
-                peer_id: peer_id.clone(),
+                peer_id: peer_id1.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),
             }),
         };
         let request2 = NetworkRequests::Sync {
-            peer_id: peer_id.clone(),
+            peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
                 account_id: "near".to_string(),
-                peer_id: peer_id.clone(),
-                epoch_id: EpochId(hash(&[1])),
+                peer_id: peer_id2.clone(),
+                epoch_id: Default::default(),
                 signature: Default::default(),
             }),
         };
@@ -371,8 +394,8 @@ fn test_infinite_loop() {
 
                 let state1 = state.clone();
                 if state_value == 0 {
-                    actix::spawn(pm2.clone().send(NetworkRequests::FetchInfo).then(move |res| {
-                        if let Ok(NetworkResponses::Info(info)) = res {
+                    actix::spawn(pm2.clone().send(GetInfo {}).then(move |res| {
+                        if let Ok(info) = res {
                             if !info.active_peers.is_empty() {
                                 state1.store(1, Ordering::SeqCst);
                             }

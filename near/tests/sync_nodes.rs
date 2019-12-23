@@ -9,15 +9,17 @@ use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_chain::Block;
+use near_chain::chain::WEIGHT_MULTIPLIER;
+use near_chain::{Block, Chain};
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockIndex, EpochId, ValidatorStake};
 use testlib::genesis_block;
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
@@ -28,34 +30,62 @@ fn add_blocks(
     epoch_length: BlockIndex,
     signer: &dyn Signer,
 ) -> Vec<Block> {
+    let mut prev_prev_timestamp = if blocks.len() == 1 {
+        blocks[0].header.inner_lite.timestamp
+    } else {
+        blocks[blocks.len() - 2].header.inner_lite.timestamp
+    };
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
-        let epoch_id = match prev.header.inner.height + 1 {
+        let epoch_id = match prev.header.inner_lite.height + 1 {
             height if height <= epoch_length => EpochId::default(),
             height => {
                 EpochId(blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
             }
         };
+        let next_epoch_id = EpochId(
+            blocks[(((prev.header.inner_lite.height) / epoch_length) * epoch_length) as usize]
+                .hash(),
+        );
         let block = Block::produce(
             &prev.header,
-            prev.header.inner.height + 1,
+            prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
-            epoch_id,
-            vec![],
+            epoch_id.clone(),
+            next_epoch_id,
+            vec![Approval::new(prev.hash(), prev.hash(), signer, "other".to_string())],
+            0,
             0,
             Some(0),
             vec![],
             vec![],
             signer,
-            0.into(),
+            (prev.header.inner_lite.timestamp - prev_prev_timestamp) as u128,
+            WEIGHT_MULTIPLIER,
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
+                prev.header.inner_rest.total_weight
+            } else {
+                prev.header.inner_rest.score
+            },
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
+                prev.hash()
+            } else {
+                prev.header.inner_rest.last_quorum_pre_vote
+            },
             CryptoHash::default(),
-            CryptoHash::default(),
+            Chain::compute_bp_hash_inner(&vec![ValidatorStake {
+                account_id: "other".to_string(),
+                public_key: signer.public_key(),
+                amount: TESTING_INIT_STAKE,
+            }])
+            .unwrap(),
         );
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
             false,
         ));
+        prev_prev_timestamp = prev.header.inner_lite.timestamp;
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
     }
@@ -86,7 +116,7 @@ fn sync_nodes() {
         let (client1, _) = start_with_config(dir1.path(), near1);
 
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
-        let _ = add_blocks(vec![genesis_block], client1, 12, genesis_config.epoch_length, &signer);
+        let _ = add_blocks(vec![genesis_block], client1, 13, genesis_config.epoch_length, &signer);
 
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -95,7 +125,7 @@ fn sync_nodes() {
             Box::new(move |_ctx| {
                 actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.height == 12 => System::current().stop(),
+                        Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
                         Err(_) => return futures::future::err(()),
                         _ => {}
                     };
@@ -141,7 +171,7 @@ fn sync_after_sync_nodes() {
         let blocks = add_blocks(
             vec![genesis_block],
             client1.clone(),
-            12,
+            13,
             genesis_config.epoch_length,
             &signer,
         );
@@ -156,9 +186,9 @@ fn sync_after_sync_nodes() {
                 let next_step1 = next_step.clone();
                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.height == 12 => {
+                        Ok(Ok(b)) if b.header.height == 13 => {
                             if !next_step1.load(Ordering::Relaxed) {
-                                let _ = add_blocks(blocks1, client11, 11, epoch_length, &signer1);
+                                let _ = add_blocks(blocks1, client11, 10, epoch_length, &signer1);
                                 next_step1.store(true, Ordering::Relaxed);
                             }
                         }

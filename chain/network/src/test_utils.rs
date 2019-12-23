@@ -2,14 +2,20 @@ use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, AsyncContext, Context, System};
+use actix::{Actor, AsyncContext, Context, Handler, Message, System};
 use futures::future;
 use futures::future::Future;
+use rand::{thread_rng, RngCore};
 use tokio::timer::Delay;
 
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::hash::hash;
+use near_primitives::types::EpochId;
 
-use crate::types::{NetworkConfig, PeerId, PeerInfo};
+use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo};
+use crate::PeerManagerActor;
+use near_chain::chain::WEIGHT_MULTIPLIER;
+use near_primitives::utils::index_to_bytes;
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -41,7 +47,8 @@ impl NetworkConfig {
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
             max_routes_to_store: 1,
-            most_weighted_peer_height_horizon: 5,
+            most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
+            push_info_period: Duration::from_millis(100),
         }
     }
 }
@@ -147,6 +154,10 @@ pub fn random_peer_id() -> PeerId {
     sk.public_key().into()
 }
 
+pub fn random_epoch_id() -> EpochId {
+    EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
+}
+
 pub fn expected_routing_tables(
     current: HashMap<PeerId, HashSet<PeerId>>,
     expected: Vec<(PeerId, Vec<PeerId>)>,
@@ -172,4 +183,18 @@ pub fn expected_routing_tables(
     }
 
     true
+}
+
+pub struct GetInfo {}
+
+impl Message for GetInfo {
+    type Result = NetworkInfo;
+}
+
+impl Handler<GetInfo> for PeerManagerActor {
+    type Result = NetworkInfo;
+
+    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+        self.get_network_info()
+    }
 }

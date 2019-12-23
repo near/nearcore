@@ -1,5 +1,7 @@
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
@@ -7,18 +9,18 @@ use borsh::BorshSerialize;
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
+use near_jsonrpc_client::BlockId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
-    QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
-use near_jsonrpc_client::BlockId;
 
 pub struct RpcUser {
     account_id: AccountId,
@@ -36,7 +38,9 @@ impl RpcUser {
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
-        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(data)))
+        System::new("actix")
+            .block_on(self.client.write().unwrap().query(path, to_base(data)))
+            .map_err(|err| err.to_string())
     }
 }
 
@@ -52,7 +56,8 @@ impl User for RpcUser {
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
+            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
+            .map_err(|err| err.to_string())?;
         Ok(())
     }
 
@@ -61,8 +66,19 @@ impl User for RpcUser {
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, String> {
         let bytes = transaction.try_to_vec().unwrap();
-        System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
+        let result = System::new("actix")
+            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
+        // Wait for one more block, to make sure all nodes actually apply the state transition.
+        let height = self.get_best_block_index().unwrap();
+        while height == self.get_best_block_index().unwrap() {
+            thread::sleep(Duration::from_millis(50));
+        }
+        match result {
+            Ok(outcome) => Ok(outcome),
+            Err(err) => Err(serde_json::from_value::<ExecutionErrorView>(err.data.unwrap())
+                .unwrap()
+                .error_message),
+        }
     }
 
     fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
@@ -103,7 +119,7 @@ impl User for RpcUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, String> {
+    ) -> Result<AccessKeyView, String> {
         self.query(format!("access_key/{}/{}", account_id, public_key), &[])?.try_into()
     }
 

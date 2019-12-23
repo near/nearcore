@@ -7,10 +7,8 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
-pub use kvdb::DBValue;
-use kvdb::{DBOp, DBTransaction, KeyValueDB};
-use kvdb_rocksdb::{Database, DatabaseConfig};
 
+pub use db::DBCol::{self, *};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -24,60 +22,33 @@ use near_primitives::utils::{
     key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 
+use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
-    update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
+    update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
+mod db;
 pub mod test_utils;
 mod trie;
 
-pub const COL_BLOCK_MISC: Option<u32> = Some(0);
-pub const COL_BLOCK: Option<u32> = Some(1);
-pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
-pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
-pub const COL_STATE: Option<u32> = Some(4);
-pub const COL_CHUNK_EXTRA: Option<u32> = Some(5);
-pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
-pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
-pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
-pub const COL_PEERS: Option<u32> = Some(9);
-pub const COL_EPOCH_INFO: Option<u32> = Some(10);
-pub const COL_BLOCK_INFO: Option<u32> = Some(11);
-pub const COL_CHUNKS: Option<u32> = Some(12);
-pub const COL_PARTIAL_CHUNKS: Option<u32> = Some(13);
-/// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
-/// Blocks for which the state is being downloaded
-pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
-pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
-pub const COL_STATE_HEADERS: Option<u32> = Some(17);
-pub const COL_INVALID_CHUNKS: Option<u32> = Some(18);
-pub const COL_BLOCK_EXTRA: Option<u32> = Some(19);
-/// Store hash of a block per each height, to detect double signs.
-pub const COL_BLOCK_PER_HEIGHT: Option<u32> = Some(20);
-pub const COL_LAST_APPROVALS_PER_ACCOUNT: Option<u32> = Some(21);
-pub const COL_MY_LAST_APPROVALS_PER_CHAIN: Option<u32> = Some(22);
-pub const COL_STATE_PARTS: Option<u32> = Some(23);
-pub const COL_EPOCH_START: Option<u32> = Some(24);
-const NUM_COLS: u32 = 25;
-
 pub struct Store {
-    storage: Arc<dyn KeyValueDB>,
+    storage: Arc<dyn Database>,
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn KeyValueDB>) -> Store {
+    pub fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
-    pub fn get(&self, column: Option<u32>, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
-        self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+        self.storage.get(column, key).map_err(|e| e.into())
     }
 
     pub fn get_ser<T: BorshDeserialize>(
         &self,
-        column: Option<u32>,
+        column: DBCol,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
@@ -86,12 +57,12 @@ impl Store {
                 Err(e) => Err(e),
             },
             Ok(None) => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 
-    pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, io::Error> {
-        self.storage.get(column, key).map(|value| value.is_some())
+    pub fn exists(&self, column: DBCol, key: &[u8]) -> Result<bool, io::Error> {
+        self.storage.get(column, key).map(|value| value.is_some()).map_err(|e| e.into())
     }
 
     pub fn store_update(&self) -> StoreUpdate {
@@ -100,12 +71,12 @@ impl Store {
 
     pub fn iter<'a>(
         &'a self,
-        column: Option<u32>,
+        column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
     }
 
-    pub fn save_to_file(&self, column: Option<u32>, filename: &Path) -> Result<(), std::io::Error> {
+    pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
         for (key, value) in self.storage.iter(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -116,11 +87,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn load_from_file(
-        &self,
-        column: Option<u32>,
-        filename: &Path,
-    ) -> Result<(), std::io::Error> {
+    pub fn load_from_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::open(filename)?;
         let mut transaction = self.storage.transaction();
         loop {
@@ -136,37 +103,36 @@ impl Store {
             Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
             transaction.put(column, &key, &value);
         }
-        self.storage.write(transaction)?;
-        Ok(())
+        self.storage.write(transaction).map_err(|e| e.into())
     }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn KeyValueDB>,
+    storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     trie: Option<Arc<Trie>>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn KeyValueDB>) -> Self {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn KeyValueDB>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<Trie>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
 
-    pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
+    pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.put(column, key, value)
     }
 
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
-        column: Option<u32>,
+        column: DBCol,
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
@@ -175,7 +141,7 @@ impl StoreUpdate {
         Ok(())
     }
 
-    pub fn delete(&mut self, column: Option<u32>, key: &[u8]) {
+    pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         self.transaction.delete(column, key);
     }
 
@@ -203,7 +169,7 @@ impl StoreUpdate {
         if let Some(trie) = self.trie {
             trie.update_cache(&self.transaction)?;
         }
-        self.storage.write(self.transaction)
+        self.storage.write(self.transaction).map_err(|e| e.into())
     }
 }
 
@@ -222,7 +188,7 @@ impl fmt::Debug for StoreUpdate {
 
 pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
-    col: Option<u32>,
+    col: DBCol,
     cache: &'a mut SizedCache<Vec<u8>, T>,
     key: &[u8],
 ) -> io::Result<Option<&'a T>> {
@@ -238,8 +204,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
 }
 
 pub fn create_store(path: &str) -> Arc<Store> {
-    let db_config = DatabaseConfig::with_columns(Some(NUM_COLS));
-    let db = Arc::new(Database::open(&db_config, path).expect("Failed to open the database"));
+    let db = Arc::new(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
 
@@ -266,11 +231,7 @@ pub fn get<T: BorshDeserialize>(
 
 /// Writes an object into Trie.
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value
-        .try_to_vec()
-        .ok()
-        .map(|data| state_update.set(key, DBValue::from_vec(data)))
-        .or_else(|| None);
+    value.try_to_vec().ok().map(|data| state_update.set(key, data)).or_else(|| None);
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
@@ -344,7 +305,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update.set(key_for_code(account_id), DBValue::from_vec(code.code.clone()));
+    state_update.set(key_for_code(account_id), code.code.clone());
 }
 
 pub fn get_code(

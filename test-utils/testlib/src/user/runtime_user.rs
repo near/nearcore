@@ -3,9 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
@@ -17,9 +18,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near::config::INITIAL_GAS_PRICE;
-use near_chain::types::ApplyTransactionResult;
-use near_primitives::errors::RuntimeError;
+use near::config::MIN_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -46,6 +45,7 @@ pub struct RuntimeUser {
     pub transaction_results: RefCell<HashMap<CryptoHash, ExecutionOutcomeView>>,
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
+    pub transactions: RefCell<HashSet<SignedTransaction>>,
 }
 
 impl RuntimeUser {
@@ -57,6 +57,7 @@ impl RuntimeUser {
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
+            transactions: RefCell::new(Default::default()),
         }
     }
 
@@ -67,6 +68,9 @@ impl RuntimeUser {
         transactions: Vec<SignedTransaction>,
     ) -> Result<(), String> {
         let mut receipts = prev_receipts;
+        for transaction in transactions.iter() {
+            self.transactions.borrow_mut().insert(transaction.clone());
+        }
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
@@ -89,13 +93,10 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error")
                     }
                 })?;
-            let (_, proofs) =
-                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-            for (outcome_with_id, proof) in apply_result.outcomes.into_iter().zip(proofs) {
-                self.transaction_results.borrow_mut().insert(
-                    outcome_with_id.id,
-                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof }.into(),
-                );
+            for outcome_with_id in apply_result.outcomes {
+                self.transaction_results
+                    .borrow_mut()
+                    .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
@@ -116,7 +117,7 @@ impl RuntimeUser {
             block_index: 0,
             block_timestamp: 0,
             epoch_length: client.epoch_length,
-            gas_price: INITIAL_GAS_PRICE,
+            gas_price: MIN_GAS_PRICE,
             gas_limit: None,
         }
     }
@@ -127,7 +128,12 @@ impl RuntimeUser {
     ) -> Vec<ExecutionOutcomeWithIdView> {
         let outcome = self.get_transaction_result(hash);
         let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
+        let mut transactions = vec![ExecutionOutcomeWithIdView {
+            id: *hash,
+            outcome,
+            proof: vec![],
+            block_hash: Default::default(),
+        }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
@@ -165,7 +171,13 @@ impl RuntimeUser {
             })
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
-        FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts }
+        let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
+        FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome: outcomes.pop().unwrap(),
+            receipts_outcome: receipts,
+        }
     }
 }
 
@@ -232,11 +244,11 @@ impl User for RuntimeUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, String> {
+    ) -> Result<AccessKeyView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
-            .map(|value| value.map(|access_key| access_key.into()))
+            .map(|access_key| access_key.into())
             .map_err(|err| err.to_string())
     }
 

@@ -27,7 +27,7 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>>;
+    ) -> Result<AccessKey, Box<dyn std::error::Error>>;
 
     fn view_access_keys(
         &self,

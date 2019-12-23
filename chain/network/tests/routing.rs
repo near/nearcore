@@ -9,14 +9,17 @@ use futures::{future, Future};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, StopSignal};
-use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
+use near_network::{
+    NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+};
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::ValidatorId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 
@@ -40,7 +43,7 @@ pub fn setup_network_node(
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
 
-    let num_validators = validators.len();
+    let num_validators = validators.len() as ValidatorId;
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -62,20 +65,37 @@ pub fn setup_network_node(
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators);
         client_config.ttl_account_id_router = ttl_account_id_router;
+        let network_adapter = NetworkRecipient::new();
+        network_adapter.set_recipient(ctx.address().recipient());
+        let network_adapter = Arc::new(network_adapter);
         let client_actor = ClientActor::new(
             client_config,
             store.clone(),
-            chain_genesis,
-            runtime,
+            chain_genesis.clone(),
+            runtime.clone(),
             config.public_key.clone().into(),
-            ctx.address().recipient(),
+            network_adapter.clone(),
             Some(block_producer),
             telemetry_actor,
         )
         .unwrap()
         .start();
+        let view_client_actor = ViewClientActor::new(
+            store.clone(),
+            &chain_genesis,
+            runtime.clone(),
+            network_adapter.clone(),
+        )
+        .unwrap()
+        .start();
 
-        PeerManagerActor::new(store.clone(), config, client_actor.recipient()).unwrap()
+        PeerManagerActor::new(
+            store.clone(),
+            config,
+            client_actor.recipient(),
+            view_client_actor.recipient(),
+        )
+        .unwrap()
     });
 
     peer_manager
@@ -265,12 +285,13 @@ impl StateMachine {
 struct Runner {
     num_nodes: usize,
     num_validators: usize,
+    peer_max_count: u32,
     state_machine: Option<StateMachine>,
 }
 
 impl Runner {
-    fn new(num_nodes: usize, num_validators: usize) -> Self {
-        Self { num_nodes, num_validators, state_machine: Some(StateMachine::new()) }
+    fn new(num_nodes: usize, num_validators: usize, peer_max_count: u32) -> Self {
+        Self { num_nodes, num_validators, peer_max_count, state_machine: Some(StateMachine::new()) }
     }
 
     fn push(&mut self, action: Action) {
@@ -302,7 +323,7 @@ impl Runner {
                     vec![],
                     validators.clone(),
                     genesis_time,
-                    0,
+                    self.peer_max_count,
                 )
             })
             .collect();
@@ -345,7 +366,7 @@ fn simple() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(2, 1);
+        let mut runner = Runner::new(2, 1, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
@@ -361,7 +382,7 @@ fn three_nodes_path() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -379,7 +400,7 @@ fn three_nodes_star() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -401,7 +422,7 @@ fn join_components() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(4, 4);
+        let mut runner = Runner::new(4, 4, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(2, 3));
@@ -430,7 +451,7 @@ fn account_propagation() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckAccountId(1, vec![0, 1]));
@@ -447,7 +468,7 @@ fn ping_simple() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(2, 2);
+        let mut runner = Runner::new(2, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
@@ -465,7 +486,7 @@ fn ping_jump() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 2);
+        let mut runner = Runner::new(3, 2, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -484,7 +505,7 @@ fn simple_remove() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(3, 3);
+        let mut runner = Runner::new(3, 3, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -504,7 +525,7 @@ fn square() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(4, 4);
+        let mut runner = Runner::new(4, 4, 0);
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
@@ -516,6 +537,35 @@ fn square() {
         runner.push(Action::CheckRoutingTable(0, vec![(3, vec![3]), (2, vec![3])]));
         runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3]), (0, vec![3])]));
         runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2]), (0, vec![0])]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+/// Spin up four nodes and connect them in a square.
+/// Each node will have at most two connections.
+/// Turn off two non adjacent nodes, and check other two nodes create
+/// a connection among them.
+#[test]
+fn churn_attack() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4, 1);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::AddEdge(3, 0));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
+        runner
+            .push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (3, vec![3]), (0, vec![1, 3])]));
+        runner.push(Action::Stop(1));
+        runner.push(Action::Stop(3));
+        runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
 
         runner.run();
     })

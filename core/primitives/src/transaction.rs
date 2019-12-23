@@ -11,22 +11,30 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use std::borrow::Borrow;
 
 pub type LogEntry = String;
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
+    /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
+    /// A public key of the access key which was used to sign an account.
+    /// Access key holds permissions for calling certain kinds of actions.
     pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
-    /// The hash of the block in the blockchain on top of which the given transaction is valid.
+    /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
-
+    /// A list of actions to be applied
     pub actions: Vec<Action>,
 }
 
 impl Transaction {
+    /// Computes a hash of the transaction for signing
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
@@ -35,7 +43,10 @@ impl Transaction {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
+    /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
+    /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
     CreateAccount(CreateAccountAction),
+    /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(FunctionCallAction),
     Transfer(TransferAction),
@@ -61,11 +72,14 @@ impl Action {
     }
 }
 
+/// Create account action
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
+/// Deploy contract action
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
+    /// WebAssembly binary
     pub code: Vec<u8>,
 }
 
@@ -101,20 +115,26 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
+/// An action which stakes singer_id tokens and setup's validator public key
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
+    /// Amount of tokens to stake.
     pub stake: Balance,
+    /// Validator key which will be used to sign transactions on behalf of singer_id
     pub public_key: PublicKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
+    /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
+    /// An access key with the permission
     pub access_key: AccessKey,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
+    ///
     pub public_key: PublicKey,
 }
 
@@ -179,6 +199,12 @@ impl PartialEq for SignedTransaction {
     }
 }
 
+impl Borrow<CryptoHash> for SignedTransaction {
+    fn borrow(&self) -> &CryptoHash {
+        &self.hash
+    }
+}
+
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatus {
@@ -222,7 +248,7 @@ struct PartialExecutionOutcome {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq)]
 pub struct ExecutionOutcome {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatus,
@@ -266,25 +292,33 @@ impl fmt::Debug for ExecutionOutcome {
 /// Execution outcome with the identifier.
 /// For a signed transaction, the ID is the hash of the transaction.
 /// For a receipt, the ID is the receipt ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
     pub outcome: ExecutionOutcome,
 }
 
-/// Execution outcome with path from it to the outcome root.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
-pub struct ExecutionOutcomeWithProof {
-    pub outcome: ExecutionOutcome,
-    pub proof: MerklePath,
+impl ExecutionOutcomeWithId {
+    pub fn to_hashes(&self) -> Vec<CryptoHash> {
+        let mut result = vec![self.id];
+        result.extend(self.outcome.to_hashes());
+        result
+    }
 }
 
 /// Execution outcome with path from it to the outcome root and ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithIdAndProof {
-    pub id: CryptoHash,
-    pub outcome_with_proof: ExecutionOutcomeWithProof,
+    pub outcome_with_id: ExecutionOutcomeWithId,
+    pub proof: MerklePath,
+    pub block_hash: CryptoHash,
+}
+
+impl ExecutionOutcomeWithIdAndProof {
+    pub fn id(&self) -> &CryptoHash {
+        &self.outcome_with_id.id
+    }
 }
 
 pub fn verify_transaction_signature(

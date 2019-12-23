@@ -18,7 +18,7 @@ mod tests {
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
-    use near_primitives::views::QueryResponse::ViewAccount;
+    use near_primitives::views::QueryResponseKind::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
@@ -78,7 +78,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
     pub struct StateRequestStruct {
         pub shard_id: u64,
-        pub hash: CryptoHash,
+        pub sync_hash: CryptoHash,
         pub need_header: bool,
         pub parts: StateRequestParts,
         pub target: AccountOrPeerIdOrHash,
@@ -103,7 +103,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_receipts_sync_last_block() {
         test_catchup_receipts_sync_common(13, 5, false)
     }
@@ -156,7 +155,7 @@ mod tests {
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height <= send);
+                                assert!(block.header.inner_lite.height <= send);
                                 // This tx is rather fragile, specifically it's important that
                                 //   1. the `from` and `to` account are not in the same shard;
                                 //   2. ideally the producer of the chunk at height 3 for the shard
@@ -166,7 +165,7 @@ mod tests {
                                 //      for height 1, because such block producer will produce
                                 //      the chunk for height 2 right away, before we manage to send
                                 //      the transaction.
-                                if block.header.inner.height == send {
+                                if block.header.inner_lite.height == send {
                                     println!(
                                         "From shard: {}, to shard: {}",
                                         source_shard_id, destination_shard_id,
@@ -178,7 +177,7 @@ mod tests {
                                             account_to.clone(),
                                             111,
                                             1,
-                                            block.header.inner.prev_hash,
+                                            block.header.prev_hash,
                                         );
                                     }
                                     *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
@@ -188,8 +187,8 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForSecondBlock => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height <= send + 1);
-                                if block.header.inner.height == send + 1 {
+                                assert!(block.header.inner_lite.height <= send + 1);
+                                if block.header.inner_lite.height == send + 1 {
                                     *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
@@ -197,9 +196,9 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= send + 1);
-                                assert!(block.header.inner.height <= wait_till);
-                                if block.header.inner.height == wait_till {
+                                assert!(block.header.inner_lite.height >= send + 1);
+                                assert!(block.header.inner_lite.height <= wait_till);
+                                if block.header.inner_lite.height == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -236,7 +235,7 @@ mod tests {
                             }
                             if let NetworkRequests::StateRequest {
                                 shard_id,
-                                hash,
+                                sync_hash,
                                 need_header,
                                 parts,
                                 target,
@@ -245,7 +244,7 @@ mod tests {
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        hash: *hash,
+                                        sync_hash: *sync_hash,
                                         need_header: *need_header,
                                         parts: parts.clone(),
                                         target: target.clone(),
@@ -278,26 +277,25 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForValidate => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= wait_till);
-                                assert!(block.header.inner.height <= wait_till + 20);
-                                if block.header.inner.height == wait_till + 20 {
+                                assert!(block.header.inner_lite.height >= wait_till);
+                                assert!(block.header.inner_lite.height <= wait_till + 20);
+                                if block.header.inner_lite.height == wait_till + 20 {
                                     System::current().stop();
                                 }
-                                if block.header.inner.height == wait_till + 10 {
+                                if block.header.inner_lite.height == wait_till + 10 {
                                     for i in 0..16 {
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
                                                 .1
-                                                .send(Query {
-                                                    path: "account/".to_owned() + &account_to,
-                                                    data: vec![],
-                                                })
+                                                .send(Query::new(
+                                                    "account/".to_string() + &account_to,
+                                                    vec![],
+                                                ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
-                                                    if res_inner.is_ok() {
-                                                        let query_response = res_inner.unwrap();
+                                                    if let Ok(Some(query_response)) = res_inner {
                                                         if let ViewAccount(view_account_result) =
-                                                            query_response
+                                                            query_response.kind
                                                         {
                                                             assert_eq!(
                                                                 view_account_result.amount,
@@ -353,7 +351,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_catchup_random_single_part_sync_send_15() {
         test_catchup_random_single_part_sync_common(false, false, 15)
     }
@@ -423,16 +420,16 @@ mod tests {
                     match *phase {
                         RandomSinglePartPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.inner.height, 1);
+                                assert_eq!(block.header.inner_lite.height, 1);
                                 *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
                             }
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 2);
-                                assert!(block.header.inner.height <= height);
+                                assert!(block.header.inner_lite.height >= 2);
+                                assert!(block.header.inner_lite.height <= height);
                                 let mut tx_count = 0;
-                                if block.header.inner.height == height {
+                                if block.header.inner_lite.height == height {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             let mut amount =
@@ -457,7 +454,7 @@ mod tests {
                                                     validator2.to_string(),
                                                     amount,
                                                     (12345 + tx_count) as u64,
-                                                    block.header.inner.prev_hash,
+                                                    block.header.prev_hash,
                                                 );
                                             }
                                             tx_count += 1;
@@ -470,10 +467,10 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForSixEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= height);
-                                assert!(block.header.inner.height <= 32);
-                                if block.header.inner.height >= 26 {
-                                    println!("BLOCK HEIGHT {:?}", block.header.inner.height);
+                                assert!(block.header.inner_lite.height >= height);
+                                assert!(block.header.inner_lite.height <= 32);
+                                if block.header.inner_lite.height >= 26 {
+                                    println!("BLOCK HEIGHT {:?}", block.header.inner_lite.height);
                                     for i in 0..16 {
                                         for j in 0..16 {
                                             let amounts1 = amounts.clone();
@@ -481,18 +478,17 @@ mod tests {
                                             actix::spawn(
                                                 connectors1.write().unwrap()[i]
                                                     .1
-                                                    .send(Query {
-                                                        path: "account/".to_owned()
-                                                            + flat_validators[j],
-                                                        data: vec![],
-                                                    })
+                                                    .send(Query::new(
+                                                        "account/".to_string() + flat_validators[j],
+                                                        vec![],
+                                                    ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
-                                                        if res_inner.is_ok() {
-                                                            let query_response = res_inner.unwrap();
+                                                        if let Ok(Some(query_response)) = res_inner
+                                                        {
                                                             if let ViewAccount(
                                                                 view_account_result,
-                                                            ) = query_response
+                                                            ) = query_response.kind
                                                             {
                                                                 check_amount(
                                                                     amounts1,
@@ -507,7 +503,7 @@ mod tests {
                                         }
                                     }
                                 }
-                                if block.header.inner.height == 32 {
+                                if block.header.inner_lite.height == 32 {
                                     println!(
                                         "SEEN HEIGHTS SAME BLOCK {:?}",
                                         seen_heights_same_block.len()
@@ -629,10 +625,10 @@ mod tests {
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
-                        check_height(block.hash(), block.header.inner.height);
-                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
+                        check_height(block.hash(), block.header.inner_lite.height);
+                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
 
-                        if block.header.inner.height >= 25 {
+                        if block.header.inner_lite.height >= 25 {
                             System::current().stop();
                         }
                     }

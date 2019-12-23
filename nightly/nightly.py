@@ -78,17 +78,18 @@ def run_test(outdir, test):
     handle = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, env=env)
     try:
         ret = handle.wait(timeout)
-        if ret == 0 and test[0] == 'expensive':
-            with open(os.path.join(dir_name, 'stdout')) as f:
-                lines = f.readlines()
-                while len(lines) and lines[-1].strip() == '':
-                    lines.pop()
-                ignored = False
-                if len(lines) == 0:
-                    ignored = True
-                else:
-                    if '0 passed' in lines[-1]:
+        if ret == 0:
+            ignored = False
+            if test[0] == 'expensive':
+                with open(os.path.join(dir_name, 'stdout')) as f:
+                    lines = f.readlines()
+                    while len(lines) and lines[-1].strip() == '':
+                        lines.pop()
+                    if len(lines) == 0:
                         ignored = True
+                    else:
+                        if '0 passed' in lines[-1]:
+                            ignored = True
 
             outcome = "PASSED" if not ignored else "IGNORED"
         else:
@@ -102,7 +103,7 @@ def run_test(outdir, test):
         handle.communicate()
 
     if test[0] == 'pytest':
-        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0", shell=True).decode('utf-8').strip().split('\n')
+        node_dirs = subprocess.check_output("find ~/.near/test* -maxdepth 0 || true", shell=True).decode('utf-8').strip().split('\n')
         for node_dir in node_dirs:
             shutil.copytree(node_dir, os.path.join(dir_name, os.path.basename(node_dir)))
 

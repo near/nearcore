@@ -1,5 +1,5 @@
-use near_chain::test_utils::setup;
-use near_chain::{Block, ErrorKind, Provenance};
+use near_chain::test_utils::{setup, tamper_with_block};
+use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
 use near_crypto::Signer;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
@@ -41,16 +41,21 @@ fn build_chain_with_orhpans() {
         &last_block.header,
         10,
         last_block.chunks.clone(),
-        last_block.header.inner.epoch_id.clone(),
+        last_block.header.inner_lite.epoch_id.clone(),
+        last_block.header.inner_lite.next_epoch_id.clone(),
         vec![],
+        0,
         0,
         Some(0),
         vec![],
         vec![],
         &*signer,
+        20,
+        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        last_block.header.inner_lite.next_bp_hash.clone(),
     );
     assert_eq!(
         chain
@@ -128,7 +133,7 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
+    assert_eq!(chain.get_header_by_height(5).unwrap().inner_lite.height, 5);
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
@@ -142,17 +147,19 @@ fn blocks_at_height() {
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let mut c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    tamper_with_block(&mut c_1, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
 
-    let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    let mut d_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    tamper_with_block(&mut d_3, 1, &*signer);
     let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
     let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
 
     let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    e_2.header.inner.total_weight = (10 * e_2.header.inner.total_weight.to_num()).into();
+    e_2.header.inner_rest.total_weight = (10 * e_2.header.inner_rest.total_weight.to_num()).into();
     e_2.header.init();
     e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
 
@@ -171,6 +178,7 @@ fn blocks_at_height() {
 
     let e_2_hash = e_2.hash();
 
+    assert_ne!(c_1_hash, b_1_hash);
     assert_ne!(d_3_hash, b_3_hash);
 
     chain.process_block(&None, b_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
@@ -213,4 +221,26 @@ fn blocks_at_height() {
     assert!(chain.get_header_by_height(3).is_err());
     assert!(chain.get_header_by_height(4).is_err());
     assert!(chain.get_header_by_height(5).is_err());
+}
+
+#[test]
+fn next_blocks() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
+    let b1 = Block::empty(&genesis, &*signer);
+    let b2 = Block::empty_with_height(&b1, 2, &*signer);
+    let b3 = Block::empty_with_height(&b1, 3, &*signer);
+    let b4 = Block::empty_with_height(&b3, 4, &*signer);
+    let b1_hash = b1.hash();
+    let b2_hash = b2.hash();
+    let b3_hash = b3.hash();
+    let b4_hash = b4.hash();
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
+    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
 }

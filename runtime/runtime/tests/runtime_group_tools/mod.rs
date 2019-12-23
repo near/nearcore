@@ -18,9 +18,13 @@ use std::thread::JoinHandle;
 pub mod random_config;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000;
+pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 pub struct StandaloneRuntime {
     pub apply_state: ApplyState,

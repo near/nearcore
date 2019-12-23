@@ -18,6 +18,8 @@ lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
 }
 
+const TEST_TIME_DELTA: u64 = 20;
+
 pub fn heavy_test<F>(f: F)
 where
     F: FnOnce() -> (),
@@ -133,17 +135,44 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_bp_hash: CryptoHash,
         signer: &dyn Signer,
     ) -> Self {
-        Self::empty_with_approvals(prev, height, epoch_id, vec![], signer)
+        Self::empty_with_approvals(
+            prev,
+            height,
+            epoch_id,
+            next_epoch_id,
+            vec![],
+            signer,
+            next_bp_hash,
+            if prev.header.prev_hash == CryptoHash::default() {
+                0
+            } else {
+                TEST_TIME_DELTA as u128
+            },
+            1,
+        )
     }
 
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
-        Self::empty_with_epoch(prev, height, prev.header.inner.epoch_id.clone(), signer)
+        Self::empty_with_epoch(
+            prev,
+            height,
+            prev.header.inner_lite.epoch_id.clone(),
+            if prev.header.prev_hash == CryptoHash::default() {
+                EpochId(prev.hash())
+            } else {
+                prev.header.inner_lite.next_epoch_id.clone()
+            },
+            prev.header.inner_lite.next_bp_hash,
+            signer,
+        )
     }
 
     pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
-        Self::empty_with_height(prev, prev.header.inner.height + 1, signer)
+        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
@@ -152,23 +181,39 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
         approvals: Vec<Approval>,
         signer: &dyn Signer,
+        next_bp_hash: CryptoHash,
+        time_delta: u128,
+        weight_delta: u128,
     ) -> Self {
-        Block::produce(
+        let mut ret = Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
             epoch_id,
+            next_epoch_id,
             approvals,
+            0,
             0,
             Some(0),
             vec![],
             vec![],
             signer,
+            time_delta,
+            weight_delta,
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
-        )
+            next_bp_hash,
+        );
+        // Make blocks to be `TEST_TIME_DELTA` apart from each other so that the fork choice rule behaves predictably.
+        // Tests that test the fork choice rule itself (such as `fork_choice.rs`) change the time when
+        // needed on their end.
+        ret.header.inner_lite.timestamp = prev.header.inner_lite.timestamp + TEST_TIME_DELTA;
+        ret.header.init();
+        ret.header.signature = signer.sign(ret.header.hash.as_ref());
+        ret
     }
 }
