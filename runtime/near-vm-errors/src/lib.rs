@@ -3,14 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type", content = "c")]
 pub enum VMError {
     FunctionExecError(FunctionExecError),
     StorageError(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 pub enum FunctionExecError {
     CompilationError(CompilationError),
     LinkError(String),
@@ -20,7 +18,6 @@ pub enum FunctionExecError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodUTF8Error,
@@ -29,7 +26,6 @@ pub enum MethodResolveError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 pub enum CompilationError {
     CodeDoesNotExist(String),
     PrepareError(PrepareError),
@@ -37,7 +33,6 @@ pub enum CompilationError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -70,7 +65,6 @@ pub enum PrepareError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 pub enum HostError {
     BadUTF16,
     BadUTF8,
@@ -96,7 +90,6 @@ pub enum HostError {
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-#[serde(tag = "type")]
 pub enum HostErrorOrStorageError {
     HostError(HostError),
     /// Error from underlying storage, serialized

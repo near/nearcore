@@ -5,6 +5,8 @@ use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+use near_vm_errors::VMError;
+
 /// Internal
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
@@ -141,7 +143,7 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    FunctionCall(String), // TODO type
+    FunctionCall(VMError),
 }
 
 impl From<ActionErrorKind> for ActionError {

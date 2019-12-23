@@ -122,7 +122,7 @@ pub(crate) fn action_function_call(
             let error = VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::CodeDoesNotExist(account_id.clone()),
             ));
-            result.result = Err(ActionErrorKind::FunctionCall(error.to_string()).into());
+            result.result = Err(ActionErrorKind::FunctionCall(error).into());
             return Ok(());
         }
         Err(e) => {
@@ -180,7 +180,7 @@ pub(crate) fn action_function_call(
                 borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
             return Err(err);
         }
-        result.result = Err(ActionErrorKind::FunctionCall(err.to_string()).into());
+        result.result = Err(ActionErrorKind::FunctionCall(err).into());
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
             result.gas_burnt_for_function_call += outcome.burnt_gas;

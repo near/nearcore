@@ -12,6 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
+use near_vm_errors::{FunctionExecError, HostError, MethodResolveError, VMError};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
@@ -81,7 +82,9 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall("Smart contract panicked: WAT?".to_string())
+                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
+                    FunctionExecError::HostError(HostError::GuestPanic("WAT?".to_string()))
+                ))
             }
             .into()
         )
@@ -117,7 +120,9 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall("MethodNotFound".to_string())
+                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
+                    FunctionExecError::ResolveError(MethodResolveError::MethodNotFound)
+                ))
             }
             .into()
         )
@@ -139,7 +144,9 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall("MethodEmptyName".to_string())
+                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
+                    FunctionExecError::ResolveError(MethodResolveError::MethodEmptyName)
+                ))
             }
             .into()
         )
@@ -161,7 +168,9 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall("MethodEmptyName".to_string())
+                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
+                    FunctionExecError::ResolveError(MethodResolveError::MethodEmptyName)
+                ))
             }
             .into()
         )
