@@ -6,7 +6,7 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, NumShards, ShardId, ValidatorId,
+    AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumShards, ShardId, ValidatorId,
     ValidatorStake,
 };
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
@@ -439,21 +439,21 @@ impl EpochManager {
         Ok(epoch_info.validators[validator_id as usize].clone())
     }
 
-    /// Returns seats with all block producers in current epoch, with indicator on whether they are slashed or not.
-    pub fn get_all_block_producer_seats(
+    /// Returns settlement of all block producers in current epoch, with indicator on whether they are slashed or not.
+    pub fn get_all_block_producers_settlement(
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut result = vec![];
-        for validator_id in epoch_info.block_producer_seats.iter() {
+        let mut settlement = vec![];
+        for validator_id in epoch_info.block_producers_settlement.iter() {
             let validator_stake = epoch_info.validators[*validator_id as usize].clone();
             let is_slashed = slashed.contains_key(&validator_stake.account_id);
-            result.push((validator_stake, is_slashed));
+            settlement.push((validator_stake, is_slashed));
         }
-        Ok(result)
+        Ok(settlement)
     }
 
     /// Returns all unique block producers in current epoch sorted by account_id, with indicator on whether they are slashed or not.
@@ -462,11 +462,11 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        let block_producer_seats =
-            self.get_all_block_producer_seats(epoch_id, last_known_block_hash)?;
+        let settlement =
+            self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
-        for (validator_stake, is_slashed) in block_producer_seats.into_iter() {
+        for (validator_stake, is_slashed) in settlement.into_iter() {
             if !validators.contains(&validator_stake.account_id) {
                 validators.insert(validator_stake.account_id.clone());
                 result.push((validator_stake, is_slashed));
@@ -780,7 +780,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        for validator_id in epoch_info.chunk_producer_seats[shard_id as usize].iter() {
+        for validator_id in epoch_info.chunk_producers_settlement[shard_id as usize].iter() {
             if &epoch_info.validators[*validator_id as usize].account_id == account_id {
                 return Ok(true);
             }
@@ -822,8 +822,8 @@ impl EpochManager {
     }
 
     fn block_producer_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> ValidatorId {
-        epoch_info.block_producer_seats
-            [(height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize]
+        epoch_info.block_producers_settlement
+            [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize]
     }
 
     fn chunk_producer_from_info(
@@ -831,8 +831,8 @@ impl EpochManager {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> ValidatorId {
-        epoch_info.chunk_producer_seats[shard_id as usize][(height
-            % (epoch_info.chunk_producer_seats[shard_id as usize].len() as NumSeats))
+        epoch_info.chunk_producers_settlement[shard_id as usize][(height as u64
+            % (epoch_info.chunk_producers_settlement[shard_id as usize].len() as u64))
             as usize]
     }
 

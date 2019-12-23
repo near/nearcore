@@ -45,12 +45,12 @@ pub struct EpochInfo {
     pub validators: Vec<ValidatorStake>,
     /// Validator account id to index in proposals.
     pub validator_to_index: HashMap<AccountId, ValidatorId>,
-    /// List of seats occupied by validators responsible for block production.
-    pub block_producer_seats: Vec<ValidatorId>,
-    /// Per each shard, list of seats occupied by validators that are responsible.
-    pub chunk_producer_seats: Vec<Vec<ValidatorId>>,
-    /// List of seats of hidden validators with weights used to determine how many shards they will validate.
-    pub hidden_validator_seats: Vec<ValidatorWeight>,
+    /// Settlement of validators responsible for block production.
+    pub block_producers_settlement: Vec<ValidatorId>,
+    /// Per each shard, settlement validators that are responsible.
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_settlement: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
@@ -132,8 +132,8 @@ impl BlockInfo {
         prev_block_height: BlockHeight,
         mut prev_block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
     ) {
-        let validator_id = epoch_info.block_producer_seats
-            [(self.height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize];
+        let validator_id = epoch_info.block_producers_settlement
+            [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
         prev_block_tracker
             .entry(validator_id)
             .and_modify(|(produced, expected)| {
@@ -143,8 +143,8 @@ impl BlockInfo {
             .or_insert((1, 1));
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for height in prev_block_height + 1..self.height {
-            let validator_id = epoch_info.block_producer_seats
-                [(height % (epoch_info.block_producer_seats.len() as NumSeats)) as usize];
+            let validator_id = epoch_info.block_producers_settlement
+                [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
             prev_block_tracker
                 .entry(validator_id)
                 .and_modify(|(_produced, expected)| {

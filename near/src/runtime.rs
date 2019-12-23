@@ -587,10 +587,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        if let Ok(block_producer_seats) =
-            epoch_manager.get_all_block_producer_seats(&epoch_id, &parent_hash)
+        if let Ok(settlement) =
+            epoch_manager.get_all_block_producers_settlement(&epoch_id, &parent_hash)
         {
-            let ret = block_producer_seats.len();
+            let ret = settlement.len();
             if ret > 1 {
                 ret
             } else {
@@ -617,9 +617,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let block_producer_seats =
-            epoch_manager.get_all_block_producer_seats(&epoch_id, parent_hash)?;
-        Ok(block_producer_seats[part_id as usize % block_producer_seats.len()].0.account_id.clone())
+        let settlement =
+            epoch_manager.get_all_block_producers_settlement(&epoch_id, parent_hash)?;
+        Ok(settlement[part_id as usize % settlement.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(

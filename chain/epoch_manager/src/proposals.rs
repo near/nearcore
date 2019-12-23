@@ -149,20 +149,20 @@ pub fn proposals_to_epoch_info(
     }
 
     // Block producers are first `num_block_producer_seats` proposals.
-    let block_producer_seats =
+    let block_producers_settlement =
         dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
 
     // Collect proposals into block producer assignments.
-    let mut chunk_producer_seats: Vec<Vec<ValidatorId>> = vec![];
+    let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
     for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
-        let mut shard_seats: Vec<ValidatorId> = vec![];
+        let mut shard_settlement: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats_in_shard {
             let proposal_index =
                 dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
-            shard_seats.push(proposal_index);
+            shard_settlement.push(proposal_index);
         }
-        chunk_producer_seats.push(shard_seats);
+        chunk_producers_settlement.push(shard_settlement);
         last_index = (last_index + num_seats_in_shard) % epoch_config.num_block_producer_seats;
     }
 
@@ -174,9 +174,9 @@ pub fn proposals_to_epoch_info(
         validators: final_proposals,
         fishermen,
         validator_to_index,
-        block_producer_seats,
-        chunk_producer_seats,
-        hidden_validator_seats: vec![],
+        block_producers_settlement,
+        chunk_producers_settlement,
+        hidden_validators_settlement: vec![],
         stake_change: final_stake_change,
         validator_reward,
         inflation,
