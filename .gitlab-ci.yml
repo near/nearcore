@@ -20,7 +20,7 @@ test_cargo:
     - rustc --version && cargo --version
     - cargo fmt --all -- --check
     - cargo check --all --tests --benches --all-features
-    - python3 scripts/parallel_run_tests.py
+    - bash -c 'timeout 60m python3 scripts/parallel_run_tests.py'
 
 # Regression tests.
 test_regression:
@@ -69,7 +69,7 @@ coverage:
     - *setup_cache
     script:
     - ./scripts/build_wasm.sh
-    - python3 scripts/parallel_coverage.py
+    - bash -c 'timeout 60m python3 scripts/parallel_coverage.py'
     - curl -s https://codecov.io/bash | bash
 
 test_nearlib_release:

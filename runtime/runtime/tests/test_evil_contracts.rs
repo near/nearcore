@@ -26,12 +26,12 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
-    assert_eq!(transaction_result.receipts.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     node
 }
@@ -58,7 +58,7 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
-        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
     (0..50).rev().for_each(|i| {
@@ -79,7 +79,7 @@ fn test_evil_deep_trie() {
                 0,
             )
             .unwrap();
-        println!("Gas burnt: {}", res.receipts[0].outcome.gas_burnt);
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
 }

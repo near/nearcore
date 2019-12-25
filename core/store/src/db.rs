@@ -79,6 +79,8 @@ pub enum DBCol {
     ColComponentEdges = 32,
     // Biggest nonce used.
     LastComponentNonce = 33,
+    // Transactions
+    ColTransactions = 34,
 }
 
 impl std::fmt::Display for DBCol {
@@ -118,12 +120,13 @@ impl std::fmt::Display for DBCol {
             Self::ColPeerComponent => "peer components",
             Self::ColComponentEdges => "component edges",
             Self::LastComponentNonce => "last component nonce",
+            Self::ColTransactions => "transactions",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 34;
+const NUM_COLS: usize = 35;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
