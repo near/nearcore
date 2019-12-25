@@ -2156,7 +2156,16 @@ mod test {
         assert_eq!(account.locked, TESTING_INIT_STAKE / 3);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
 
-        for _ in 11..=20 {
+        for _ in 11..14 {
+            env.step_default(vec![]);
+        }
+        let account = env.view_account("test3");
+        let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
+        let remaining = TESTING_INIT_STAKE / 3 - slashed;
+        assert_eq!(account.locked, remaining);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+
+        for _ in 14..=20 {
             env.step_default(vec![]);
         }
 
@@ -2165,10 +2174,8 @@ mod test {
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 
         let account = env.view_account("test3");
-        let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
-        let remaining = TESTING_INIT_STAKE / 3 - slashed;
-        assert_eq!(account.locked, remaining);
-        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
+        assert_eq!(account.locked, 0);
+        assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3 + remaining);
     }
 
     /// Test that double sign from multiple accounts may result in all of their stake slashed.

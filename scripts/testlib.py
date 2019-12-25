@@ -55,12 +55,16 @@ def run_test(test_binary, isolate=True):
     """ Run a single test, save exitcode, stdout and stderr """
     if isolate:
         cmd = ['docker', 'run', '--rm',
+               '-u', f'{os.getuid()}:{os.getgid()}',
                '-v', f'{test_binary}:{test_binary}',
                'ailisp/near-test-runtime',
                'bash', '-c', f'chmod +x {test_binary} && RUST_BACKTRACE=1 {test_binary}']
     else:
         cmd = [test_binary]
-    p = subprocess.Popen(cmd,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    stdout, stderr = p.communicate()
-    return (p.returncode, stdout, stderr)
+    print(f'========= run test {test_binary}')
+    if os.path.isfile(test_binary):
+        p = subprocess.Popen(cmd,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        stdout, stderr = p.communicate()
+        return (p.returncode, stdout, stderr)
+    return -1, '', f'{test_binary} does not exist'

@@ -21,6 +21,9 @@ def coverage(test_binary):
     subprocess.check_output(f'mkdir -p {coverage_output}', shell=True)
     coverage_output = os.path.abspath(coverage_output)
 
+    if not os.path.isfile(test_binary):
+        return -1, '', f'{test_binary} does not exist'
+        
     p = subprocess.Popen(['docker', 'run', '--rm',
     '--security-opt', 'seccomp=unconfined',
     '-u', f'{os.getuid()}:{os.getgid()}',
