@@ -5,10 +5,51 @@ use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+use near_rpc_error_macro::RpcError;
 use near_vm_errors::VMError;
 
+/// Error returned in the ExecutionOutcome in case of failure.
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_parent = "ServerError"]
+pub enum ExecutionError {
+    Action(ActionError),
+    InvalidTx(InvalidTxError),
+}
+
+impl Display for ExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ExecutionError::Action(e) => write!(f, "{}", e),
+            ExecutionError::InvalidTx(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<ActionError> for ExecutionError {
+    fn from(error: ActionError) -> Self {
+        ExecutionError::Action(error)
+    }
+}
+
+impl From<InvalidTxError> for ExecutionError {
+    fn from(error: InvalidTxError) -> Self {
+        ExecutionError::InvalidTx(error)
+    }
+}
+
+/// Error returned from `Runtime::apply`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeError {
+    UnexpectedIntegerOverflow,
+    InvalidTxError(InvalidTxError),
+    StorageError(StorageError),
+    BalanceMismatch(BalanceMismatchError),
+}
+
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, RpcError)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -313,15 +354,6 @@ impl Display for BalanceMismatchError {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct IntegerOverflowError;
 
-/// Error returned from `Runtime::apply`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimeError {
-    UnexpectedIntegerOverflow,
-    InvalidTxError(InvalidTxError),
-    StorageError(StorageError),
-    BalanceMismatch(BalanceMismatchError),
-}
-
 impl From<IntegerOverflowError> for InvalidTxError {
     fn from(_: IntegerOverflowError) -> Self {
         InvalidTxError::CostOverflow
@@ -412,33 +444,5 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::FunctionCall(s) => write!(f, "{}", s),
         }
-    }
-}
-
-/// Error returned in the ExecutionOutcome in case of failure.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub enum ExecutionError {
-    Action(ActionError),
-    InvalidTx(InvalidTxError),
-}
-
-impl Display for ExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        match self {
-            ExecutionError::Action(e) => write!(f, "{}", e),
-            ExecutionError::InvalidTx(e) => write!(f, "{}", e),
-        }
-    }
-}
-
-impl From<ActionError> for ExecutionError {
-    fn from(error: ActionError) -> Self {
-        ExecutionError::Action(error)
-    }
-}
-
-impl From<InvalidTxError> for ExecutionError {
-    fn from(error: InvalidTxError) -> Self {
-        ExecutionError::InvalidTx(error)
     }
 }

@@ -27,6 +27,7 @@ borsh = "0.2.10"
 
 near-crypto = { path = "../crypto" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen" }
 
 [features]
 default = ["jemallocator"]
