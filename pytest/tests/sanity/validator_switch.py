@@ -34,6 +34,7 @@ while cur_height < EPOCH_LENGTH * 2:
         status = nodes[0].get_status()
         validator_info = nodes[0].json_rpc('validators', [status['sync_info']['latest_block_hash']])
         assert len(validator_info['result']['next_validators']) == 1, "Number of validators do not match"
+        assert validator_info['result']['next_validators'][0]['account_id'] == "test3"
     time.sleep(1)
 
 synced = False
