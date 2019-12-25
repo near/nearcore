@@ -173,8 +173,7 @@ fn create_chunk(
         .unwrap();
     if let Some(transactions) = replace_transactions {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts =
-            client.chain.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash);
+        let total_parts = client.chain.runtime_adapter.num_total_parts();
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
 
