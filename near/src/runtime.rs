@@ -584,25 +584,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
     }
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        if let Ok(settlement) =
-            epoch_manager.get_all_block_producers_settlement(&epoch_id, &parent_hash)
-        {
-            let ret = settlement.len();
-            if ret > 1 {
-                ret
-            } else {
-                2
-            }
+    fn num_total_parts(&self) -> usize {
+        let seats = self.genesis_config.num_block_producer_seats;
+        if seats > 1 {
+            seats as usize
         } else {
             2
         }
     }
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let total_parts = self.num_total_parts(parent_hash);
+    fn num_data_parts(&self) -> usize {
+        let total_parts = self.num_total_parts();
         if total_parts <= 3 {
             1
         } else {

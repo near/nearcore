@@ -274,9 +274,7 @@ fn validate_chunk_proofs_challenge(
     let tmp_chunk;
     let chunk_ref = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
-            match encoded_chunk
-                .decode_chunk(runtime_adapter.num_data_parts(&chunk_header.inner.prev_block_hash))
-            {
+            match encoded_chunk.decode_chunk(runtime_adapter.num_data_parts()) {
                 Ok(chunk) => {
                     tmp_chunk = Some(chunk);
                     tmp_chunk.as_ref().unwrap()

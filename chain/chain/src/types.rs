@@ -235,9 +235,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize;
+    fn num_total_parts(&self) -> usize;
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize;
+    fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;

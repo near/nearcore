@@ -170,19 +170,6 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
-    fn get_prev_height(
-        &self,
-        prev_hash: &CryptoHash,
-    ) -> Result<BlockHeight, Box<dyn std::error::Error>> {
-        if prev_hash == &CryptoHash::default() {
-            return Ok(0);
-        }
-        let prev_block_header = self
-            .get_block_header(prev_hash)?
-            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
-        Ok(prev_block_header.inner_lite.height)
-    }
-
     fn get_epoch_and_valset(
         &self,
         prev_hash: CryptoHash,
@@ -347,15 +334,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.num_shards
     }
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
     }
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        // Test changing number of data parts
-        12 + 2 * ((height as usize) % 4)
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -366,8 +356,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx =
-            part_id as usize + self.num_data_parts(parent_hash) + self.num_total_parts(parent_hash);
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].account_id.clone())
     }
 
