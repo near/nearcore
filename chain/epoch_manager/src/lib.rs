@@ -648,7 +648,15 @@ impl EpochManager {
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
             if last_block_info.slashed.contains_key(account_id) {
-                continue;
+                if prev_prev_stake_change.contains_key(account_id)
+                    && !prev_stake_change.contains_key(account_id)
+                    && !stake_change.contains_key(account_id)
+                {
+                    // slashed in prev_prev epoch so it is safe to return the remaining stake in case of
+                    // a double sign without violating the staking invariant.
+                } else {
+                    continue;
+                }
             }
             let new_stake = *stake_change.get(account_id).unwrap_or(&0);
             let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
