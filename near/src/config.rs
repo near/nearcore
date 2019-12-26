@@ -158,6 +158,7 @@ pub struct Network {
     pub ban_window: Duration,
     /// List of addresses that will not be accepted as valid neighbors.
     /// It can be IP:Port or IP (to blacklist all connections coming from this address).
+    #[serde(default)]
     pub blacklist: Vec<String>,
 }
 

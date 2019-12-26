@@ -304,7 +304,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blac
                          10 + ordinal, near_root, node_dir, blacklist)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
-        assert len(blacklist) == 0, "Blacklist is only supporte with LOCAL deployment."
+        assert len(blacklist) == 0, "Blacklist is only supported in LOCAL deployment."
 
         instance_name = '{}-{}-{}'.format(config['remote'].get('instance_name', 'near-pytest'), ordinal, uuid.uuid4())
         zones = config['remote']['zones']

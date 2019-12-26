@@ -31,7 +31,7 @@ TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
 
-near_root, node_dirs = init_cluster(2, 3, 1, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {u: {"tracked_shards": [0]} for u in range(2, 5)})
+near_root, node_dirs = init_cluster(2, 3, 1, config, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {4: {"tracked_shards": [0]}})
 
 started = time.time()
 
@@ -75,7 +75,7 @@ if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
 node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node.node_key.pk, boot_node.addr(), [0, 1])
-tracker = LogTracker(node4)
+tracker4 = LogTracker(node4)
 time.sleep(3)
 
 catch_up_height = 0
@@ -102,9 +102,12 @@ boot_heights = boot_node.get_all_heights()
 assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height, boot_heights)
 
 if catch_up_height >= 100:
-    assert tracker.check("transition to State Sync")
+    assert tracker4.check("transition to State Sync")
 elif catch_up_height <= 30:
-    assert not tracker.check("transition to State Sync")
+    assert not tracker4.check("transition to State Sync")
+
+tracker4.reset()
+assert tracker4.count("Connected to FullPeerInfo") == 2
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

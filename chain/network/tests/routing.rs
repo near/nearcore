@@ -328,6 +328,8 @@ struct Runner {
     state_machine: Option<StateMachine>,
     /// If v is in the list from u, it means v is blacklisted from u point of view.
     /// blacklist[u].contains(v) <=> v is blacklisted from u.
+    /// If None is in the list of node u, it means that all other nodes are blacklisted.
+    /// It add 127.0.0.1 to the blacklist of node u.
     blacklist: HashMap<usize, HashSet<Option<usize>>>,
     boot_nodes: Vec<usize>,
 }

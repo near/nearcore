@@ -144,6 +144,8 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
+        debug!(target: "network", "Connected to {:?}", full_peer_info);
+
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
@@ -1045,7 +1047,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {
                         Ok(stream) => {
-                            debug!(target: "network", "Connected to {}", msg.peer_info);
+                            debug!(target: "network", "Connecting to {}", msg.peer_info);
                             let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
                             act.connect_peer(
@@ -1080,6 +1082,7 @@ impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+        // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
             debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
             return ConsolidateResponse::Reject;
