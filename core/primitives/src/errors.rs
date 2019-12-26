@@ -49,7 +49,7 @@ pub enum RuntimeError {
 }
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, RpcError)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -72,7 +72,8 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// External
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[rpc_error_variant = "InvalidTx"]
 pub enum InvalidTxError {
     InvalidAccessKey(InvalidAccessKeyError),
     InvalidSigner {
@@ -106,7 +107,8 @@ pub enum InvalidTxError {
     Expired,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
     AccessKeyNotFound {
         account_id: AccountId,
@@ -142,7 +144,8 @@ pub enum InvalidAccessKeyError {
 ///
 ///
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[rpc_error_variant = "Action"]
 pub struct ActionError {
     pub index: Option<u64>,
     pub kind: ActionErrorKind,
