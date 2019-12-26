@@ -7,27 +7,23 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, DeriveInput, Lit, Meta, MetaNameValue};
-
-struct ErrorVariants {
-    name: String,
-}
+use syn::{parse_macro_input, DeriveInput, Lit, Meta, MetaNameValue, Data, DataEnum, Fields, FieldsUnnamed};
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 struct ErrorType {
     /// A type name of the error
-    name: String,
+    pub name: String,
     /// Names of subtypes of the error
-    kinds: Vec<String>,
+    pub subtypes: Vec<String>,
     // /// An error input
-    props: Vec<String>,
+    pub props: HashMap<String, String>,
 }
 
 thread_local!(static SCHEMA: RefCell<HashMap<String, Vec<ErrorType>>> = RefCell::new(HashMap::new()));
 
-fn parse_parent_name(input: &DeriveInput) -> Option<String> {
+fn parse_rpc_error_variant(input: &DeriveInput) -> Option<String> {
     input.attrs.iter().find_map(|attr| {
-        if !attr.path.is_ident("rpc_error_parent") {
+        if !attr.path.is_ident("rpc_error_variant") {
             return None;
         }
         match attr.parse_meta().unwrap() {
@@ -37,12 +33,43 @@ fn parse_parent_name(input: &DeriveInput) -> Option<String> {
     })
 }
 
-#[proc_macro_derive(RpcError, attributes(rpc_error_parent))]
+fn parse_error_type(input: &DeriveInput) -> ErrorType {
+    let mut error_type = ErrorType::default();
+    error_type.name = parse_rpc_error_variant(input).expect("should have a rpc_error_variant with value");
+    match input.data {
+        // If Variant is a NewType add to subtypes
+        // - if Variant is a struct-variant, create a new
+        Data::Enum(DataEnum{ variants, .. }) => {
+            for variant in variants {
+                match variant.fields {
+                    Fields::Unnamed(  ) => {
+
+                    }
+                }
+            }
+            error_type.subtypes = variants.iter().map(|variant| {
+                variant.fields.iter
+                match variant.fields {
+
+                }
+            })
+        },
+        Body::Struct(VariantData::Struct( fields )) => {
+
+            // for field in fields {
+            //     println!("{:?}", field.);
+            // }
+            // error_type.props = fields.iter().collect::<Option<Vec<_>>>();
+        }
+    }
+    error_type
+}
+
+#[proc_macro_derive(RpcError, attributes(rpc_error_variant))]
 pub fn rpc_error(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let parent_name = parse_parent_name(input);
     SCHEMA.with(|s| {
-        s.borrow_mut().insert(format!("{}", parent_name), Default::default());
+        s.borrow_mut().insert(format!("{}", parent_name.unwrap()), Default::default());
     });
 
     SCHEMA.with(|s| {

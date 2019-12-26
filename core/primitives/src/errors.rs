@@ -12,7 +12,7 @@ use near_vm_errors::VMError;
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_parent = "ServerError"]
+#[rpc_error_variant = "TxExecutionError"]
 pub enum ExecutionError {
     Action(ActionError),
     InvalidTx(InvalidTxError),
@@ -129,6 +129,18 @@ pub enum InvalidAccessKeyError {
         cost: Balance,
     },
 }
+
+///
+///
+/// Variants are types
+///
+/// {"ServerError": { "TxError" { "kind": { "ActionError" : {  } } }
+///   kind: "TxError",
+///
+/// }
+/// }
+///
+///
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ActionError {
