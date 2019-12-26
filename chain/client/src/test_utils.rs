@@ -21,7 +21,9 @@ use near_network::{
 };
 use near_primitives::block::{Block, GenesisId, WeightAndScore};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, HeightDelta, NumSeats, NumShards};
+use near_primitives::types::{
+    AccountId, BlockIndex, BlockIndexDelta, NumBlocks, NumSeats, NumShards,
+};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -55,13 +57,13 @@ pub fn setup(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: NumShards,
-    epoch_length: HeightDelta,
+    epoch_length: BlockIndexDelta,
     account_id: &str,
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     network_adapter: Arc<dyn NetworkAdapter>,
-    tx_validity_period: HeightDelta,
+    transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
@@ -80,7 +82,7 @@ pub fn setup(
         1_000_000_000,
         0,
         0,
-        tx_validity_period,
+        transaction_validity_period,
         epoch_length,
     );
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
@@ -142,7 +144,7 @@ pub fn setup_mock_with_validity_period(
             Addr<ClientActor>,
         ) -> NetworkResponses,
     >,
-    validity_period: BlockHeight,
+    transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
     let (_, client, view_client) = setup(
@@ -155,7 +157,7 @@ pub fn setup_mock_with_validity_period(
         100,
         200,
         network_adapter.clone(),
-        validity_period,
+        transaction_validity_period,
         Utc::now(),
     );
     let client_addr = client.start();
@@ -197,13 +199,13 @@ fn sample_binary(n: u64, k: u64) -> bool {
 ///                 equal to `block_prod_time` if `tamper_with_fg` is `true`, otherwise it is
 ///                 `block_prod_time * 2`
 /// `drop_chunks` - if set to true, 10% of all the chunk messages / requests will be dropped
-/// `tamper_with_fg` - if set to true, will split the heights into groups of 100. For some groups
+/// `tamper_with_fg` - if set to true, will split the block indices into groups of 100. For some groups
 ///                 all the approvals will be dropped (thus completely disabling the finality gadget
 ///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
 /// `epoch_length` - approximate length of the epoch as measured
-///                 by the height difference of it's last and first block.
+///                 by the block indices difference of it's last and first block.
 /// `network_mock` - the callback that is called for each message sent. The `mock` is called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
 ///                 `perform_default` is false, then the message is not processed or broadcasted
@@ -218,7 +220,7 @@ pub fn setup_mock_all_validators(
     block_prod_time: u64,
     drop_chunks: bool,
     tamper_with_fg: bool,
-    epoch_length: HeightDelta,
+    epoch_length: BlockIndexDelta,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -239,7 +241,7 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
-    let last_height_weight =
+    let last_block_index_weight =
         Arc::new(RwLock::new(vec![(0, WeightAndScore::from_ints(0, 0)); key_pairs.len()]));
     let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
     let approval_intervals: Arc<RwLock<Vec<BTreeSet<(WeightAndScore, WeightAndScore)>>>> =
@@ -258,8 +260,8 @@ pub fn setup_mock_all_validators(
         let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
-        let last_height_weight1 = last_height_weight.clone();
-        let last_height_weight2 = last_height_weight.clone();
+        let last_block_index_weight1 = last_block_index_weight.clone();
+        let last_block_index_weight2 = last_block_index_weight.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
         let client_addr = ClientActor::create(move |ctx| {
@@ -287,7 +289,7 @@ pub fn setup_mock_all_validators(
                     let my_ord = my_ord.unwrap();
 
                     {
-                        let last_height_weight2 = last_height_weight2.read().unwrap();
+                        let last_block_index_weight2 = last_block_index_weight2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
                             .take(connectors2.read().unwrap().len())
@@ -299,8 +301,8 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_weight2[i].0,
-                                    weight_and_score: last_height_weight2[i].1,
+                                    block_index: last_block_index_weight2[i].0,
+                                    weight_and_score: last_block_index_weight2[i].1,
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -329,14 +331,17 @@ pub fn setup_mock_all_validators(
                                 ))
                             }
 
-                            let mut last_height_weight1 = last_height_weight1.write().unwrap();
+                            let mut last_block_index_weight1 =
+                                last_block_index_weight1.write().unwrap();
 
-                            let my_height_weight = &mut last_height_weight1[my_ord];
+                            let my_block_index_weight = &mut last_block_index_weight1[my_ord];
 
-                            my_height_weight.0 =
-                                max(my_height_weight.0, block.header.inner_lite.height);
-                            my_height_weight.1 =
-                                max(my_height_weight.1, block.header.inner_rest.weight_and_score());
+                            my_block_index_weight.0 =
+                                max(my_block_index_weight.0, block.header.inner_lite.block_index);
+                            my_block_index_weight.1 = max(
+                                my_block_index_weight.1,
+                                block.header.inner_rest.weight_and_score(),
+                            );
 
                             hash_to_score1.write().unwrap().insert(
                                 block.header.hash(),
@@ -522,12 +527,12 @@ pub fn setup_mock_all_validators(
                             header,
                             approval_message: Some(approval_message),
                         } => {
-                            let height_mod = header.inner_lite.height % 300;
+                            let block_index_mod = header.inner_lite.block_index % 300;
 
                             let do_propagate = if tamper_with_fg {
-                                if height_mod < 100 {
+                                if block_index_mod < 100 {
                                     false
-                                } else if height_mod < 200 {
+                                } else if block_index_mod < 200 {
                                     let mut rng = rand::thread_rng();
                                     rng.gen()
                                 } else {
@@ -656,14 +661,14 @@ pub fn setup_no_network_with_validity_period(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
-    validity_period: BlockHeight,
+    transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     setup_mock_with_validity_period(
         validators,
         account_id,
         skip_sync_wait,
         Box::new(|_, _, _| NetworkResponses::NoResponse),
-        validity_period,
+        transaction_validity_period,
     )
 }
 
@@ -805,8 +810,8 @@ impl TestEnv {
         }
     }
 
-    pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
-        let block = self.clients[id].produce_block(height, Duration::from_millis(20)).unwrap();
+    pub fn produce_block(&mut self, id: usize, block_index: BlockIndex) {
+        let block = self.clients[id].produce_block(block_index, Duration::from_millis(20)).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }
 

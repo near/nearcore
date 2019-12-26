@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub type AccountId = String;
 pub type PublicKey = Vec<u8>;
-pub type BlockHeight = u64;
+pub type BlockIndex = u64;
 pub type Balance = u128;
 pub type Gas = u64;
 pub type PromiseIndex = u64;

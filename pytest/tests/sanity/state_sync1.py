@@ -1,4 +1,4 @@
-# Spins up one validating node. Wait until they reach height 40.
+# Spins up one validating node. Wait until they reach block_index 40.
 # Start the second validating node and check that the second node can sync up before
 # the end of epoch and produce blocks and chunks.
 
@@ -17,42 +17,42 @@ nodes = start_cluster(2, 0, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_pr
 time.sleep(2)
 nodes[1].kill()
 
-cur_height = 0
+cur_block_index = 0
 print("step 1")
-while cur_height < BLOCK_WAIT:
+while cur_block_index < BLOCK_WAIT:
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
+    cur_block_index = status['sync_info']['latest_block_index']
     time.sleep(2)
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(2)
 
 print("step 2")
 synced = False
-while cur_height <= EPOCH_LENGTH:
+while cur_block_index <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()
-    block_height0 = status0['sync_info']['latest_block_height']
+    block_index0 = status0['sync_info']['latest_block_index']
     block_hash0 = status0['sync_info']['latest_block_hash']
     status1 = nodes[1].get_status()
-    block_height1 = status0['sync_info']['latest_block_height']
+    block_index1 = status0['sync_info']['latest_block_index']
     block_hash1 = status0['sync_info']['latest_block_hash']
-    if block_height0 > BLOCK_WAIT:
-        if block_height0 > block_height1:
+    if block_index0 > BLOCK_WAIT:
+        if block_index0 > block_index1:
             try:
                 nodes[0].get_block(block_hash1)
-                if synced and abs(block_height0 - block_height1) >= 5:
+                if synced and abs(block_index0 - block_index1) >= 5:
                     assert False, "Nodes fall out of sync"
-                synced = abs(block_height0 - block_height1) < 5
+                synced = abs(block_index0 - block_index1) < 5
             except Exception:
                 pass
         else:
             try:
                 nodes[1].get_block(block_hash0)
-                if synced and abs(block_height0 - block_height1) >= 5:
+                if synced and abs(block_index0 - block_index1) >= 5:
                     assert False, "Nodes fall out of sync"
-                synced = abs(block_height0 - block_height1) < 5
+                synced = abs(block_index0 - block_index1) < 5
             except Exception:
                 pass
-    cur_height = max(block_height0, block_height1)
+    cur_block_index = max(block_index0, block_index1)
     time.sleep(1)
 
 if not synced:

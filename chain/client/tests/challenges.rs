@@ -34,7 +34,7 @@ use std::mem::swap;
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let genesis = env.clients[0].chain.get_block_by_index(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);
@@ -158,7 +158,7 @@ fn create_chunk(
     replace_tx_root: Option<CryptoHash>,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
-        client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+        client.chain.get_block_by_index(client.chain.head().unwrap().block_index).unwrap().clone();
     let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
@@ -182,7 +182,7 @@ fn create_chunk(
             chunk.header.inner.prev_block_hash,
             chunk.header.inner.prev_state_root,
             chunk.header.inner.outcome_root,
-            chunk.header.inner.height_created,
+            chunk.header.inner.block_index_created,
             chunk.header.inner.shard_id,
             total_parts,
             data_parts,
@@ -204,7 +204,7 @@ fn create_chunk(
     }
     if let Some(tx_root) = replace_tx_root {
         chunk.header.inner.tx_root = tx_root;
-        chunk.header.height_included = 2;
+        chunk.header.block_index_included = 2;
         chunk.header.hash = ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap()));
         chunk.header.signature =
             client.block_producer.as_ref().unwrap().signer.sign(chunk.header.hash.as_ref());
@@ -450,7 +450,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.hash(),
             StateRoot::default(),
             CryptoHash::default(),
-            last_block.header.inner_lite.height + 1,
+            last_block.header.inner_lite.block_index + 1,
             0,
             0,
             1_000,
@@ -479,10 +479,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         )
         .unwrap();
 
-    invalid_chunk.header.height_included = last_block.header.inner_lite.height + 1;
+    invalid_chunk.header.block_index_included = last_block.header.inner_lite.block_index + 1;
     let block = Block::produce(
         &last_block.header,
-        last_block.header.inner_lite.height + 1,
+        last_block.header.inner_lite.block_index + 1,
         vec![invalid_chunk.header.clone()],
         last_block.header.inner_lite.epoch_id.clone(),
         last_block.header.inner_lite.next_epoch_id.clone(),
@@ -532,18 +532,17 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 49, 175, 194, 193, 175, 131, 148, 68, 194, 63, 147, 77, 57, 224, 141,
-                    233, 242, 68, 18, 172, 251, 142, 170, 231, 194, 179, 155, 39, 7, 72, 67, 13,
-                    125, 255, 115, 248, 177, 217, 13, 101, 215, 126, 200, 235, 63, 88, 166, 210,
-                    152, 205, 174, 37, 238, 67, 244, 106, 68, 57, 151, 23, 90, 167, 66, 76, 171,
-                    30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
-                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 137, 137, 2, 0, 0, 0,
-                    0, 0
+                    1, 7, 0, 20, 155, 199, 55, 40, 218, 150, 222, 64, 132, 213, 252, 78, 132, 13,
+                    31, 108, 106, 36, 32, 241, 213, 207, 255, 230, 98, 36, 34, 59, 131, 51, 40, 83,
+                    252, 63, 177, 215, 80, 204, 201, 233, 89, 151, 192, 80, 3, 13, 123, 166, 78,
+                    235, 195, 174, 220, 16, 53, 121, 47, 85, 152, 199, 25, 129, 208, 171, 30, 7,
+                    228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148, 128,
+                    55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 83, 135, 2, 0, 0, 0, 0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 221, 71, 94, 124, 180, 46, 39, 86, 78, 225, 147, 173, 240,
-                    51, 88, 157, 119, 99, 254, 52, 255, 137, 211, 195, 135, 33, 43, 2, 21, 33, 62,
-                    139, 189, 137, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 30, 154, 189, 77, 49, 215, 102, 143, 121, 33, 102, 196, 53,
+                    104, 108, 227, 91, 238, 36, 249, 118, 30, 237, 85, 140, 16, 179, 219, 180, 118,
+                    20, 226, 135, 135, 2, 0, 0, 0, 0, 0
                 ]
             ],
         );
@@ -584,7 +583,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
-    let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
+    let block1 = env.clients[0].chain.get_block_by_index(1).unwrap().clone();
     env.process_block(1, block1, Provenance::NONE);
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
@@ -600,7 +599,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let (_, result) = client.process_block(block.clone(), Provenance::NONE);
     // We have declined block with invalid chunk.
     assert!(result.is_err());
-    assert_eq!(client.chain.head().unwrap().height, 1);
+    assert_eq!(client.chain.head().unwrap().block_index, 1);
     // But everyone who doesn't track this shard have accepted.
     let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
@@ -635,9 +634,9 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
 
     // The other client processes challenge and invalidates the chain.
     if let NetworkRequests::Challenge(challenge) = last_message {
-        assert_eq!(env.clients[1].chain.head().unwrap().height, 2);
+        assert_eq!(env.clients[1].chain.head().unwrap().block_index, 2);
         assert!(env.clients[1].process_challenge(challenge).is_ok());
-        assert_eq!(env.clients[1].chain.head().unwrap().height, 1);
+        assert_eq!(env.clients[1].chain.head().unwrap().block_index, 1);
     }
 }
 
@@ -673,7 +672,7 @@ fn test_block_challenge() {
     );
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
-    assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges, vec![challenge]);
+    assert_eq!(env.clients[0].chain.get_block_by_index(2).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }
 
@@ -734,11 +733,11 @@ fn test_fishermen_challenge() {
     assert!(env.clients[0].process_challenge(challenge1).is_err());
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 12);
-    assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges, vec![challenge]);
+    assert_eq!(env.clients[0].chain.get_block_by_index(12).unwrap().challenges, vec![challenge]);
     assert!(env.clients[0].chain.mut_store().is_block_challenged(&block.hash()).unwrap());
 }
 
-/// If there are two blocks produced at the same height but by different block producers, no
+/// If there are two blocks produced at the same block_index but by different block producers, no
 /// challenge should be generated
 #[test]
 fn test_challenge_in_different_epoch() {
@@ -784,7 +783,7 @@ fn test_challenge_in_different_epoch() {
     let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
-        let height = block.header.inner_lite.height;
+        let block_index = block.header.inner_lite.block_index;
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
         match env.clients[0].run_catchup(&vec![]) {
             Ok(accepted_blocks) => {
@@ -808,7 +807,7 @@ fn test_challenge_in_different_epoch() {
                 None => break,
             }
         }
-        if height < 9 {
+        if block_index < 9 {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {

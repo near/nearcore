@@ -8,7 +8,7 @@ use near_primitives::test_utils::init_test_logger;
 fn empty_chain() {
     init_test_logger();
     let (chain, _, _) = setup();
-    assert_eq!(chain.head().unwrap().height, 0);
+    assert_eq!(chain.head().unwrap().block_index, 0);
 }
 
 #[test]
@@ -22,9 +22,9 @@ fn build_chain() {
         let tip = chain
             .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
             .unwrap();
-        assert_eq!(tip.unwrap().height, i + 1);
+        assert_eq!(tip.unwrap().block_index, i + 1);
     }
-    assert_eq!(chain.head().unwrap().height, 4);
+    assert_eq!(chain.head().unwrap().block_index, 4);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn build_chain_with_orhpans() {
         |_| {},
         |_| {},
     );
-    assert_eq!(res.unwrap().unwrap().height, 10);
+    assert_eq!(res.unwrap().unwrap().block_index, 10);
     assert_eq!(
         chain
             .process_block(
@@ -123,42 +123,42 @@ fn build_chain_with_skips_and_forks() {
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, &*signer);
-    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
-    let b3 = Block::empty_with_height(&b1, 3, &*signer);
-    let b4 = Block::empty_with_height(&b2, 4, &*signer);
+    let b2 = Block::empty_with_index(&genesis, 2, &*signer);
+    let b3 = Block::empty_with_index(&b1, 3, &*signer);
+    let b4 = Block::empty_with_index(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).is_ok());
-    assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().inner_lite.height, 5);
+    assert!(chain.get_header_by_index(1).is_err());
+    assert_eq!(chain.get_header_by_index(5).unwrap().inner_lite.block_index, 5);
 }
 
-/// Verifies that the block at height are updated correctly when blocks from different forks are
-/// processed, especially when certain heights are skipped
+/// Verifies that the block at block_index are updated correctly when blocks from different forks are
+/// processed, especially when certain block_indices are skipped
 #[test]
-fn blocks_at_height() {
+fn blocks_at_block_index() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(genesis, 1, &*signer);
-    let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    let genesis = chain.get_block_by_index(0).unwrap();
+    let b_1 = Block::empty_with_index(genesis, 1, &*signer);
+    let b_2 = Block::empty_with_index(&b_1, 2, &*signer);
+    let b_3 = Block::empty_with_index(&b_2, 3, &*signer);
 
-    let mut c_1 = Block::empty_with_height(&genesis, 1, &*signer);
+    let mut c_1 = Block::empty_with_index(&genesis, 1, &*signer);
     tamper_with_block(&mut c_1, 1, &*signer);
-    let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
-    let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
-    let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
+    let c_3 = Block::empty_with_index(&c_1, 3, &*signer);
+    let c_4 = Block::empty_with_index(&c_3, 4, &*signer);
+    let c_5 = Block::empty_with_index(&c_4, 5, &*signer);
 
-    let mut d_3 = Block::empty_with_height(&b_2, 3, &*signer);
+    let mut d_3 = Block::empty_with_index(&b_2, 3, &*signer);
     tamper_with_block(&mut d_3, 1, &*signer);
-    let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
-    let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
+    let d_4 = Block::empty_with_index(&d_3, 4, &*signer);
+    let d_5 = Block::empty_with_index(&d_4, 5, &*signer);
 
-    let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
+    let mut e_2 = Block::empty_with_index(&b_1, 2, &*signer);
     e_2.header.inner_rest.total_weight = (10 * e_2.header.inner_rest.total_weight.to_num()).into();
     e_2.header.init();
     e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
@@ -184,43 +184,43 @@ fn blocks_at_height() {
     chain.process_block(&None, b_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, b_2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, b_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 3);
+    assert_eq!(chain.header_head().unwrap().block_index, 3);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), b_3_hash);
+    assert_eq!(chain.get_header_by_index(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_index(2).unwrap().hash(), b_2_hash);
+    assert_eq!(chain.get_header_by_index(3).unwrap().hash(), b_3_hash);
 
     chain.process_block(&None, c_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, c_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, c_4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, c_5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 5);
+    assert_eq!(chain.header_head().unwrap().block_index, 5);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), c_1_hash);
-    assert!(chain.get_header_by_height(2).is_err());
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), c_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), c_4_hash);
-    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), c_5_hash);
+    assert_eq!(chain.get_header_by_index(1).unwrap().hash(), c_1_hash);
+    assert!(chain.get_header_by_index(2).is_err());
+    assert_eq!(chain.get_header_by_index(3).unwrap().hash(), c_3_hash);
+    assert_eq!(chain.get_header_by_index(4).unwrap().hash(), c_4_hash);
+    assert_eq!(chain.get_header_by_index(5).unwrap().hash(), c_5_hash);
 
     chain.process_block(&None, d_3, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, d_4, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
     chain.process_block(&None, d_5, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 5);
+    assert_eq!(chain.header_head().unwrap().block_index, 5);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), d_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), d_4_hash);
-    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), d_5_hash);
+    assert_eq!(chain.get_header_by_index(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_index(2).unwrap().hash(), b_2_hash);
+    assert_eq!(chain.get_header_by_index(3).unwrap().hash(), d_3_hash);
+    assert_eq!(chain.get_header_by_index(4).unwrap().hash(), d_4_hash);
+    assert_eq!(chain.get_header_by_index(5).unwrap().hash(), d_5_hash);
 
     chain.process_block(&None, e_2, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 2);
+    assert_eq!(chain.header_head().unwrap().block_index, 2);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), e_2_hash);
-    assert!(chain.get_header_by_height(3).is_err());
-    assert!(chain.get_header_by_height(4).is_err());
-    assert!(chain.get_header_by_height(5).is_err());
+    assert_eq!(chain.get_header_by_index(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_index(2).unwrap().hash(), e_2_hash);
+    assert!(chain.get_header_by_index(3).is_err());
+    assert!(chain.get_header_by_index(4).is_err());
+    assert!(chain.get_header_by_index(5).is_err());
 }
 
 #[test]
@@ -229,9 +229,9 @@ fn next_blocks() {
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, &*signer);
-    let b2 = Block::empty_with_height(&b1, 2, &*signer);
-    let b3 = Block::empty_with_height(&b1, 3, &*signer);
-    let b4 = Block::empty_with_height(&b3, 4, &*signer);
+    let b2 = Block::empty_with_index(&b1, 2, &*signer);
+    let b3 = Block::empty_with_index(&b1, 3, &*signer);
+    let b4 = Block::empty_with_index(&b3, 4, &*signer);
     let b1_hash = b1.hash();
     let b2_hash = b2.hash();
     let b3_hash = b3.hash();

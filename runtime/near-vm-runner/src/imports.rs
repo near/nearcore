@@ -52,7 +52,7 @@ wrapped_imports! {
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
-    block_height<[] -> [u64]>,
+    block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
     // #################

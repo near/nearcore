@@ -6,17 +6,17 @@ use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
-use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
+use crate::sharding::{ChunkHashBlockIndex, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
-    /// Height of this block since the genesis block (height 0).
-    pub height: BlockHeight,
+    /// Index of this block since the genesis block (inde 0).
+    pub block_index: BlockIndex,
     /// Epoch start hash of this block's epoch.
     /// Used for retrieving validator information
     pub epoch_id: EpochId,
@@ -71,7 +71,7 @@ pub struct BlockHeaderInnerRest {
 
 impl BlockHeaderInnerLite {
     pub fn new(
-        height: BlockHeight,
+        block_index: BlockIndex,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         prev_state_root: MerkleHash,
@@ -80,7 +80,7 @@ impl BlockHeaderInnerLite {
         next_bp_hash: CryptoHash,
     ) -> Self {
         Self {
-            height,
+            block_index,
             epoch_id,
             next_epoch_id,
             prev_state_root,
@@ -235,7 +235,7 @@ impl BlockHeader {
     }
 
     pub fn new(
-        height: BlockHeight,
+        block_index: BlockIndex,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
@@ -262,7 +262,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite::new(
-            height,
+            block_index,
             epoch_id,
             next_epoch_id,
             prev_state_root,
@@ -428,7 +428,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         prev: &BlockHeader,
-        height: BlockHeight,
+        block_index: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
@@ -456,7 +456,7 @@ impl Block {
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
-            if chunk.height_included == height {
+            if chunk.block_index_included == block_index {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
@@ -488,7 +488,7 @@ impl Block {
 
         Block {
             header: BlockHeader::new(
-                height,
+                block_index,
                 prev.hash(),
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
@@ -496,7 +496,7 @@ impl Block {
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_outcome_root(&chunks),
                 time,
-                Block::compute_chunks_included(&chunks, height),
+                Block::compute_chunks_included(&chunks, block_index),
                 total_weight,
                 score,
                 validator_proposals,
@@ -525,8 +525,8 @@ impl Block {
         min_gas_price: Balance,
         gas_price_adjustment_rate: u8,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.height);
-        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.height);
+        let gas_used = Self::compute_gas_used(&self.chunks, self.header.inner_lite.block_index);
+        let gas_limit = Self::compute_gas_limit(&self.chunks, self.header.inner_lite.block_index);
         let expected_price = Self::compute_new_gas_price(
             prev_gas_price,
             gas_used,
@@ -576,8 +576,8 @@ impl Block {
         merklize(
             &chunks
                 .iter()
-                .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
-                .collect::<Vec<ChunkHashHeight>>(),
+                .map(|chunk| ChunkHashBlockIndex(chunk.hash.clone(), chunk.block_index_included))
+                .collect::<Vec<ChunkHashBlockIndex>>(),
         )
     }
 
@@ -585,8 +585,8 @@ impl Block {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockHeight) -> u64 {
-        chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, block_index: BlockIndex) -> u64 {
+        chunks.iter().filter(|chunk| chunk.block_index_included == block_index).count() as u64
     }
 
     pub fn compute_outcome_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
@@ -594,9 +594,9 @@ impl Block {
             .0
     }
 
-    pub fn compute_gas_used(chunks: &[ShardChunkHeader], block_height: BlockHeight) -> Gas {
+    pub fn compute_gas_used(chunks: &[ShardChunkHeader], block_index: BlockIndex) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.block_index_included == block_index {
                 acc + chunk.inner.gas_used
             } else {
                 acc
@@ -604,9 +604,9 @@ impl Block {
         })
     }
 
-    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], block_height: BlockHeight) -> Gas {
+    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], block_index: BlockIndex) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.block_index_included == block_index {
                 acc + chunk.inner.gas_limit
             } else {
                 acc
@@ -622,7 +622,7 @@ impl Block {
         verify_path(
             *chunk_root,
             merkle_path,
-            &ChunkHashHeight(chunk.hash.clone(), chunk.height_included),
+            &ChunkHashBlockIndex(chunk.hash.clone(), chunk.block_index_included),
         )
     }
 
@@ -657,7 +657,7 @@ impl Block {
 
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunks_included_root =
-            Block::compute_chunks_included(&self.chunks, self.header.inner_lite.height);
+            Block::compute_chunks_included(&self.chunks, self.header.inner_lite.block_index);
         if self.header.inner_rest.chunks_included != chunks_included_root {
             return false;
         }

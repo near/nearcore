@@ -5,7 +5,7 @@ use near_primitives::serialize::u128_dec_format;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{Balance, BlockHeight, Gas};
+use near_primitives::types::{Balance, Gas, NumBlocks};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::VMConfig;
 
@@ -17,7 +17,7 @@ pub struct RuntimeConfig {
     #[serde(with = "u128_dec_format")]
     pub storage_cost_byte_per_block: Balance,
     /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
-    pub poke_threshold: BlockHeight,
+    pub poke_threshold: NumBlocks,
     /// Costs of different actions that need to be performed when sending and processing transaction
     /// and receipts.
     pub transaction_costs: RuntimeFeesConfig,

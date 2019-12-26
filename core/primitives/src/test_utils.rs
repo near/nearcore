@@ -12,7 +12,7 @@ use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockIndex, EpochId, Nonce};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -133,7 +133,7 @@ impl SignedTransaction {
 impl Block {
     pub fn empty_with_epoch(
         prev: &Block,
-        height: BlockHeight,
+        block_index: BlockIndex,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
@@ -141,7 +141,7 @@ impl Block {
     ) -> Self {
         Self::empty_with_approvals(
             prev,
-            height,
+            block_index,
             epoch_id,
             next_epoch_id,
             vec![],
@@ -156,10 +156,10 @@ impl Block {
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
+    pub fn empty_with_index(prev: &Block, block_index: BlockIndex, signer: &dyn Signer) -> Self {
         Self::empty_with_epoch(
             prev,
-            height,
+            block_index,
             prev.header.inner_lite.epoch_id.clone(),
             if prev.header.prev_hash == CryptoHash::default() {
                 EpochId(prev.hash())
@@ -172,14 +172,14 @@ impl Block {
     }
 
     pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
-        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
+        Self::empty_with_index(prev, prev.header.inner_lite.block_index + 1, signer)
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
     /// Done because chain tests don't have a good way to store chunks right now.
     pub fn empty_with_approvals(
         prev: &Block,
-        height: BlockHeight,
+        block_index: BlockIndex,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
@@ -190,7 +190,7 @@ impl Block {
     ) -> Self {
         let mut ret = Block::produce(
             &prev.header,
-            height,
+            block_index,
             prev.chunks.clone(),
             epoch_id,
             next_epoch_id,

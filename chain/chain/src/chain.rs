@@ -16,14 +16,14 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
+    ChunkHash, ChunkHashBlockIndex, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, ChunkExtra, EpochId, Gas, HeightDelta, NumBlocks,
-    ShardId, ValidatorStake,
+    AccountId, Balance, BlockExtra, BlockIndex, BlockIndexDelta, ChunkExtra, EpochId, Gas,
+    NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
@@ -58,8 +58,8 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeight = 4;
+/// Over this block index delta in advance if we are not chunk producer - route tx to upcoming validators.
+pub const TX_ROUTING_BLOCK_INDEX_HORIZON: BlockIndexDelta = 4;
 
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
@@ -83,7 +83,7 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
+    block_index_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
@@ -92,7 +92,7 @@ impl OrphanBlockPool {
     pub fn new() -> OrphanBlockPool {
         OrphanBlockPool {
             orphans: HashMap::default(),
-            height_idx: HashMap::default(),
+            block_index_idx: HashMap::default(),
             prev_hash_idx: HashMap::default(),
             evicted: 0,
         }
@@ -107,9 +107,11 @@ impl OrphanBlockPool {
     }
 
     fn add(&mut self, orphan: Orphan) {
-        let height_hashes =
-            self.height_idx.entry(orphan.block.header.inner_lite.height).or_insert_with(|| vec![]);
-        height_hashes.push(orphan.block.hash());
+        let block_index_hashes = self
+            .block_index_idx
+            .entry(orphan.block.header.inner_lite.block_index)
+            .or_insert_with(|| vec![]);
+        block_index_hashes.push(orphan.block.hash());
         let prev_hash_entries =
             self.prev_hash_idx.entry(orphan.block.header.prev_hash).or_insert_with(|| vec![]);
         prev_hash_entries.push(orphan.block.hash());
@@ -121,11 +123,11 @@ impl OrphanBlockPool {
             self.orphans.retain(|_, ref mut x| {
                 x.added.elapsed() < TimeDuration::from_secs(MAX_ORPHAN_AGE_SECS)
             });
-            let mut heights = self.height_idx.keys().cloned().collect::<Vec<u64>>();
-            heights.sort_unstable();
+            let mut block_indices = self.block_index_idx.keys().cloned().collect::<Vec<u64>>();
+            block_indices.sort_unstable();
             let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
-            for h in heights.iter().rev() {
-                if let Some(hash) = self.height_idx.remove(h) {
+            for h in block_indices.iter().rev() {
+                if let Some(hash) = self.block_index_idx.remove(h) {
                     for h in hash {
                         let _ = self.orphans.remove(&h);
                         removed_hashes.insert(h);
@@ -135,7 +137,8 @@ impl OrphanBlockPool {
                     break;
                 }
             }
-            self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+            self.block_index_idx
+                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
             self.prev_hash_idx
                 .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
 
@@ -158,7 +161,8 @@ impl OrphanBlockPool {
                 .collect()
         });
 
-        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+        self.block_index_idx
+            .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
 
         ret
     }
@@ -174,7 +178,7 @@ pub struct ChainGenesis {
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
     pub transaction_validity_period: NumBlocks,
-    pub epoch_length: HeightDelta,
+    pub epoch_length: BlockIndexDelta,
 }
 
 impl ChainGenesis {
@@ -186,7 +190,7 @@ impl ChainGenesis {
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
         transaction_validity_period: NumBlocks,
-        epoch_length: HeightDelta,
+        epoch_length: BlockIndexDelta,
     ) -> Self {
         Self {
             time,
@@ -210,7 +214,7 @@ pub struct Chain {
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
     pub transaction_validity_period: NumBlocks,
-    pub epoch_length: HeightDelta,
+    pub epoch_length: BlockIndexDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
 }
@@ -247,7 +251,7 @@ impl Chain {
                 head = h;
 
                 // Check that genesis in the store is the same as genesis given in the config.
-                let genesis_hash = store_update.get_block_hash_by_height(0)?;
+                let genesis_hash = store_update.get_block_hash_by_index(0)?;
                 if genesis_hash != genesis.hash() {
                     return Err(ErrorKind::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
@@ -277,7 +281,7 @@ impl Chain {
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
-                        genesis.header.inner_lite.height,
+                        genesis.header.inner_lite.block_index,
                         0,
                         vec![],
                         vec![],
@@ -327,7 +331,7 @@ impl Chain {
         }
         store_update.commit()?;
 
-        info!(target: "chain", "Init: head: weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
+        info!(target: "chain", "Init: head: weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.block_index, head.last_block_hash);
 
         Ok(Chain {
             store,
@@ -393,7 +397,7 @@ impl Chain {
     pub fn compute_quorums(
         prev_hash: CryptoHash,
         epoch_id: EpochId,
-        height: BlockHeight,
+        block_index: BlockIndex,
         approvals: Vec<Approval>,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
@@ -407,7 +411,7 @@ impl Chain {
         let mut ret = FinalityGadget::compute_quorums(
             prev_hash,
             epoch_id,
-            height,
+            block_index,
             approvals,
             chain_store,
             &stakes,
@@ -433,7 +437,7 @@ impl Chain {
         let actual_quorum = Chain::compute_quorums(
             header.prev_hash,
             header.inner_lite.epoch_id.clone(),
-            header.inner_lite.height,
+            header.inner_lite.block_index,
             header.inner_rest.approvals.clone(),
             runtime_adapter,
             chain_store,
@@ -618,11 +622,12 @@ impl Chain {
     where
         F: Copy + FnMut(ChallengeBody) -> (),
     {
-        // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.inner_lite.height.cmp(&right.inner_lite.height));
+        // Sort headers by block_indices if they are out of order.
+        headers
+            .sort_by(|left, right| left.inner_lite.block_index.cmp(&right.inner_lite.block_index));
 
         if let Some(header) = headers.first() {
-            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.inner_lite.height);
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.inner_lite.block_index);
         } else {
             return Ok(());
         };
@@ -662,8 +667,8 @@ impl Chain {
                 self.runtime_adapter.add_validator_proposals(
                     header.prev_hash,
                     header.hash(),
-                    header.inner_lite.height,
-                    self.store.get_block_height(&header.inner_rest.last_quorum_pre_commit)?,
+                    header.inner_lite.block_index,
+                    self.store.get_block_index(&header.inner_rest.last_quorum_pre_commit)?,
                     header.inner_rest.validator_proposals.clone(),
                     vec![],
                     header.inner_rest.chunk_mask.clone(),
@@ -702,7 +707,7 @@ impl Chain {
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
     pub fn check_state_needed(
         &mut self,
-        block_fetch_horizon: BlockHeight,
+        block_fetch_horizon: NumBlocks,
     ) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
@@ -713,22 +718,22 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut oldest_height = 0;
+        let mut oldest_block_index = 0;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
-            if header.inner_lite.height <= block_head.height {
+            if header.inner_lite.block_index <= block_head.block_index {
                 if self.is_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
 
-            oldest_height = header.inner_lite.height;
+            oldest_block_index = header.inner_lite.block_index;
             hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
         let sync_head = self.sync_head()?;
-        if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
+        if oldest_block_index < sync_head.block_index.saturating_sub(block_fetch_horizon) {
             return Ok((true, vec![]));
         }
         Ok((false, hashes))
@@ -736,7 +741,7 @@ impl Chain {
 
     /// Returns if given block header on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let chain_header = self.get_header_by_height(header.inner_lite.height)?;
+        let chain_header = self.get_header_by_index(header.inner_lite.block_index)?;
         if chain_header.hash() == header.hash() {
             Ok(())
         } else {
@@ -748,8 +753,10 @@ impl Chain {
     pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(&hash).map(|h| h.clone()) {
-                if let Ok(header_at_height) = self.get_header_by_height(header.inner_lite.height) {
-                    if header.hash() == header_at_height.hash() {
+                if let Ok(header_at_block_index) =
+                    self.get_header_by_index(header.inner_lite.block_index)
+                {
+                    if header.hash() == header_at_block_index.hash() {
                         return Some(header);
                     }
                 }
@@ -966,7 +973,7 @@ impl Chain {
                 ErrorKind::EpochOutOfBounds => {
                     // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                     // Or someone is attacking with invalid chain.
-                    debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.height, block.hash());
+                    debug!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.inner_lite.block_index, block.hash());
                     Err(e)
                 }
                 ErrorKind::Unfit(ref msg) => {
@@ -974,7 +981,7 @@ impl Chain {
                         target: "chain",
                         "Block {} at {} is unfit at this time: {}",
                         block.hash(),
-                        block.header.inner_lite.height,
+                        block.header.inner_lite.block_index,
                         msg
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
@@ -1131,9 +1138,13 @@ impl Chain {
         &mut self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
-        last_height_included: BlockHeight,
+        last_block_index_included: BlockIndex,
     ) -> Result<ReceiptResponse, Error> {
-        self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
+        self.store.get_outgoing_receipts_for_shard(
+            prev_block_hash,
+            shard_id,
+            last_block_index_included,
+        )
     }
 
     pub fn get_state_response_header(
@@ -1144,9 +1155,9 @@ impl Chain {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
-        // 2. Empty prefix means the height where chunk was applied last time in the prev epoch.
+        // 2. Empty prefix means the block_index where chunk was applied last time in the prev epoch.
         //    Let's call it `current`.
-        // 2a. `prev_` means we're working with height before current.
+        // 2a. `prev_` means we're working with block_index before current.
         // 3. In inner loops we use all prefixes with no relation to the context described above.
         let sync_block = self.get_block(&sync_hash)?;
         let sync_block_header = sync_block.header.clone();
@@ -1154,32 +1165,33 @@ impl Chain {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
 
-        // The chunk was applied at height `chunk_header.height_included`.
+        // The chunk was applied at block_index `chunk_header.block_index_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
         if shard_id as usize >= sync_prev_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
-        // Chunk header here is the same chunk header as at the `current` height.
+        // Chunk header here is the same chunk header as at the `current` block_index.
         let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks
                 .iter()
                 .map(|shard_chunk| {
-                    ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                    ChunkHashBlockIndex(shard_chunk.hash.clone(), shard_chunk.block_index_included)
                 })
-                .collect::<Vec<ChunkHashHeight>>(),
+                .collect::<Vec<ChunkHashBlockIndex>>(),
         );
         assert_eq!(chunk_headers_root, sync_prev_block.header.inner_rest.chunk_headers_root);
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
-        let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included)?.clone();
+        let block_header = self
+            .get_header_on_chain_by_block_index(&sync_hash, chunk_header.block_index_included)?
+            .clone();
 
         // Collecting the `prev` state.
-        let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
+        let (prev_chunk_header, prev_chunk_proof, prev_chunk_block_index_included) = match self
             .get_block(&block_header.prev_hash)
         {
             Ok(prev_block) => {
@@ -1194,9 +1206,12 @@ impl Chain {
                         .chunks
                         .iter()
                         .map(|shard_chunk| {
-                            ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                            ChunkHashBlockIndex(
+                                shard_chunk.hash.clone(),
+                                shard_chunk.block_index_included,
+                            )
                         })
-                        .collect::<Vec<ChunkHashHeight>>(),
+                        .collect::<Vec<ChunkHashBlockIndex>>(),
                 );
                 assert_eq!(
                     prev_chunk_headers_root,
@@ -1204,9 +1219,9 @@ impl Chain {
                 );
 
                 let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
-                let prev_chunk_height_included = prev_chunk_header.height_included;
+                let prev_chunk_block_index_included = prev_chunk_header.block_index_included;
 
-                (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
+                (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_block_index_included)
             }
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
@@ -1220,9 +1235,9 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk block_index to the new epoch.
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
-            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?
+            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_block_index_included)?
             .clone();
 
         // Collecting proofs for incoming receipts.
@@ -1342,13 +1357,13 @@ impl Chain {
         // Consider chunk itself is valid.
 
         // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
-        // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash
-        // 3aa. Also checking chunk.height_included
+        // 3a. Checking that chunk `chunk` is included into block at last block_index before sync_hash
+        // 3aa. Also checking chunk.block_index_included
         let sync_prev_block_header = self.get_block_header(&sync_block_header.prev_hash)?.clone();
         if !verify_path(
             sync_prev_block_header.inner_rest.chunk_headers_root,
             &chunk_proof,
-            &ChunkHashHeight(chunk.chunk_hash.clone(), chunk.header.height_included),
+            &ChunkHashBlockIndex(chunk.chunk_hash.clone(), chunk.header.block_index_included),
         ) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1357,12 +1372,13 @@ impl Chain {
             .into());
         }
 
-        let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?.clone();
-        // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
-        // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
-        let prev_chunk_height_included = match prev_chunk_header {
-            Some(header) => header.height_included,
+        let block_header = self
+            .get_header_on_chain_by_block_index(&sync_hash, chunk.header.block_index_included)?
+            .clone();
+        // 3b. Checking that chunk `prev_chunk` is included into block at index before chunk.block_index_included
+        // 3ba. Also checking prev_chunk.block_index_included - it's important for getting correct incoming receipts
+        let prev_chunk_block_index_included = match prev_chunk_header {
+            Some(header) => header.block_index_included,
             None => 0,
         };
         match (prev_chunk_header, prev_chunk_proof) {
@@ -1372,7 +1388,7 @@ impl Chain {
                 if !verify_path(
                     prev_block_header.inner_rest.chunk_headers_root,
                     &prev_chunk_proof,
-                    &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_height_included),
+                    &ChunkHashBlockIndex(prev_chunk_header.hash.clone(), prev_chunk_block_index_included),
                 ) {
                     byzantine_assert!(false);
                     return Err(ErrorKind::Other(
@@ -1382,9 +1398,9 @@ impl Chain {
                 }
             }
             (None, None) => {
-                if chunk.header.height_included != 0 {
+                if chunk.header.block_index_included != 0 {
                     return Err(ErrorKind::Other(
-                    "set_shard_state failed: received empty state response for a chunk that is not at height 0".into()
+                    "set_shard_state failed: received empty state response for a chunk that is not at block_index 0".into()
                 ).into());
                 }
             }
@@ -1424,7 +1440,7 @@ impl Chain {
                 );
             }
             // We know there were exactly `block_header.inner.chunks_included` chunks included
-            // on the height of block `block_hash`.
+            // on the block_index of block `block_hash`.
             // There were no other proofs except for included chunks.
             // According to Pigeonhole principle, it's enough to ensure all receipt_proofs are distinct
             // to prove that all receipts were received and no receipts were hidden.
@@ -1461,9 +1477,9 @@ impl Chain {
                 }
             }
         }
-        // 4g. Checking that there are no more heights to get incoming_receipts
+        // 4g. Checking that there are no more block_indices to get incoming_receipts
         let header = self.get_block_header(&hash_to_compare)?;
-        if header.inner_lite.height != prev_chunk_height_included {
+        if header.inner_lite.block_index != prev_chunk_block_index_included {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: invalid incoming receipts".into(),
@@ -1541,7 +1557,7 @@ impl Chain {
         num_parts: u64,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk.header.height_included;
+        let mut block_index = shard_state_header.chunk.header.block_index_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
         for part_id in 0..num_parts {
@@ -1565,10 +1581,10 @@ impl Chain {
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
-        // We restored the state on height `shard_state_header.chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
+        // We restored the state on block_index `shard_state_header.chunk.header.block_index_included`.
+        // Now we should build a chain up to block_index of `sync_hash` block.
         loop {
-            height += 1;
+            block_index += 1;
             let mut chain_update = ChainUpdate::new(
                 &mut self.store,
                 self.runtime_adapter.clone(),
@@ -1578,9 +1594,9 @@ impl Chain {
                 self.epoch_length,
                 &self.block_economics_config,
             );
-            // Result of successful execution of set_state_finalize_on_height is bool,
+            // Result of successful execution of set_state_finalize_on_block_index is bool,
             // should we commit and continue or stop.
-            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+            if chain_update.set_state_finalize_on_block_index(block_index, shard_id, sync_hash)? {
                 chain_update.commit()?;
             } else {
                 break;
@@ -1794,8 +1810,8 @@ impl Chain {
     /// Find a validator that is responsible for a given shard to forward requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let target_height = head.height + TX_ROUTING_HEIGHT_HORIZON - 1;
-        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_height, shard_id)
+        let target_block_index = head.block_index + TX_ROUTING_BLOCK_INDEX_HORIZON - 1;
+        self.runtime_adapter.get_chunk_producer(&head.epoch_id, target_block_index, shard_id)
     }
 }
 
@@ -1846,10 +1862,10 @@ impl Chain {
         self.store.get_chunk_clone_from_header(header)
     }
 
-    /// Gets a block from the current chain by height.
+    /// Gets a block from the current chain by block_index.
     #[inline]
-    pub fn get_block_by_height(&mut self, height: BlockHeight) -> Result<&Block, Error> {
-        let hash = self.store.get_block_hash_by_height(height)?;
+    pub fn get_block_by_index(&mut self, block_index: BlockIndex) -> Result<&Block, Error> {
+        let hash = self.store.get_block_hash_by_index(block_index)?;
         self.store.get_block(&hash)
     }
 
@@ -1859,20 +1875,20 @@ impl Chain {
         self.store.get_block_header(hash)
     }
 
-    /// Returns block header from the canonical chain for given height if present.
+    /// Returns block header from the canonical chain for given block_index if present.
     #[inline]
-    pub fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
-        self.store.get_header_by_height(height)
+    pub fn get_header_by_index(&mut self, block_index: BlockIndex) -> Result<&BlockHeader, Error> {
+        self.store.get_header_by_index(block_index)
     }
 
-    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    /// Returns block header from the current chain defined by `sync_hash` for given block_index if present.
     #[inline]
-    pub fn get_header_on_chain_by_height(
+    pub fn get_header_on_chain_by_block_index(
         &mut self,
         sync_hash: &CryptoHash,
-        height: BlockHeight,
+        block_index: BlockIndex,
     ) -> Result<&BlockHeader, Error> {
-        self.store.get_header_on_chain_by_height(sync_hash, height)
+        self.store.get_header_on_chain_by_block_index(sync_hash, block_index)
     }
 
     /// Get previous block header.
@@ -2002,7 +2018,7 @@ pub struct ChainUpdate<'a> {
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
     transaction_validity_period: NumBlocks,
-    epoch_length: HeightDelta,
+    epoch_length: BlockIndexDelta,
     block_economics_config: &'a BlockEconomicsConfig,
 }
 
@@ -2013,7 +2029,7 @@ impl<'a> ChainUpdate<'a> {
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
         transaction_validity_period: NumBlocks,
-        epoch_length: HeightDelta,
+        epoch_length: BlockIndexDelta,
         block_economics_config: &'a BlockEconomicsConfig,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();
@@ -2045,7 +2061,7 @@ impl<'a> ChainUpdate<'a> {
     where
         F: FnMut(ChallengeBody) -> (),
     {
-        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner_lite.height);
+        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner_lite.block_index);
 
         self.check_header_known(header)?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
@@ -2095,7 +2111,7 @@ impl<'a> ChainUpdate<'a> {
             return Ok(());
         }
         let mut missing = vec![];
-        let height = block.header.inner_lite.height;
+        let block_index = block.header.inner_lite.block_index;
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
@@ -2110,7 +2126,7 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
             }
             let shard_id = shard_id as ShardId;
-            if chunk_header.height_included == height {
+            if chunk_header.block_index_included == block_index {
                 let chunk_hash = chunk_header.chunk_hash();
 
                 if let Err(_) =
@@ -2148,11 +2164,11 @@ impl<'a> ChainUpdate<'a> {
         if !self.care_about_any_shard_or_part(me, block.header.prev_hash)? {
             return Ok(());
         }
-        let height = block.header.inner_lite.height;
+        let block_index = block.header.inner_lite.block_index;
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks.iter() {
-            if chunk_header.height_included == height {
+            if chunk_header.block_index_included == block_index {
                 let partial_encoded_chunk =
                     self.chain_store_update.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
                 for receipt in partial_encoded_chunk.receipts.iter() {
@@ -2191,7 +2207,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_incoming_receipts_for_shard(
                 chunk_header.inner.shard_id,
                 prev_block.hash(),
-                prev_chunk_header.height_included,
+                prev_chunk_header.block_index_included,
             )?;
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
@@ -2206,7 +2222,7 @@ impl<'a> ChainUpdate<'a> {
             .apply_transactions_with_optional_storage_proof(
                 chunk_header.inner.shard_id,
                 &prev_chunk.header.inner.prev_state_root,
-                prev_chunk.header.height_included,
+                prev_chunk.header.block_index_included,
                 prev_block.header.inner_lite.timestamp,
                 &prev_chunk.header.inner.prev_block_hash,
                 &prev_block.hash(),
@@ -2272,7 +2288,7 @@ impl<'a> ChainUpdate<'a> {
                 }
             };
             if care_about_shard {
-                if chunk_header.height_included == block.header.inner_lite.height {
+                if chunk_header.block_index_included == block.header.inner_lite.block_index {
                     // Validate state root.
                     let prev_chunk_extra = self
                         .chain_store_update
@@ -2305,7 +2321,7 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
                             block.hash(),
-                            prev_chunk_header.height_included,
+                            prev_chunk_header.block_index_included,
                         )?;
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
 
@@ -2335,7 +2351,7 @@ impl<'a> ChainUpdate<'a> {
                         .apply_transactions(
                             shard_id,
                             &chunk.header.inner.prev_state_root,
-                            chunk_header.height_included,
+                            chunk_header.block_index_included,
                             block.header.inner_lite.timestamp,
                             &chunk_header.inner.prev_block_hash,
                             &block.hash(),
@@ -2402,7 +2418,7 @@ impl<'a> ChainUpdate<'a> {
                         .apply_transactions(
                             shard_id,
                             &new_extra.state_root,
-                            block.header.inner_lite.height,
+                            block.header.inner_lite.block_index,
                             block.header.inner_lite.timestamp,
                             &prev_block.hash(),
                             &block.hash(),
@@ -2439,7 +2455,7 @@ impl<'a> ChainUpdate<'a> {
     where
         F: FnMut(ChallengeBody) -> (),
     {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner_lite.height, block.header.num_approvals(), me);
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner_lite.block_index, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;
@@ -2468,8 +2484,8 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::Orphan.into());
         }
 
-        if block.header.inner_lite.height > head.height + self.epoch_length {
-            return Err(ErrorKind::InvalidBlockHeight.into());
+        if block.header.inner_lite.block_index > head.block_index + self.epoch_length {
+            return Err(ErrorKind::InvalidBlockIndex.into());
         }
 
         let (is_caught_up, needs_to_start_fetching_state) =
@@ -2529,7 +2545,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Do basic validation of chunks before applying the transactions
         for (chunk_header, prev_chunk_header) in block.chunks.iter().zip(prev_block.chunks.iter()) {
-            if chunk_header.height_included == block.header.inner_lite.height {
+            if chunk_header.block_index_included == block.header.inner_lite.block_index {
                 if chunk_header.inner.prev_block_hash != block.header.prev_hash {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
@@ -2554,7 +2570,7 @@ impl<'a> ChainUpdate<'a> {
         // Verify that proposals from chunks match block header proposals.
         let mut all_chunk_proposals = vec![];
         for chunk in block.chunks.iter() {
-            if block.header.inner_lite.height == chunk.height_included {
+            if block.header.inner_lite.block_index == chunk.block_index_included {
                 all_chunk_proposals.extend(chunk.inner.validator_proposals.clone());
             }
         }
@@ -2564,16 +2580,16 @@ impl<'a> ChainUpdate<'a> {
 
         // If block checks out, record validator proposals for given block.
         let last_quorum_pre_commit = &block.header.inner_rest.last_quorum_pre_commit;
-        let last_finalized_height = if last_quorum_pre_commit == &CryptoHash::default() {
+        let last_finalized_block_index = if last_quorum_pre_commit == &CryptoHash::default() {
             0
         } else {
-            self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner_lite.height
+            self.chain_store_update.get_block_header(last_quorum_pre_commit)?.inner_lite.block_index
         };
         self.runtime_adapter.add_validator_proposals(
             block.header.prev_hash,
             block.hash(),
-            block.header.inner_lite.height,
-            last_finalized_height,
+            block.header.inner_lite.block_index,
+            last_finalized_block_index,
             block.header.inner_rest.validator_proposals.clone(),
             block.header.inner_rest.challenges_result.clone(),
             block.header.inner_rest.chunk_mask.clone(),
@@ -2585,7 +2601,7 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
         for (shard_id, chunk_headers) in block.chunks.iter().enumerate() {
-            if chunk_headers.height_included == block.header.inner_lite.height {
+            if chunk_headers.block_index_included == block.header.inner_lite.block_index {
                 self.chain_store_update
                     .save_block_hash_with_new_chunk(block.hash(), shard_id as ShardId);
             }
@@ -2614,7 +2630,7 @@ impl<'a> ChainUpdate<'a> {
                 // condition `res.is_some()` is not met, and by the time we process F1 the below
                 // condition is not met.
                 // Currently the situation above is impossible, because we only switch to the new epoch
-                // when a block at a particular height gets finalized, and once it is finalized we
+                // when a block at a particular block_index gets finalized, and once it is finalized we
                 // always switch the epoch. Thus, the last final block from perspective of E1 has higher
                 // score that the last final block from perspective of D0, and thus E1 would be the tip
                 // of the canonical chain when it is processed, not D0.
@@ -2695,14 +2711,14 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidSignature.into());
         }
 
-        // Check we don't know a block with given height already.
+        // Check we don't know a block with given block_index already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
         if let Ok(epoch_id_to_hash) = self
             .chain_store_update
-            .get_any_block_hash_by_height(header.inner_lite.height)
+            .get_any_block_hash_by_index(header.inner_lite.block_index)
             .map(Clone::clone)
         {
-            // Check if there is already known block of the same height that has the same epoch id
+            // Check if there is already known block of the same block_index that has the same epoch id
             if let Some(other_hash) = epoch_id_to_hash.get(&header.inner_lite.epoch_id) {
                 // This should be guaranteed but it doesn't hurt to check again
                 if other_hash != &header.hash {
@@ -2799,7 +2815,7 @@ impl<'a> ChainUpdate<'a> {
             let quorums = Chain::compute_quorums(
                 header.prev_hash,
                 header.inner_lite.epoch_id.clone(),
-                header.inner_lite.height,
+                header.inner_lite.block_index,
                 header.inner_rest.approvals.clone(),
                 &*self.runtime_adapter,
                 &mut self.chain_store_update,
@@ -2869,7 +2885,7 @@ impl<'a> ChainUpdate<'a> {
         {
             let tip = Tip::from_header_and_prev_timestamp(header, prev_timestamp);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
-            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.block_index);
 
             Ok(Some(tip))
         } else {
@@ -2893,8 +2909,8 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header_and_prev_timestamp(&block.header, prev_timestamp);
 
             self.chain_store_update.save_body_head(&tip)?;
-            near_metrics::set_gauge(&metrics::BLOCK_HEIGHT_HEAD, tip.height as i64);
-            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.height, new_adjusted_weight, head_adjusted_weight);
+            near_metrics::set_gauge(&metrics::BLOCK_INDEX_HEAD, tip.block_index as i64);
+            debug!(target: "chain", "Head updated to {} at {}, adjusted weights {:?}, {:?}", tip.last_block_hash, tip.block_index, new_adjusted_weight, head_adjusted_weight);
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -2905,7 +2921,7 @@ impl<'a> ChainUpdate<'a> {
     fn update_sync_head(&mut self, header: &BlockHeader, prev_timestamp: u64) -> Result<(), Error> {
         let tip = Tip::from_header_and_prev_timestamp(header, prev_timestamp);
         self.chain_store_update.save_sync_head(&tip);
-        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
+        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.block_index);
         Ok(())
     }
 
@@ -2928,9 +2944,9 @@ impl<'a> ChainUpdate<'a> {
             },
         };
 
-        let cur_block_at_same_height = match self
+        let cur_block_at_same_block_index = match self
             .chain_store_update
-            .get_block_hash_by_height(block_header.inner_lite.height)
+            .get_block_hash_by_index(block_header.inner_lite.block_index)
         {
             Ok(bh) => Some(bh),
             Err(e) => match e.kind() {
@@ -2942,7 +2958,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_challenged_block(*block_hash);
 
         // If the block being invalidated is on the canonical chain, update head
-        if cur_block_at_same_height == Some(*block_hash) {
+        if cur_block_at_same_block_index == Some(*block_hash) {
             // We only consider two candidates for the new head: the challenger and the block
             //   immediately preceding the block being challenged
             // It could be that there is a better chain known. However, it is extremely unlikely,
@@ -3065,7 +3081,7 @@ impl<'a> ChainUpdate<'a> {
 
         let block_header = self
             .chain_store_update
-            .get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?
+            .get_header_on_chain_by_block_index(&sync_hash, chunk.header.block_index_included)?
             .clone();
 
         // Getting actual incoming receipts.
@@ -3073,7 +3089,7 @@ impl<'a> ChainUpdate<'a> {
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(&hash)?;
-            if block_header.inner_lite.height <= chunk.header.height_included {
+            if block_header.inner_lite.block_index <= chunk.header.block_index_included {
                 receipt_proof_response.push(incoming_receipt_proof.clone());
             }
         }
@@ -3083,7 +3099,7 @@ impl<'a> ChainUpdate<'a> {
         let mut apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk.header.inner.prev_state_root,
-            chunk.header.height_included,
+            chunk.header.block_index_included,
             block_header.inner_lite.timestamp,
             &chunk.header.inner.prev_block_hash,
             &block_header.hash,
@@ -3140,16 +3156,16 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    pub fn set_state_finalize_on_height(
+    pub fn set_state_finalize_on_block_index(
         &mut self,
-        height: u64,
+        block_index: BlockIndex,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let block_header_result =
-            self.chain_store_update.get_header_on_chain_by_height(&sync_hash, height);
+            self.chain_store_update.get_header_on_chain_by_block_index(&sync_hash, block_index);
         if let Err(_) = block_header_result {
-            // No such height, go ahead.
+            // No such block_index, go ahead.
             return Ok(true);
         }
         let block_header = block_header_result?.clone();
@@ -3166,7 +3182,7 @@ impl<'a> ChainUpdate<'a> {
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk_extra.state_root,
-            block_header.inner_lite.height,
+            block_header.inner_lite.block_index,
             block_header.inner_lite.timestamp,
             &prev_block_header.hash(),
             &block_header.hash(),

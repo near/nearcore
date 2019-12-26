@@ -124,20 +124,20 @@ fn test_expired_tx() {
         let (view_client, addr) = start_all_with_validity_period(true, 1);
 
         let block_hash = Arc::new(Mutex::new(None));
-        let block_height = Arc::new(Mutex::new(None));
+        let block_index = Arc::new(Mutex::new(None));
 
         WaitOrTimeout::new(
             Box::new(move |_| {
                 let block_hash = block_hash.clone();
-                let block_height = block_height.clone();
+                let block_index = block_index.clone();
                 let mut client = new_client(&format!("http://{}", addr));
                 actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                     let header: BlockHeader = res.unwrap().unwrap().header.into();
                     let hash = block_hash.lock().unwrap().clone();
-                    let height = block_height.lock().unwrap().clone();
+                    let index = block_index.lock().unwrap().clone();
                     if let Some(block_hash) = hash {
-                        if let Some(height) = height {
-                            if header.inner_lite.height - height >= 2 {
+                        if let Some(block_index) = index {
+                            if header.inner_lite.block_index - block_index >= 2 {
                                 let signer =
                                     InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
                                 let tx = SignedTransaction::send_money(
@@ -161,7 +161,7 @@ fn test_expired_tx() {
                         }
                     } else {
                         *block_hash.lock().unwrap() = Some(header.hash);
-                        *block_height.lock().unwrap() = Some(header.inner_lite.height);
+                        *block_index.lock().unwrap() = Some(header.inner_lite.block_index);
                     };
                     future::ok(())
                 }));

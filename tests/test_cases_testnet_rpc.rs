@@ -35,8 +35,8 @@ mod test {
         }
         // Let the nodes boot up a bit.
         for _ in 0..100 {
-            let block_height = nodes[0].user().get_best_block_height();
-            if block_height.is_some() && block_height.unwrap() > 1 {
+            let block_index = nodes[0].user().get_best_block_index();
+            if block_index.is_some() && block_index.unwrap() > 1 {
                 break;
             }
             thread::sleep(Duration::from_millis(100));

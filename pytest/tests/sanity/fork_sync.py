@@ -14,27 +14,27 @@ from cluster import start_cluster
 TIMEOUT = 120
 FIRST_STEP_WAIT = 20
 SECOND_STEP_WAIT = 30
-FINAL_HEIGHT_THRESHOLD = 80
+FINAL_block_index_THRESHOLD = 80
 
 nodes = start_cluster(4, 0, 4, None, [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
 time.sleep(3)
-cur_height = 0
-fork1_height = 0
-fork2_height = 0
+cur_block_index = 0
+fork1_block_index = 0
+fork2_block_index = 0
 
 # step 1, let nodes run for some time
-while cur_height < FIRST_STEP_WAIT:
+while cur_block_index < FIRST_STEP_WAIT:
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
+    cur_block_index = status['sync_info']['latest_block_index']
     time.sleep(0.1)
 
 for i in range(2):
     nodes[i].kill()
 
 print("killing node 0 and 1")
-while fork1_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
+while fork1_block_index < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[2].get_status()
-    fork1_height = status['sync_info']['latest_block_height']
+    fork1_block_index = status['sync_info']['latest_block_index']
     time.sleep(0.5)
 
 for i in range(2, 4):
@@ -47,9 +47,9 @@ for i in range(2):
 
 time.sleep(1)
 
-while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
+while fork2_block_index < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[0].get_status()
-    fork2_height = status['sync_info']['latest_block_height']
+    fork2_block_index = status['sync_info']['latest_block_index']
     time.sleep(0.5)
 
 for i in range(2, 4):
@@ -59,14 +59,14 @@ time.sleep(1)
 
 print("all nodes restarted")
 
-while cur_height < TIMEOUT:
+while cur_block_index < TIMEOUT:
     statuses = []
     for i, node in enumerate(nodes):
         cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_block_height'], cur_status['sync_info']['latest_block_hash']))
+        statuses.append((i, cur_status['sync_info']['latest_block_index'], cur_status['sync_info']['latest_block_hash']))
     statuses.sort(key=lambda x: x[1])
     last = statuses[-1]
-    cur_height = last[1]
+    cur_block_index = last[1]
     node = nodes[last[0]]
     succeed = True
     for i in range(len(statuses) - 1):
@@ -76,7 +76,7 @@ while cur_height < TIMEOUT:
         except Exception:
             succeed = False
             break
-    if statuses[0][1] > FINAL_HEIGHT_THRESHOLD and succeed:
+    if statuses[0][1] > FINAL_block_index_THRESHOLD and succeed:
         exit(0)
     time.sleep(0.5)
 

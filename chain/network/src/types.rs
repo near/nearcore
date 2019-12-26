@@ -24,7 +24,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
@@ -172,8 +172,8 @@ impl TryFrom<&str> for PeerInfo {
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
-    /// Last known chain height of the peer.
-    pub height: BlockHeight,
+    /// Last known chain block index of the peer.
+    pub block_index: BlockIndex,
     /// Last known chain weight/score of the peer.
     pub weight_and_score: WeightAndScore,
     /// Shards that the peer is tracking
@@ -938,7 +938,7 @@ pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
     BadBlockHeader = 2,
-    HeightFraud = 3,
+    BlockIndexFraud = 3,
     BadHandshake = 4,
     BadBlockApproval = 5,
     Abusive = 6,
@@ -1173,7 +1173,7 @@ pub enum NetworkClientResponses {
     /// Chain information.
     ChainInfo {
         genesis_id: GenesisId,
-        height: BlockHeight,
+        block_index: BlockIndex,
         weight_and_score: WeightAndScore,
         tracked_shards: Vec<ShardId>,
     },

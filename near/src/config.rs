@@ -24,7 +24,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Gas, HeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, Balance, BlockIndex, BlockIndexDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::views::AccountView;
@@ -78,7 +78,7 @@ const CATCHUP_STEP_PERIOD: u64 = 100;
 const CHUNK_REQUEST_RETRY_PERIOD: u64 = 200;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: HeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockIndexDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Criterion for kicking out block producers.
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
@@ -89,7 +89,7 @@ pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 60;
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 200;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
-pub const FAST_EPOCH_LENGTH: HeightDelta = 60;
+pub const FAST_EPOCH_LENGTH: BlockIndexDelta = 60;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
 pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
@@ -129,7 +129,7 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
-/// How much height horizon to give to consider peer up to date.
+/// How much block index horizon to give to consider peer up to date.
 pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
 
 pub const CONFIG_FILENAME: &str = "config.json";
@@ -190,7 +190,7 @@ pub struct Consensus {
     pub min_block_production_delay: Duration,
     /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
-    /// Maximum duration before skipping given height.
+    /// Maximum duration before skipping given block index.
     pub max_block_wait_delay: Duration,
     /// Duration to reduce the wait for each missed block by validator.
     #[serde(default = "default_reduce_wait_for_missing_block")]
@@ -198,11 +198,11 @@ pub struct Consensus {
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeight,
+    pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: BlockHeight,
+    pub state_fetch_horizon: BlockIndex,
     /// Behind this horizon header fetch kicks in.
-    pub block_header_fetch_horizon: BlockHeight,
+    pub block_header_fetch_horizon: BlockIndex,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
@@ -315,7 +315,7 @@ impl NearConfig {
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
-                sync_height_threshold: 1,
+                sync_block_index_threshold: 1,
                 header_sync_initial_timeout: Duration::from_secs(10),
                 header_sync_progress_timeout: Duration::from_secs(2),
                 header_sync_stall_ban_timeout: Duration::from_secs(40),
@@ -426,8 +426,8 @@ pub struct GenesisConfig {
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
-    /// Epoch length counted in blocks.
-    pub epoch_length: HeightDelta,
+    /// Epoch length counted in block indices.
+    pub epoch_length: BlockIndexDelta,
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.

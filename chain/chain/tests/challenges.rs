@@ -15,15 +15,15 @@ fn challenges_new_head_prev() {
         let tip = chain
             .process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
             .unwrap();
-        assert_eq!(tip.unwrap().height, i + 1);
+        assert_eq!(tip.unwrap().block_index, i + 1);
     }
 
-    assert_eq!(chain.head().unwrap().height, 5);
+    assert_eq!(chain.head().unwrap().block_index, 5);
 
     // The block to be added below after we invalidated fourth block.
     let mut last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
     tamper_with_block(&mut last_block, 2, &*signer);
-    assert_eq!(last_block.header.inner_lite.height, 5);
+    assert_eq!(last_block.header.inner_lite.block_index, 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
     let mut challenger_block = Block::empty(&prev, &*signer);
@@ -35,7 +35,7 @@ fn challenges_new_head_prev() {
         .unwrap();
 
     // At this point the challenger block is not on canonical chain
-    assert_eq!(chain.head_header().unwrap().inner_lite.height, 5);
+    assert_eq!(chain.head_header().unwrap().inner_lite.block_index, 5);
 
     // Challenge fourth block. The third block and the challenger block have the same weight, the
     //   current logic will choose the third block.
@@ -43,9 +43,9 @@ fn challenges_new_head_prev() {
 
     assert_eq!(chain.head_header().unwrap().hash(), hashes[2]);
 
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), hashes[1]);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), hashes[2]);
-    assert!(chain.get_header_by_height(4).is_err());
+    assert_eq!(chain.get_header_by_index(2).unwrap().hash(), hashes[1]);
+    assert_eq!(chain.get_header_by_index(3).unwrap().hash(), hashes[2]);
+    assert!(chain.get_header_by_index(4).is_err());
 
     // Try to add a block on top of the fifth block.
 
@@ -105,7 +105,7 @@ fn test_no_challenge_on_same_header() {
     let tip = chain
         .process_block(&None, block.clone(), Provenance::PRODUCED, |_| {}, |_| {}, |_| {})
         .unwrap();
-    assert_eq!(tip.unwrap().height, 1);
+    assert_eq!(tip.unwrap().block_index, 1);
     if let Err(e) = chain.process_block_header(&block.header, |_| panic!("Unexpected Challenge")) {
         match e.kind() {
             ErrorKind::Unfit(_) => {}

@@ -73,27 +73,28 @@ fn produce_blocks_with_tx() {
                 } = msg
                 {
                     let header = partial_encoded_chunk.header.clone().unwrap();
-                    let height = header.inner.height_created as usize;
-                    assert!(encoded_chunks.len() + 2 >= height);
+                    let block_index = header.inner.block_index_created as usize;
+                    assert!(encoded_chunks.len() + 2 >= block_index);
 
                     // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
-                    let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
-                    let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
-                    if encoded_chunks.len() + 2 == height {
+                    let data_parts = 12 + 2 * (((block_index - 1) as usize) % 4);
+                    let total_parts = 1 + data_parts * (1 + ((block_index - 1) as usize) % 3);
+                    if encoded_chunks.len() + 2 == block_index {
                         encoded_chunks
                             .push(EncodedShardChunk::from_header(header.clone(), total_parts));
                     }
                     for part in partial_encoded_chunk.parts.iter() {
-                        encoded_chunks[height - 2].content.parts[part.part_ord as usize] =
+                        encoded_chunks[block_index - 2].content.parts[part.part_ord as usize] =
                             Some(part.part.clone());
                     }
 
                     if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
                         data_parts,
                         total_parts,
-                        &mut encoded_chunks[height - 2],
+                        &mut encoded_chunks[block_index - 2],
                     ) {
-                        let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
+                        let chunk =
+                            encoded_chunks[block_index - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
                         }
@@ -137,7 +138,7 @@ fn receive_network_block() {
             let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.height + 1,
+                last_block.header.block_index + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -201,7 +202,7 @@ fn receive_network_block_header() {
             let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.height + 1,
+                last_block.header.block_index + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -274,7 +275,7 @@ fn produce_block_with_approvals() {
             let signer1 = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.height + 1,
+                last_block.header.block_index + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -325,7 +326,7 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
-                        assert_eq!(header.inner_lite.height, 1);
+                        assert_eq!(header.inner_lite.block_index, 1);
                         assert_eq!(
                             header.inner_lite.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
@@ -344,7 +345,7 @@ fn invalid_blocks() {
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.height + 1,
+                last_block.header.block_index + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -375,7 +376,7 @@ fn invalid_blocks() {
             // Send block that builds on invalid one.
             let block2 = Block::produce(
                 &block.header.clone().into(),
-                block.header.inner_lite.height + 1,
+                block.header.inner_lite.block_index + 1,
                 block.chunks.clone(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -401,7 +402,7 @@ fn invalid_blocks() {
             // Send proper block.
             let block3 = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.height + 1,
+                last_block.header.block_index + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
@@ -432,7 +433,7 @@ fn invalid_blocks() {
 }
 
 /// Runs two validators runtime with only one validator online.
-/// Present validator produces blocks on it's height after deadline.
+/// Present validator produces blocks on it's block_index after deadline.
 #[test]
 fn skip_block_production() {
     init_test_logger();
@@ -444,7 +445,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.inner_lite.height > 3 {
+                        if block.header.inner_lite.block_index > 3 {
                             System::current().stop();
                         }
                     }
@@ -485,7 +486,7 @@ fn client_sync_headers() {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
-                    height: 5,
+                    block_index: 5,
                     weight_and_score: WeightAndScore::from_ints(100, 100),
                     tracked_shards: vec![],
                 },
@@ -497,7 +498,7 @@ fn client_sync_headers() {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
-                    height: 5,
+                    block_index: 5,
                     weight_and_score: WeightAndScore::from_ints(100, 100),
                     tracked_shards: vec![],
                 },
@@ -589,8 +590,8 @@ fn test_time_attack() {
         chain_genesis,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let genesis = client.chain.get_block_by_index(0).unwrap();
+    let mut b1 = Block::empty_with_index(genesis, 1, &signer);
     b1.header.inner_lite.timestamp =
         to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
     let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
@@ -620,8 +621,8 @@ fn test_invalid_approvals() {
         chain_genesis,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let genesis = client.chain.get_block_by_index(0).unwrap();
+    let mut b1 = Block::empty_with_index(genesis, 1, &signer);
     b1.header.inner_rest.approvals = (0..100)
         .map(|i| Approval {
             account_id: format!("test{}", i).to_string(),
@@ -652,7 +653,7 @@ fn test_invalid_approvals() {
 fn test_no_double_sign() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
-    // Second time producing with the same height should fail.
+    // Second time producing with the same block_index should fail.
     assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
 }
 
@@ -673,8 +674,8 @@ fn test_invalid_gas_price() {
         chain_genesis,
     );
     let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let genesis = client.chain.get_block_by_index(0).unwrap();
+    let mut b1 = Block::empty_with_index(genesis, 1, &signer);
     b1.header.inner_rest.gas_price = 0;
     let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
     b1.header.hash = hash;
@@ -691,16 +692,16 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_block_height() {
+fn test_invalid_block_index() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
+    let b2 = Block::empty_with_index(&b1, std::u64::MAX, &signer);
     let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockHeight => {}
+            ErrorKind::InvalidBlockIndex => {}
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
@@ -717,6 +718,6 @@ fn test_minimum_gas_price() {
     for i in 1..=100 {
         env.produce_block(0, i);
     }
-    let block = env.clients[0].chain.get_block_by_height(100).unwrap();
+    let block = env.clients[0].chain.get_block_by_index(100).unwrap();
     assert!(block.header.inner_rest.gas_price >= min_gas_price);
 }

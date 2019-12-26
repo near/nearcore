@@ -39,17 +39,17 @@ last_balances = [x for x in ctx.expected_balances]
 
 sent_txs = False
 
-seen_boot_heights = set()
-observed_height = 0
-while observed_height < START_AT_BLOCK:
+seen_boot_block_indices = set()
+observed_block_index = 0
+while observed_block_index < START_AT_BLOCK:
     assert time.time() - started < TIMEOUT
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
+    new_block_index = status['sync_info']['latest_block_index']
     hash_ = status['sync_info']['latest_block_hash']
-    if new_height > observed_height:
-        observed_height = new_height
-        seen_boot_heights.add(new_height)
-        print("Boot node got to height %s" % new_height);
+    if new_block_index > observed_block_index:
+        observed_block_index = new_block_index
+        seen_boot_block_indices.add(new_block_index)
+        print("Boot node got to block_index %s" % new_block_index);
 
     if mode == 'onetx' and not sent_txs:
         ctx.send_moar_txs(hash_, 3, False)
@@ -58,7 +58,7 @@ while observed_height < START_AT_BLOCK:
     elif mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)
-            print("Sending moar txs at height %s" % new_height)
+            print("Sending moar txs at block_index %s" % new_block_index)
     time.sleep(0.1)
 
 if mode == 'onetx':
@@ -68,30 +68,30 @@ node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, 
 tracker = LogTracker(node2)
 time.sleep(3)
 
-catch_up_height = 0
-while catch_up_height < observed_height:
+catch_up_block_index = 0
+while catch_up_block_index < observed_block_index:
     assert time.time() - started < TIMEOUT
     status = node2.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > catch_up_height:
-        catch_up_height = new_height
-        print("Second node got to height %s" % new_height);
+    new_block_index = status['sync_info']['latest_block_index']
+    if new_block_index > catch_up_block_index:
+        catch_up_block_index = new_block_index
+        print("Second node got to block_index %s" % new_block_index);
 
     status = boot_node.get_status()
-    boot_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(boot_height)
+    boot_block_index = status['sync_info']['latest_block_index']
+    seen_boot_block_indices.add(boot_block_index)
 
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)
-            print("Sending moar txs at height %s" % boot_height)
+            print("Sending moar txs at block_index %s" % boot_block_index)
     time.sleep(0.1)
 
-assert catch_up_height in seen_boot_heights, "%s not in %s" % (catch_up_height, seen_boot_heights)
+assert catch_up_block_index in seen_boot_block_indices, "%s not in %s" % (catch_up_block_index, seen_boot_block_indices)
 
-if catch_up_height >= 100:
+if catch_up_block_index >= 100:
     assert tracker.check("transition to State Sync")
-elif catch_up_height <= 30:
+elif catch_up_block_index <= 30:
     assert not tracker.check("transition to State Sync")
 
 if mode == 'manytx':

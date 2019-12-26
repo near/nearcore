@@ -64,12 +64,12 @@ def stress_process(func):
 def get_recent_hash(node):
     # return the parent of the last block known to the observer
     # don't return the last block itself, since some validators might have not seen it yet
-    # also returns the height of the actual last block (so the height doesn't match the hash!)
+    # also returns the block_index of the actual last block (so the block_index doesn't match the hash!)
     status = node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     info = node.json_rpc('block', [hash_])
     hash_ = info['result']['header']['hash']
-    return hash_, status['sync_info']['latest_block_height']
+    return hash_, status['sync_info']['latest_block_index']
 
 
 def get_validator_ids(nodes):
@@ -262,8 +262,8 @@ def monkey_transactions(stopped, error, nodes, nonces):
         elif mode == 0: time.sleep(0.1)
 
 def get_the_guy_to_mess_up_with(nodes):
-    _, height = get_recent_hash(nodes[-1])
-    return (height // EPOCH_LENGTH) % (len(nodes) - 1)
+    _, block_index = get_recent_hash(nodes[-1])
+    return (block_index // EPOCH_LENGTH) % (len(nodes) - 1)
 
 @stress_process
 def monkey_staking(stopped, error, nodes, nonces):
@@ -300,8 +300,8 @@ def blocks_tracker(stopped, error, nodes, nonces):
     # note that we do not do `white stopped.value == 0`. When the test finishes, we want
     # to wait for at least one more block to be produced
     mapping = {}
-    height_to_hash = {}
-    largest_height = 0
+    block_index_to_hash = {}
+    largest_block_index = 0
     largest_per_node = [0 for _ in nodes]
     largest_divergence = 0
     last_updated = time.time()
@@ -317,18 +317,18 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     last_validators = status['validators']
                     print("VALIDATORS TRACKER: validators set changed, new set: %s" % [x['account_id'] for x in last_validators])
                 hash_ = status['sync_info']['latest_block_hash']
-                height = status['sync_info']['latest_block_height']
-                largest_per_node[val_id] = height
-                if height > largest_height:
+                block_index = status['sync_info']['latest_block_index']
+                largest_per_node[val_id] = block_index
+                if block_index > largest_block_index:
                     if stopped.value != 0:
                         done = True
-                    if not every_ten or largest_height % 10 == 0:
-                        print("BLOCK TRACKER: new height %s" % largest_height)
-                    if largest_height >= 20:
+                    if not every_ten or largest_block_index % 10 == 0:
+                        print("BLOCK TRACKER: new block_index %s" % largest_block_index)
+                    if largest_block_index >= 20:
                         if not every_ten:
                             every_ten = True
                             print("BLOCK TRACKER: switching to tracing every ten blocks to reduce spam")
-                    largest_height = height
+                    largest_block_index = block_index
                     last_updated = time.time()
 
                 elif time.time() - last_updated > block_timeout:
@@ -336,14 +336,14 @@ def blocks_tracker(stopped, error, nodes, nonces):
 
                 if hash_ not in mapping:
                     block_info = nodes[val_id].json_rpc('block', [hash_])
-                    confirm_height = block_info['result']['header']['height']
-                    assert height == confirm_height
+                    confirm_block_index = block_info['result']['header']['block_index']
+                    assert block_index == confirm_block_index
                     prev_hash = block_info['result']['header']['prev_hash']
-                    if height in height_to_hash:
-                        assert False, "Two blocks for the same height: %s and %s" % (height_to_hash[height], hash_)
+                    if block_index in block_index_to_hash:
+                        assert False, "Two blocks for the same block_index: %s and %s" % (block_index_to_hash[block_index], hash_)
 
-                    height_to_hash[height] = hash_
-                    mapping[hash_] = (prev_hash, height)
+                    block_index_to_hash[block_index] = hash_
+                    mapping[hash_] = (prev_hash, block_index)
 
             except:
                 # other monkeys can tamper with all the nodes but the last one, so exceptions are possible
@@ -356,7 +356,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
         for b2, (p2, h2) in [x for x in mapping.items()]:
             b1, p1, h1 = B1, P1, H1
             if abs(h1 - h2) < 8:
-                initial_smaller_height = min(h1, h2)
+                initial_smaller_block_index = min(h1, h2)
                 try:
                     while b1 != b2:
                         while h1 > h2:
@@ -369,16 +369,16 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert h1 == h2
                     assert b1 == b2
                     assert p1 == p2
-                    divergence = initial_smaller_height - h1
+                    divergence = initial_smaller_block_index - h1
                 except KeyError as e:
                     # some blocks were missing in the mapping, so do our best estimate
-                    divergence = initial_smaller_height - min(h1, h2)
+                    divergence = initial_smaller_block_index - min(h1, h2)
                     
                 if divergence > largest_divergence:
                     largest_divergence = divergence
                         
     print("=== BLOCK TRACKER SUMMARY ===")
-    print("Largest height:     %s" % largest_height)
+    print("Largest block_index:     %s" % largest_block_index)
     print("Largest divergence: %s" % largest_divergence)
     print("Per node: %s" % largest_per_node)
 

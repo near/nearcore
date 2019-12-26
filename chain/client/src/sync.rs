@@ -12,7 +12,9 @@ use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRootNode};
+use near_primitives::types::{
+    AccountId, BlockIndex, BlockIndexDelta, NumBlocks, ShardId, StateRootNode,
+};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -53,8 +55,8 @@ pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPee
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
     network_adapter: Arc<dyn NetworkAdapter>,
-    history_locator: Vec<(BlockHeight, CryptoHash)>,
-    prev_header_sync: (DateTime<Utc>, Weight, BlockHeight),
+    history_locator: Vec<(BlockIndex, CryptoHash)>,
+    prev_header_sync: (DateTime<Utc>, Weight, BlockIndex),
     syncing_peer: Option<FullPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
 
@@ -89,7 +91,7 @@ impl HeaderSync {
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
-        highest_height: BlockHeight,
+        highest_block_index: BlockIndex,
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
@@ -104,8 +106,8 @@ impl HeaderSync {
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}/{:?}, resetting to {} at {}/{:?}",
-                    sync_head.last_block_hash, sync_head.height, sync_head.weight_and_score,
-                    header_head.last_block_hash, header_head.height, header_head.weight_and_score,
+                    sync_head.last_block_hash, sync_head.block_index, sync_head.weight_and_score,
+                    header_head.last_block_hash, header_head.block_index, header_head.weight_and_score,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
@@ -116,8 +118,10 @@ impl HeaderSync {
         };
 
         if enable_header_sync {
-            *sync_status =
-                SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
+            *sync_status = SyncStatus::HeaderSync {
+                current_block_index: header_head.block_index,
+                highest_block_index,
+            };
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
             if let Some(peer) = most_weight_peer(&most_weight_peers) {
@@ -138,10 +142,11 @@ impl HeaderSync {
 
     fn header_sync_due(&mut self, sync_status: &SyncStatus, header_head: &Tip) -> bool {
         let now = Utc::now();
-        let (timeout, old_expected_weight, prev_height) = self.prev_header_sync;
+        let (timeout, old_expected_weight, prev_block_index) = self.prev_header_sync;
 
         // Received all necessary header, can request more.
-        let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
+        let all_headers_received =
+            header_head.block_index >= prev_block_index + MAX_BLOCK_HEADERS - 4;
 
         // Did we receive as many headers as we expected from the peer? Request more or ban peer.
         let stalling = header_head.weight_and_score.weight <= old_expected_weight && now > timeout;
@@ -159,7 +164,7 @@ impl HeaderSync {
                     header_head.weight_and_score.weight,
                     self.initial_timeout,
                 ),
-                header_head.height,
+                header_head.block_index,
             );
 
             if stalling {
@@ -176,15 +181,15 @@ impl HeaderSync {
                 if let Some(ref stalling_ts) = self.stalling_ts {
                     if let Some(ref peer) = self.syncing_peer {
                         match sync_status {
-                            SyncStatus::HeaderSync { highest_height, .. } => {
+                            SyncStatus::HeaderSync { highest_block_index, .. } => {
                                 if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.chain_info.height
+                                    && *highest_block_index == peer.chain_info.block_index
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}, score: {}",
-                                        peer.peer_info, peer.chain_info.height, peer.chain_info.weight_and_score.weight, peer.chain_info.weight_and_score.score);
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed block_index: {}, total weight: {}, score: {}",
+                                        peer.peer_info, peer.chain_info.block_index, peer.chain_info.weight_and_score.weight, peer.chain_info.weight_and_score.score);
                                     self.network_adapter.send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
+                                        ban_reason: ReasonForBan::BlockIndexFraud,
                                     });
                                 }
                             }
@@ -213,7 +218,7 @@ impl HeaderSync {
                     self.progress_timeout,
                 );
                 self.prev_header_sync =
-                    (now + self.progress_timeout, new_expected_weight, prev_height);
+                    (now + self.progress_timeout, new_expected_weight, prev_block_index);
             }
             false
         }
@@ -234,7 +239,7 @@ impl HeaderSync {
 
     fn get_locator(&mut self, chain: &mut Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let tip = chain.sync_head()?;
-        let heights = get_locator_heights(tip.height);
+        let block_indices = get_locator_block_indices(tip.block_index);
 
         // Clear history_locator in any case of header chain rollback.
         if self.history_locator.len() > 0
@@ -243,17 +248,17 @@ impl HeaderSync {
             self.history_locator.retain(|&x| x.0 == 0);
         }
 
-        // For each height we need, we either check if something is close enough from last locator, or go to the db.
-        let mut locator: Vec<(u64, CryptoHash)> = vec![(tip.height, tip.last_block_hash)];
-        for h in heights {
+        // For each block_index we need, we either check if something is close enough from last locator, or go to the db.
+        let mut locator: Vec<(u64, CryptoHash)> = vec![(tip.block_index, tip.last_block_hash)];
+        for h in block_indices {
             if let Some(x) = close_enough(&self.history_locator, h) {
                 locator.push(x);
             } else {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
-                if let Ok(header) = chain.get_header_by_height(h) {
-                    if header.inner_lite.height != last_loc.0 {
-                        locator.push((header.inner_lite.height, header.hash()));
+                if let Ok(header) = chain.get_header_by_index(h) {
+                    if header.inner_lite.block_index != last_loc.0 {
+                        locator.push((header.inner_lite.block_index, header.hash()));
                     }
                 }
             }
@@ -265,22 +270,22 @@ impl HeaderSync {
     }
 }
 
-/// Check if there is a close enough value to provided height in the locator.
-fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, CryptoHash)> {
+/// Check if there is a close enough value to provided block_index in the locator.
+fn close_enough(locator: &Vec<(u64, CryptoHash)>, block_index: u64) -> Option<(u64, CryptoHash)> {
     if locator.len() == 0 {
         return None;
     }
     // Check boundaries, if lower than the last.
-    if locator.last().unwrap().0 >= height {
+    if locator.last().unwrap().0 >= block_index {
         return locator.last().map(|x| x.clone());
     }
     // Higher than first and first is within acceptable gap.
-    if locator[0].0 < height && height.saturating_sub(127) < locator[0].0 {
+    if locator[0].0 < block_index && block_index.saturating_sub(127) < locator[0].0 {
         return Some(locator[0]);
     }
     for h in locator.windows(2) {
-        if height <= h[0].0 && height > h[1].0 {
-            if h[0].0 - height < height - h[1].0 {
+        if block_index <= h[0].0 && block_index > h[1].0 {
+            if h[0].0 - block_index < block_index - h[1].0 {
                 return Some(h[0].clone());
             } else {
                 return Some(h[1].clone());
@@ -290,34 +295,37 @@ fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, C
     None
 }
 
-/// Given height stepping back to 0 in powers of 2 steps.
-fn get_locator_heights(height: u64) -> Vec<u64> {
-    let mut current = height;
-    let mut heights = vec![];
+/// Given block_index stepping back to 0 in powers of 2 steps.
+fn get_locator_block_indices(block_index: u64) -> Vec<u64> {
+    let mut current = block_index;
+    let mut block_indices = vec![];
     while current > 0 {
-        heights.push(current);
-        if heights.len() >= MAX_BLOCK_HEADER_HASHES as usize - 1 {
+        block_indices.push(current);
+        if block_indices.len() >= MAX_BLOCK_HEADER_HASHES as usize - 1 {
             break;
         }
-        let next = 2u64.pow(heights.len() as u32);
+        let next = 2u64.pow(block_indices.len() as u32);
         current = if current > next { current - next } else { 0 };
     }
-    heights.push(0);
-    heights
+    block_indices.push(0);
+    block_indices
 }
 
 /// Helper to track block syncing.
 pub struct BlockSync {
     network_adapter: Arc<dyn NetworkAdapter>,
-    blocks_requested: BlockHeight,
+    blocks_requested: NumBlocks,
     receive_timeout: DateTime<Utc>,
-    prev_blocks_received: BlockHeight,
+    prev_blocks_received: NumBlocks,
     /// How far to fetch blocks vs fetch state.
-    block_fetch_horizon: BlockHeight,
+    block_fetch_horizon: BlockIndexDelta,
 }
 
 impl BlockSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, block_fetch_horizon: BlockHeight) -> Self {
+    pub fn new(
+        network_adapter: Arc<dyn NetworkAdapter>,
+        block_fetch_horizon: BlockIndexDelta,
+    ) -> Self {
         BlockSync {
             network_adapter,
             blocks_requested: 0,
@@ -333,7 +341,7 @@ impl BlockSync {
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
-        highest_height: BlockHeight,
+        highest_block_index: BlockIndex,
         most_weight_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.block_sync_due(chain)? {
@@ -343,7 +351,8 @@ impl BlockSync {
             }
 
             let head = chain.head()?;
-            *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
+            *sync_status =
+                SyncStatus::BodySync { current_block_index: head.block_index, highest_block_index };
         }
         Ok(false)
     }
@@ -354,7 +363,7 @@ impl BlockSync {
         &mut self,
         chain: &mut Chain,
         most_weight_peers: &[FullPeerInfo],
-        block_fetch_horizon: BlockHeight,
+        block_fetch_horizon: BlockIndex,
     ) -> Result<bool, near_chain::Error> {
         let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
         if state_needed {
@@ -378,7 +387,7 @@ impl BlockSync {
             let head = chain.head()?;
             let header_head = chain.header_head()?;
 
-            debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.height, header_head.height, hashes_to_request, most_weight_peers.len());
+            debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.block_index, header_head.block_index, hashes_to_request, most_weight_peers.len());
 
             self.blocks_requested = 0;
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
@@ -429,7 +438,7 @@ impl BlockSync {
 
     /// Total number of received blocks by the chain.
     fn blocks_received(&self, chain: &Chain) -> Result<u64, near_chain::Error> {
-        Ok((chain.head()?).height
+        Ok((chain.head()?).block_index
             + chain.orphans_len() as u64
             + chain.blocks_with_missing_chunks_len() as u64
             + chain.orphans_evicted_len() as u64)
@@ -832,20 +841,20 @@ mod test {
     use std::thread;
 
     #[test]
-    fn test_get_locator_heights() {
-        assert_eq!(get_locator_heights(0), vec![0]);
-        assert_eq!(get_locator_heights(1), vec![1, 0]);
-        assert_eq!(get_locator_heights(2), vec![2, 0]);
-        assert_eq!(get_locator_heights(3), vec![3, 1, 0]);
-        assert_eq!(get_locator_heights(10), vec![10, 8, 4, 0]);
-        assert_eq!(get_locator_heights(100), vec![100, 98, 94, 86, 70, 38, 0]);
+    fn test_get_locator_block_indices() {
+        assert_eq!(get_locator_block_indices(0), vec![0]);
+        assert_eq!(get_locator_block_indices(1), vec![1, 0]);
+        assert_eq!(get_locator_block_indices(2), vec![2, 0]);
+        assert_eq!(get_locator_block_indices(3), vec![3, 1, 0]);
+        assert_eq!(get_locator_block_indices(10), vec![10, 8, 4, 0]);
+        assert_eq!(get_locator_block_indices(100), vec![100, 98, 94, 86, 70, 38, 0]);
         assert_eq!(
-            get_locator_heights(1000),
+            get_locator_block_indices(1000),
             vec![1000, 998, 994, 986, 970, 938, 874, 746, 490, 0]
         );
-        // Locator is still reasonable size even given large height.
+        // Locator is still reasonable size even given large block_index.
         assert_eq!(
-            get_locator_heights(10000),
+            get_locator_block_indices(10000),
             vec![10000, 9998, 9994, 9986, 9970, 9938, 9874, 9746, 9490, 8978, 7954, 5906, 1810, 0,]
         );
     }
@@ -885,7 +894,7 @@ mod test {
                     chain_id: "unittest".to_string(),
                     hash: chain.genesis().hash(),
                 },
-                height: chain2.head().unwrap().height,
+                block_index: chain2.head().unwrap().block_index,
                 weight_and_score: chain2.head().unwrap().weight_and_score,
                 tracked_shards: vec![],
             },
@@ -893,7 +902,7 @@ mod test {
         };
         let head = chain.head().unwrap();
         assert!(header_sync
-            .run(&mut sync_status, &mut chain, head.height, &vec![peer1.clone()])
+            .run(&mut sync_status, &mut chain, head.block_index, &vec![peer1.clone()])
             .is_ok());
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
@@ -902,7 +911,7 @@ mod test {
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()
-                    .map(|i| chain.get_block_by_height(*i).unwrap().hash())
+                    .map(|i| chain.get_block_by_index(*i).unwrap().hash())
                     .collect(),
                 peer_id: peer1.peer_info.id
             }
@@ -918,7 +927,7 @@ mod test {
     #[test]
     fn test_slow_header_sync_common() {
         let network_adapter = Arc::new(MockNetworkAdapter::default());
-        let highest_height = 1000;
+        let highest_block_index = 1000;
 
         // Setup header_sync with expectation of 2 full-stake-seconds worth of weight per second
         // Or 6 full-stake-seconds worth of weight per three seconds
@@ -941,7 +950,7 @@ mod test {
                 chain_info: Default::default(),
                 edge_info: Default::default(),
             });
-            header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
+            header_sync.syncing_peer.as_mut().unwrap().chain_info.block_index = highest_block_index;
         };
         set_syncing_peer(&mut header_sync);
 
@@ -962,10 +971,10 @@ mod test {
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
         for i in 0..61 {
-            let current_height = 3 + i * 5;
+            let current_block_index = 3 + i * 5;
             let block = new_block_no_epoch_switches(
                 last_block,
-                current_height,
+                current_block_index,
                 vec!["test3", "test4"],
                 &*signers[3],
                 // this collectively pushes the head 61 seconds from genesis time,
@@ -989,10 +998,10 @@ mod test {
         // banned
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.inner_lite.height;
+            let current_block_index = block.header.inner_lite.block_index;
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync { current_block_index, highest_block_index },
                 &Tip::from_header_and_prev_timestamp(
                     &block.header,
                     last_block.header.inner_lite.timestamp,
@@ -1009,10 +1018,10 @@ mod test {
         // Now the same, but only four blocks / sec
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
-            let current_height = block.header.inner_lite.height;
+            let current_block_index = block.header.inner_lite.block_index;
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync { current_block_index, highest_block_index },
                 &Tip::from_header_and_prev_timestamp(
                     &block.header,
                     last_block.header.inner_lite.timestamp,

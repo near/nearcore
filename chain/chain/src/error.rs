@@ -31,9 +31,9 @@ pub enum ErrorKind {
     /// Block time is from too much in the future.
     #[fail(display = "Invalid Block Time: Too far in the future: {}", _0)]
     InvalidBlockFutureTime(DateTime<Utc>),
-    /// Block height is invalid (not previous + 1).
-    #[fail(display = "Invalid Block Height")]
-    InvalidBlockHeight,
+    /// Block index is invalid (not previous + 1).
+    #[fail(display = "Invalid Block Index")]
+    InvalidBlockIndex,
     /// Invalid block proposed signature.
     #[fail(display = "Invalid Block Proposer Signature")]
     InvalidBlockProposer,
@@ -91,9 +91,9 @@ pub enum ErrorKind {
     /// Invalid chunk mask
     #[fail(display = "Invalid Chunk Mask")]
     InvalidChunkMask,
-    /// The chunk height is outside of the horizon
-    #[fail(display = "Invalid Chunk Height")]
-    InvalidChunkHeight,
+    /// The chunk index is outside of the horizon
+    #[fail(display = "Invalid Chunk Index")]
+    InvalidChunkIndex,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -190,7 +190,7 @@ impl Error {
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
-            | ErrorKind::InvalidChunkHeight
+            | ErrorKind::InvalidChunkIndex
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
@@ -201,7 +201,7 @@ impl Error {
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
-            | ErrorKind::InvalidBlockHeight
+            | ErrorKind::InvalidBlockIndex
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeightOrScore

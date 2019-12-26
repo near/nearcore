@@ -5,15 +5,15 @@ use tempdir::TempDir;
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::{HeightDelta, NumSeats, NumShards};
+use near_primitives::types::{BlockIndexDelta, NumSeats, NumShards};
 use testlib::start_nodes;
 
 fn run_nodes(
     num_shards: NumShards,
     num_nodes: NumSeats,
     num_validators: NumSeats,
-    epoch_length: HeightDelta,
-    num_blocks: HeightDelta,
+    epoch_length: BlockIndexDelta,
+    num_blocks: BlockIndexDelta,
 ) {
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)
@@ -28,7 +28,7 @@ fn run_nodes(
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
                     Ok(Ok(b))
-                        if b.header.height > num_blocks
+                        if b.header.block_index > num_blocks
                             && b.header.total_weight > num_blocks as u128 =>
                     {
                         System::current().stop()

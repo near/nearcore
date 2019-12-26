@@ -409,14 +409,14 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "max(block_height_head{job=\"staging-testnet\"})",
+          "expr": "max(block_index_head{job=\"staging-testnet\"})",
           "refId": "A"
         }
       ],
       "thresholds": "",
       "timeFrom": null,
       "timeShift": null,
-      "title": "Block Height",
+      "title": "Block Index",
       "type": "singlestat",
       "valueFontSize": "100%",
       "valueMaps": [

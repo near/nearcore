@@ -26,29 +26,29 @@ ctx = TxContext(act_to_val, nodes)
 
 last_balances = [x for x in ctx.expected_balances]
 
-max_height = 0
-sent_height = -1
+max_block_index = 0
+sent_block_index = -1
 caught_up_times = 0
 
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[0].get_status()
 
-    height = status['sync_info']['latest_block_height']
+    block_index = status['sync_info']['latest_block_index']
     hash_ = status['sync_info']['latest_block_hash']
 
-    if height > max_height:
-        print("Got to height", height)
-        max_height = height
+    if block_index > max_block_index:
+        print("Got to block_index", block_index)
+        max_block_index = block_index
 
     if ctx.get_balances() == ctx.expected_balances:
-        print("Balances caught up, took %s blocks, moving on" % (height - sent_height));
+        print("Balances caught up, took %s blocks, moving on" % (block_index - sent_block_index));
         ctx.send_moar_txs(hash_, 10, use_routing=True)
-        sent_height = height
+        sent_block_index = block_index
         caught_up_times += 1
     else:
-        if height > sent_height + 30:
-            assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_height)
+        if block_index > sent_block_index + 30:
+            assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at block_index: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_block_index)
         time.sleep(0.2)
 
     if caught_up_times == 3:

@@ -17,7 +17,7 @@ mod tests {
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::BlockHeight;
+    use near_primitives::types::BlockIndex;
     use near_primitives::views::QueryResponseKind::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
@@ -125,7 +125,8 @@ mod tests {
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
             let phase = Arc::new(RwLock::new(ReceiptsSyncPhases::WaitingForFirstBlock));
-            let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockHeight>::new()));
+            let seen_block_indices_with_receipts =
+                Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
@@ -149,23 +150,23 @@ mod tests {
                     let destination_shard_id = account_id_to_shard_id(&account_to, 4);
 
                     let mut phase = phase.write().unwrap();
-                    let mut seen_heights_with_receipts =
-                        seen_heights_with_receipts.write().unwrap();
+                    let mut seen_block_indices_with_receipts =
+                        seen_block_indices_with_receipts.write().unwrap();
                     let mut seen_hashes_with_state = seen_hashes_with_state.write().unwrap();
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height <= send);
+                                assert!(block.header.inner_lite.block_index <= send);
                                 // This tx is rather fragile, specifically it's important that
                                 //   1. the `from` and `to` account are not in the same shard;
-                                //   2. ideally the producer of the chunk at height 3 for the shard
+                                //   2. ideally the producer of the chunk at block_index 3 for the shard
                                 //      in which `from` resides should not also be a block producer
-                                //      at height 3
+                                //      at block_index 3
                                 //   3. The `from` shard should also not match the block producer
-                                //      for height 1, because such block producer will produce
-                                //      the chunk for height 2 right away, before we manage to send
+                                //      for block_index 1, because such block producer will produce
+                                //      the chunk for block_index 2 right away, before we manage to send
                                 //      the transaction.
-                                if block.header.inner_lite.height == send {
+                                if block.header.inner_lite.block_index == send {
                                     println!(
                                         "From shard: {}, to shard: {}",
                                         source_shard_id, destination_shard_id,
@@ -187,8 +188,8 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForSecondBlock => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height <= send + 1);
-                                if block.header.inner_lite.height == send + 1 {
+                                assert!(block.header.inner_lite.block_index <= send + 1);
+                                if block.header.inner_lite.block_index == send + 1 {
                                     *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
@@ -196,9 +197,9 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height >= send + 1);
-                                assert!(block.header.inner_lite.height <= wait_till);
-                                if block.header.inner_lite.height == wait_till {
+                                assert!(block.header.inner_lite.block_index >= send + 1);
+                                assert!(block.header.inner_lite.block_index <= wait_till);
+                                if block.header.inner_lite.block_index == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -218,13 +219,13 @@ mod tests {
                                     .collect();
                                 if receipts.len() > 0 {
                                     assert_eq!(partial_encoded_chunk.shard_id, source_shard_id);
-                                    seen_heights_with_receipts.insert(
+                                    seen_block_indices_with_receipts.insert(
                                         partial_encoded_chunk
                                             .header
                                             .as_ref()
                                             .unwrap()
                                             .inner
-                                            .height_created,
+                                            .block_index_created,
                                     );
                                 } else {
                                     assert_ne!(partial_encoded_chunk.shard_id, source_shard_id);
@@ -260,16 +261,16 @@ mod tests {
                             }
                         }
                         ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
-                            for height in send + 2..=wait_till {
+                            for block_index in send + 2..=wait_till {
                                 println!(
-                                    "checking height {:?} out of {:?}, result = {:?}",
-                                    height,
+                                    "checking block_index {:?} out of {:?}, result = {:?}",
+                                    block_index,
                                     wait_till,
-                                    seen_heights_with_receipts.contains(&height)
+                                    seen_block_indices_with_receipts.contains(&block_index)
                                 );
                                 if !sync_hold {
-                                    // If we don't delay the state, all heights should contain the same receipts
-                                    assert!(seen_heights_with_receipts.contains(&height));
+                                    // If we don't delay the state, all block_indices should contain the same receipts
+                                    assert!(seen_block_indices_with_receipts.contains(&block_index));
                                 }
                             }
                             *phase = ReceiptsSyncPhases::WaitingForValidate;
@@ -277,12 +278,12 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForValidate => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height >= wait_till);
-                                assert!(block.header.inner_lite.height <= wait_till + 20);
-                                if block.header.inner_lite.height == wait_till + 20 {
+                                assert!(block.header.inner_lite.block_index >= wait_till);
+                                assert!(block.header.inner_lite.block_index <= wait_till + 20);
+                                if block.header.inner_lite.block_index == wait_till + 20 {
                                     System::current().stop();
                                 }
-                                if block.header.inner_lite.height == wait_till + 10 {
+                                if block.header.inner_lite.block_index == wait_till + 10 {
                                     for i in 0..16 {
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
@@ -341,8 +342,8 @@ mod tests {
         test_catchup_random_single_part_sync_common(false, false, 13)
     }
 
-    // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 14 and 15
-    // It causes all the receipts to be applied only on height 16, which is the next epoch.
+    // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on block_index 14 and 15
+    // It causes all the receipts to be applied only on block_index 16, which is the next epoch.
     // It tests that the incoming receipts are property synced through epochs
     #[test]
     #[ignore]
@@ -361,13 +362,17 @@ mod tests {
         test_catchup_random_single_part_sync_common(false, true, 13)
     }
 
-    // Use another height to send txs.
+    // Use another block_index to send txs.
     #[test]
-    fn test_catchup_random_single_part_sync_height_6() {
+    fn test_catchup_random_single_part_sync_block_index_6() {
         test_catchup_random_single_part_sync_common(false, false, 6)
     }
 
-    fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
+    fn test_catchup_random_single_part_sync_common(
+        skip_15: bool,
+        non_zero: bool,
+        block_index: u64,
+    ) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -381,7 +386,7 @@ mod tests {
             let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
 
             let phase = Arc::new(RwLock::new(RandomSinglePartPhases::WaitingForFirstBlock));
-            let seen_heights_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
+            let seen_block_indices_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let amounts = Arc::new(RwLock::new(HashMap::new()));
 
@@ -415,21 +420,22 @@ mod tests {
                 false,
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
-                    let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
+                    let mut seen_block_indices_same_block =
+                        seen_block_indices_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
                     match *phase {
                         RandomSinglePartPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.inner_lite.height, 1);
+                                assert_eq!(block.header.inner_lite.block_index, 1);
                                 *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
                             }
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height >= 2);
-                                assert!(block.header.inner_lite.height <= height);
+                                assert!(block.header.inner_lite.block_index >= 2);
+                                assert!(block.header.inner_lite.block_index <= block_index);
                                 let mut tx_count = 0;
-                                if block.header.inner_lite.height == height {
+                                if block.header.inner_lite.block_index == block_index {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             let mut amount =
@@ -467,10 +473,13 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForSixEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner_lite.height >= height);
-                                assert!(block.header.inner_lite.height <= 32);
-                                if block.header.inner_lite.height >= 26 {
-                                    println!("BLOCK HEIGHT {:?}", block.header.inner_lite.height);
+                                assert!(block.header.inner_lite.block_index >= block_index);
+                                assert!(block.header.inner_lite.block_index <= 32);
+                                if block.header.inner_lite.block_index >= 26 {
+                                    println!(
+                                        "BLOCK INDEX {:?}",
+                                        block.header.inner_lite.block_index
+                                    );
                                     for i in 0..16 {
                                         for j in 0..16 {
                                             let amounts1 = amounts.clone();
@@ -503,12 +512,12 @@ mod tests {
                                         }
                                     }
                                 }
-                                if block.header.inner_lite.height == 32 {
+                                if block.header.inner_lite.block_index == 32 {
                                     println!(
-                                        "SEEN HEIGHTS SAME BLOCK {:?}",
-                                        seen_heights_same_block.len()
+                                        "SEEN BLOCK INDICES SAME BLOCK {:?}",
+                                        seen_block_indices_same_block.len()
                                     );
-                                    assert_eq!(seen_heights_same_block.len(), 1);
+                                    assert_eq!(seen_block_indices_same_block.len(), 1);
                                     let amounts1 = amounts.clone();
                                     for flat_validator in &flat_validators {
                                         match amounts1
@@ -541,10 +550,10 @@ mod tests {
                                     .as_ref()
                                     .unwrap()
                                     .inner
-                                    .height_created
+                                    .block_index_created
                                     == 22
                                 {
-                                    seen_heights_same_block.insert(
+                                    seen_block_indices_same_block.insert(
                                         partial_encoded_chunk
                                             .header
                                             .as_ref()
@@ -559,14 +568,14 @@ mod tests {
                                         .as_ref()
                                         .unwrap()
                                         .inner
-                                        .height_created
+                                        .block_index_created
                                         == 14
                                         || partial_encoded_chunk
                                             .header
                                             .as_ref()
                                             .unwrap()
                                             .inner
-                                            .height_created
+                                            .block_index_created
                                             == 15
                                     {
                                         return (NetworkResponses::NoResponse, false);
@@ -598,19 +607,21 @@ mod tests {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
-            let heights = Arc::new(RwLock::new(HashMap::new()));
-            let heights1 = heights.clone();
+            let block_indices = Arc::new(RwLock::new(HashMap::new()));
+            let block_indices1 = block_indices.clone();
 
-            let check_height =
-                move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone())
-                {
-                    Entry::Occupied(entry) => {
-                        assert_eq!(*entry.get(), height);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(height);
-                    }
-                };
+            let check_block_index = move |hash: CryptoHash, block_index| match block_indices1
+                .write()
+                .unwrap()
+                .entry(hash.clone())
+            {
+                Entry::Occupied(entry) => {
+                    assert_eq!(*entry.get(), block_index);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(block_index);
+                }
+            };
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
@@ -625,10 +636,13 @@ mod tests {
                 5,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
-                        check_height(block.hash(), block.header.inner_lite.height);
-                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
+                        check_block_index(block.hash(), block.header.inner_lite.block_index);
+                        check_block_index(
+                            block.header.prev_hash,
+                            block.header.inner_lite.block_index - 1,
+                        );
 
-                        if block.header.inner_lite.height >= 25 {
+                        if block.header.inner_lite.block_index >= 25 {
                             System::current().stop();
                         }
                     }

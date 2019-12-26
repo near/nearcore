@@ -100,7 +100,7 @@ impl ViewClientActor {
                 self.runtime_adapter
                     .query(
                         &state_root,
-                        header.inner_lite.height,
+                        header.inner_lite.block_index,
                         header.inner_lite.timestamp,
                         &header.hash,
                         path_parts.clone(),
@@ -227,7 +227,9 @@ impl Handler<GetBlock> for ViewClientActor {
                 Ok(head) => self.chain.get_block(&head.last_block_hash).map(Clone::clone),
                 Err(err) => Err(err),
             },
-            GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
+            GetBlock::BlockIndex(block_index) => {
+                self.chain.get_block_by_index(block_index).map(Clone::clone)
+            }
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
         .map(|block| block.into())
@@ -248,8 +250,8 @@ impl Handler<GetChunk> for ViewClientActor {
                         .map(Clone::clone)
                 })
             }
-            GetChunk::BlockHeight(block_height, shard_id) => {
-                self.chain.get_block_by_height(block_height).map(Clone::clone).and_then(|block| {
+            GetChunk::BlockIndex(block_index, shard_id) => {
+                self.chain.get_block_by_index(block_index).map(Clone::clone).and_then(|block| {
                     self.chain
                         .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
                         .map(Clone::clone)
@@ -293,7 +295,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             self.chain.get_block_header(&request.last_block_hash).map_err(|err| err.to_string())?;
         let last_epoch_id = last_block_header.inner_lite.epoch_id.clone();
         let last_next_epoch_id = last_block_header.inner_lite.next_epoch_id.clone();
-        let last_height = last_block_header.inner_lite.height;
+        let last_block_index = last_block_header.inner_lite.block_index;
         let head = self.chain.head().map_err(|err| err.to_string())?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
@@ -308,7 +310,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             )
             .map_err(|err| err.to_string())?;
 
-            if ret.inner_lite.height <= last_height {
+            if ret.inner_lite.block_index <= last_block_index {
                 Ok(None)
             } else {
                 Ok(Some(ret))
@@ -411,7 +413,7 @@ impl Handler<GetGasPrice> for ViewClientActor {
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
         let header = match msg {
             GetGasPrice::None => self.chain.head_header(),
-            GetGasPrice::Height(height) => self.chain.get_header_by_height(height),
+            GetGasPrice::BlockIndex(block_index) => self.chain.get_header_by_index(block_index),
             GetGasPrice::Hash(block_hash) => self.chain.get_block_header(&block_hash),
         };
         header

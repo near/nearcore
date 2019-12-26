@@ -290,7 +290,7 @@ impl JsonRpcHandler {
         jsonify(
             self.view_client_addr
                 .send(match block_id {
-                    BlockId::Height(height) => GetBlock::Height(height),
+                    BlockId::BlockIndex(block_index) => GetBlock::BlockIndex(block_index),
                     BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
                 })
                 .compat()
@@ -304,8 +304,8 @@ impl JsonRpcHandler {
             self.view_client_addr
                 .send(match chunk_id {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
-                        BlockId::Height(block_height) => {
-                            GetChunk::BlockHeight(block_height, shard_id)
+                        BlockId::BlockIndex(block_index) => {
+                            GetChunk::BlockIndex(block_index, shard_id)
                         }
                         BlockId::Hash(block_hash) => {
                             GetChunk::BlockHash(block_hash.into(), shard_id)
@@ -333,7 +333,7 @@ impl JsonRpcHandler {
         let (block_id,) = parse_params::<(Option<BlockId>,)>(params)?;
         let gas_price_request = match block_id {
             None => GetGasPrice::None,
-            Some(BlockId::Height(height)) => GetGasPrice::Height(height),
+            Some(BlockId::BlockIndex(block_index)) => GetGasPrice::BlockIndex(block_index),
             Some(BlockId::Hash(hash)) => GetGasPrice::Hash(hash),
         };
         jsonify(self.view_client_addr.send(gas_price_request).compat().await)

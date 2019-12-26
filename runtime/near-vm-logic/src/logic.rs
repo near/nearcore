@@ -495,14 +495,14 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, self.context.input.clone())
     }
 
-    /// Returns the current block height.
+    /// Returns the current block index.
     ///
     /// # Cost
     ///
     /// `base`
-    pub fn block_height(&mut self) -> Result<u64> {
+    pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_height)
+        Ok(self.context.block_index)
     }
 
     /// Returns the current block timestamp.

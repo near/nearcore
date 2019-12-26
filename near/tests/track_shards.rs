@@ -41,7 +41,7 @@ fn track_shards() {
                     let last_block_hash1 = last_block_hash.clone();
                     actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.height > 10 => {
+                            Ok(Ok(b)) if b.header.block_index > 10 => {
                                 *last_block_hash1.write().unwrap() =
                                     Some(b.header.hash.clone().into());
                             }

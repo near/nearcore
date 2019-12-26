@@ -35,8 +35,8 @@ print("Waiting for %s blocks..." % BLOCKS)
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[1].get_status()
-    height = status['sync_info']['latest_block_height']
-    if height >= BLOCKS:
+    block_index = status['sync_info']['latest_block_index']
+    if block_index >= BLOCKS:
         break
     time.sleep(1)
 
@@ -55,8 +55,8 @@ assert tracker.check(LARGE_WEIGHT)
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[2].get_status()
-    height = status['sync_info']['latest_block_height']
-    if height >= BLOCKS:
+    block_index = status['sync_info']['latest_block_index']
+    if block_index >= BLOCKS:
         break
 
 assert tracker.check('ban a fraudulent peer')

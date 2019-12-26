@@ -17,10 +17,10 @@ consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "
 nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100]], {0: consensus_config0, 1: consensus_config1})
 time.sleep(3)
 
-node0_height = 0
-while node0_height < BLOCKS:
+node0_block_index = 0
+while node0_block_index < BLOCKS:
     status = nodes[0].get_status()
-    node0_height = status['sync_info']['latest_block_height']
+    node0_block_index = status['sync_info']['latest_block_index']
     time.sleep(0.5)
 
 print("kill node 0")
@@ -32,15 +32,15 @@ nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
 time.sleep(3)
 
 node1_status = nodes[1].get_status()
-node1_height = node1_status['sync_info']['latest_block_height']
+node1_block_index = node1_status['sync_info']['latest_block_index']
 
 start_time = time.time()
 
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out"
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_block_height']
-    if cur_height >= node1_height:
+    cur_block_index = status['sync_info']['latest_block_index']
+    if cur_block_index >= node1_block_index:
         break
     time.sleep(1)
 

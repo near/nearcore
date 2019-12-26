@@ -5,11 +5,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockIndex, BlockIndexDelta, ShardId};
 
-const HEIGHT_HORIZON: u64 = 1024;
-const MAX_HEIGHTS_AHEAD: u64 = 5;
-const CHUNK_HEADER_HEIGHT_HORIZON: u64 = 10;
+const BLOCK_INDEX_HORIZON: BlockIndexDelta = 1024;
+const MAX_BLOCK_INDICES_AHEAD: BlockIndexDelta = 5;
+const CHUNK_HEADER_BLOCK_INDEX_HORIZON: BlockIndexDelta = 10;
 const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 pub struct EncodedChunksCacheEntry {
@@ -19,10 +19,10 @@ pub struct EncodedChunksCacheEntry {
 }
 
 pub struct EncodedChunksCache {
-    largest_seen_height: BlockHeight,
+    largest_seen_block_index: BlockIndex,
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
-    height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
+    block_index_map: HashMap<BlockIndex, HashSet<ChunkHash>>,
     block_hash_to_chunk_headers: SizedCache<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
 }
 
@@ -51,9 +51,9 @@ impl EncodedChunksCacheEntry {
 impl EncodedChunksCache {
     pub fn new() -> Self {
         EncodedChunksCache {
-            largest_seen_height: 0,
+            largest_seen_block_index: 0,
             encoded_chunks: HashMap::new(),
-            height_map: HashMap::new(),
+            block_index_map: HashMap::new(),
             block_hash_to_chunk_headers: SizedCache::with_size(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
         }
     }
@@ -67,8 +67,8 @@ impl EncodedChunksCache {
     }
 
     pub fn insert(&mut self, chunk_hash: ChunkHash, entry: EncodedChunksCacheEntry) {
-        self.height_map
-            .entry(entry.header.inner.height_created)
+        self.block_index_map
+            .entry(entry.header.inner.block_index_created)
             .or_insert_with(|| HashSet::default())
             .insert(chunk_hash.clone());
         self.encoded_chunks.insert(chunk_hash, entry);
@@ -85,10 +85,10 @@ impl EncodedChunksCache {
         })
     }
 
-    pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
-        if height + HEIGHT_HORIZON < self.largest_seen_height {
+    pub fn block_index_within_horizon(&self, block_index: BlockIndex) -> bool {
+        if block_index + BLOCK_INDEX_HORIZON < self.largest_seen_block_index {
             false
-        } else if height > self.largest_seen_height + MAX_HEIGHTS_AHEAD {
+        } else if block_index > self.largest_seen_block_index + MAX_BLOCK_INDICES_AHEAD {
             false
         } else {
             true
@@ -105,9 +105,12 @@ impl EncodedChunksCache {
                 chunk_hash.clone(),
                 partial_encoded_chunk.header.as_ref(),
             );
-            let height = entry.header.inner.height_created;
+            let block_index = entry.header.inner.block_index_created;
             entry.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-            self.height_map.entry(height).or_insert_with(|| HashSet::default()).insert(chunk_hash);
+            self.block_index_map
+                .entry(block_index)
+                .or_insert_with(|| HashSet::default())
+                .insert(chunk_hash);
             return true;
         } else {
             return false;
@@ -116,24 +119,24 @@ impl EncodedChunksCache {
 
     pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
-            let height = entry.header.inner.height_created;
-            if !self.height_within_horizon(height) {
+            let block_index = entry.header.inner.block_index_created;
+            if !self.block_index_within_horizon(block_index) {
                 self.encoded_chunks.remove(chunk_hash);
             }
         }
     }
 
-    pub fn update_largest_seen_height<T>(
+    pub fn update_largest_seen_block_index<T>(
         &mut self,
-        new_height: BlockHeight,
+        new_block_index: BlockIndex,
         requested_chunks: &HashMap<ChunkHash, T>,
     ) {
-        let old_largest_seen_height = self.largest_seen_height;
-        self.largest_seen_height = new_height;
-        for height in old_largest_seen_height.saturating_sub(HEIGHT_HORIZON)
-            ..self.largest_seen_height.saturating_sub(HEIGHT_HORIZON)
+        let old_largest_seen_block_index = self.largest_seen_block_index;
+        self.largest_seen_block_index = new_block_index;
+        for block_index in old_largest_seen_block_index.saturating_sub(BLOCK_INDEX_HORIZON)
+            ..self.largest_seen_block_index.saturating_sub(BLOCK_INDEX_HORIZON)
         {
-            if let Some(chunks_to_remove) = self.height_map.remove(&height) {
+            if let Some(chunks_to_remove) = self.block_index_map.remove(&block_index) {
                 for chunk_hash in chunks_to_remove {
                     if !requested_chunks.contains_key(&chunk_hash) {
                         self.encoded_chunks.remove(&chunk_hash);
@@ -144,9 +147,10 @@ impl EncodedChunksCache {
     }
 
     pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
-        let height = header.inner.height_created;
-        if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
-            && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
+        let block_index = header.inner.block_index_created;
+        if block_index
+            >= self.largest_seen_block_index.saturating_sub(CHUNK_HEADER_BLOCK_INDEX_HORIZON)
+            && block_index <= self.largest_seen_block_index + MAX_BLOCK_INDICES_AHEAD
         {
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
@@ -212,8 +216,8 @@ mod tests {
             receipts: vec![],
         };
         assert!(cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk));
-        cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
+        cache.update_largest_seen_block_index::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
-        assert!(cache.height_map.is_empty());
+        assert!(cache.block_index_map.is_empty());
     }
 }

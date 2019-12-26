@@ -32,28 +32,28 @@ total_supply = sum(initial_balances)
 
 print("Initial balances: %s\nTotal supply: %s" % (initial_balances, total_supply))
 
-seen_boot_heights = set()
+seen_boot_block_indices = set()
 sent_txs = False
-largest_height = 0
+largest_block_index = 0
 
-# 1. Make the first node get to height 25. The second epoch will end around height 15-16,
+# 1. Make the first node get to block_index 25. The second epoch will end around block_index 15-16,
 #    which would already result in a stall if the first node can't sync the state from the
 #    observer for the shard it doesn't care about
 while True:
     assert time.time() - started < TIMEOUT
     status = boot_node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
-    if new_height > largest_height:
-        largest_height = new_height
-        print(new_height)
-    if new_height >= TWENTY_FIVE:
+    new_block_index = status['sync_info']['latest_block_index']
+    seen_boot_block_indices.add(new_block_index)
+    if new_block_index > largest_block_index:
+        largest_block_index = new_block_index
+        print(new_block_index)
+    if new_block_index >= TWENTY_FIVE:
         break
 
-    if new_height > 1 and not sent_txs:
+    if new_block_index > 1 and not sent_txs:
         ctx.send_moar_txs(hash_, 10, False)
-        print("Sending txs at height %s" % new_height)
+        print("Sending txs at block_index %s" % new_block_index)
         sent_txs = True
 
     time.sleep(0.1)
@@ -65,17 +65,17 @@ while True:
     assert time.time() - started < TIMEOUT
 
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
+    new_block_index = status['sync_info']['latest_block_index']
+    seen_boot_block_indices.add(new_block_index)
 
-    if new_height > largest_height:
-        largest_height = new_height
-        print(new_height)
+    if new_block_index > largest_block_index:
+        largest_block_index = new_block_index
+        print(new_block_index)
 
     status = node2.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    if new_height > TWENTY_FIVE:
-        assert new_height in seen_boot_heights, "%s not in %s" % (new_height, seen_boot_heights)
+    new_block_index = status['sync_info']['latest_block_index']
+    if new_block_index > TWENTY_FIVE:
+        assert new_block_index in seen_boot_block_indices, "%s not in %s" % (new_block_index, seen_boot_block_indices)
         break
 
     time.sleep(0.1)
@@ -120,32 +120,32 @@ while True:
 
 
 ctx.next_nonce = 100
-# 5. Record the latest height and bring down the first node, wait for couple epochs to pass
+# 5. Record the latest block_index and bring down the first node, wait for couple epochs to pass
 status = node2.get_status()
-last_height = status['sync_info']['latest_block_height']
+last_block_index = status['sync_info']['latest_block_index']
 
 ctx.nodes = [boot_node, node2, observer]
 ctx.act_to_val = [1, 1, 1]
 
 boot_node.kill()
-seen_boot_heights = set()
+seen_boot_block_indices = set()
 sent_txs = False
 
 while True:
     assert time.time() - started < TIMEOUT
     status = node2.get_status()
     hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
-    if new_height > largest_height:
-        largest_height = new_height
-        print(new_height)
-    if new_height >= last_height + TWENTY_FIVE:
+    new_block_index = status['sync_info']['latest_block_index']
+    seen_boot_block_indices.add(new_block_index)
+    if new_block_index > largest_block_index:
+        largest_block_index = new_block_index
+        print(new_block_index)
+    if new_block_index >= last_block_index + TWENTY_FIVE:
         break
 
-    if new_height > last_height + 1 and not sent_txs:
+    if new_block_index > last_block_index + 1 and not sent_txs:
         ctx.send_moar_txs(hash_, 10, False)
-        print("Sending txs at height %s" % new_height)
+        print("Sending txs at block_index %s" % new_block_index)
         sent_txs = True
 
     time.sleep(0.1)
