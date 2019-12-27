@@ -14,7 +14,8 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
-use near_network::types::{OutboundTcpConnect, PatternAddr, StopSignal};
+use near_network::types::{BlockedPorts, OutboundTcpConnect, StopSignal};
+use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
@@ -23,6 +24,7 @@ use near_primitives::types::ValidatorId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -32,7 +34,7 @@ pub fn setup_network_node(
     validators: Vec<String>,
     genesis_time: DateTime<Utc>,
     peer_max_count: u32,
-    blacklist: Vec<PatternAddr>,
+    blacklist: HashMap<IpAddr, BlockedPorts>,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
@@ -381,20 +383,22 @@ impl Runner {
 
         let pm_addr: Vec<_> = (0..self.num_nodes)
             .map(|ix| {
-                let blacklist: Vec<PatternAddr> = self
-                    .blacklist
-                    .get(&ix)
-                    .cloned()
-                    .unwrap_or_else(HashSet::new)
-                    .iter()
-                    .map(|x| {
-                        if let Some(x) = x {
-                            format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
-                        } else {
-                            "127.0.0.1".parse().unwrap()
-                        }
-                    })
-                    .collect();
+                let blacklist = blacklist_from_vec(
+                    &self
+                        .blacklist
+                        .get(&ix)
+                        .cloned()
+                        .unwrap_or_else(HashSet::new)
+                        .iter()
+                        .map(|x| {
+                            if let Some(x) = x {
+                                format!("127.0.0.1:{}", ports[*x]).parse().unwrap()
+                            } else {
+                                "127.0.0.1".parse().unwrap()
+                            }
+                        })
+                        .collect(),
+                );
 
                 setup_network_node(
                     accounts_id[ix].clone(),

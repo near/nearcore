@@ -752,6 +752,12 @@ impl PeerMessage {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BlockedPorts {
+    All,
+    Some(HashSet<u16>),
+}
+
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -784,7 +790,7 @@ pub struct NetworkConfig {
     pub push_info_period: Duration,
     /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Vec<PatternAddr>,
+    pub blacklist: HashMap<IpAddr, BlockedPorts>,
 }
 
 /// Used to match a socket addr by IP:Port or only by IP

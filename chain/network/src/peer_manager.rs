@@ -30,12 +30,12 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
-    PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal,
-    SyncData, Unregister,
+    AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
+    FullPeerInfo, InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages,
+    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -127,7 +127,14 @@ impl PeerManagerActor {
     }
 
     fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
-        self.config.blacklist.iter().any(|pattern| pattern.contains(addr))
+        if let Some(blocked_ports) = self.config.blacklist.get(&addr.ip()) {
+            match blocked_ports {
+                BlockedPorts::All => true,
+                BlockedPorts::Some(ports) => ports.contains(&addr.port()),
+            }
+        } else {
+            false
+        }
     }
 
     /// Register a direct connection to a new peer. This will be called after successfully
