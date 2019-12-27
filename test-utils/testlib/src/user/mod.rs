@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{Future, FutureExt};
+use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_primitives::account::AccessKey;
@@ -222,50 +222,49 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Output = Result<AccountView, String>> + Unpin>;
+    ) -> LocalBoxFuture<'static, Result<AccountView, String>>;
 
     fn view_balance(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Output = Result<Balance, String>> + Unpin> {
-        Box::new(self.view_account(account_id).map(|res| res.map(|acc| acc.amount)))
+    ) -> LocalBoxFuture<'static, Result<Balance, String>> {
+        self.view_account(account_id).map(|res| res.map(|acc| acc.amount)).boxed_local()
     }
 
     fn view_state(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Output = Result<ViewStateResult, String>> + Unpin>;
+    ) -> LocalBoxFuture<'static, Result<ViewStateResult, String>>;
 
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Output = Result<(), String>> + Unpin + Send>;
+    ) -> LocalBoxFuture<'static, Result<(), String>>;
 
-    fn add_receipt(&self, receipt: Receipt)
-        -> Box<dyn Future<Output = Result<(), String>> + Unpin>;
+    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), String>>;
 
     fn get_account_nonce(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Output = Result<u64, String>>>;
+    ) -> LocalBoxFuture<'static, Result<u64, String>>;
 
-    fn get_best_block_index(&self) -> Box<dyn Future<Output = Result<u64, String>> + Unpin>;
+    fn get_best_block_index(&self) -> LocalBoxFuture<'static, Result<u64, String>>;
 
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Output = Result<ExecutionOutcome, String>> + Unpin>;
+    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, String>>;
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Output = Result<FinalExecutionOutcomeView, String>> + Unpin>;
+    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, String>>;
 
-    fn get_state_root(&self) -> Box<dyn Future<Output = Result<MerkleHash, String>> + Unpin>;
+    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, String>>;
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Box<dyn Future<Output = Result<Option<AccessKey>, String>> + Unpin>;
+    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, String>>;
 }

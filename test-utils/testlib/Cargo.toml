@@ -18,7 +18,6 @@ futures = "0.3"
 lazy_static = "1.4"
 byteorder = "1.2"
 tempdir = "0.3"
-tokio-signal = "0.2"
 assert_matches = "1.3.0"
 
 borsh = "0.2.10"
@@ -35,7 +34,5 @@ near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near = { path = "../../near" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 
-[dependencies.reqwest]
-version = "0.9"
-features = ["rustls-tls", "trust-dns"]
+reqwest = { version = "0.10", features = ["rustls-tls", "blocking", "json"] }
 

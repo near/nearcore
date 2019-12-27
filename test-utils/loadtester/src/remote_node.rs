@@ -1,4 +1,4 @@
-use reqwest::r#async::Client as AsyncClient;
+use reqwest::Client as AsyncClient;
 use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -6,8 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
-use futures::compat::Future01CompatExt;
-use futures::{future, Future, TryFutureExt};
+use futures::{future, future::BoxFuture, FutureExt, TryFutureExt};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc::client::message::Message;
 use near_primitives::hash::CryptoHash;
@@ -15,7 +14,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
-use reqwest::Client as SyncClient;
+use reqwest::blocking::Client as SyncClient;
 use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
@@ -180,20 +179,18 @@ impl RemoteNode {
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Output = Result<String, String>> + Unpin + Send> {
+    ) -> BoxFuture<'static, Result<String, String>> {
         let bytes = transaction.try_to_vec().unwrap();
         let params = (to_base64(&bytes),);
         let message = Message::request(
             "broadcast_tx_async".to_string(),
             Some(serde_json::to_value(&params).unwrap()),
         );
-        let response = self
-            .async_client
+        self.async_client
             .post(self.url.as_str())
             .json(&message)
             .send()
-            .compat()
-            .and_then(|mut r| r.json::<serde_json::Value>().compat())
+            .and_then(|r| r.json::<serde_json::Value>())
             .map_err(|err| format!("{}", err))
             .and_then(|j| {
                 future::ready(
@@ -202,9 +199,8 @@ impl RemoteNode {
                         .map(|s| s.to_string())
                         .ok_or(VALUE_NOT_STR_ERR.to_string()),
                 )
-            });
-
-        Box::new(response)
+            })
+            .boxed()
     }
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of

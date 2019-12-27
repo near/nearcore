@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use actix_web::client::{Client, Connector};
-use futures::{future, Future, FutureExt, TryFutureExt};
+use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -33,8 +33,8 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-type HttpRequest<T> = Box<dyn Future<Output = Result<T, String>> + Unpin>;
-type RpcRequest<T> = Box<dyn Future<Output = Result<T, RpcError>> + Unpin>;
+type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
+type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -45,33 +45,31 @@ where
     let request =
         Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
     // TODO: simplify this.
-    Box::new(
-        client
-            .post(server_addr)
-            .header("Content-Type", "application/json")
-            .send_json(&request)
-            .map_err(|_| RpcError::invalid_request())
-            .and_then(|mut response| {
-                response.body().map(|body| match body {
-                    Ok(bytes) => from_slice(&bytes).map_err(|err| {
-                        RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
-                    }),
-                    Err(err) => {
-                        Err(RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err)))
-                    }
-                })
+    client
+        .post(server_addr)
+        .header("Content-Type", "application/json")
+        .send_json(&request)
+        .map_err(|_| RpcError::invalid_request())
+        .and_then(|mut response| {
+            response.body().map(|body| match body {
+                Ok(bytes) => from_slice(&bytes).map_err(|err| {
+                    RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
+                }),
+                Err(err) => {
+                    Err(RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err)))
+                }
             })
-            .and_then(|message| {
-                future::ready(match message {
-                    Message::Response(resp) => resp.result.and_then(|x| {
-                        serde_json::from_value(x).map_err(|err| {
-                            RpcError::parse_error(format!("Failed to parse: {:?}", err))
-                        })
-                    }),
-                    _ => Err(RpcError::invalid_request()),
-                })
-            }),
-    )
+        })
+        .and_then(|message| {
+            future::ready(match message {
+                Message::Response(resp) => resp.result.and_then(|x| {
+                    serde_json::from_value(x)
+                        .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
+                }),
+                _ => Err(RpcError::invalid_request()),
+            })
+        })
+        .boxed_local()
 }
 
 /// Prepare a `HttpRequest` with a given client, server address and parameters.
@@ -86,7 +84,7 @@ where
     R: serde::de::DeserializeOwned + 'static,
 {
     // TODO: url encode params.
-    let response = client
+    client
         .get(format!("{}/{}", server_addr, method))
         .send()
         .map_err(|err| err.to_string())
@@ -97,8 +95,8 @@ where
                     .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),
                 Err(_) => Err("Payload error: {:?}".to_string()),
             })
-        });
-    Box::new(response)
+        })
+        .boxed_local()
 }
 
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params

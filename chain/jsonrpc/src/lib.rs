@@ -439,5 +439,5 @@ pub fn start_http(
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
-    .start();
+    .run();
 }
