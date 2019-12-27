@@ -151,7 +151,8 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[rpc_error_variant = "Action"]
 pub enum ActionErrorKind {
     AccountAlreadyExists {
         account_id: AccountId,
