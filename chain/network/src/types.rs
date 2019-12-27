@@ -788,7 +788,7 @@ pub struct NetworkConfig {
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
-    pub peer_max_count: u32,
+    pub max_peer: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.

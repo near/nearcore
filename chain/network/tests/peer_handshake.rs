@@ -28,7 +28,7 @@ fn make_peer_manager(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    config.peer_max_count = peer_max_count;
+    config.max_peer = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
         let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
         match msg {

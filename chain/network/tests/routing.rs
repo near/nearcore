@@ -33,7 +33,7 @@ pub fn setup_network_node(
     boot_nodes: Vec<(String, u16)>,
     validators: Vec<String>,
     genesis_time: DateTime<Utc>,
-    peer_max_count: u32,
+    max_peer: u32,
     blacklist: HashMap<IpAddr, BlockedPorts>,
     routed_message_ttl: u8,
     outbound_disabled: bool,
@@ -45,7 +45,7 @@ pub fn setup_network_node(
     let mut config = NetworkConfig::from_seed(account_id.as_str(), port);
 
     config.outbound_disabled = true;
-    config.peer_max_count = peer_max_count;
+    config.max_peer = max_peer;
     config.ttl_account_id_router = ttl_account_id_router;
     config.routed_message_ttl = routed_message_ttl;
     config.blacklist = blacklist;

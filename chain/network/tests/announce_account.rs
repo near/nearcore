@@ -39,7 +39,7 @@ pub fn setup_network_node(
 
     // Network config
     let mut config = NetworkConfig::from_seed(account_id.as_str(), port);
-    config.peer_max_count = peer_max_count;
+    config.max_peer = peer_max_count;
 
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -181,7 +181,7 @@ pub fn make_peer_manager(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    config.peer_max_count = peer_max_count;
+    config.max_peer = peer_max_count;
     let counter = Arc::new(AtomicUsize::new(0));
     let counter1 = counter.clone();
     let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
