@@ -1091,6 +1091,7 @@ pub enum NetworkResponses {
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Edge),
+    RouteNotFound,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
