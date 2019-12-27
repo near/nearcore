@@ -86,6 +86,11 @@ pub enum HostError {
     InvalidPublicKey,
     ProhibitedInView(String),
     TooManyLogs,
+    KeyLengthExceeded,
+    ValueLengthExceeded,
+    LogLengthExceeded,
+    NumPromisesExceeded,
+    NumInputDataDependenciesExceeded,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,6 +196,11 @@ impl std::fmt::Display for HostError {
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
             TooManyLogs => write!(f, "Exceeded the maximum number of log messages"),
+            KeyLengthExceeded => write!(f, "Exceeded the length of a storage key"),
+            ValueLengthExceeded => write!(f, "Exceeded the length of a storage value"),
+            LogLengthExceeded => write!(f, "Exceeded the length of a log message"),
+            NumPromisesExceeded => write!(f, "Exceeded the maximum number of promises within a function call"),
+            NumInputDataDependenciesExceeded => write!(f, "Exceeded the maximum number of input data dependencies"),
         }
     }
 }

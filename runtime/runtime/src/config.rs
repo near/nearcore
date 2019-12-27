@@ -42,6 +42,16 @@ impl RuntimeConfig {
     }
 }
 
+/// Describes transaction costs for a given transaction.
+pub struct TransactionCost {
+    /// Total amount of gas burnt for converting this transaction into a receipt.
+    pub gas_burnt: Gas,
+    /// Total amount of gas used for converting this transaction into a receipt.
+    pub gas_used: Gas,
+    /// Total costs in tokens for this transaction.
+    pub total_cost: Balance,
+}
+
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
     gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| IntegerOverflowError {})
 }
@@ -147,14 +157,13 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
 }
-/// Returns a total amount of gas which was being burnt and total_cost
-/// which is used during incoming transaction verification
+/// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeFeesConfig,
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
-) -> Result<(Gas, Gas, Balance), IntegerOverflowError> {
+) -> Result<TransactionCost, IntegerOverflowError> {
     let mut gas_burnt: Gas = config.action_receipt_creation_config.send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
@@ -165,7 +174,7 @@ pub fn tx_cost(
     gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
     let mut total_cost = safe_gas_to_balance(gas_price, gas_used)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
-    Ok((gas_burnt, gas_used, total_cost))
+    Ok(TransactionCost { gas_burnt, gas_used, total_cost })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

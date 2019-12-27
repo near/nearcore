@@ -329,7 +329,7 @@ impl<'a> VMLogic<'a> {
         let max_len = self.config.limit_config.max_log_len;
         if len != std::u64::MAX {
             if len > max_len {
-                return Err(HostError::BadUTF8.into());
+                return Err(HostError::LogLengthExceeded.into());
             }
             buf = self.memory_get_vec(ptr, len)?;
         } else {
@@ -368,8 +368,11 @@ impl<'a> VMLogic<'a> {
         let max_len = self.config.limit_config.max_log_len;
         if len != std::u64::MAX {
             let input = self.memory_get_vec(ptr, len)?;
-            if len % 2 != 0 || len > max_len {
+            if len % 2 != 0 {
                 return Err(HostError::BadUTF16.into());
+            }
+            if len > max_len {
+                return Err(HostError::LogLengthExceeded.into());
             }
             u16_buffer = vec![0u16; len as usize / 2];
             byteorder::LittleEndian::read_u16_into(&input, &mut u16_buffer);
@@ -385,7 +388,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == limit {
-                    return Err(HostError::BadUTF16.into());
+                    return Err(HostError::LogLengthExceeded.into());
                 }
                 u16_buffer.push(el);
             }
@@ -845,11 +848,22 @@ impl<'a> VMLogic<'a> {
                     receipt_dependencies.extend(receipt_indices.clone());
                 }
             }
+            // Checking this in the loop to prevent abuse of too many joined vectors.
+            if receipt_dependencies.len() as u32
+                > self.config.limit_config.max_number_input_data_dependencies
+            {
+                return Err(HostError::NumInputDataDependenciesExceeded.into());
+            }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises.push(Promise {
             promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
         });
+        if self.promises.len() as u32
+            > self.config.limit_config.max_promises_per_function_call_action
+        {
+            return Err(HostError::NumPromisesExceeded.into());
+        }
         Ok(new_promise_idx)
     }
 
@@ -888,6 +902,11 @@ impl<'a> VMLogic<'a> {
         let promise_idx = self.promises.len() as PromiseIndex;
         self.promises
             .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        if self.promises.len() as u32
+            > self.config.limit_config.max_promises_per_function_call_action
+        {
+            return Err(HostError::NumPromisesExceeded.into());
+        }
         Ok(promise_idx)
     }
 
@@ -948,6 +967,11 @@ impl<'a> VMLogic<'a> {
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises
             .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        if self.promises.len() as u32
+            > self.config.limit_config.max_promises_per_function_call_action
+        {
+            return Err(HostError::NumPromisesExceeded.into());
+        }
         Ok(new_promise_idx)
     }
 
@@ -1560,7 +1584,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
     ///
     /// # Cost
     /// `base + cost of reading and decoding a utf8 string`
@@ -1576,20 +1600,20 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
     ///
     /// # Cost
     ///
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(message);
+        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         Ok(())
     }
 
@@ -1606,9 +1630,6 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(
@@ -1616,6 +1637,9 @@ impl<'a> VMLogic<'a> {
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
         self.logs.push(message);
+        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         Ok(())
     }
 
@@ -1630,9 +1654,6 @@ impl<'a> VMLogic<'a> {
         if msg_ptr < 4 || filename_ptr < 4 {
             return Err(HostError::BadUTF16.into());
         }
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
 
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
         let filename_len = self.memory_get_u32((filename_ptr - 4) as u64)?;
@@ -1644,6 +1665,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(format!("ABORT: {}", message));
+        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
 
         Err(HostError::GuestPanic(message).into())
     }
@@ -1704,7 +1728,13 @@ impl<'a> VMLogic<'a> {
             self.invalid_iterators.insert(invalidated_iter_idx);
         }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        if key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        if value.len() as u64 > self.config.limit_config.max_length_storage_value {
+            return Err(HostError::ValueLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per_byte(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
@@ -1766,9 +1796,11 @@ impl<'a> VMLogic<'a> {
     ///  cost to read key from register + cost to write value into register`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-
         self.gas_counter.pay_base(storage_read_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        if key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let read = self.ext.storage_get(&key);
@@ -1810,7 +1842,9 @@ impl<'a> VMLogic<'a> {
             self.invalid_iterators.insert(invalidated_iter_idx);
         }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
-
+        if key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let removed_ptr = self.ext.storage_get(&key)?;
@@ -1849,6 +1883,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_has_key_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        if key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let res = self.ext.storage_has_key(&key);
@@ -1876,6 +1913,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(storage_iter_create_prefix_base)?;
 
         let prefix = self.get_vec_from_memory_or_register(prefix_ptr, prefix_len)?;
+        if prefix.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_iter_create_prefix_byte, prefix.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let iterator_index = self.ext.storage_iter(&prefix);
@@ -1910,7 +1950,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_iter_create_range_base)?;
         let start_key = self.get_vec_from_memory_or_register(start_ptr, start_len)?;
+        if start_key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         let end_key = self.get_vec_from_memory_or_register(end_ptr, end_len)?;
+        if end_key.len() as u64 > self.config.limit_config.max_length_storage_key {
+            return Err(HostError::KeyLengthExceeded.into());
+        }
         self.gas_counter.pay_per_byte(storage_iter_create_from_byte, start_key.len() as u64)?;
         self.gas_counter.pay_per_byte(storage_iter_create_to_byte, end_key.len() as u64)?;
 

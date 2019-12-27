@@ -50,18 +50,18 @@ pub struct VMLimitConfig {
     /// Maximum length of a single log, in bytes.
     pub max_log_len: u64,
 
-    /// Max prepaid gas for a function call action.
-    pub max_prepaid_gas_function_call: Gas,
-    /// Max total prepaid gas per receipt.
-    /// Q: Do we need separate limits for per function call and per receipt?
+    /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
 
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u32,
-    /// Max total length of all method names per access key.
-    pub max_total_length_method_names: u64,
-    /// Max length of any method name.
+    /// Max total length of all method names (including terminating character) for a function call
+    /// permission access key.
+    pub max_number_bytes_method_names: u64,
+    /// Max length of any method name (without terminating character).
     pub max_length_method_name: u64,
+    /// Max length of arguments in a function call action.
+    pub max_arguments_length: u64,
     /// Max length of returned data
     pub max_length_returned_data: u64,
     /// Max contract size
@@ -119,7 +119,7 @@ impl Default for VMLimitConfig {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
             max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
 
-            max_stack_height: 16 * 1024,        // 16Kib of stack.
+            max_stack_height: 32 * 1024,        // 32Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 
@@ -133,17 +133,23 @@ impl Default for VMLimitConfig {
             max_number_logs: 100,
             max_log_len: 500,
 
-            max_prepaid_gas_function_call: 10u64.pow(11),
-            max_total_prepaid_gas: 10u64.pow(11),
+            // Fills 10 blocks. It defines how long a single receipt might live.
+            max_total_prepaid_gas: 10 * 10u64.pow(15),
 
-            max_actions_per_receipt: 20,
-            max_total_length_method_names: 2000,
-            max_length_method_name: 256,
+            // Safety limit. Unlikely to hit it for most common transactions and receipts.
+            max_actions_per_receipt: 100,
+            // Should be low enough to deserialize an access key without paying.
+            max_number_bytes_method_names: 2000,
+            max_length_method_name: 256,            // basic safety limit
+            max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
-            max_contract_size: 4 * 2u64.pow(20),        // 4 Mib,
-            max_length_storage_key: 4 * 2u64.pow(20),   // 4 Mib
+            max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+
+            max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
             max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib
+            // Safety limit and unlikely abusable.
             max_promises_per_function_call_action: 1024,
+            // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
         }
     }

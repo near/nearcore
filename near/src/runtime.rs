@@ -39,7 +39,9 @@ use near_store::{
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
+use node_runtime::{
+    verify_and_charge_transaction, ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate,
+};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
@@ -689,7 +691,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             gas_limit: None,
         };
 
-        match self.runtime.verify_and_charge_transaction(
+        match verify_and_charge_transaction(
+            &self.runtime.config,
             &mut state_update,
             &apply_state,
             &transaction,
@@ -740,7 +743,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     // Verifying the transaction is on the same chain and hasn't expired yet.
                     if chain_validate(&tx) {
                         // Verifying the validity of the transaction based on the current state.
-                        match self.runtime.verify_and_charge_transaction(
+                        match verify_and_charge_transaction(
+                            &self.runtime.config,
                             &mut state_update,
                             &apply_state,
                             &tx,

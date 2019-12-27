@@ -751,6 +751,9 @@ impl From<ExecutionError> for ExecutionErrorView {
                     InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
                     InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
                     InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
+                    InvalidTxError::ActionsValidation(_) => {
+                        "InvalidTxError::ActionsValidation".to_string()
+                    }
                 },
             },
         }
