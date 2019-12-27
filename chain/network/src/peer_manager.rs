@@ -151,7 +151,7 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        debug!(target: "network", "Connected to {:?}", full_peer_info);
+        debug!(target: "network", "Consolidated connection with {:?}", full_peer_info);
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
@@ -294,12 +294,12 @@ impl PeerManagerActor {
     }
 
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        (self.active_peers.len() + self.outgoing_peers.len()) < (self.config.max_peer as usize)
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
         && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
-        (self.active_peers.len() + self.outgoing_peers.len()) < (self.config.max_peer as usize)
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
     }
 
     /// Returns single random peer with the most weight.

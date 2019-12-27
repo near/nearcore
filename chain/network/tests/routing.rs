@@ -339,7 +339,7 @@ impl StateMachine {
 struct Runner {
     num_nodes: usize,
     num_validators: usize,
-    peer_max_count: u32,
+    max_peer: u32,
     state_machine: Option<StateMachine>,
     /// If v is in the list from u, it means v is blacklisted from u point of view.
     /// blacklist[u].contains(v) <=> v is blacklisted from u.
@@ -352,11 +352,11 @@ struct Runner {
 }
 
 impl Runner {
-    fn new(num_nodes: usize, num_validators: usize, peer_max_count: u32) -> Self {
+    fn new(num_nodes: usize, num_validators: usize, max_peer: u32) -> Self {
         Self {
             num_nodes,
             num_validators,
-            peer_max_count,
+            max_peer,
             state_machine: Some(StateMachine::new()),
             blacklist: HashMap::new(),
             boot_nodes: vec![],
@@ -433,7 +433,7 @@ impl Runner {
                     boot_nodes.clone(),
                     validators.clone(),
                     genesis_time,
-                    self.peer_max_count,
+                    self.max_peer,
                     blacklist,
                     self.routed_message_ttl,
                     self.outbound_disabled,
@@ -795,6 +795,32 @@ fn blacklist_all() {
         runner.push(Action::Wait(100));
         runner.push(Action::CheckRoutingTable(1, vec![]));
         runner.push(Action::CheckRoutingTable(0, vec![]));
+        runner.run();
+    })
+    .unwrap();
+}
+
+/// Spawn 4 nodes with max peers requird equal 2. Connect first three peers in a triangle.
+/// Try to connect peer3 and see it fail since
+#[test]
+fn max_peer_limit() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
+        runner.push(Action::AddEdge(3, 0));
+        // TODO(Marx): After #1886 is merged use Action::Wait here
+        // runner.push(Action::Wait(10));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
+        runner.push(Action::CheckRoutingTable(3, vec![]));
 
         runner.run();
     })
