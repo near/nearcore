@@ -1127,7 +1127,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
             self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped");
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
     }
 }
@@ -1197,6 +1197,12 @@ impl Handler<Consolidate> for PeerManagerActor {
                 debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse::Reject;
             }
+        }
+
+        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+            return ConsolidateResponse::Reject;
         }
 
         if msg.other_edge_info.nonce == 0 {
