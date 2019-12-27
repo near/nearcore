@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, MerkleHash};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash};
 use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
 use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
@@ -45,11 +45,11 @@ pub trait User {
             .map(|access_key| access_key.nonce)
     }
 
-    fn get_best_block_index(&self) -> Option<BlockIndex>;
+    fn get_best_height(&self) -> Option<BlockHeight>;
 
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
-    fn get_block(&self, block_index: u64) -> Option<BlockView>;
+    fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 
@@ -248,7 +248,7 @@ pub trait AsyncUser: Send + Sync {
         account_id: &AccountId,
     ) -> Box<dyn Future<Item = u64, Error = String>>;
 
-    fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = String>>;
+    fn get_best_height(&self) -> Box<dyn Future<Item = u64, Error = String>>;
 
     fn get_transaction_result(
         &self,

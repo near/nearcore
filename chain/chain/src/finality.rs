@@ -2,7 +2,7 @@ use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::{Approval, BlockHeader, BlockHeaderInnerRest, Weight};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
 use std::collections::{HashMap, HashSet};
 
 // How many blocks back to search for a new reference hash when the chain switches and the block
@@ -175,7 +175,7 @@ impl FinalityGadget {
     pub fn compute_quorums(
         mut prev_hash: CryptoHash,
         epoch_id: EpochId,
-        mut block_index: BlockIndex,
+        mut height: BlockHeight,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
         stakes: &Vec<ValidatorStake>,
@@ -185,11 +185,11 @@ impl FinalityGadget {
 
         let mut surrounding_approvals = HashSet::new();
         let mut surrounding_stake = 0 as Balance;
-        let mut block_index_to_accounts_to_remove: HashMap<u64, HashSet<_>> = HashMap::new();
-        let mut block_index_to_stake: HashMap<u64, Balance> = HashMap::new();
-        let mut accounts_to_block_index_to_remove = HashMap::new();
+        let mut height_to_accounts_to_remove: HashMap<u64, HashSet<_>> = HashMap::new();
+        let mut height_to_stake: HashMap<u64, Balance> = HashMap::new();
+        let mut accounts_to_height_to_remove = HashMap::new();
 
-        let mut highest_block_index_no_quorum = block_index as i64;
+        let mut highest_height_no_quorum = height as i64;
         let mut stake_surrounding_no_quorum = 0 as Balance;
 
         let account_id_to_stake =
@@ -217,46 +217,41 @@ impl FinalityGadget {
                     None => continue,
                 };
 
-                let reference_block_index =
-                    chain_store.get_block_header(&approval.reference_hash)?.inner_lite.block_index;
+                let reference_height =
+                    chain_store.get_block_header(&approval.reference_hash)?.inner_lite.height;
 
-                let was_surrounding_no_quroum = if let Some(old_block_index) =
-                    accounts_to_block_index_to_remove.get(&account_id)
+                let was_surrounding_no_quroum = if let Some(old_height) =
+                    accounts_to_height_to_remove.get(&account_id)
                 {
-                    if *old_block_index < reference_block_index {
+                    if *old_height < reference_height {
                         // If the approval is fully surrounded by the previous known approval from
                         //    the same block producer, disregard it (the existence of two such approvals
                         //    is a slashable behavior, and we can safely ignore either or both here)
                         continue;
                     }
 
-                    block_index_to_accounts_to_remove
-                        .get_mut(old_block_index)
-                        .unwrap()
-                        .remove(&account_id);
-                    *block_index_to_stake.get_mut(old_block_index).unwrap() -= cur_account_stake;
+                    height_to_accounts_to_remove.get_mut(old_height).unwrap().remove(&account_id);
+                    *height_to_stake.get_mut(old_height).unwrap() -= cur_account_stake;
 
-                    *old_block_index as i64 <= highest_block_index_no_quorum
+                    *old_height as i64 <= highest_height_no_quorum
                 } else {
                     false
                 };
 
-                if reference_block_index as i64 <= highest_block_index_no_quorum
-                    && !was_surrounding_no_quroum
+                if reference_height as i64 <= highest_height_no_quorum && !was_surrounding_no_quroum
                 {
                     stake_surrounding_no_quorum += cur_account_stake;
                 }
 
-                block_index_to_accounts_to_remove
-                    .entry(reference_block_index)
+                height_to_accounts_to_remove
+                    .entry(reference_height)
                     .or_insert_with(|| HashSet::new())
                     .insert(account_id.clone());
 
-                *block_index_to_stake
-                    .entry(reference_block_index)
-                    .or_insert_with(|| 0 as Balance) += cur_account_stake;
+                *height_to_stake.entry(reference_height).or_insert_with(|| 0 as Balance) +=
+                    cur_account_stake;
 
-                accounts_to_block_index_to_remove.insert(account_id.clone(), reference_block_index);
+                accounts_to_height_to_remove.insert(account_id.clone(), reference_height);
 
                 if !surrounding_approvals.contains(&account_id) {
                     surrounding_stake += cur_account_stake;
@@ -264,13 +259,13 @@ impl FinalityGadget {
                 }
             }
 
-            if let Some(remove_accounts) = block_index_to_accounts_to_remove.get(&block_index) {
+            if let Some(remove_accounts) = height_to_accounts_to_remove.get(&height) {
                 for account_id in remove_accounts {
                     if surrounding_approvals.contains(account_id) {
                         surrounding_stake -= *account_id_to_stake.get(account_id).unwrap();
                         surrounding_approvals.remove(account_id);
                     }
-                    accounts_to_block_index_to_remove.remove(account_id);
+                    accounts_to_height_to_remove.remove(account_id);
                 }
             }
 
@@ -279,7 +274,7 @@ impl FinalityGadget {
 
             prev_hash = last_block_header.prev_hash;
             approvals = last_block_header.inner_rest.approvals.clone();
-            block_index = last_block_header.inner_lite.block_index;
+            height = last_block_header.inner_lite.height;
 
             if last_block_header.inner_lite.epoch_id != epoch_id {
                 // Do not cross the epoch boundary. It is safe to get the last quorums from the last
@@ -296,13 +291,12 @@ impl FinalityGadget {
                 break;
             }
 
-            // Move `highest_block_index_no_quorum` if needed
+            // Move `highest_height_no_quorum` if needed
             while stake_surrounding_no_quorum > threshold {
-                stake_surrounding_no_quorum -= *block_index_to_stake
-                    .get(&(highest_block_index_no_quorum as u64))
-                    .unwrap_or(&0);
+                stake_surrounding_no_quorum -=
+                    *height_to_stake.get(&(highest_height_no_quorum as u64)).unwrap_or(&0);
 
-                highest_block_index_no_quorum -= 1;
+                highest_height_no_quorum -= 1;
             }
 
             if surrounding_stake > threshold {
@@ -313,7 +307,7 @@ impl FinalityGadget {
                 let prev_qv_hash = last_block_header.inner_rest.last_quorum_pre_vote;
                 if prev_qv_hash != CryptoHash::default() {
                     let prev_qv = chain_store.get_block_header(&prev_qv_hash)?;
-                    if prev_qv.inner_lite.block_index as i64 > highest_block_index_no_quorum {
+                    if prev_qv.inner_lite.height as i64 > highest_height_no_quorum {
                         quorum_pre_commit = Some(prev_qv_hash);
                     }
                 }

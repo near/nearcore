@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, BlockIndexDelta, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
@@ -59,7 +59,7 @@ pub(crate) fn check_rent(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
 ) -> Result<(), u128> {
     let buffer_length = if account.locked > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
@@ -79,14 +79,14 @@ pub(crate) fn check_rent(
 pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
-    block_index: BlockIndex,
+    height: BlockHeight,
     runtime_config: &RuntimeConfig,
 ) -> Balance {
-    let charge = u128::from(block_index - account.storage_paid_at)
+    let charge = u128::from(height - account.storage_paid_at)
         * cost_per_block(account_id, account, runtime_config);
     let actual_charge = std::cmp::min(account.amount, charge);
     account.amount -= actual_charge;
-    account.storage_paid_at = block_index;
+    account.storage_paid_at = height;
     actual_charge
 }
 
@@ -152,7 +152,7 @@ pub(crate) fn action_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: receipt.predecessor_id.clone(),
         input: function_call.args.clone(),
-        block_index: apply_state.block_index,
+        height: apply_state.height,
         block_timestamp: apply_state.block_timestamp,
         account_balance: account.amount,
         account_locked_balance: account.locked,
@@ -262,7 +262,7 @@ pub(crate) fn action_create_account(
         return;
     }
     *actor_id = receipt.receiver_id.clone();
-    *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
+    *account = Some(Account::new(0, CryptoHash::default(), apply_state.height));
     account.as_mut().unwrap().storage_usage = fee_config.storage_usage_config.account_cost;
 }
 

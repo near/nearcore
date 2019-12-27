@@ -97,7 +97,7 @@ mod test {
             listen_port: None,
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
-                block_index: 0,
+                height: 0,
                 weight_and_score: WeightAndScore::from_ints(0, 0),
                 tracked_shards: vec![],
             },

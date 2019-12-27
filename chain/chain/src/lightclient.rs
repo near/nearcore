@@ -54,7 +54,7 @@ pub fn create_light_client_block_view(
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite = block_header.inner_lite.clone();
     let inner_lite_view = BlockHeaderInnerLiteView {
-        block_index: inner_lite.block_index,
+        height: inner_lite.height,
         epoch_id: inner_lite.epoch_id.0,
         next_epoch_id: inner_lite.next_epoch_id.0,
         prev_state_root: inner_lite.prev_state_root,

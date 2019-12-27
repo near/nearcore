@@ -25,7 +25,7 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
     StorageUsage, ValidatorStake, Version,
 };
 
@@ -38,7 +38,7 @@ pub struct AccountView {
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
-    pub storage_paid_at: BlockIndex,
+    pub storage_paid_at: BlockHeight,
 }
 
 impl From<Account> for AccountView {
@@ -172,13 +172,13 @@ pub enum QueryResponseKind {
 pub struct QueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
-    pub block_index: BlockIndex,
+    pub height: BlockHeight,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
-    pub latest_block_index: BlockIndex,
+    pub latest_height: BlockHeight,
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
@@ -252,7 +252,7 @@ impl From<Challenge> for ChallengeView {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
-    pub block_index: BlockIndex,
+    pub height: BlockHeight,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub hash: CryptoHash,
@@ -289,7 +289,7 @@ pub struct BlockHeaderView {
 impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
-            block_index: header.inner_lite.block_index,
+            height: header.inner_lite.height,
             epoch_id: header.inner_lite.epoch_id.0,
             next_epoch_id: header.inner_lite.next_epoch_id.0,
             hash: header.hash,
@@ -334,7 +334,7 @@ impl From<BlockHeaderView> for BlockHeader {
         let mut header = Self {
             prev_hash: view.prev_hash,
             inner_lite: BlockHeaderInnerLite {
-                block_index: view.block_index,
+                height: view.height,
                 epoch_id: EpochId(view.epoch_id),
                 next_epoch_id: EpochId(view.next_epoch_id),
                 prev_state_root: view.prev_state_root,
@@ -383,7 +383,7 @@ impl From<BlockHeaderView> for BlockHeader {
 
 #[derive(Serialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
-    pub block_index: BlockIndex,
+    pub height: BlockHeight,
     pub epoch_id: CryptoHash,
     pub next_epoch_id: CryptoHash,
     pub prev_state_root: CryptoHash,
@@ -400,8 +400,8 @@ pub struct ChunkHeaderView {
     pub prev_state_root: StateRoot,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
-    pub block_index_created: BlockIndex,
-    pub block_index_included: BlockIndex,
+    pub height_created: BlockHeight,
+    pub height_included: BlockHeight,
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
@@ -426,8 +426,8 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             prev_state_root: chunk.inner.prev_state_root,
             encoded_merkle_root: chunk.inner.encoded_merkle_root,
             encoded_length: chunk.inner.encoded_length,
-            block_index_created: chunk.inner.block_index_created,
-            block_index_included: chunk.block_index_included,
+            height_created: chunk.inner.height_created,
+            height_included: chunk.height_included,
             shard_id: chunk.inner.shard_id,
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
@@ -456,7 +456,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
-                block_index_created: view.block_index_created,
+                height_created: view.height_created,
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
@@ -467,7 +467,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 tx_root: view.tx_root,
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
-            block_index_included: view.block_index_included,
+            height_included: view.height_included,
             signature: view.signature,
             hash: ChunkHash::default(),
         };

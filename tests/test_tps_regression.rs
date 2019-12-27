@@ -134,14 +134,14 @@ mod test {
                 while Instant::now() < timeout {
                     // Get random node.
                     let node = &nodes[sample_queryable_node(&nodes)];
-                    if let Some(new_ind) = node.read().unwrap().user().get_best_block_index() {
+                    if let Some(new_ind) = node.read().unwrap().user().get_best_height() {
                         if new_ind > prev_ind {
                             let blocks = ((prev_ind + 1)..=new_ind)
                                 .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())
                                 .collect::<Vec<_>>();
                             for b in &blocks {
                                 let gas_used = b.chunks.iter().fold(0, |acc, chunk| {
-                                    if chunk.block_index_included == b.header.block_index {
+                                    if chunk.height_included == b.header.height {
                                         acc + chunk.gas_used
                                     } else {
                                         acc

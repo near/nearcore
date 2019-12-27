@@ -86,7 +86,7 @@ fn repro_1183() {
                                 .0
                                 .do_send(NetworkClientMessages::Transaction(
                                     SignedTransaction::send_money(
-                                        block.header.inner_lite.block_index * 16 + nonce_delta,
+                                        block.header.inner_lite.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
                                         &InMemorySigner::from_seed(from, KeyType::ED25519, from),
@@ -101,7 +101,7 @@ fn repro_1183() {
                     *last_block = Some(block.clone());
                     *delayed_one_parts = vec![];
 
-                    if block.header.inner_lite.block_index >= 25 {
+                    if block.header.inner_lite.height >= 25 {
                         System::current().stop();
                     }
                     (NetworkResponses::NoResponse, false)

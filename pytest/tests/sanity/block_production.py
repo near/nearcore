@@ -20,43 +20,43 @@ nodes = start_cluster(4, 0, 4, None, [["epoch_length", 10], ["block_producer_kic
 
 started = time.time()
 
-max_block_index = 0
-last_block_indices = [0 for _ in nodes]
-seen_block_indices = [set() for _ in nodes]
+max_height = 0
+last_heights = [0 for _ in nodes]
+seen_heights = [set() for _ in nodes]
 last_common = [[0 for _ in nodes] for _ in nodes]
 
-block_index_to_hash = {}
+height_to_hash = {}
 
 def min_common(): return min([min(x) for x in last_common])
-def block_indices_report():
-    for i, sh in enumerate(seen_block_indices):
+def heights_report():
+    for i, sh in enumerate(seen_heights):
         print("Node %s: %s" % (i, sorted(list(sh))))
 
-while max_block_index < BLOCKS:
+while max_height < BLOCKS:
     assert time.time() - started < TIMEOUT
     for i, node in enumerate(nodes):
         status = node.get_status()
-        block_index = status['sync_info']['latest_block_index']
+        height = status['sync_info']['latest_height']
         hash_ = status['sync_info']['latest_block_hash']
 
-        if block_index > max_block_index:
-            max_block_index = block_index
-            if block_index % 10 == 0:
-                print("Reached block_index %s, min common: %s" % (block_index, min_common()))
+        if height > max_height:
+            max_height = height
+            if height % 10 == 0:
+                print("Reached height %s, min common: %s" % (height, min_common()))
 
-        if block_index not in block_index_to_hash:
-            block_index_to_hash[block_index] = hash_
+        if height not in height_to_hash:
+            height_to_hash[height] = hash_
         else:
-            assert block_index_to_hash[block_index] == hash_, "block_index: %s, h1: %s, h2: %s" % (block_index, hash_, block_index_to_hash[block_index])
+            assert height_to_hash[height] == hash_, "height: %s, h1: %s, h2: %s" % (height, hash_, height_to_hash[height])
 
-        last_block_indices[i] = block_index
-        seen_block_indices[i].add(block_index)
+        last_heights[i] = height
+        seen_heights[i].add(height)
         for j, _ in enumerate(nodes):
-            if block_index in seen_block_indices[j]:
-                last_common[i][j] = block_index
-                last_common[j][i] = block_index
+            if height in seen_heights[j]:
+                last_common[i][j] = height
+                last_common[j][i] = height
 
-        assert min_common() + 2 >= block_index, block_indices_report()
+        assert min_common() + 2 >= height, heights_report()
 
-assert min_common() + 2 >= BLOCKS, block_indices_report()
+assert min_common() + 2 >= BLOCKS, heights_report()
 

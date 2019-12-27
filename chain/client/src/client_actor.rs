@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -49,8 +49,8 @@ pub struct ClientActor {
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
-    /// Last block_index we announced our accounts as validators.
-    last_validator_announce_block_index: Option<BlockIndex>,
+    /// Last height we announced our accounts as validators.
+    last_validator_announce_height: Option<BlockHeight>,
     /// Last time we announced our accounts as validators.
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
@@ -107,7 +107,7 @@ impl ClientActor {
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
             },
-            last_validator_announce_block_index: None,
+            last_validator_announce_height: None,
             last_validator_announce_time: None,
             info_helper,
         })
@@ -200,7 +200,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         chain_id: self.client.config.chain_id.clone(),
                         hash: self.client.chain.genesis().hash(),
                     },
-                    block_index: head.block_index,
+                    height: head.height,
                     weight_and_score: head.weight_and_score,
                     tracked_shards: self.client.config.tracked_shards.clone(),
                 },
@@ -484,7 +484,7 @@ impl Handler<Status> for ClientActor {
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
-                latest_block_index: head.block_index,
+                latest_height: head.height,
                 latest_state_root: header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
@@ -555,16 +555,15 @@ impl ClientActor {
             }
         }
 
-        let epoch_start_index = unwrap_or_return!(
-            self.client.runtime_adapter.get_epoch_start_index(&prev_block_hash),
+        let epoch_start_height = unwrap_or_return!(
+            self.client.runtime_adapter.get_epoch_start_height(&prev_block_hash),
             ()
         );
 
-        debug!(target: "client", "Check announce account for {}, epoch start block_index: {}, {:?}", block_producer.account_id, epoch_start_index, self.last_validator_announce_block_index);
+        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_validator_announce_height);
 
-        if let Some(last_validator_announce_block_index) = self.last_validator_announce_block_index
-        {
-            if last_validator_announce_block_index >= epoch_start_index {
+        if let Some(last_validator_announce_height) = self.last_validator_announce_height {
+            if last_validator_announce_height >= epoch_start_height {
                 // This announcement was already done!
                 return;
             }
@@ -586,7 +585,7 @@ impl ClientActor {
                 (validator_stake.account_id == block_producer.account_id)
             }) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
-                self.last_validator_announce_block_index = Some(epoch_start_index);
+                self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
@@ -600,7 +599,7 @@ impl ClientActor {
         }
     }
 
-    /// Retrieves latest block_index, and checks if must produce next block.
+    /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
         // If syncing, don't try to produce blocks.
@@ -610,19 +609,14 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut latest_known = self.client.chain.mut_store().get_latest_known()?;
         assert!(
-            head.block_index <= latest_known.block_index,
-            format!(
-                "Latest known block_index is invalid {} vs {}",
-                head.block_index, latest_known.block_index
-            )
+            head.height <= latest_known.height,
+            format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
         );
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        // Get who is the block producer for the upcoming `latest_known.block_index + 1` block.
-        let next_block_producer_account = self
-            .client
-            .runtime_adapter
-            .get_block_producer(&epoch_id, latest_known.block_index + 1)?;
+        // Get who is the block producer for the upcoming `latest_known.height + 1` block.
+        let next_block_producer_account =
+            self.client.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
 
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
         if self.client.block_producer.as_ref().map(|bp| bp.account_id.clone())
@@ -630,7 +624,7 @@ impl ClientActor {
         {
             // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
             if elapsed >= self.client.config.min_block_production_delay {
-                if let Err(err) = self.produce_block(latest_known.block_index + 1, elapsed) {
+                if let Err(err) = self.produce_block(latest_known.height + 1, elapsed) {
                     // If there is an error, report it and let it retry on the next loop step.
                     error!(target: "client", "Block production failed: {:?}", err);
                 }
@@ -667,8 +661,8 @@ impl ClientActor {
                     // Used exclusively for testing.
                     return Ok(());
                 }
-                debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.block_index, head.block_index);
-                latest_known.block_index += 1;
+                debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
+                latest_known.height += 1;
                 latest_known.seen = to_timestamp(Utc::now());
                 self.client.chain.mut_store().save_latest_known(latest_known)?;
             }
@@ -690,14 +684,14 @@ impl ClientActor {
         });
     }
 
-    /// Produce block if we are block producer for given `next_block_index` block_index.
+    /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(
         &mut self,
-        next_block_index: BlockIndex,
+        next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<(), Error> {
-        match self.client.produce_block(next_block_index, elapsed_since_last_block) {
+        match self.client.produce_block(next_height, elapsed_since_last_block) {
             Ok(Some(block)) => {
                 let block_hash = block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
@@ -737,10 +731,8 @@ impl ClientActor {
                 accepted_block.provenance,
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
-            let gas_used =
-                Block::compute_gas_used(&block.chunks, block.header.inner_lite.block_index);
-            let gas_limit =
-                Block::compute_gas_limit(&block.chunks, block.header.inner_lite.block_index);
+            let gas_used = Block::compute_gas_used(&block.chunks, block.header.inner_lite.height);
+            let gas_limit = Block::compute_gas_limit(&block.chunks, block.header.inner_lite.height);
 
             self.info_helper.block_processed(gas_used, gas_limit);
             self.check_send_announce_account(accepted_block.hash);
@@ -770,7 +762,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.prev_hash, block.header.inner_lite.block_index, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -818,7 +810,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner_lite.block_index, peer_info);
+        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, header.inner_lite.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.client.process_block_header(&header);
@@ -895,10 +887,10 @@ impl ClientActor {
         };
 
         let mut headers = vec![];
-        let max_block_index = self.client.chain.header_head()?.block_index;
+        let max_height = self.client.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.inner_lite.block_index + 1..=max_block_index {
-            if let Ok(header) = self.client.chain.get_header_by_index(h) {
+        for h in header.inner_lite.height + 1..=max_height {
+            if let Ok(header) = self.client.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
                     break;
@@ -926,9 +918,9 @@ impl ClientActor {
         if is_syncing {
             if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
                 info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, most weight peer: {} @ {:?}",
-                      head.block_index, head.weight_and_score, format_hash(head.last_block_hash),
+                      head.height, head.weight_and_score, format_hash(head.last_block_hash),
                     full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.block_index, full_peer_info.chain_info.weight_and_score
+                    full_peer_info.chain_info.height, full_peer_info.chain_info.weight_and_score
                 );
                 is_syncing = false;
             }
@@ -937,24 +929,24 @@ impl ClientActor {
                 .chain_info
                 .weight_and_score
                 .beyond_threshold(&head.weight_and_score, self.client.config.sync_weight_threshold)
-                && full_peer_info.chain_info.block_index
-                    > head.block_index + self.client.config.sync_block_index_threshold
+                && full_peer_info.chain_info.height
+                    > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
-                    "Sync: block_index/weight/score: {}/{}/{}, peer id/block_index/weight/score: {}/{}/{}/{}, enabling sync",
-                    head.block_index,
+                    "Sync: height/weight/score: {}/{}/{}, peer id/height/weight/score: {}/{}/{}/{}, enabling sync",
+                    head.height,
                     head.weight_and_score.weight,
                     head.weight_and_score.score,
                     full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.block_index,
+                    full_peer_info.chain_info.height,
                     full_peer_info.chain_info.weight_and_score.weight,
                     full_peer_info.chain_info.weight_and_score.score,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, full_peer_info.chain_info.block_index))
+        Ok((is_syncing, full_peer_info.chain_info.height))
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -1027,7 +1019,7 @@ impl ClientActor {
         let mut wait_period = self.client.config.sync_step_period;
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_block_index) = unwrap_or_run_later!(self.needs_syncing());
+        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
 
         if !needs_syncing {
             if currently_syncing {
@@ -1049,23 +1041,23 @@ impl ClientActor {
             unwrap_or_run_later!(self.client.header_sync.run(
                 &mut self.client.sync_status,
                 &mut self.client.chain,
-                highest_block_index,
+                highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header block_index is close to the latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.client.chain.header_head());
 
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
-                _ if header_head.block_index
-                    >= highest_block_index
+                _ if header_head.height
+                    >= highest_height
                         .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
                         &mut self.client.chain,
-                        highest_block_index,
+                        highest_height,
                         &self.network_info.most_weight_peers
                     ))
                 }
@@ -1145,7 +1137,7 @@ impl ClientActor {
                         }
 
                         self.client.sync_status =
-                            SyncStatus::BodySync { current_block_index: 0, highest_block_index: 0 };
+                            SyncStatus::BodySync { current_height: 0, highest_height: 0 };
                     }
                 }
             }

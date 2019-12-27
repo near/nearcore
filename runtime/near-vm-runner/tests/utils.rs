@@ -18,7 +18,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
         input,
-        block_index: 10,
+        height: 10,
         block_timestamp: 42,
         account_balance: 2u128,
         account_locked_balance: 0,

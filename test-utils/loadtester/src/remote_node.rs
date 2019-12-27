@@ -252,10 +252,10 @@ impl RemoteNode {
         }
     }
 
-    pub fn get_current_block_index(&self) -> Result<u64, Box<dyn std::error::Error>> {
+    pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
         let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
-        Ok(response["sync_info"]["latest_block_index"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
+        Ok(response["sync_info"]["latest_height"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
     }
 
     pub fn get_current_block_hash(&self) -> Result<CryptoHash, Box<dyn std::error::Error>> {
@@ -268,8 +268,8 @@ impl RemoteNode {
             .try_into()?)
     }
 
-    pub fn get_transactions(&self, block_index: u64) -> Result<u64, Box<dyn std::error::Error>> {
-        let params = (block_index,);
+    pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {
+        let params = (height,);
         let message =
             Message::request("block".to_string(), Some(serde_json::to_value(&params).unwrap()));
         let response: serde_json::Value = self

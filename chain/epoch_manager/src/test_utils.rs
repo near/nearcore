@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, BlockIndexDelta, NumSeats, NumShards, ValidatorId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumSeats, NumShards, ValidatorId,
     ValidatorStake,
 };
 use near_primitives::utils::get_num_seats_per_shard;
@@ -75,7 +75,7 @@ pub fn epoch_info(
 }
 
 pub fn epoch_config(
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
     num_hidden_validator_seats: NumSeats,
@@ -108,7 +108,7 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
 pub fn reward_calculator(
     max_inflation_rate: u8,
     num_blocks_per_year: u64,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     validator_reward_percentage: u8,
     protocol_reward_percentage: u8,
     protocol_treasury_account: AccountId,
@@ -141,7 +141,7 @@ pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
 
 pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
     num_hidden_validator_seats: NumSeats,
@@ -171,7 +171,7 @@ pub fn setup_epoch_manager(
 
 pub fn setup_default_epoch_manager(
     validators: Vec<(&str, Balance)>,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
     num_hidden_validator_seats: NumSeats,
@@ -195,14 +195,14 @@ pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
-    block_index: BlockIndex,
+    height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
     epoch_manager
         .record_block_info(
             &cur_h,
             BlockInfo::new(
-                block_index,
+                height,
                 0,
                 prev_h,
                 proposals,

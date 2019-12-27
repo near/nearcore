@@ -42,7 +42,7 @@ pub fn validate_chunk_proofs(chunk: &ShardChunk, runtime_adapter: &dyn RuntimeAd
         return false;
     }
     // 2c. Checking that chunk receipts are valid
-    if chunk.header.inner.block_index_created == 0 {
+    if chunk.header.inner.height_created == 0 {
         return chunk.receipts.len() == 0
             && chunk.header.inner.outgoing_receipts_root == CryptoHash::default();
     } else {
@@ -159,7 +159,7 @@ pub fn validate_chunk_with_chunk_extra(
     let receipt_response = chain_store.get_outgoing_receipts_for_shard(
         *prev_block_hash,
         chunk_header.inner.shard_id,
-        prev_chunk_header.block_index_included,
+        prev_chunk_header.height_included,
     )?;
     let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&receipt_response.1);
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -189,10 +189,10 @@ fn validate_double_sign(
     let right_block_header = BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
     let block_producer = runtime_adapter.get_block_producer(
         &left_block_header.inner_lite.epoch_id,
-        left_block_header.inner_lite.block_index,
+        left_block_header.inner_lite.height,
     )?;
     if left_block_header.hash() != right_block_header.hash()
-        && left_block_header.inner_lite.block_index == right_block_header.inner_lite.block_index
+        && left_block_header.inner_lite.height == right_block_header.inner_lite.height
         && runtime_adapter.verify_validator_signature(
             &left_block_header.inner_lite.epoch_id,
             &left_block_header.prev_hash,
@@ -239,7 +239,7 @@ fn validate_chunk_authorship(
             runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.inner.prev_block_hash)?;
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
-            chunk_header.inner.block_index_created,
+            chunk_header.inner.height_created,
             chunk_header.inner.shard_id,
         )?;
         Ok(chunk_producer)
@@ -343,7 +343,7 @@ fn validate_chunk_state_challenge(
             partial_storage,
             chunk_state.prev_chunk.header.inner.shard_id,
             &chunk_state.prev_chunk.header.inner.prev_state_root,
-            block_header.inner_lite.block_index,
+            block_header.inner_lite.height,
             block_header.inner_lite.timestamp,
             &block_header.prev_hash,
             &block_header.hash(),

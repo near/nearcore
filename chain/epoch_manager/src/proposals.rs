@@ -78,7 +78,7 @@ pub fn proposals_to_epoch_info(
         if !ordered_proposals.contains_key(&r.account_id) {
             // safe to do this here because fishermen from previous epoch is guaranteed to have no
             // duplicates.
-            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as u64);
+            fishermen_to_index.insert(r.account_id.clone(), fishermen.len() as ValidatorId);
             fishermen.push(r.clone())
         }
     }
@@ -101,7 +101,7 @@ pub fn proposals_to_epoch_info(
         } else if p.amount >= epoch_config.fishermen_threshold {
             // Do not return stake back since they will become fishermen
             stake_change.entry(account_id.clone()).or_insert((p.amount, 0));
-            fishermen_to_index.insert(account_id, fishermen.len() as u64);
+            fishermen_to_index.insert(account_id, fishermen.len() as ValidatorId);
             fishermen.push(p);
         } else {
             stake_change

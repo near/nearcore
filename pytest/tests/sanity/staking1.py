@@ -28,7 +28,7 @@ hash_ = status['sync_info']['latest_block_hash']
 tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 100000000000000000000000000, 2, base58.b58decode(hash_.encode('utf8')))
 nodes[0].send_tx(tx)
 
-max_block_index = 0
+max_height = 0
 
 print("Initial stakes: %s" % get_stakes())
 
@@ -36,16 +36,16 @@ while True:
     assert time.time() - started < TIMEOUT
 
     status = nodes[0].get_status()
-    block_index = status['sync_info']['latest_block_index']
+    height = status['sync_info']['latest_height']
 
     if 'test2' in get_validators():
         print("Normalin, normalin")
-        assert 20 <= block_index <= 25
+        assert 20 <= height <= 25
         break
 
-    if block_index > max_block_index:
-        max_block_index = block_index
-        print("..Reached block_index %s, no luck yet" % block_index)
+    if height > max_height:
+        max_height = height
+        print("..Reached height %s, no luck yet" % height)
     time.sleep(0.1)
 
 tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 0, 3, base58.b58decode(hash_.encode('utf8')))
@@ -55,15 +55,15 @@ while True:
     assert time.time() - started < TIMEOUT
 
     status = nodes[0].get_status()
-    block_index = status['sync_info']['latest_block_index']
+    height = status['sync_info']['latest_height']
     hash_ = status['sync_info']['latest_block_hash']
 
     if 'test2' not in get_validators():
         print("DONE")
-        assert 40 <= block_index <= 45
+        assert 40 <= height <= 45
         break
 
-    if block_index > max_block_index:
-        max_block_index = block_index
-        print("..Reached block_index %s, no luck yet" % block_index)
+    if height > max_height:
+        max_height = height
+        print("..Reached height %s, no luck yet" % height)
     time.sleep(0.1)

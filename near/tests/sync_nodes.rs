@@ -19,15 +19,15 @@ use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockIndexDelta, EpochId, ValidatorStake};
+use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use testlib::genesis_block;
 
-// This assumes that there is no block_index skipped. Otherwise epoch hash calculation will be wrong.
+// This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
     num: usize,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     signer: &dyn Signer,
 ) -> Vec<Block> {
     let mut prev_prev_timestamp = if blocks.len() == 1 {
@@ -37,19 +37,19 @@ fn add_blocks(
     };
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
-        let epoch_id = match prev.header.inner_lite.block_index + 1 {
-            block_index if block_index <= epoch_length => EpochId::default(),
-            block_index => EpochId(
-                blocks[(((block_index - 1) / epoch_length - 1) * epoch_length) as usize].hash(),
-            ),
+        let epoch_id = match prev.header.inner_lite.height + 1 {
+            height if height <= epoch_length => EpochId::default(),
+            height => {
+                EpochId(blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
+            }
         };
         let next_epoch_id = EpochId(
-            blocks[(((prev.header.inner_lite.block_index) / epoch_length) * epoch_length) as usize]
+            blocks[(((prev.header.inner_lite.height) / epoch_length) * epoch_length) as usize]
                 .hash(),
         );
         let block = Block::produce(
             &prev.header,
-            prev.header.inner_lite.block_index + 1,
+            prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
             epoch_id.clone(),
             next_epoch_id,
@@ -62,14 +62,12 @@ fn add_blocks(
             signer,
             (prev.header.inner_lite.timestamp - prev_prev_timestamp) as u128,
             WEIGHT_MULTIPLIER,
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.block_index < 5
-            {
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
                 prev.header.inner_rest.total_weight
             } else {
                 prev.header.inner_rest.score
             },
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.block_index < 5
-            {
+            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
                 prev.hash()
             } else {
                 prev.header.inner_rest.last_quorum_pre_vote
@@ -127,7 +125,7 @@ fn sync_nodes() {
             Box::new(move |_ctx| {
                 actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.block_index == 13 => System::current().stop(),
+                        Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
                         Err(_) => return futures::future::err(()),
                         _ => {}
                     };
@@ -188,13 +186,13 @@ fn sync_after_sync_nodes() {
                 let next_step1 = next_step.clone();
                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                     match &res {
-                        Ok(Ok(b)) if b.header.block_index == 13 => {
+                        Ok(Ok(b)) if b.header.height == 13 => {
                             if !next_step1.load(Ordering::Relaxed) {
                                 let _ = add_blocks(blocks1, client11, 10, epoch_length, &signer1);
                                 next_step1.store(true, Ordering::Relaxed);
                             }
                         }
-                        Ok(Ok(b)) if b.header.block_index > 20 => System::current().stop(),
+                        Ok(Ok(b)) if b.header.height > 20 => System::current().stop(),
                         Err(_) => return futures::future::err(()),
                         _ => {}
                     };
@@ -263,8 +261,8 @@ fn sync_state_stake_change() {
                 let near2_copy = near2.clone();
                 let dir2_path_copy = dir2_path.clone();
                 actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                    let latest_block_index = res.unwrap().unwrap().header.block_index;
-                    if !started_copy.load(Ordering::SeqCst) && latest_block_index > 10 {
+                    let latest_height = res.unwrap().unwrap().header.height;
+                    if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                         started_copy.store(true, Ordering::SeqCst);
                         let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
 
@@ -272,7 +270,7 @@ fn sync_state_stake_change() {
                             Box::new(move |_ctx| {
                                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                                     if let Ok(block) = res.unwrap() {
-                                        if block.header.block_index > latest_block_index + 1 {
+                                        if block.header.height > latest_height + 1 {
                                             System::current().stop()
                                         }
                                     }

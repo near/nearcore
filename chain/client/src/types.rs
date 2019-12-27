@@ -12,7 +12,9 @@ use near_network::types::AccountOrPeerIdOrHash;
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{AccountId, BlockIndex, BlockIndexDelta, NumSeats, ShardId, Version};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId, Version,
+};
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -83,7 +85,7 @@ pub struct ClientConfig {
     pub min_block_production_delay: Duration,
     /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
-    /// Maximum duration before skipping given block index.
+    /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
     /// Duration to reduce the wait for each missed block by validator.
     pub reduce_wait_for_missing_block: Duration,
@@ -97,8 +99,8 @@ pub struct ClientConfig {
     pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
     pub sync_weight_threshold: u128,
-    /// Sync block_index threshold: below this difference in block_index don't start syncing.
-    pub sync_block_index_threshold: BlockIndexDelta,
+    /// Sync height threshold: below this difference in height don't start syncing.
+    pub sync_height_threshold: BlockHeightDelta,
     /// How much time to wait after initial header sync
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
@@ -114,23 +116,23 @@ pub struct ClientConfig {
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Epoch length.
-    pub epoch_length: BlockIndexDelta,
+    pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
     /// Maximum blocks ahead of us before becoming validators to announce account.
-    pub announce_account_horizon: BlockIndexDelta,
+    pub announce_account_horizon: BlockHeightDelta,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockIndexDelta,
+    pub block_fetch_horizon: BlockHeightDelta,
     /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: BlockIndexDelta,
+    pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
     /// Behind this horizon header fetch kicks in.
-    pub block_header_fetch_horizon: BlockIndexDelta,
+    pub block_header_fetch_horizon: BlockHeightDelta,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -161,7 +163,7 @@ impl ClientConfig {
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
-            sync_block_index_threshold: 1,
+            sync_height_threshold: 1,
             header_sync_initial_timeout: Duration::from_secs(10),
             header_sync_progress_timeout: Duration::from_secs(2),
             header_sync_stall_ban_timeout: Duration::from_secs(30),
@@ -240,13 +242,13 @@ pub enum SyncStatus {
     /// Not syncing / Done syncing.
     NoSync,
     /// Downloading block headers for fast sync.
-    HeaderSync { current_block_index: BlockIndex, highest_block_index: BlockIndex },
+    HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
-    BodySync { current_block_index: BlockIndex, highest_block_index: BlockIndex },
+    BodySync { current_height: BlockHeight, highest_height: BlockHeight },
 }
 
 impl SyncStatus {
@@ -259,7 +261,7 @@ impl SyncStatus {
 /// Actor message requesting block by id or hash.
 pub enum GetBlock {
     Best,
-    BlockIndex(BlockIndex),
+    Height(BlockHeight),
     Hash(CryptoHash),
 }
 
@@ -269,7 +271,7 @@ impl Message for GetBlock {
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 pub enum GetChunk {
-    BlockIndex(BlockIndex, ShardId),
+    Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
     ChunkHash(ChunkHash),
 }
@@ -319,7 +321,7 @@ impl Message for GetNetworkInfo {
 }
 
 pub enum GetGasPrice {
-    BlockIndex(BlockIndex),
+    Height(BlockHeight),
     Hash(CryptoHash),
     None,
 }

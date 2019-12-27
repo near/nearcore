@@ -4,7 +4,7 @@ use near_chain::{FinalityGadget, FinalityGadgetQuorums};
 use near_crypto::{KeyType, PublicKey, Signature, Signer};
 use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -21,7 +21,7 @@ fn compute_quorums_slow(
     let mut quorum_pre_vote = CryptoHash::default();
     let mut quorum_pre_commit = CryptoHash::default();
 
-    let mut all_block_indices_and_hashes = vec![];
+    let mut all_heights_and_hashes = vec![];
 
     let account_id_to_stake =
         stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
@@ -31,8 +31,7 @@ fn compute_quorums_slow(
     while prev_hash != CryptoHash::default() {
         let block_header = chain_store.get_block_header(&prev_hash).unwrap();
 
-        all_block_indices_and_hashes
-            .push((block_header.hash().clone(), block_header.inner_lite.block_index));
+        all_heights_and_hashes.push((block_header.hash().clone(), block_header.inner_lite.height));
 
         prev_hash = block_header.prev_hash.clone();
         all_approvals.extend(block_header.inner_rest.approvals.clone());
@@ -41,25 +40,22 @@ fn compute_quorums_slow(
     let all_approvals = all_approvals
         .into_iter()
         .map(|approval| {
-            let reference_block_index = chain_store
-                .get_block_header(&approval.reference_hash)
-                .unwrap()
-                .inner_lite
-                .block_index;
-            let parent_block_index =
-                chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.block_index;
+            let reference_height =
+                chain_store.get_block_header(&approval.reference_hash).unwrap().inner_lite.height;
+            let parent_height =
+                chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.height;
 
-            assert!(reference_block_index <= parent_block_index);
+            assert!(reference_height <= parent_height);
 
-            (approval.account_id, reference_block_index, parent_block_index)
+            (approval.account_id, reference_height, parent_height)
         })
         .collect::<Vec<_>>();
 
-    for (hash, block_index) in all_block_indices_and_hashes.iter().rev() {
+    for (hash, height) in all_heights_and_hashes.iter().rev() {
         let mut surrounding = HashSet::new();
         let mut surrounding_stake = 0 as Balance;
         for approval in all_approvals.iter() {
-            if approval.1 <= *block_index && approval.2 >= *block_index {
+            if approval.1 <= *height && approval.2 >= *height {
                 if !surrounding.contains(&approval.0) {
                     surrounding_stake += *account_id_to_stake.get(&approval.0).unwrap();
                     surrounding.insert(approval.0.clone());
@@ -71,25 +67,25 @@ fn compute_quorums_slow(
             quorum_pre_vote = hash.clone();
         }
 
-        for (_, other_block_index) in all_block_indices_and_hashes.iter().rev() {
-            if other_block_index > block_index {
+        for (_, other_height) in all_heights_and_hashes.iter().rev() {
+            if other_height > height {
                 let mut surrounding_both = HashSet::new();
                 let mut surrounding_left = HashSet::new();
                 let mut surrounding_both_stake = 0 as Balance;
                 let mut surrounding_left_stake = 0 as Balance;
                 for approval in all_approvals.iter() {
-                    if approval.1 <= *block_index
-                        && approval.2 >= *block_index
-                        && approval.1 <= *other_block_index
-                        && approval.2 >= *other_block_index
+                    if approval.1 <= *height
+                        && approval.2 >= *height
+                        && approval.1 <= *other_height
+                        && approval.2 >= *other_height
                         && !surrounding_both.contains(&approval.0)
                     {
                         surrounding_both_stake += *account_id_to_stake.get(&approval.0).unwrap();
                         surrounding_both.insert(approval.0.clone());
                     }
-                    if approval.1 <= *block_index
-                        && approval.2 >= *block_index
-                        && approval.2 < *other_block_index
+                    if approval.1 <= *height
+                        && approval.2 >= *height
+                        && approval.2 < *other_height
                         && !surrounding_left.contains(&approval.0)
                     {
                         surrounding_left_stake += *account_id_to_stake.get(&approval.0).unwrap();
@@ -112,7 +108,7 @@ fn compute_quorums_slow(
 
 fn create_block(
     prev: &Block,
-    block_index: BlockIndex,
+    height: BlockHeight,
     chain_store: &mut ChainStore,
     signer: &dyn Signer,
     approvals: Vec<Approval>,
@@ -120,12 +116,12 @@ fn create_block(
 ) -> Block {
     let mut block = Block::empty(prev, signer);
     block.header.inner_rest.approvals = approvals.clone();
-    block.header.inner_lite.block_index = block_index;
-    block.header.inner_rest.total_weight = (block_index as u128).into();
+    block.header.inner_lite.height = height;
+    block.header.inner_rest.total_weight = (height as u128).into();
 
     /*println!(
-        "Creating block at block_index {} with parent {:?} and approvals {:?}",
-        block_index,
+        "Creating block at height {} with parent {:?} and approvals {:?}",
+        height,
         prev.hash(),
         approvals
     );*/
@@ -135,7 +131,7 @@ fn create_block(
     let fast_quorums = FinalityGadget::compute_quorums(
         prev.hash(),
         EpochId(CryptoHash::default()),
-        block_index,
+        height,
         approvals.clone(),
         chain_store,
         &stakes.clone(),
@@ -610,7 +606,7 @@ fn test_fuzzy_finality() {
 
                 let new_block = create_block(
                     &prev_block,
-                    prev_block.header.inner_lite.block_index + 1,
+                    prev_block.header.inner_lite.height + 1,
                     chain.mut_store(),
                     &*signer,
                     approvals,

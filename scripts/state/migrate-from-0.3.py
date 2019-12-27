@@ -77,9 +77,7 @@ for value in q['records']:
 q['records'] = new_records
 q['protocol_version'] = 4
 q['dynamic_resharding'] = False
-# TODO please check this variable
 q['num_block_producer_seats_per_shard'] = [50] * 8
-# TODO please check this variable
 q['avg_hidden_validator_seats_per_shard'] = [0] * 8
 q['num_blocks_per_year'] = 31536000
 q['gas_limit'] = 10000000
@@ -129,7 +127,7 @@ ext_costs = json.loads('''{
           "sha256_byte": 1,
           "attached_deposit": 1,
           "storage_usage": 1,
-          "block_index": 1,
+          "height": 1,
           "block_timestamp": 1,
           "current_account_id": 1,
           "current_account_id_byte": 1,

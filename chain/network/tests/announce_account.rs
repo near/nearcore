@@ -198,7 +198,7 @@ pub fn make_peer_manager(
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
-                    block_index: 1,
+                    height: 1,
                     weight_and_score: WeightAndScore::from_ints(0, 0),
                     tracked_shards: vec![],
                 }))

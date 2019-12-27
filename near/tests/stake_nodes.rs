@@ -16,7 +16,7 @@ use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndexDelta, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, NumSeats};
 use near_primitives::views::{QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
@@ -34,7 +34,7 @@ fn init_test_staking(
     paths: Vec<&Path>,
     num_node_seats: NumSeats,
     num_validator_seats: NumSeats,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
     enable_rewards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
@@ -445,7 +445,7 @@ fn test_inflation() {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
-                    if header_view.block_index >= 2 && header_view.block_index <= epoch_length {
+                    if header_view.height >= 2 && header_view.height <= epoch_length {
                         if header_view.total_supply == initial_total_supply {
                             done1_copy2.store(true, Ordering::SeqCst);
                         }
@@ -454,9 +454,7 @@ fn test_inflation() {
                 }));
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
-                    if header_view.block_index > epoch_length
-                        && header_view.block_index < epoch_length * 2
-                    {
+                    if header_view.height > epoch_length && header_view.height < epoch_length * 2 {
                         let inflation = initial_total_supply
                             * max_inflation_rate as u128
                             * epoch_length as u128

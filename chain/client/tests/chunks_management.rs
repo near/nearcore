@@ -72,18 +72,18 @@ fn chunks_produced_and_distributed_common(
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
-        let block_indices = Arc::new(RwLock::new(HashMap::new()));
-        let block_indices1 = block_indices.clone();
+        let heights = Arc::new(RwLock::new(HashMap::new()));
+        let heights1 = heights.clone();
 
-        let block_index_to_hash = Arc::new(RwLock::new(HashMap::new()));
+        let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
 
-        let check_block_index =
-            move |hash: CryptoHash, block_index| match block_indices1.write().unwrap().entry(hash.clone()) {
+        let check_height =
+            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
                 Entry::Occupied(entry) => {
-                    assert_eq!(*entry.get(), block_index);
+                    assert_eq!(*entry.get(), height);
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(block_index);
+                    entry.insert(height);
                 }
             };
 
@@ -106,48 +106,48 @@ fn chunks_produced_and_distributed_common(
             Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_block_index(block.hash(), block.header.inner_lite.block_index);
-                        check_block_index(block.header.prev_hash, block.header.inner_lite.block_index - 1);
+                        check_height(block.hash(), block.header.inner_lite.height);
+                        check_height(block.header.prev_hash, block.header.inner_lite.height - 1);
 
-                        let mut block_index_to_hash = block_index_to_hash.write().unwrap();
-                        block_index_to_hash.insert(block.header.inner_lite.block_index, block.hash());
+                        let mut height_to_hash = height_to_hash.write().unwrap();
+                        height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "BLOCK {} INDEX {}; HEADER BLOCK INDICES: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            "BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
                             block.hash(),
-                            block.header.inner_lite.block_index,
-                            block.chunks[0].inner.block_index_created,
-                            block.chunks[1].inner.block_index_created,
-                            block.chunks[2].inner.block_index_created,
-                            block.chunks[3].inner.block_index_created,
+                            block.header.inner_lite.height,
+                            block.chunks[0].inner.height_created,
+                            block.chunks[1].inner.height_created,
+                            block.chunks[2].inner.height_created,
+                            block.chunks[3].inner.height_created,
                             block.header.inner_rest.last_quorum_pre_vote,
                             block.header.inner_rest.last_quorum_pre_commit,
                         );
 
                         // Make sure blocks are finalized. 6 is the epoch boundary.
-                        let h = block.header.inner_lite.block_index;
+                        let h = block.header.inner_lite.height;
                         if h > 1 && h != 6 {
-                            assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *block_index_to_hash.get(&(h - 1)).unwrap());
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
                         }
                         if h > 2 && (h != 6 && h != 7) {
-                            assert_eq!(block.header.inner_rest.last_quorum_pre_commit, *block_index_to_hash.get(&(h - 2)).unwrap());
+                            assert_eq!(block.header.inner_rest.last_quorum_pre_commit, *height_to_hash.get(&(h - 2)).unwrap());
                         }
 
-                        if block.header.inner_lite.block_index > 1 {
+                        if block.header.inner_lite.height > 1 {
                             for shard_id in 0..4 {
-                                // If messages from 1 to 4 are dropped, 4 at their block_indices will
+                                // If messages from 1 to 4 are dropped, 4 at their heights will
                                 //    receive the block significantly later than the chunks, and
                                 //    thus would discard the chunks
-                                if !drop_from_1_to_4 || block.header.inner_lite.block_index % 4 != 3 {
+                                if !drop_from_1_to_4 || block.header.inner_lite.height % 4 != 3 {
                                     assert_eq!(
-                                        block.header.inner_lite.block_index,
-                                        block.chunks[shard_id].inner.block_index_created
+                                        block.header.inner_lite.height,
+                                        block.chunks[shard_id].inner.height_created
                                     );
                                 }
                             }
                         }
 
-                        if block.header.inner_lite.block_index >= 8 {
+                        if block.header.inner_lite.height >= 8 {
                             println!("PREV BLOCK HASH: {}", block.header.prev_hash);
                             println!(
                                 "STATS: responses: {} requests: {}",
@@ -221,7 +221,7 @@ fn test_request_chunk_restart() {
         env.produce_block(0, i);
         env.network_adapters[0].pop();
     }
-    let block1 = env.clients[0].chain.get_block_by_index(3).unwrap().clone();
+    let block1 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
     let request = PartialEncodedChunkRequestMsg {
         chunk_hash: block1.chunks[0].chunk_hash(),
         part_ords: vec![0],

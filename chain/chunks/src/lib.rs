@@ -25,7 +25,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
@@ -59,7 +59,7 @@ pub enum ProcessPartialEncodedChunkResult {
 
 #[derive(Clone, Debug)]
 struct ChunkRequestInfo {
-    block_index: BlockIndex,
+    height: BlockHeight,
     parent_hash: CryptoHash,
     shard_id: ShardId,
     added: Instant,
@@ -155,9 +155,9 @@ impl ShardsManager {
         }
     }
 
-    pub fn update_largest_seen_block_index(&mut self, new_block_index: BlockIndex) {
-        self.encoded_chunks.update_largest_seen_block_index(
-            new_block_index,
+    pub fn update_largest_seen_height(&mut self, new_height: BlockHeight) {
+        self.encoded_chunks.update_largest_seen_height(
+            new_height,
             &self.requested_partial_encoded_chunks.requests,
         );
     }
@@ -179,7 +179,7 @@ impl ShardsManager {
 
     fn request_partial_encoded_chunk(
         &mut self,
-        block_index: BlockIndex,
+        height: BlockHeight,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
@@ -200,7 +200,7 @@ impl ShardsManager {
 
         let chunk_producer_account_id = &self.runtime_adapter.get_chunk_producer(
             &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
-            block_index,
+            height,
             shard_id,
         )?;
 
@@ -322,7 +322,7 @@ impl ShardsManager {
                     ShardChunkHeaderInner {
                         shard_id,
                         prev_block_hash: parent_hash,
-                        block_index_created: block_index,
+                        height_created: height,
                         ..
                     },
                 ..
@@ -338,7 +338,7 @@ impl ShardsManager {
             self.requested_partial_encoded_chunks.insert(
                 chunk_hash.clone(),
                 ChunkRequestInfo {
-                    block_index,
+                    height,
                     parent_hash,
                     shard_id,
                     last_requested: Instant::now(),
@@ -346,7 +346,7 @@ impl ShardsManager {
                 },
             );
             self.request_partial_encoded_chunk(
-                block_index,
+                height,
                 &parent_hash,
                 shard_id,
                 &chunk_hash,
@@ -363,7 +363,7 @@ impl ShardsManager {
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
             match self.request_partial_encoded_chunk(
-                chunk_request.block_index,
+                chunk_request.height,
                 &chunk_request.parent_hash,
                 chunk_request.shard_id,
                 &chunk_hash,
@@ -593,9 +593,9 @@ impl ShardsManager {
         let chunk_requested =
             self.requested_partial_encoded_chunks.contains_key(&header.chunk_hash());
         if !chunk_requested
-            && !self.encoded_chunks.block_index_within_horizon(header.inner.block_index_created)
+            && !self.encoded_chunks.height_within_horizon(header.inner.height_created)
         {
-            return Err(Error::ChainError(ErrorKind::InvalidChunkIndex.into()));
+            return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
         }
 
         if header.chunk_hash() != chunk_hash
@@ -785,7 +785,7 @@ impl ShardsManager {
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
-        block_index: u64,
+        height: u64,
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
@@ -805,7 +805,7 @@ impl ShardsManager {
             prev_block_hash,
             prev_state_root,
             outcome_root,
-            block_index,
+            height,
             shard_id,
             total_parts,
             data_parts,

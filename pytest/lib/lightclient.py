@@ -5,7 +5,7 @@ class BlockHeaderInnerLite:
     pass
 
 inner_lite_schema = dict([[BlockHeaderInnerLite, {'kind': 'struct', 'fields': [
-        ['block_index', 'u64'],
+        ['height', 'u64'],
         ['epoch_id', [32]],
         ['next_epoch_id', [32]],
         ['prev_state_root', [32]],
@@ -23,7 +23,7 @@ def compute_block_hash(inner_lite_view, inner_rest_hash, prev_hash):
     prev_hash = base58.b58decode(prev_hash)
 
     inner_lite = BlockHeaderInnerLite()
-    inner_lite.block_index = inner_lite_view['block_index']
+    inner_lite.height = inner_lite_view['height']
     inner_lite.epoch_id = base58.b58decode(inner_lite_view['epoch_id'])
     inner_lite.next_epoch_id = base58.b58decode(inner_lite_view['next_epoch_id'])
     inner_lite.prev_state_root = base58.b58decode(inner_lite_view['prev_state_root'])

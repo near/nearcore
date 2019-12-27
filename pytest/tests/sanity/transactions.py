@@ -26,31 +26,31 @@ ctx = TxContext(act_to_val, nodes)
 last_balances = [x for x in ctx.expected_balances]
 
 step = 0
-sent_block_index = -1
+sent_height = -1
 
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[3].get_status()
 
-    block_index = status['sync_info']['latest_block_index']
+    height = status['sync_info']['latest_height']
     hash_ = status['sync_info']['latest_block_hash']
 
     if step == 0:
         print(f'step {step}')
-        if block_index >= 1:
+        if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
             nodes[3].send_tx(tx)
             ctx.expected_balances[0] -= 100
             ctx.expected_balances[1] += 100
-            print('Sent tx at block_index %s' % block_index)
+            print('Sent tx at height %s' % height)
 
             step = 1
-            sent_block_index = block_index
+            sent_height = height
 
     elif step == 1:
         print(f'step {step}')
-        print(f'block_index {block_index}, sent_block_index {sent_block_index}')
-        if block_index == sent_block_index + 6:
+        print(f'height {height}, sent_height {sent_height}')
+        if height == sent_height + 6:
             cur_balances = ctx.get_balances()
             print(f'cur_balances {cur_balances}')
             print(f'expected_bal {ctx.expected_balances}')
@@ -62,14 +62,14 @@ while True:
         print(f'step {step}')
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
-            print("Balances caught up, took %s blocks, moving on" % (block_index - sent_block_index));
+            print("Balances caught up, took %s blocks, moving on" % (height - sent_height));
             ctx.send_moar_txs(hash_, 10, use_routing=True)
-            sent_block_index = block_index
+            sent_height = height
         else:
-            if block_index > sent_block_index + 10:
-                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at block_index: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_block_index)
+            if height > sent_height + 10:
+                assert False, "Balances before: %s\nExpected balances: %s\nCurrent balances: %s\nSent at height: %s\n" % (last_balances, ctx.expected_balances, ctx.get_balances(), sent_height)
             time.sleep(0.2)
 
-        if block_index >= 100:
+        if height >= 100:
             break
 

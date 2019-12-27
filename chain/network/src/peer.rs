@@ -231,14 +231,14 @@ impl Peer {
             .then(move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo {
                     genesis_id,
-                    block_index,
+                    height,
                     weight_and_score,
                     tracked_shards,
                 }) => {
                     let handshake = Handshake::new(
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { genesis_id, block_index, weight_and_score, tracked_shards },
+                        PeerChainInfo { genesis_id, height, weight_and_score, tracked_shards },
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
@@ -354,8 +354,8 @@ impl Peer {
                 near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED_TOTAL);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.block_index =
-                    max(self.chain_info.block_index, block.header.inner_lite.block_index);
+                self.chain_info.height =
+                    max(self.chain_info.height, block.header.inner_lite.height);
                 self.chain_info.weight_and_score = max(
                     self.chain_info.weight_and_score,
                     block.header.inner_rest.weight_and_score(),
@@ -365,8 +365,7 @@ impl Peer {
             PeerMessage::BlockHeaderAnnounce(header) => {
                 let block_hash = header.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.block_index =
-                    max(self.chain_info.block_index, header.inner_lite.block_index);
+                self.chain_info.height = max(self.chain_info.height, header.inner_lite.height);
                 self.chain_info.weight_and_score =
                     max(self.chain_info.weight_and_score, header.inner_rest.weight_and_score());
                 NetworkClientMessages::BlockHeader(header, peer_id)

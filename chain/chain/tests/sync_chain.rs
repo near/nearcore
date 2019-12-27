@@ -6,7 +6,7 @@ use near_primitives::test_utils::init_test_logger;
 fn chain_sync_headers() {
     init_test_logger();
     let (mut chain, _, bls_signer) = setup();
-    assert_eq!(chain.sync_head().unwrap().block_index, 0);
+    assert_eq!(chain.sync_head().unwrap().height, 0);
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 0..4 {
         blocks.push(Block::empty(&blocks[i], &*bls_signer));
@@ -16,5 +16,5 @@ fn chain_sync_headers() {
             panic!("Unexpected")
         })
         .unwrap();
-    assert_eq!(chain.sync_head().unwrap().block_index, 4);
+    assert_eq!(chain.sync_head().unwrap().height, 4);
 }

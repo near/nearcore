@@ -111,7 +111,7 @@ impl InfoHelper {
                     "node_id": format!("{}", node_id),
                     "status": display_sync_status(&sync_status, &head),
                     "latest_block_hash": to_base(&head.last_block_hash),
-                    "latest_block_index": head.block_index,
+                    "latest_height": head.height,
                     "num_peers":  network_info.num_active_peers,
                     "bandwidth_download": network_info.received_bytes_per_sec,
                     "bandwidth_upload": network_info.sent_bytes_per_sec,
@@ -141,23 +141,20 @@ fn try_sign_json(
 
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     match sync_status {
-        SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.block_index),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.block_index, head.last_block_hash),
-        SyncStatus::HeaderSync { current_block_index, highest_block_index } => {
-            let percent = if *highest_block_index == 0 {
+        SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
+        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
+        SyncStatus::HeaderSync { current_height, highest_height } => {
+            let percent = if *highest_height == 0 {
                 0
             } else {
-                min(current_block_index, highest_block_index) * 100 / highest_block_index
+                min(current_height, highest_height) * 100 / highest_height
             };
-            format!("#{:>8} Downloading headers {}%", head.block_index, percent)
+            format!("#{:>8} Downloading headers {}%", head.height, percent)
         }
-        SyncStatus::BodySync { current_block_index, highest_block_index } => {
-            let percent = if *highest_block_index == 0 {
-                0
-            } else {
-                current_block_index * 100 / highest_block_index
-            };
-            format!("#{:>8} Downloading blocks {}%", current_block_index, percent)
+        SyncStatus::BodySync { current_height, highest_height } => {
+            let percent =
+                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
+            format!("#{:>8} Downloading blocks {}%", current_height, percent)
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");

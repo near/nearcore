@@ -26,11 +26,11 @@ for i in range(4):
     nodes[0].send_tx(tx)
     print("test%s stakes %d" % (i, stake))
 
-cur_block_index = 0
-while cur_block_index < EPOCH_LENGTH * 2:
+cur_height = 0
+while cur_height < EPOCH_LENGTH * 2:
     status = nodes[0].get_status()
-    cur_block_index = status['sync_info']['latest_block_index']
-    if cur_block_index > EPOCH_LENGTH + 1:
+    cur_height = status['sync_info']['latest_height']
+    if cur_height > EPOCH_LENGTH + 1:
         status = nodes[0].get_status()
         validator_info = nodes[0].json_rpc('validators', [status['sync_info']['latest_block_hash']])
         assert len(validator_info['result']['next_validators']) == 1, "Number of validators do not match"
@@ -38,14 +38,14 @@ while cur_block_index < EPOCH_LENGTH * 2:
     time.sleep(1)
 
 synced = False
-while cur_block_index <= EPOCH_LENGTH * 3:
+while cur_height <= EPOCH_LENGTH * 3:
     statuses = []
     for i, node in enumerate(nodes):
         cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_block_index'], cur_status['sync_info']['latest_block_hash']))
+        statuses.append((i, cur_status['sync_info']['latest_height'], cur_status['sync_info']['latest_block_hash']))
     statuses.sort(key=lambda x: x[1])
     last = statuses[-1]
-    cur_block_index = last[1]
+    cur_height = last[1]
     node = nodes[last[0]]
     succeed = True
     for i in range(len(statuses) - 1):

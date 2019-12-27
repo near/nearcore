@@ -37,7 +37,7 @@ fn sync_state_nodes() {
 
                     actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= 101 => {
+                            Ok(Ok(b)) if b.header.height >= 101 => {
                                 let mut view_client2_holder2 =
                                     view_client2_holder2.write().unwrap();
 
@@ -54,8 +54,8 @@ fn sync_state_nodes() {
                                     *view_client2_holder2 = Some(view_client2);
                                 }
                             }
-                            Ok(Ok(b)) if b.header.block_index < 101 => {
-                                println!("FIRST STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height < 101 => {
+                                println!("FIRST STAGE {}", b.header.height)
                             }
                             Err(_) => return futures::future::err(()),
                             _ => {}
@@ -67,9 +67,9 @@ fn sync_state_nodes() {
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= 101 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.block_index < 101 => {
-                                println!("SECOND STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                            Ok(Ok(b)) if b.header.height < 101 => {
+                                println!("SECOND STAGE {}", b.header.height)
                             }
                             Err(_) => return futures::future::err(()),
                             _ => {}
@@ -149,7 +149,7 @@ fn sync_state_nodes_multishard() {
 
                     actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= 101 => {
+                            Ok(Ok(b)) if b.header.height >= 101 => {
                                 let mut view_client2_holder2 =
                                     view_client2_holder2.write().unwrap();
 
@@ -173,8 +173,8 @@ fn sync_state_nodes_multishard() {
                                     *view_client2_holder2 = Some(view_client2);
                                 }
                             }
-                            Ok(Ok(b)) if b.header.block_index < 101 => {
-                                println!("FIRST STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height < 101 => {
+                                println!("FIRST STAGE {}", b.header.height)
                             }
                             Err(_) => return futures::future::err(()),
                             _ => {}
@@ -186,9 +186,9 @@ fn sync_state_nodes_multishard() {
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= 101 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.block_index < 101 => {
-                                println!("SECOND STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
+                            Ok(Ok(b)) if b.header.height < 101 => {
+                                println!("SECOND STAGE {}", b.header.height)
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);
@@ -253,7 +253,7 @@ fn sync_empty_state() {
 
                     actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= state_sync_horizon + 1 => {
+                            Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
                                 let mut view_client2_holder2 =
                                     view_client2_holder2.write().unwrap();
 
@@ -277,8 +277,8 @@ fn sync_empty_state() {
                                     *view_client2_holder2 = Some(view_client2);
                                 }
                             }
-                            Ok(Ok(b)) if b.header.block_index <= state_sync_horizon => {
-                                println!("FIRST STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
+                                println!("FIRST STAGE {}", b.header.height)
                             }
                             Err(_) => return futures::future::err(()),
                             _ => {}
@@ -290,9 +290,9 @@ fn sync_empty_state() {
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                         match &res {
-                            Ok(Ok(b)) if b.header.block_index >= 40 => System::current().stop(),
-                            Ok(Ok(b)) if b.header.block_index < 40 => {
-                                println!("SECOND STAGE {}", b.header.block_index)
+                            Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
+                            Ok(Ok(b)) if b.header.height < 40 => {
+                                println!("SECOND STAGE {}", b.header.height)
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);

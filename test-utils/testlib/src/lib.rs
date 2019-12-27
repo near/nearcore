@@ -10,7 +10,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndexDelta, NumSeats, NumShards, ShardId};
+use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
 
 pub mod actix_utils;
@@ -72,7 +72,7 @@ pub fn start_nodes(
     dirs: &[TempDir],
     num_validator_seats: NumSeats,
     num_lightclient: usize,
-    epoch_length: BlockIndexDelta,
+    epoch_length: BlockHeightDelta,
 ) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 

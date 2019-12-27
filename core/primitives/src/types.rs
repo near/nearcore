@@ -19,7 +19,7 @@ pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 /// Index of the block.
-pub type BlockIndex = u64;
+pub type BlockHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
@@ -33,8 +33,8 @@ pub type NumBlocks = u64;
 pub type NumShards = u64;
 /// Number of seats of validators (block producer or hidden ones) in current group (settlement).
 pub type NumSeats = u64;
-/// Block index delta that measures the difference between `BlockIndex`s.
-pub type BlockIndexDelta = u64;
+/// Block height delta that measures the difference between `BlockHeight`s.
+pub type BlockHeightDelta = u64;
 
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;

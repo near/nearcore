@@ -60,7 +60,7 @@ impl RuntimeTestbed {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 0,
+            height: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
             gas_price: 1,
@@ -91,7 +91,7 @@ impl RuntimeTestbed {
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.height += 1;
 
         let mut total_burnt_gas = 0;
         if !allow_failures {

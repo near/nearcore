@@ -71,15 +71,15 @@ def doit(seq = []):
     last_iter = started
 
     status = nodes[2].get_status()
-    block_index = status['sync_info']['latest_block_index']
+    height = status['sync_info']['latest_height']
     hash_ = status['sync_info']['latest_block_hash']
 
     print("Initial stakes: %s" % get_stakes())
     all_stakes.append(get_stakes())
 
     do_moar_stakes(hash_, True)
-    last_fake_stakes_block_index = FAKE_OFFSET
-    last_staked_block_index = REAL_OFFSET
+    last_fake_stakes_height = FAKE_OFFSET
+    last_staked_height = REAL_OFFSET
 
     while True:
         if time.time() - started >= TIMEOUT:
@@ -88,10 +88,10 @@ def doit(seq = []):
         assert time.time() - last_iter < TIMEOUT_PER_ITER
 
         status = nodes[0].get_status()
-        block_index = status['sync_info']['latest_block_index']
+        height = status['sync_info']['latest_height']
         hash_ = status['sync_info']['latest_block_hash']
 
-        if (block_index + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (last_fake_stakes_block_index + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH:
+        if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (last_fake_stakes_height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH:
             last_iter = time.time()
             cur_stakes = get_stakes()
             print("Current stakes: %s" % cur_stakes)
@@ -106,11 +106,11 @@ def doit(seq = []):
                         assert expected <= cur <= expected * 1.1
 
             do_moar_stakes(hash_, False)
-            last_fake_stakes_block_index = block_index
+            last_fake_stakes_height = height
 
-        if (block_index + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (last_staked_block_index + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH:
+        if (height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH > (last_staked_height + EPOCH_LENGTH - REAL_OFFSET) // EPOCH_LENGTH:
             do_moar_stakes(hash_, True)
-            last_staked_block_index = block_index
+            last_staked_height = height
 
 if __name__ == "__main__":
     doit()
