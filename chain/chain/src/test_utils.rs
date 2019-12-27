@@ -417,7 +417,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _height: BlockHeight,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _state_update: StateRoot,
@@ -428,7 +428,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _height: BlockHeight,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
@@ -656,7 +656,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        height: BlockHeight,
+        block_height: BlockHeight,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
         path: Vec<&str>,
@@ -680,7 +680,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         }
                         .into(),
                     ),
-                    height,
+                    block_height,
                 })
             }
             "access_key" if path.len() == 2 => Ok(QueryResponse {
@@ -690,11 +690,11 @@ impl RuntimeAdapter for KeyValueRuntime {
                         access_key: AccessKey::full_access().into(),
                     }],
                 }),
-                height,
+                block_height,
             }),
             "access_key" if path.len() == 3 => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
-                height,
+                block_height,
             }),
             _ => {
                 panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);

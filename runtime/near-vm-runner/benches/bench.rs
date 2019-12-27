@@ -22,7 +22,7 @@ fn setup(
         signer_account_pk: vec![1, 2, 3],
         predecessor_account_id: "carol".to_owned(),
         input,
-        height: 0,
+        block_height: 0,
         block_timestamp: 0,
         account_balance: 0,
         account_locked_balance: 0,

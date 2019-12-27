@@ -128,7 +128,7 @@ fn test_query_account() {
         actix::spawn(client.query("account/test".to_string(), "".to_string()).then(
             |query_response| {
                 let query_response = query_response.unwrap();
-                assert_eq!(query_response.height, 0);
+                assert_eq!(query_response.block_height, 0);
                 let account_info =
                     if let QueryResponseKind::ViewAccount(account) = query_response.kind {
                         account
@@ -163,7 +163,7 @@ fn test_query_access_keys() {
         actix::spawn(client.query("access_key/test".to_string(), "".to_string()).then(
             |query_response| {
                 let query_response = query_response.unwrap();
-                assert_eq!(query_response.height, 0);
+                assert_eq!(query_response.block_height, 0);
                 let access_keys =
                     if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind {
                         access_keys
@@ -196,7 +196,7 @@ fn test_query_access_key() {
         actix::spawn(client.query("access_key/test/xxx".to_string(), "".to_string()).then(
             |query_response| {
                 let query_response = query_response.unwrap();
-                assert_eq!(query_response.height, 0);
+                assert_eq!(query_response.block_height, 0);
                 let access_key =
                     if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
                         access_keys

@@ -172,7 +172,7 @@ pub enum QueryResponseKind {
 pub struct QueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
-    pub height: BlockHeight,
+    pub block_height: BlockHeight,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

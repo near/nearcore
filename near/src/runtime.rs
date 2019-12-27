@@ -207,7 +207,7 @@ impl NightshadeRuntime {
         trie: Arc<Trie>,
         state_root: CryptoHash,
         shard_id: ShardId,
-        height: BlockHeight,
+        block_height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
@@ -221,7 +221,7 @@ impl NightshadeRuntime {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             debug!(target: "runtime",
                    "block height: {}, is next_block_epoch_start {}",
-                   height,
+                   block_height,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
@@ -284,7 +284,7 @@ impl NightshadeRuntime {
         };
 
         let apply_state = ApplyState {
-            height,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -673,7 +673,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn validate_tx(
         &self,
-        height: BlockHeight,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
@@ -681,7 +681,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            height,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -706,7 +706,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn prepare_transactions(
         &self,
-        height: BlockHeight,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
@@ -717,7 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            height,
+            block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -888,7 +888,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        height: BlockHeight,
+        block_height: BlockHeight,
         block_timestamp: u64,
         _block_hash: &CryptoHash,
         path_parts: Vec<&str>,
@@ -899,16 +899,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         match path_parts[0] {
             "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
-                Ok(r) => {
-                    Ok(QueryResponse { kind: QueryResponseKind::ViewAccount(r.into()), height })
-                }
+                Ok(r) => Ok(QueryResponse {
+                    kind: QueryResponseKind::ViewAccount(r.into()),
+                    block_height,
+                }),
                 Err(e) => Err(e),
             },
             "call" => {
                 let mut logs = vec![];
                 match self.call_function(
                     *state_root,
-                    height,
+                    block_height,
                     block_timestamp,
                     &AccountId::from(path_parts[1]),
                     path_parts[2],
@@ -917,25 +918,26 @@ impl RuntimeAdapter for NightshadeRuntime {
                 ) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
-                        height,
+                        block_height,
                     }),
                     Err(err) => Ok(QueryResponse {
                         kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
-                        height,
+                        block_height,
                     }),
                 }
             }
             "contract" => {
                 match self.view_state(*state_root, &AccountId::from(path_parts[1]), data) {
-                    Ok(result) => {
-                        Ok(QueryResponse { kind: QueryResponseKind::ViewState(result), height })
-                    }
+                    Ok(result) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewState(result),
+                        block_height,
+                    }),
                     Err(err) => Ok(QueryResponse {
                         kind: QueryResponseKind::Error(QueryError {
                             error: err.to_string(),
                             logs: vec![],
                         }),
-                        height,
+                        block_height,
                     }),
                 }
             }
@@ -951,7 +953,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                     })
                                     .collect(),
                             ),
-                            height,
+                            block_height,
                         }
                     })
                 } else {
@@ -962,7 +964,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     )
                     .map(|access_key| QueryResponse {
                         kind: QueryResponseKind::AccessKey(access_key.into()),
-                        height,
+                        block_height,
                     })
                 };
                 match result {
@@ -972,7 +974,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             error: err.to_string(),
                             logs: vec![],
                         }),
-                        height,
+                        block_height,
                     }),
                 }
             }
@@ -2277,7 +2279,7 @@ mod test {
             CryptoHash::default(),
         );
         let apply_state = ApplyState {
-            height: 1,
+            block_height: 1,
             epoch_length: 2,
             gas_price: 10,
             block_timestamp: 100,

@@ -22,7 +22,7 @@ pub struct VMContext {
     /// The input to the contract call.
     pub input: Vec<u8>,
     /// The current block height.
-    pub height: BlockHeight,
+    pub block_height: BlockHeight,
     /// The current block timestamp.
     pub block_timestamp: u64,
 
