@@ -25,7 +25,8 @@ extern "C" {
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
-    fn block_height() -> u64;
+    // TODO #1903 fn block_height() -> u64;
+    fn block_index() -> u64;
     fn storage_usage() -> u64;
     // #################
     // # Economics API #
@@ -182,7 +183,7 @@ pub fn noop() {}
 #[no_mangle]
 pub unsafe fn base_1M() {
     for _ in 0..1_000_000 {
-        block_height();
+        block_index();
     }
 }
 

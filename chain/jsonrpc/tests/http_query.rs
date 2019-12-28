@@ -18,7 +18,7 @@ fn test_status() {
         actix::spawn(client.status().then(|res| {
             let res = res.unwrap();
             assert_eq!(res.chain_id, "unittest");
-            assert_eq!(res.sync_info.latest_height, 0);
+            assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);
             System::current().stop();
             future::result(Ok(()))

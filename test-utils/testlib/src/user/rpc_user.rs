@@ -87,7 +87,7 @@ impl User for RpcUser {
     }
 
     fn get_best_height(&self) -> Option<u64> {
-        self.get_status().map(|status| status.sync_info.latest_height)
+        self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
     fn get_best_block_hash(&self) -> Option<CryptoHash> {

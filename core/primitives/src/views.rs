@@ -178,7 +178,7 @@ pub struct QueryResponse {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
-    pub latest_height: BlockHeight,
+    pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,

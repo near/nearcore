@@ -484,7 +484,7 @@ impl Handler<Status> for ClientActor {
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
-                latest_height: head.height,
+                latest_block_height: head.height,
                 latest_state_root: header.inner_lite.prev_state_root.clone().into(),
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),

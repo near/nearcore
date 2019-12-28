@@ -14,7 +14,7 @@ pub trait ViewRuntimeAdapter {
     fn call_function(
         &self,
         state_root: MerkleHash,
-        block_height: BlockHeight,
+        height: BlockHeight,
         block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,

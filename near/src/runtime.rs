@@ -284,7 +284,7 @@ impl NightshadeRuntime {
         };
 
         let apply_state = ApplyState {
-            block_height,
+            block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -681,7 +681,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Option<InvalidTxError>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            block_height,
+            block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -717,7 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
-            block_height,
+            block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
@@ -2279,7 +2279,7 @@ mod test {
             CryptoHash::default(),
         );
         let apply_state = ApplyState {
-            block_height: 1,
+            block_index: 1,
             epoch_length: 2,
             gas_price: 10,
             block_timestamp: 100,

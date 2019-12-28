@@ -50,7 +50,7 @@ impl StandaloneRuntime {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_height: 0,
+            block_index: 0,
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
             gas_price: 100,
@@ -82,7 +82,7 @@ impl StandaloneRuntime {
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
-        self.apply_state.block_height += 1;
+        self.apply_state.block_index += 1;
 
         (apply_result.new_receipts, apply_result.outcomes)
     }

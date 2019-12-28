@@ -79,14 +79,15 @@ pub(crate) fn check_rent(
 pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
-    block_height: BlockHeight,
+    // TODO #1903 block_height: BlockHeight,
+    block_index: BlockHeight,
     runtime_config: &RuntimeConfig,
 ) -> Balance {
-    let charge = u128::from(block_height - account.storage_paid_at)
+    let charge = u128::from(block_index - account.storage_paid_at)
         * cost_per_block(account_id, account, runtime_config);
     let actual_charge = std::cmp::min(account.amount, charge);
     account.amount -= actual_charge;
-    account.storage_paid_at = block_height;
+    account.storage_paid_at = block_index;
     actual_charge
 }
 
@@ -152,7 +153,7 @@ pub(crate) fn action_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: receipt.predecessor_id.clone(),
         input: function_call.args.clone(),
-        block_height: apply_state.block_height,
+        block_index: apply_state.block_index,
         block_timestamp: apply_state.block_timestamp,
         account_balance: account.amount,
         account_locked_balance: account.locked,
@@ -262,7 +263,7 @@ pub(crate) fn action_create_account(
         return;
     }
     *actor_id = receipt.receiver_id.clone();
-    *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_height));
+    *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
     account.as_mut().unwrap().storage_usage = fee_config.storage_usage_config.account_cost;
 }
 

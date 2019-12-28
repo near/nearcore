@@ -500,9 +500,10 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn block_height(&mut self) -> Result<u64> {
+    // TODO #1903 rename to `block_height`
+    pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_height)
+        Ok(self.context.block_index)
     }
 
     /// Returns the current block timestamp.
