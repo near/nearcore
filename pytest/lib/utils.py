@@ -82,12 +82,12 @@ with open('/tmp/python-rc.log') as f:
                 self.offset = f.tell()
             return ret
         elif type(self.node) is GCloudNode:
-            ret, offset = int(node.machine.run("python3", input=f'''
+            ret, offset = map(int, node.machine.run("python3", input=f'''
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
     print(s in f.read())
     print(f.tell())
-''')).stdout.strip().split('\n')
+''').stdout.strip().split('\n'))
             offset = int(self.offset)
             return ret
         else:
