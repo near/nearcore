@@ -202,7 +202,7 @@ for i in range(num_machines):
     p=run('bash', input=f'''
 cp /tmp/near/accounts.csv /tmp/near/node{i}
 cd ..
-target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id stakewars --tracked-shards=0,1,2,3,4,5,6,7
+target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id pytest
 ''')
     apply_config_changes(f'/tmp/near/node{i}', client_config_changes)
     apply_genesis_changes(f'/tmp/near/node{i}', genesis_config_changes)
