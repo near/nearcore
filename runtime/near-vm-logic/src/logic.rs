@@ -1607,13 +1607,13 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(message);
-        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
         Ok(())
     }
 
@@ -1630,6 +1630,9 @@ impl<'a> VMLogic<'a> {
     /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(
@@ -1637,9 +1640,6 @@ impl<'a> VMLogic<'a> {
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
         self.logs.push(message);
-        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
         Ok(())
     }
 
@@ -1654,6 +1654,9 @@ impl<'a> VMLogic<'a> {
         if msg_ptr < 4 || filename_ptr < 4 {
             return Err(HostError::BadUTF16.into());
         }
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            return Err(HostError::TooManyLogs.into());
+        }
 
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
         let filename_len = self.memory_get_u32((filename_ptr - 4) as u64)?;
@@ -1665,9 +1668,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(format!("ABORT: {}", message));
-        if self.logs.len() as u64 > self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
-        }
 
         Err(HostError::GuestPanic(message).into())
     }

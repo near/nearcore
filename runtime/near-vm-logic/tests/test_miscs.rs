@@ -96,6 +96,75 @@ fn test_log_max_limit() {
 }
 
 #[test]
+fn test_log_number_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let string_bytes = "blabla".as_bytes().to_vec();
+    logic_builder.config.limit_config.max_log_len = (string_bytes.len() + 1) as u64;
+    let max_number_logs = 3;
+    logic_builder.config.limit_config.max_number_logs = max_number_logs;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let len = string_bytes.len() as u64;
+    for _ in 0..max_number_logs {
+        logic
+            .log_utf8(len, string_bytes.as_ptr() as _)
+            .expect("Valid utf-8 string_bytes under the log number limit");
+    }
+    assert_eq!(logic.log_utf8(len, string_bytes.as_ptr() as _), Err(HostError::TooManyLogs.into()));
+
+    assert_costs(map! {
+        ExtCosts::base: max_number_logs + 1,
+        ExtCosts::log_base: max_number_logs,
+        ExtCosts::log_byte: len * max_number_logs,
+        ExtCosts::read_memory_base: max_number_logs,
+        ExtCosts::read_memory_byte: len * max_number_logs,
+        ExtCosts::utf8_decoding_base: max_number_logs,
+        ExtCosts::utf8_decoding_byte: len * max_number_logs,
+    });
+
+    let outcome = logic.outcome();
+    assert_eq!(outcome.logs.len() as u64, max_number_logs);
+}
+
+#[test]
+fn test_log_utf16_number_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let string = "$ qò$`";
+    let mut string_bytes: Vec<u8> = vec![0u8; 0];
+    for u16_ in string.encode_utf16() {
+        string_bytes.push(u16_ as u8);
+        string_bytes.push((u16_ >> 8) as u8);
+    }
+    logic_builder.config.limit_config.max_log_len = (string_bytes.len() + 1) as u64;
+    let max_number_logs = 3;
+    logic_builder.config.limit_config.max_number_logs = max_number_logs;
+
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let len = string_bytes.len() as u64;
+    for _ in 0..max_number_logs {
+        logic
+            .log_utf16(len, string_bytes.as_ptr() as _)
+            .expect("Valid utf-16 string_bytes under the log number limit");
+    }
+    assert_eq!(
+        logic.log_utf16(len, string_bytes.as_ptr() as _),
+        Err(HostError::TooManyLogs.into())
+    );
+
+    assert_costs(map! {
+        ExtCosts::base: max_number_logs + 1,
+        ExtCosts::log_base: max_number_logs,
+        ExtCosts::log_byte: len * max_number_logs,
+        ExtCosts::read_memory_base: max_number_logs,
+        ExtCosts::read_memory_byte: len * max_number_logs,
+        ExtCosts::utf16_decoding_base: max_number_logs,
+        ExtCosts::utf16_decoding_byte: len * max_number_logs,
+    });
+
+    let outcome = logic.outcome();
+    assert_eq!(outcome.logs.len() as u64, max_number_logs);
+}
+
+#[test]
 fn test_log_utf8_max_limit_null_terminated() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
