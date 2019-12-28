@@ -64,6 +64,7 @@ impl RuntimeTestbed {
             max_number_input_data_dependencies: u32::max_value(),
 
             max_total_prepaid_gas: u64::max_value(),
+            max_number_bytes_method_names: u64::max_value(),
 
             ..Default::default()
         };
