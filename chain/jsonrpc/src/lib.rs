@@ -304,9 +304,7 @@ impl JsonRpcHandler {
             self.view_client_addr
                 .send(match chunk_id {
                     ChunkId::BlockShardId(block_id, shard_id) => match block_id {
-                        BlockId::Height(height) => {
-                            GetChunk::Height(height, shard_id)
-                        }
+                        BlockId::Height(height) => GetChunk::Height(height, shard_id),
                         BlockId::Hash(block_hash) => {
                             GetChunk::BlockHash(block_hash.into(), shard_id)
                         }
