@@ -6,10 +6,11 @@
 
 from rc import gcloud, pmap
 from distutils.util import strtobool
-
+import sys
 
 machines = gcloud.list()
-to_delete = list(filter(lambda m: m.name.startswith("pytest-node"), machines))
+to_delete_prefix = sys.argv[1] if len(sys.argv) >= 2 else "pytest-node"
+to_delete = list(filter(lambda m: m.name.startswith(to_delete_prefix), machines))
 
 if to_delete:
     a = input(f"going to delete {list(map(lambda m: m.name, to_delete))}\ny/n: ")

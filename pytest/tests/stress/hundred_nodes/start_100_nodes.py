@@ -1,3 +1,10 @@
+# Prerequisite
+# cargo build -p near --release
+# cargo build -p genesis-csv-to-json --release
+# cargo build -p keypair-generator
+# 
+# And a suitable gcloud image, see below image_name
+
 from rc import run, gcloud, pmap
 import json
 import datetime
@@ -28,7 +35,7 @@ genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
 
 # binary search this to observe if network forks, default is 1
-block_production_time = 10
+block_production_time = 1
 
 client_config_changes = {
     "consensus": {

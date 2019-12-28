@@ -43,11 +43,11 @@ assert p.returncode == 0
 
 print('near built')
 
-m.stop()
+m.shutdown()
 
 print('machine stopped')
 
-m.save_image(image_name)
+m.save_image(image=image_name)
 
 print('image saved')
 
