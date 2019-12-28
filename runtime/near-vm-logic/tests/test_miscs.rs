@@ -83,7 +83,7 @@ fn test_log_max_limit() {
 
     assert_eq!(
         logic.log_utf8(string_bytes.len() as _, string_bytes.as_ptr() as _),
-        Err(HostError::BadUTF8.into())
+        Err(HostError::LogLengthExceeded.into())
     );
 
     assert_costs(map! {
@@ -105,7 +105,7 @@ fn test_log_utf8_max_limit_null_terminated() {
     string_bytes.push(0u8);
     assert_eq!(
         logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _),
-        Err(HostError::BadUTF8.into())
+        Err(HostError::LogLengthExceeded.into())
     );
 
     let len = string_bytes.len() as u64;
@@ -182,7 +182,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
     utf16_bytes.extend_from_slice(&[0, 0]);
     assert_eq!(
         logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _),
-        Err(HostError::BadUTF16.into())
+        Err(HostError::LogLengthExceeded.into())
     );
 
     assert_costs(map! {
@@ -201,7 +201,7 @@ fn test_log_utf8_max_limit_null_terminated_fail() {
     logic_builder.config.limit_config.max_log_len = 3;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let res = logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _);
-    assert_eq!(res, Err(HostError::BadUTF8.into()));
+    assert_eq!(res, Err(HostError::LogLengthExceeded.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::read_memory_base: logic_builder.config.limit_config.max_log_len + 1,

@@ -340,7 +340,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == max_len {
-                    return Err(HostError::BadUTF8.into());
+                    return Err(HostError::LogLengthExceeded.into());
                 }
                 buf.push(el);
             }
