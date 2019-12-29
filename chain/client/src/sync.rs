@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
 use chrono::{DateTime, Duration, Utc};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::StateRequestParts;
@@ -564,8 +564,8 @@ impl StateSync {
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
                         let error = shard_sync_download.downloads[0].error;
-                        if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
-                            download_timeout = true;
+                        download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                        if download_timeout || error {
                             shard_sync_download.downloads[0].run_me = true;
                             shard_sync_download.downloads[0].error = false;
                             shard_sync_download.downloads[0].prev_update_time = now;
@@ -582,8 +582,8 @@ impl StateSync {
                             parts_done = false;
                             let prev = part_download.prev_update_time;
                             let error = part_download.error;
-                            if now - prev > Duration::seconds(STATE_SYNC_TIMEOUT) || error {
-                                download_timeout = true;
+                            download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                            if download_timeout || error {
                                 part_download.run_me = true;
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
@@ -632,23 +632,10 @@ impl StateSync {
                 }
             }
             all_done &= this_done;
-            // Execute syncing for shard `shard_id`
-            if need_shard {
-                update_sync_status = true;
-                *shard_sync_download = self.request_shard(
-                    me,
-                    shard_id,
-                    chain,
-                    runtime_adapter,
-                    sync_hash,
-                    shard_sync_download.clone(),
-                    most_weight_peers,
-                )?;
-            }
 
             if download_timeout {
-                error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
-                info!(target: "sync", "Sync status: me {:?}, sync_hash {}, failed {}",
+                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, STATE_SYNC_TIMEOUT);
+                info!(target: "sync", "State sync status: me {:?}, sync_hash {}, downloading phase {}",
                       me,
                       sync_hash,
                       match shard_sync_download.status {
@@ -665,6 +652,20 @@ impl StateSync {
                           ShardSyncStatus::StateDownloadComplete => format!("DONE"),
                       },
                 );
+            }
+
+            // Execute syncing for shard `shard_id`
+            if need_shard {
+                update_sync_status = true;
+                *shard_sync_download = self.request_shard(
+                    me,
+                    shard_id,
+                    chain,
+                    runtime_adapter,
+                    sync_hash,
+                    shard_sync_download.clone(),
+                    most_weight_peers,
+                )?;
             }
         }
 
