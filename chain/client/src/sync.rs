@@ -647,13 +647,13 @@ impl StateSync {
                                                                           shard_sync_download.downloads[0].last_target),
                           ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
                               for (i, download) in shard_sync_download.downloads.iter().enumerate() {
-                                  text.push_str(&format!("[ {} | {} | {} | {:?} ] ",
+                                  text.push_str(&format!("[{}: {}, {}, {:?}] ",
                                                          Yellow.bold().paint(i.to_string()),
                                                          download.done,
                                                          download.state_requests_count,
                                                          download.last_target));
                               }
-                              format!("{} [ {} | is_done | requests sent | last target ] {}",
+                              format!("{} [{}: is_done, requests sent, last target] {}",
                                       Purple.bold().paint("PARTS"),
                                       Yellow.bold().paint("part_id"),
                                       text)
