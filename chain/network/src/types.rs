@@ -3,7 +3,7 @@ use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -753,6 +753,12 @@ impl PeerMessage {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BlockedPorts {
+    All,
+    Some(HashSet<u16>),
+}
+
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -783,6 +789,37 @@ pub struct NetworkConfig {
     pub most_weighted_peer_horizon: u128,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
+    /// Peers on blacklist by IP:Port.
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: HashMap<IpAddr, BlockedPorts>,
+}
+
+/// Used to match a socket addr by IP:Port or only by IP
+#[derive(Clone, Debug)]
+pub enum PatternAddr {
+    Ip(IpAddr),
+    IpPort(SocketAddr),
+}
+
+impl PatternAddr {
+    pub fn contains(&self, addr: &SocketAddr) -> bool {
+        match self {
+            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
+            PatternAddr::IpPort(pattern) => addr == pattern,
+        }
+    }
+}
+
+impl FromStr for PatternAddr {
+    type Err = AddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(pattern) = s.parse::<IpAddr>() {
+            return Ok(PatternAddr::Ip(pattern));
+        }
+
+        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
+    }
 }
 
 /// Status of the known peers.
