@@ -122,7 +122,7 @@ impl ViewClientActor {
                         .chain
                         .find_validator_for_forwarding(shard_id)
                         .map_err(|e| e.to_string())?;
-                    let _ = self.network_adapter.send(NetworkRequests::Query {
+                    self.network_adapter.do_send(NetworkRequests::Query {
                         account_id: validator,
                         path: msg.path.clone(),
                         data: msg.data.clone(),
@@ -174,7 +174,7 @@ impl ViewClientActor {
                                     .chain
                                     .find_validator_for_forwarding(dst_shard_id)
                                     .map_err(|e| e.to_string())?;
-                                let _ = self.network_adapter.send(
+                                self.network_adapter.do_send(
                                     NetworkRequests::ReceiptOutComeRequest(
                                         validator,
                                         receipt_view.id,
@@ -195,7 +195,7 @@ impl ViewClientActor {
                 .chain
                 .find_validator_for_forwarding(target_shard_id)
                 .map_err(|e| e.to_string())?;
-            let _ = self.network_adapter.send(NetworkRequests::TxStatus(
+            self.network_adapter.do_send(NetworkRequests::TxStatus(
                 validator,
                 signer_account_id,
                 tx_hash,

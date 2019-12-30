@@ -542,7 +542,7 @@ impl Client {
                     &*block_producer.signer,
                 );
                 self.challenges.insert(challenge.hash, challenge.clone());
-                let _ = self.network_adapter.send(NetworkRequests::Challenge(challenge));
+                self.network_adapter.do_send(NetworkRequests::Challenge(challenge));
             }
         }
     }
@@ -582,7 +582,7 @@ impl Client {
             match &result {
                 Err(e) => match e.kind() {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
-                        let _ = self.network_adapter.send(NetworkRequests::Challenge(
+                        self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
                                 ChallengeBody::ChunkProofs(chunk_proofs),
                                 block_producer.account_id.clone(),
@@ -591,7 +591,7 @@ impl Client {
                         ));
                     }
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
-                        let _ = self.network_adapter.send(NetworkRequests::Challenge(
+                        self.network_adapter.do_send(NetworkRequests::Challenge(
                             Challenge::produce(
                                 ChallengeBody::ChunkState(chunk_state),
                                 block_producer.account_id.clone(),
@@ -674,7 +674,7 @@ impl Client {
             if let Some(approvals) = approvals {
                 for (_account_id, (approval, peer_id)) in approvals {
                     if !self.collect_block_approval(&approval, &peer_id) {
-                        let _ = self.network_adapter.send(NetworkRequests::BanPeer {
+                        self.network_adapter.do_send(NetworkRequests::BanPeer {
                             peer_id,
                             ban_reason: ReasonForBan::BadBlockApproval,
                         });
@@ -682,7 +682,7 @@ impl Client {
                 }
             }
             let approval_message = self.create_block_approval(&block.header);
-            let _ = self.network_adapter.send(NetworkRequests::BlockHeaderAnnounce {
+            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
                 header: block.header.clone(),
                 approval_message,
             });
@@ -949,7 +949,7 @@ impl Client {
         );
 
         // Send message to network to actually forward transaction.
-        let _ = self.network_adapter.send(NetworkRequests::ForwardTx(validator, tx));
+        self.network_adapter.do_send(NetworkRequests::ForwardTx(validator, tx));
 
         NetworkClientResponses::RequestRouted
     }

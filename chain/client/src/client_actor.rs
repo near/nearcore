@@ -587,13 +587,12 @@ impl ClientActor {
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                let _ =
-                    self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount {
-                        account_id: block_producer.account_id.clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    }));
+                self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: block_producer.account_id.clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }));
             }
         }
     }
@@ -746,7 +745,7 @@ impl ClientActor {
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
         if provenance == Provenance::PRODUCED {
-            let _ = self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
@@ -867,7 +866,7 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
-                let _ = self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id });
+                self.network_adapter.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)

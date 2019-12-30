@@ -182,7 +182,7 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}, score: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.weight_and_score.weight, peer.chain_info.weight_and_score.score);
-                                    let _ = self.network_adapter.send(NetworkRequests::BanPeer {
+                                    self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
                                     });
@@ -223,7 +223,7 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            let _ = self.network_adapter.send(NetworkRequests::BlockHeadersRequest {
+            self.network_adapter.do_send(NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
                 peer_id: peer.peer_info.id.clone(),
             });
@@ -386,7 +386,7 @@ impl BlockSync {
             let mut peers_iter = most_weight_peers.iter().cycle();
             for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
-                    let _ = self.network_adapter.send(NetworkRequests::BlockRequest {
+                    self.network_adapter.do_send(NetworkRequests::BlockRequest {
                         hash: hash.clone(),
                         peer_id: peer.peer_info.id.clone(),
                     });
@@ -729,7 +729,7 @@ impl StateSync {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
                     possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone();
-                let _ = self.network_adapter.send(NetworkRequests::StateRequest {
+                self.network_adapter.do_send(NetworkRequests::StateRequest {
                     shard_id,
                     sync_hash,
                     need_header: true,
@@ -748,7 +748,7 @@ impl StateSync {
                         let target = possible_targets
                             [thread_rng().gen_range(0, possible_targets.len())]
                         .clone();
-                        let _ = self.network_adapter.send(NetworkRequests::StateRequest {
+                        self.network_adapter.do_send(NetworkRequests::StateRequest {
                             shard_id,
                             sync_hash,
                             need_header: false,
