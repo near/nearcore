@@ -8,7 +8,7 @@ use std::fmt::Display;
 use near_rpc_error_macro::RpcError;
 use near_vm_errors::VMError;
 
-/// Error returned in the ExecutionOutcome in case of failure.
+/// Error returned in the ExecutionOutcome in case of failure
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -72,7 +72,9 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// External
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 #[rpc_error_variant = "InvalidTx"]
 pub enum InvalidTxError {
     InvalidAccessKey(InvalidAccessKeyError),
@@ -107,7 +109,9 @@ pub enum InvalidTxError {
     Expired,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 #[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
     AccessKeyNotFound {
@@ -132,26 +136,18 @@ pub enum InvalidAccessKeyError {
     },
 }
 
-///
-///
-/// Variants are types
-///
-/// {"ServerError": { "TxError" { "kind": { "ActionError" : {  } } }
-///   kind: "TxError",
-///
-/// }
-/// }
-///
-///
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 #[rpc_error_variant = "Action"]
 pub struct ActionError {
     pub index: Option<u64>,
     pub kind: ActionErrorKind,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 #[rpc_error_variant = "Action"]
 pub enum ActionErrorKind {
     AccountAlreadyExists {

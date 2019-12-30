@@ -1,13 +1,27 @@
 extern crate proc_macro;
 extern crate proc_macro2;
 use proc_macro::TokenStream;
-use proc_macro2::Literal;
-use quote::quote;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, DeriveInput, Lit, Meta, MetaNameValue, Data, DataEnum, DataStruct, Fields, FieldsUnnamed, FieldsNamed};
+use syn::{
+    parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed,
+    Lit, Meta, MetaNameValue,
+};
+
+fn merge(a: &mut Value, b: &Value) {
+    match (a, b) {
+        (&mut Value::Object(ref mut a), &Value::Object(ref b)) => {
+            for (k, v) in b {
+                merge(a.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (a, b) => {
+            *a = b.clone();
+        }
+    }
+}
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 struct Schema {
@@ -18,7 +32,14 @@ impl Drop for Schema {
     fn drop(&mut self) {
         // std::env::var("CARGO_TARGET_DIR") doesn't work for some reason
         let filename = "./target/errors_schema.json";
-        let json = serde_json::to_string_pretty(self).expect("Schema serialize failed");
+        let mut json_value = serde_json::to_value(self).expect("Schema serialize failed");
+        if let Ok(data) = std::fs::read(filename) {
+            if let Ok(existing_schema) = serde_json::from_slice::<Value>(&data) {
+                merge(&mut json_value, &existing_schema);
+            };
+        };
+        let json =
+            serde_json::to_string_pretty(&json_value).expect("error schema serialization failed");
         std::fs::write(filename, json).expect("Unable to save the errors schema file");
     }
 }
@@ -47,26 +68,29 @@ fn parse_rpc_error_variant(input: &DeriveInput) -> Option<String> {
     })
 }
 
-fn error_type_name<'a>(schema: &'a mut HashMap<String, ErrorType>, name: String) -> &'a mut ErrorType {
-        let error_type = ErrorType{ name: name.clone(), ..Default::default() };
-        schema.entry(name.clone()).or_insert(error_type)
+fn error_type_name<'a>(
+    schema: &'a mut HashMap<String, ErrorType>,
+    name: String,
+) -> &'a mut ErrorType {
+    let error_type = ErrorType { name: name.clone(), ..Default::default() };
+    schema.entry(name.clone()).or_insert(error_type)
 }
 
 fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput) {
     let name = parse_rpc_error_variant(input).expect("should have a rpc_error_variant with value");
     match &input.data {
-        // If Variant is a NewType add to subtypes
-        // - if Variant is a struct-variant, create a new
-        Data::Enum(DataEnum{ ref variants, .. }) => {
-            let mut error_type = error_type_name(schema, name);
+        Data::Enum(DataEnum { ref variants, .. }) => {
+            let error_type = error_type_name(schema, name);
             let mut direct_error_types = vec![];
             for variant in variants {
                 error_type.subtypes.push(variant.ident.to_string());
                 match &variant.fields {
-                    Fields::Unnamed( FieldsUnnamed { ref unnamed, .. } ) => {
+                    Fields::Unnamed(FieldsUnnamed { ref unnamed, .. }) => {
                         // Subtype
                         if unnamed.iter().count() > 1 {
-                            panic!("Error types doesn't support tuple variants with multiple fields");
+                            panic!(
+                                "Error types doesn't support tuple variants with multiple fields"
+                            );
                         }
                     }
                     Fields::Named(FieldsNamed { ref named, .. }) => {
@@ -74,13 +98,22 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
                         let mut error_type = ErrorType::default();
                         error_type.name = variant.ident.to_string();
                         for field in named {
-                            error_type.props.insert(field.ident.as_ref()
-                                .expect("named fields must have ident").to_string(), "".to_owned()); // TODO: add type
+                            error_type.props.insert(
+                                field
+                                    .ident
+                                    .as_ref()
+                                    .expect("named fields must have ident")
+                                    .to_string(),
+                                "".to_owned(),
+                            ); // TODO: add type
                         }
                         direct_error_types.push(error_type);
                     }
                     Fields::Unit => {
-                        direct_error_types.push(ErrorType{name: variant.ident.to_string(), ..Default::default()});
+                        direct_error_types.push(ErrorType {
+                            name: variant.ident.to_string(),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -89,13 +122,14 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
                 error_type.name = e.name;
                 error_type.props = e.props;
             }
-        },
-        Data::Struct(DataStruct{ ref fields, ..} ) => {
-            let mut error_type = error_type_name(schema, name);
+        }
+        Data::Struct(DataStruct { ref fields, .. }) => {
+            let error_type = error_type_name(schema, name);
             match fields {
-                Fields::Named(FieldsNamed{ ref named, .. }) => {
+                Fields::Named(FieldsNamed { ref named, .. }) => {
                     for field in named {
-                        let field_name = field.ident.as_ref().expect("named fields must have ident").to_string();
+                        let field_name =
+                            field.ident.as_ref().expect("named fields must have ident").to_string();
                         if field_name == "kind" {
                             continue;
                         }
@@ -106,7 +140,7 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
                     panic!("RpcError supports structs with the named fields only");
                 }
             }
-        },
+        }
         Data::Union(_) => {
             panic!("Unions are not supported");
         }

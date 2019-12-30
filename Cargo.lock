@@ -2143,6 +2143,7 @@ dependencies = [
  "near-network 0.1.0",
  "near-pool 0.1.0",
  "near-primitives 0.1.0",
+ "near-rpc-error-macro 0.1.0",
  "near-store 0.1.0",
  "prometheus 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.102 (registry+https://github.com/rust-lang/crates.io-index)",
