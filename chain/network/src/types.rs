@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message, Recipient};
+use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
@@ -31,6 +31,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use actix::prelude::Future;
 use std::sync::RwLock;
 
 /// Current latest version of the protocol
@@ -1136,6 +1137,7 @@ pub enum NetworkResponses {
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Edge),
+    RouteNotFound,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -1338,7 +1340,12 @@ pub struct StopSignal {}
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> Box<dyn Future<Item = NetworkResponses, Error = MailboxError>>;
+
+    fn do_send(&self, msg: NetworkRequests);
 }
 
 pub struct NetworkRecipient {
@@ -1358,7 +1365,21 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> Box<dyn Future<Item = NetworkResponses, Error = MailboxError>> {
+        Box::new(
+            self.network_recipient
+                .read()
+                .unwrap()
+                .as_ref()
+                .expect("Recipient must be set")
+                .send(msg),
+        )
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         let _ = self
             .network_recipient
             .read()
