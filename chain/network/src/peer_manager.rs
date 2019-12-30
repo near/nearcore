@@ -30,17 +30,18 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
-    PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal,
-    SyncData, Unregister,
+    AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
+    FullPeerInfo, InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages,
+    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
+use std::net::SocketAddr;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -104,6 +105,7 @@ impl PeerManagerActor {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
+        debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
         let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
@@ -124,6 +126,17 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
+    fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
+        if let Some(blocked_ports) = self.config.blacklist.get(&addr.ip()) {
+            match blocked_ports {
+                BlockedPorts::All => true,
+                BlockedPorts::Some(ports) => ports.contains(&addr.port()),
+            }
+        } else {
+            false
+        }
+    }
+
     /// Register a direct connection to a new peer. This will be called after successfully
     /// establishing a connection with another peer. It become part of the active peers.
     ///
@@ -138,6 +151,8 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
+        debug!(target: "network", "Connected to {:?}", full_peer_info);
+
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
@@ -1039,7 +1054,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {
                         Ok(stream) => {
-                            debug!(target: "network", "Connected to {}", msg.peer_info);
+                            debug!(target: "network", "Connecting to {}", msg.peer_info);
                             let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
                             act.connect_peer(
@@ -1074,6 +1089,12 @@ impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+        // Check if this is a blacklisted peer.
+        if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
+            debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
+            return ConsolidateResponse::Reject;
+        }
+
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);
