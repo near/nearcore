@@ -32,10 +32,10 @@ impl Drop for Schema {
     fn drop(&mut self) {
         // std::env::var("CARGO_TARGET_DIR") doesn't work for some reason
         let filename = "./target/errors_schema.json";
-        let mut json_value = serde_json::to_value(self).expect("Schema serialize failed");
+        let json_value = serde_json::to_value(self).expect("Schema serialize failed");
         if let Ok(data) = std::fs::read(filename) {
-            if let Ok(existing_schema) = serde_json::from_slice::<Value>(&data) {
-                merge(&mut json_value, &existing_schema);
+            if let Ok(mut existing_schema) = serde_json::from_slice::<Value>(&data) {
+                merge(&mut existing_schema, &json_value);
             };
         };
         let json =
