@@ -265,7 +265,7 @@ impl ShardsManager {
                 },
             };
 
-            self.network_adapter.send(NetworkRequests::PartialEncodedChunkRequest {
+            let _ = self.network_adapter.send(NetworkRequests::PartialEncodedChunkRequest {
                 account_id: account_id.clone(),
                 request,
             });
@@ -503,7 +503,7 @@ impl ShardsManager {
             receipts,
         };
 
-        self.network_adapter.send(NetworkRequests::PartialEncodedChunkResponse {
+        let _ = self.network_adapter.send(NetworkRequests::PartialEncodedChunkResponse {
             route_back,
             partial_encoded_chunk,
         });
@@ -1021,7 +1021,7 @@ impl ShardsManager {
             );
 
             if Some(&to_whom) != self.me.as_ref() {
-                self.network_adapter.send(NetworkRequests::PartialEncodedChunkMessage {
+                let _ = self.network_adapter.send(NetworkRequests::PartialEncodedChunkMessage {
                     account_id: to_whom.clone(),
                     partial_encoded_chunk,
                 });
