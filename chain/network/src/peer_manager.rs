@@ -524,7 +524,7 @@ impl PeerManagerActor {
     }
 
     /// Send message to peer that belong to our active set
-    /// Return if route to target peer is found.
+    /// Return whether the message is sent or not.
     fn send_message(
         &mut self,
         ctx: &mut Context<Self>,
@@ -551,6 +551,7 @@ impl PeerManagerActor {
         }
     }
 
+    /// Return whether the message is sent or not.
     fn send_message_to_account_or_peer_or_hash(
         &mut self,
         ctx: &mut Context<Self>,
@@ -570,6 +571,7 @@ impl PeerManagerActor {
     }
 
     /// Route signed message to target peer.
+    /// Return whether the message is sent or not.
     fn send_signed_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) -> bool {
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
@@ -578,8 +580,7 @@ impl PeerManagerActor {
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
-                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
-                true
+                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -591,18 +592,20 @@ impl PeerManagerActor {
                       self.routing_table.peer_forwarding.keys(),
                       msg,
                 );
-                true
+                false
             }
         }
     }
 
     /// Route message to target peer.
+    /// Return whether the message is sent or not.
     fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RawRoutedMessage) -> bool {
         let msg = self.sign_routed_message(msg);
         self.send_signed_message_to_peer(ctx, msg)
     }
 
     /// Send message to specific account.
+    /// Return whether the message is sent or not.
     fn send_message_to_account(
         &mut self,
         ctx: &mut Context<Self>,
