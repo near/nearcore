@@ -19,6 +19,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
+use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
@@ -156,6 +157,10 @@ pub struct Network {
     pub skip_sync_wait: bool,
     /// Ban window for peers who misbehave.
     pub ban_window: Duration,
+    /// List of addresses that will not be accepted as valid neighbors.
+    /// It can be IP:Port or IP (to blacklist all connections coming from this address).
+    #[serde(default)]
+    pub blacklist: Vec<String>,
 }
 
 impl Default for Network {
@@ -169,6 +174,7 @@ impl Default for Network {
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
             ban_window: Duration::from_secs(3 * 60 * 60),
+            blacklist: vec![],
         }
     }
 }
@@ -368,6 +374,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
+                blacklist: blacklist_from_vec(&config.network.blacklist),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
