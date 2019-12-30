@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
+use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
@@ -582,8 +583,9 @@ impl StateSync {
                             parts_done = false;
                             let prev = part_download.prev_update_time;
                             let error = part_download.error;
-                            download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
-                            if download_timeout || error {
+                            let part_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
+                            if part_timeout || error {
+                                download_timeout |= part_timeout;
                                 part_download.run_me = true;
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
@@ -635,21 +637,28 @@ impl StateSync {
 
             if download_timeout {
                 warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, STATE_SYNC_TIMEOUT);
-                info!(target: "sync", "State sync status: me {:?}, sync_hash {}, downloading phase {}",
+                info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
                       me,
                       sync_hash,
                       match shard_sync_download.status {
-                          ShardSyncStatus::StateDownloadHeader => format!("HEADER; requests sent {}, last target {:?}",
-                                                                           shard_sync_download.downloads[0].state_requests_count,
-                                                                           shard_sync_download.downloads[0].last_target),
-                          ShardSyncStatus::StateDownloadParts => { let mut text = "PARTS;".to_string();
+                          ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
+                                                                          Purple.bold().paint(format!("HEADER")),
+                                                                          shard_sync_download.downloads[0].state_requests_count,
+                                                                          shard_sync_download.downloads[0].last_target),
+                          ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
                               for (i, download) in shard_sync_download.downloads.iter().enumerate() {
-                                  text.push_str(&format!(" part {}, requests sent {}, last target {:?};", i, download.state_requests_count, download.last_target));
+                                  text.push_str(&format!("[ {} | {} | {} | {:?} ] ",
+                                                         Yellow.bold().paint(i.to_string()),
+                                                         download.done,
+                                                         download.state_requests_count,
+                                                         download.last_target));
                               }
-                              text
+                              format!("{} [ {} | is_done | requests sent | last target ] {}",
+                                      Purple.bold().paint("PARTS"),
+                                      Yellow.bold().paint("part_id"),
+                                      text)
                           }
-                          ShardSyncStatus::StateDownloadFinalize => format!("FINALIZATION"),
-                          ShardSyncStatus::StateDownloadComplete => format!("DONE"),
+                          _ => { assert!(false); format!("should never happen") },
                       },
                 );
             }
