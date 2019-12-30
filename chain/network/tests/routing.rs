@@ -800,8 +800,8 @@ fn blacklist_all() {
     .unwrap();
 }
 
-/// Spawn 4 nodes with max peers requird equal 2. Connect first three peers in a triangle.
-/// Try to connect peer3 and see it fail since
+/// Spawn 4 nodes with max peers required equal 2. Connect first three peers in a triangle.
+/// Try to connect peer3 to peer0 and see it fail since first three peer are at max capacity.
 #[test]
 fn max_peer_limit() {
     init_test_logger();
@@ -815,8 +815,7 @@ fn max_peer_limit() {
         runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
         runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
         runner.push(Action::AddEdge(3, 0));
-        // TODO(Marx): After #1886 is merged use Action::Wait here
-        // runner.push(Action::Wait(10));
+        runner.push(Action::Wait(100));
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
         runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
         runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
