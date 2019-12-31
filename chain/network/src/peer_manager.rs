@@ -296,6 +296,7 @@ impl PeerManagerActor {
     fn is_outbound_bootstrap_needed(&self) -> bool {
         (self.active_peers.len() + self.outgoing_peers.len())
             < (self.config.peer_max_count as usize)
+            && !self.config.outbound_disabled
     }
 
     /// Returns single random peer with the most weight.
@@ -652,7 +653,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
-        msg.sign(self.peer_id.clone(), &self.config.secret_key)
+        msg.sign(self.peer_id.clone(), &self.config.secret_key, self.config.routed_message_ttl)
     }
 
     // Determine if the given target is referring to us.

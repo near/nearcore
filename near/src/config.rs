@@ -18,7 +18,7 @@ use near_client::ClientConfig;
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network::types::PROTOCOL_VERSION;
+use near_network::types::{PROTOCOL_VERSION, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
@@ -371,10 +371,12 @@ impl NearConfig {
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
+                routed_message_ttl: ROUTED_MESSAGE_TTL,
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
                 blacklist: blacklist_from_vec(&config.network.blacklist),
+                outbound_disabled: false,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,

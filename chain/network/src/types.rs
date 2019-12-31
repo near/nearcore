@@ -357,11 +357,16 @@ pub struct RawRoutedMessage {
 impl RawRoutedMessage {
     /// Add signature to the message.
     /// Panics if the target is an AccountId instead of a PeerId.
-    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+    pub fn sign(
+        self,
+        author: PeerId,
+        secret_key: &SecretKey,
+        routed_message_ttl: u8,
+    ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, ttl: ROUTED_MESSAGE_TTL, body: self.body }
+        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
@@ -794,6 +799,10 @@ pub struct NetworkConfig {
     pub peer_stats_period: Duration,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
+    /// Number of hops a message is allowed to travel before being dropped.
+    /// This is used to avoid infinite loop because of inconsistent view of the network
+    /// by different nodes.
+    pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
     /// Weight horizon for most weighted peers, measured in stake seconds.
@@ -805,6 +814,11 @@ pub struct NetworkConfig {
     /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
     pub blacklist: HashMap<IpAddr, BlockedPorts>,
+    /// Flag to disable outbound connections. When this flag is active, nodes will not try to
+    /// establish connection with other nodes, but will accept incoming connection if other requirements
+    /// are satisfied.
+    /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
+    pub outbound_disabled: bool,
 }
 
 /// Used to match a socket addr by IP:Port or only by IP
