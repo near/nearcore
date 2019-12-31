@@ -303,21 +303,24 @@ impl StateMachine {
                                 .map_err(|_| ())
                                 .and_then(move |res| {
                                     if let NetworkResponses::PingPongInfo { pings, pongs } = res {
-                                        let ping_ok =
-                                            pings_expected.into_iter().all(|(nonce, source)| {
+                                        let len_matches = pings.len() == pings_expected.len()
+                                            && pongs.len() == pongs_expected.len();
+
+                                        let ping_ok = len_matches
+                                            && pings_expected.into_iter().all(|(nonce, source)| {
                                                 pings
                                                     .get(&nonce)
                                                     .map_or(false, |ping| ping.source == source)
                                             });
 
-                                        let pong_ok =
-                                            pongs_expected.into_iter().all(|(nonce, source)| {
+                                        let pong_ok = len_matches
+                                            && pongs_expected.into_iter().all(|(nonce, source)| {
                                                 pongs
                                                     .get(&nonce)
                                                     .map_or(false, |pong| pong.source == source)
                                             });
 
-                                        if ping_ok && pong_ok {
+                                        if len_matches && ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
                                         }
                                     }
@@ -626,7 +629,7 @@ fn ping_jump() {
 /// Test routed messages are not dropped if have enough TTL.
 /// Spawn three nodes and connect them in a line:
 ///
-/// 0 ---- 1 ----- 2
+/// 0 ---- 1 ---- 2
 ///
 /// Set routed message ttl to 2, so routed message can't pass through more than 2 edges.
 /// Send Ping from 0 to 2. It should arrive since there are only 2 edges from 0 to 2.
@@ -653,7 +656,7 @@ fn test_dont_drop_after_ttl() {
 /// Test routed messages are dropped if don't have enough TTL.
 /// Spawn three nodes and connect them in a line:
 ///
-/// 0 ---- 1 ----- 2
+/// 0 ---- 1 ---- 2
 ///
 /// Set routed message ttl to 1, so routed message can't pass through more than 1 edges.
 /// Send Ping from 0 to 2. It should not arrive since there are 2 edges from 0 to 2.
