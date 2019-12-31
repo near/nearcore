@@ -27,7 +27,7 @@ from cluster import apply_config_changes, apply_genesis_changes
 # it works with your gcloud credentials
 
 # After you're done, fill image_name here
-image_name = 'near-staging-20191219'
+image_name = 'near-staging-20191227-bo'
 
 machine_name_prefix = 'pytest-node-'
 
@@ -35,7 +35,7 @@ genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
 
 # binary search this to observe if network forks, default is 1
-block_production_time = 1
+block_production_time = 30
 
 client_config_changes = {
     "consensus": {

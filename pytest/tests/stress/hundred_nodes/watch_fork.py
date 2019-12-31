@@ -21,7 +21,7 @@ while True:
         validators[i] = f.result()
     
     for v in validators[1:]:
-        assert v == validators[0]
-    
+        assert v == validators[0], f'{v} not equal to {validators[0]}'
+
     v0 = sorted(list(validators[0]))
     print(f'{datetime.datetime.now()}, {len(v0)}, {v0}')
