@@ -5,12 +5,13 @@ use std::time::Duration as TimeDuration;
 
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
+use futures::future::Future;
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
-use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
+use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, StateRootNode};
@@ -738,17 +739,27 @@ impl StateSync {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
                     possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone();
-                self.network_adapter.do_send(NetworkRequests::StateRequest {
-                    shard_id,
-                    sync_hash,
-                    need_header: true,
-                    parts: StateRequestParts::default(),
-                    target: target.clone(),
-                });
                 assert!(new_shard_sync_download.downloads[0].run_me);
                 new_shard_sync_download.downloads[0].run_me = false;
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(target);
+                new_shard_sync_download.downloads[0].last_target = Some(target.clone());
+                actix::spawn(
+                    self.network_adapter
+                        .send(NetworkRequests::StateRequest {
+                            shard_id,
+                            sync_hash,
+                            need_header: true,
+                            parts: StateRequestParts::default(),
+                            target: target.clone(),
+                        })
+                        .then(move |result| {
+                            if let Ok(NetworkResponses::RouteNotFound) = result {
+                                warn!(target: "sync", "State sync StateRequest for shard {} to target {:?} got RouteNotFound, phase HEADER", shard_id, target);
+                                // TODO set run_me = true to avoid waiting for timeout
+                            }
+                            futures::future::ok::<(), ()>(())
+                        }),
+                );
             }
             ShardSyncStatus::StateDownloadParts => {
                 let num_parts = new_shard_sync_download.downloads.len() as u64;
@@ -757,17 +768,27 @@ impl StateSync {
                         let target = possible_targets
                             [thread_rng().gen_range(0, possible_targets.len())]
                         .clone();
-                        self.network_adapter.do_send(NetworkRequests::StateRequest {
-                            shard_id,
-                            sync_hash,
-                            need_header: false,
-                            parts: StateRequestParts { ids: vec![i as u64], num_parts },
-                            target: target.clone(),
-                        });
                         assert!(download.run_me);
                         download.run_me = false;
                         download.state_requests_count += 1;
-                        download.last_target = Some(target);
+                        download.last_target = Some(target.clone());
+                        actix::spawn(
+                            self.network_adapter
+                                .send(NetworkRequests::StateRequest {
+                                    shard_id,
+                                    sync_hash,
+                                    need_header: false,
+                                    parts: StateRequestParts { ids: vec![i as u64], num_parts },
+                                    target: target.clone(),
+                                })
+                                .then(move |result| {
+                                    if let Ok(NetworkResponses::RouteNotFound) = result {
+                                        warn!(target: "sync", "State sync StateRequest for shard {} to target {:?} got RouteNotFound, phase PART id = {}", shard_id, target, i);
+                                        // TODO set run_me = true to avoid waiting for timeout
+                                    }
+                                    futures::future::ok::<(), ()>(())
+                                }),
+                        );
                     }
                 }
             }
