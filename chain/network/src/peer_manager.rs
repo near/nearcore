@@ -30,17 +30,18 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
-    PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
-    PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal,
-    SyncData, Unregister,
+    AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
+    FullPeerInfo, InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages,
+    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
+    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
+use std::net::SocketAddr;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -104,6 +105,7 @@ impl PeerManagerActor {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
+        debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
         let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
@@ -124,6 +126,17 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
+    fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
+        if let Some(blocked_ports) = self.config.blacklist.get(&addr.ip()) {
+            match blocked_ports {
+                BlockedPorts::All => true,
+                BlockedPorts::Some(ports) => ports.contains(&addr.port()),
+            }
+        } else {
+            false
+        }
+    }
+
     /// Register a direct connection to a new peer. This will be called after successfully
     /// establishing a connection with another peer. It become part of the active peers.
     ///
@@ -138,6 +151,8 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
+        debug!(target: "network", "Connected to {:?}", full_peer_info);
+
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
@@ -524,7 +539,13 @@ impl PeerManagerActor {
     }
 
     /// Send message to peer that belong to our active set
-    fn send_message(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, message: PeerMessage) {
+    /// Return whether the message is sent or not.
+    fn send_message(
+        &mut self,
+        ctx: &mut Context<Self>,
+        peer_id: &PeerId,
+        message: PeerMessage,
+    ) -> bool {
         if let Some(active_peer) = self.active_peers.get(&peer_id) {
             active_peer
                 .addr
@@ -533,6 +554,7 @@ impl PeerManagerActor {
                 .map_err(|e, _, _| error!("Failed sending message: {}", e))
                 .and_then(|_, _, _| actix::fut::ok(()))
                 .spawn(ctx);
+            true
         } else {
             debug!(target: "network",
                    "Sending message to: {} (which is not an active peer) Active Peers: {:?}\n{:?}",
@@ -540,11 +562,32 @@ impl PeerManagerActor {
                    self.active_peers.keys(),
                    message
             );
+            false
+        }
+    }
+
+    /// Return whether the message is sent or not.
+    fn send_message_to_account_or_peer_or_hash(
+        &mut self,
+        ctx: &mut Context<Self>,
+        target: &AccountOrPeerIdOrHash,
+        msg: RoutedMessageBody,
+    ) -> bool {
+        match target {
+            AccountOrPeerIdOrHash::AccountId(account_id) => {
+                self.send_message_to_account(ctx, &account_id, msg)
+            }
+            peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
+            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
+                ctx,
+                RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
+            ),
         }
     }
 
     /// Route signed message to target peer.
-    fn send_signed_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
+    /// Return whether the message is sent or not.
+    fn send_signed_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) -> bool {
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
@@ -552,7 +595,7 @@ impl PeerManagerActor {
                     self.routing_table.add_route_back(msg.hash(), self.peer_id.clone());
                 }
 
-                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
+                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -564,23 +607,26 @@ impl PeerManagerActor {
                       self.routing_table.peer_forwarding.keys(),
                       msg,
                 );
+                false
             }
         }
     }
 
     /// Route message to target peer.
-    fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RawRoutedMessage) {
+    /// Return whether the message is sent or not.
+    fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RawRoutedMessage) -> bool {
         let msg = self.sign_routed_message(msg);
-        self.send_signed_message_to_peer(ctx, msg);
+        self.send_signed_message_to_peer(ctx, msg)
     }
 
     /// Send message to specific account.
+    /// Return whether the message is sent or not.
     fn send_message_to_account(
         &mut self,
         ctx: &mut Context<Self>,
         account_id: &AccountId,
         msg: RoutedMessageBody,
-    ) {
+    ) -> bool {
         let target = match self.routing_table.account_owner(&account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
@@ -593,12 +639,12 @@ impl PeerManagerActor {
                        self.routing_table.get_accounts_keys(),
                        msg,
                 );
-                return;
+                return false;
             }
         };
 
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        self.send_message_to_peer(ctx, msg);
+        self.send_message_to_peer(ctx, msg)
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
@@ -730,7 +776,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         ctx,
                         &approval_message.target,
                         RoutedMessageBody::BlockApproval(approval_message.approval),
-                    )
+                    );
                 }
                 self.broadcast_message(
                     ctx,
@@ -739,43 +785,29 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer
-                        .addr
-                        .do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
+                if self.send_message(ctx, &peer_id, PeerMessage::BlockRequest(hash)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
                 }
-                NetworkResponses::NoResponse
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer
-                        .addr
-                        .do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
+                if self.send_message(ctx, &peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
                 }
-                NetworkResponses::NoResponse
             }
             NetworkRequests::StateRequest { shard_id, sync_hash, need_header, parts, target } => {
-                match target {
-                    AccountOrPeerIdOrHash::AccountId(account_id) => self.send_message_to_account(
-                        ctx,
-                        &account_id,
-                        RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts),
-                    ),
-                    peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-                    | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
-                        ctx,
-                        RawRoutedMessage {
-                            target: peer_or_hash,
-                            body: RoutedMessageBody::StateRequest(
-                                shard_id,
-                                sync_hash,
-                                need_header,
-                                parts,
-                            ),
-                        },
-                    ),
-                };
-                NetworkResponses::NoResponse
+                if self.send_message_to_account_or_peer_or_hash(
+                    ctx,
+                    &target,
+                    RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 if let Some(peer) = self.active_peers.get(&peer_id) {
@@ -794,58 +826,80 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { account_id, request } => {
-                self.send_message_to_account(
+                if self.send_message_to_account(
                     ctx,
                     &account_id,
                     RoutedMessageBody::PartialEncodedChunkRequest(request),
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::PartialEncodedChunkResponse { route_back, partial_encoded_chunk } => {
-                self.send_message_to_peer(
+                if self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::Hash(route_back),
                         body: RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
                     },
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                self.send_message_to_account(
+                if self.send_message_to_account(
                     ctx,
                     &account_id,
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk),
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::ForwardTx(account_id, tx) => {
-                self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx));
-                NetworkResponses::NoResponse
+                if self.send_message_to_account(ctx, &account_id, RoutedMessageBody::ForwardTx(tx))
+                {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::TxStatus(account_id, signer_account_id, tx_hash) => {
-                self.send_message_to_account(
+                if self.send_message_to_account(
                     ctx,
                     &account_id,
                     RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::Query { account_id, path, data, id } => {
-                self.send_message_to_account(
+                if self.send_message_to_account(
                     ctx,
                     &account_id,
                     RoutedMessageBody::QueryRequest { path, data, id },
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::ReceiptOutComeRequest(account_id, receipt_id) => {
-                self.send_message_to_account(
+                if self.send_message_to_account(
                     ctx,
                     &account_id,
                     RoutedMessageBody::ReceiptOutcomeRequest(receipt_id),
-                );
-                NetworkResponses::NoResponse
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
             }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
@@ -1039,7 +1093,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {
                         Ok(stream) => {
-                            debug!(target: "network", "Connected to {}", msg.peer_info);
+                            debug!(target: "network", "Connecting to {}", msg.peer_info);
                             let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
                             act.connect_peer(
@@ -1074,6 +1128,12 @@ impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+        // Check if this is a blacklisted peer.
+        if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
+            debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
+            return ConsolidateResponse::Reject;
+        }
+
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             debug!(target: "network", "Dropping handshake (Active Peer). {:?} {:?}", self.peer_id, msg.peer_info.id);

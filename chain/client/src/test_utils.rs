@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context};
+use actix::{Actor, Addr, AsyncContext, Context, MailboxError};
 use chrono::{DateTime, Utc};
 use futures::future;
 use futures::future::Future;
@@ -39,7 +39,15 @@ pub struct MockNetworkAdapter {
 }
 
 impl NetworkAdapter for MockNetworkAdapter {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> Box<dyn Future<Item = NetworkResponses, Error = MailboxError>> {
+        self.do_send(msg);
+        Box::new(futures::future::ok(NetworkResponses::NoResponse))
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         self.requests.write().unwrap().push_back(msg);
     }
 }

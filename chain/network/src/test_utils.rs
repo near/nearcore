@@ -49,6 +49,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
             push_info_period: Duration::from_millis(100),
+            blacklist: HashMap::new(),
         }
     }
 }
