@@ -658,7 +658,7 @@ impl StateSync {
                                       Yellow.bold().paint("part_id"),
                                       text)
                           }
-                          _ => { assert!(false); format!("should never happen") },
+                          _ => unreachable!("timeout cannot happen when all state is downloaded"),
                       },
                 );
             }
