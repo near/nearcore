@@ -2295,6 +2295,7 @@ name = "near-vm-errors"
 version = "0.4.3"
 dependencies = [
  "borsh 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-rpc-error-macro 0.1.0",
  "serde 1.0.102 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

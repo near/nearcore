@@ -120,7 +120,7 @@ pub(crate) fn action_function_call(
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = VMError::FunctionExecError(FunctionExecError::CompilationError(
-                CompilationError::CodeDoesNotExist(account_id.clone()),
+                CompilationError::CodeDoesNotExist { account_id: account_id.clone() },
             ));
             result.result = Err(ActionErrorKind::FunctionCall(error).into());
             return Ok(());

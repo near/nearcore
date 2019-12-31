@@ -30,17 +30,23 @@ struct Schema {
 
 impl Drop for Schema {
     fn drop(&mut self) {
-        // std::env::var("CARGO_TARGET_DIR") doesn't work for some reason
+        // std::env::var("CARGO_TARGET_DIR") doesn't exists
         let filename = "./target/errors_schema.json";
         let json_value = serde_json::to_value(self).expect("Schema serialize failed");
         if let Ok(data) = std::fs::read(filename) {
             if let Ok(mut existing_schema) = serde_json::from_slice::<Value>(&data) {
                 merge(&mut existing_schema, &json_value);
+                let json = serde_json::to_string_pretty(&existing_schema)
+                    .expect("error schema serialization failed");
+                println!("{}", &existing_schema);
+                std::fs::write(filename, json).expect("Unable to save the errors schema file");
             };
+        } else {
+            let json = serde_json::to_string_pretty(&json_value)
+                .expect("error schema serialization failed");
+            println!("{}", &json);
+            std::fs::write(filename, json).expect("Unable to save the errors schema file");
         };
-        let json =
-            serde_json::to_string_pretty(&json_value).expect("error schema serialization failed");
-        std::fs::write(filename, json).expect("Unable to save the errors schema file");
     }
 }
 

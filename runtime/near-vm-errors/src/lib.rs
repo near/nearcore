@@ -1,23 +1,34 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "FunctionCall"]
 pub enum VMError {
     FunctionExecError(FunctionExecError),
+    // TODO: serialize/deserialize?
     StorageError(Vec<u8>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "FunctionExecError"]
 pub enum FunctionExecError {
     CompilationError(CompilationError),
-    LinkError(String),
+    LinkError { msg: String },
     ResolveError(MethodResolveError),
-    WasmTrap(String),
+    WasmTrap { msg: String },
     HostError(HostError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "ResolveError"]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodUTF8Error,
@@ -25,14 +36,20 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "CompilationError"]
 pub enum CompilationError {
-    CodeDoesNotExist(String),
+    CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
-    WasmerCompileError(String),
+    WasmerCompileError { msg: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "PrepareError"]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -64,7 +81,10 @@ pub enum PrepareError {
     Memory,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+#[rpc_error_variant = "HostError"]
 pub enum HostError {
     BadUTF16,
     BadUTF8,
@@ -72,21 +92,21 @@ pub enum HostError {
     GasLimitExceeded,
     BalanceExceeded,
     EmptyMethodName,
-    GuestPanic(String),
+    GuestPanic { panic_msg: String },
     IntegerOverflow,
-    InvalidPromiseIndex(u64),
+    InvalidPromiseIndex { promise_idx: u64 },
     CannotAppendActionToJointPromise,
     CannotReturnJointPromise,
-    InvalidPromiseResultIndex(u64),
-    InvalidRegisterId(u64),
-    IteratorWasInvalidated(u64),
+    InvalidPromiseResultIndex { result_idx: u64 },
+    InvalidRegisterId { register_id: u64 },
+    IteratorWasInvalidated { iterator_index: u64 },
     MemoryAccessViolation,
-    InvalidReceiptIndex(u64),
-    InvalidIteratorIndex(u64),
+    InvalidReceiptIndex { receipt_index: u64 },
+    InvalidIteratorIndex { iterator_index: u64 },
     InvalidAccountId,
     InvalidMethodName,
     InvalidPublicKey,
-    ProhibitedInView(String),
+    ProhibitedInView { method_name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -133,8 +153,8 @@ impl fmt::Display for FunctionExecError {
             FunctionExecError::CompilationError(e) => e.fmt(f),
             FunctionExecError::ResolveError(e) => e.fmt(f),
             FunctionExecError::HostError(e) => e.fmt(f),
-            FunctionExecError::LinkError(s) => write!(f, "{}", s),
-            FunctionExecError::WasmTrap(s) => write!(f, "WebAssembly trap: {}", s),
+            FunctionExecError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionExecError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
         }
     }
 }
@@ -142,11 +162,13 @@ impl fmt::Display for FunctionExecError {
 impl fmt::Display for CompilationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            CompilationError::CodeDoesNotExist(account_id) => {
+            CompilationError::CodeDoesNotExist { account_id } => {
                 write!(f, "cannot find contract code for account {}", account_id)
             }
             CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
-            CompilationError::WasmerCompileError(s) => write!(f, "Wasmer compilation error: {}", s),
+            CompilationError::WasmerCompileError { msg } => {
+                write!(f, "Wasmer compilation error: {}", msg)
+            }
         }
     }
 }
@@ -176,21 +198,21 @@ impl std::fmt::Display for HostError {
             GasLimitExceeded => write!(f, "Exceeded the maximum amount of gas allowed to burn per contract."),
             BalanceExceeded => write!(f, "Exceeded the account balance."),
             EmptyMethodName => write!(f, "Tried to call an empty method name."),
-            GuestPanic(s) => write!(f, "Smart contract panicked: {}", s),
+            GuestPanic{ panic_msg } => write!(f, "Smart contract panicked: {}", panic_msg),
             IntegerOverflow => write!(f, "Integer overflow."),
-            InvalidIteratorIndex(index) => write!(f, "Iterator index {:?} does not exist", index),
-            InvalidPromiseIndex(index) => write!(f, "{:?} does not correspond to existing promises", index),
+            InvalidIteratorIndex{iterator_index} => write!(f, "Iterator index {:?} does not exist", iterator_index),
+            InvalidPromiseIndex{promise_idx} => write!(f, "{:?} does not correspond to existing promises", promise_idx),
             CannotAppendActionToJointPromise => write!(f, "Actions can only be appended to non-joint promise."),
             CannotReturnJointPromise => write!(f, "Returning joint promise is currently prohibited."),
-            InvalidPromiseResultIndex(index) => write!(f, "Accessed invalid promise result index: {:?}", index),
-            InvalidRegisterId(id) => write!(f, "Accessed invalid register id: {:?}", id),
-            IteratorWasInvalidated(index) => write!(f, "Iterator {:?} was invalidated after its creation by performing a mutable operation on trie", index),
+            InvalidPromiseResultIndex{result_idx} => write!(f, "Accessed invalid promise result index: {:?}", result_idx),
+            InvalidRegisterId{register_id} => write!(f, "Accessed invalid register id: {:?}", register_id),
+            IteratorWasInvalidated{iterator_index} => write!(f, "Iterator {:?} was invalidated after its creation by performing a mutable operation on trie", iterator_index),
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
-            InvalidReceiptIndex(index) => write!(f, "VM Logic returned an invalid receipt index: {:?}", index),
+            InvalidReceiptIndex{receipt_index} => write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index),
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
-            ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
+            ProhibitedInView{method_name} => write!(f, "{} is not allowed in view calls", method_name),
         }
     }
 }

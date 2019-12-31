@@ -10,9 +10,9 @@ impl IntoVMError for wasmer_runtime::error::Error {
         use wasmer_runtime::error::Error;
         match self {
             Error::CompileError(err) => err.into_vm_error(),
-            Error::LinkError(err) => VMError::FunctionExecError(FunctionExecError::LinkError(
-                format!("{:.500}", Error::LinkError(err).to_string()),
-            )),
+            Error::LinkError(err) => VMError::FunctionExecError(FunctionExecError::LinkError {
+                msg: format!("{:.500}", Error::LinkError(err).to_string()),
+            }),
             Error::RuntimeError(err) => err.into_vm_error(),
             Error::ResolveError(err) => err.into_vm_error(),
             Error::CallError(err) => err.into_vm_error(),
@@ -34,7 +34,7 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
         VMError::FunctionExecError(FunctionExecError::CompilationError(
-            CompilationError::WasmerCompileError(self.to_string()),
+            CompilationError::WasmerCompileError { msg: self.to_string() },
         ))
     }
 }
@@ -61,7 +61,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         use wasmer_runtime::error::RuntimeError;
         match &self {
             RuntimeError::Trap { msg } => {
-                VMError::FunctionExecError(FunctionExecError::WasmTrap(msg.to_string()))
+                VMError::FunctionExecError(FunctionExecError::WasmTrap { msg: msg.to_string() })
             }
             RuntimeError::Error { data } => {
                 if let Some(err) = data.downcast_ref::<HostErrorOrStorageError>() {
@@ -79,7 +79,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                         data.type_id(),
                         self.to_string()
                     );
-                    VMError::FunctionExecError(FunctionExecError::WasmTrap("unknown".to_string()))
+                    VMError::FunctionExecError(FunctionExecError::WasmTrap {
+                        msg: "unknown".to_string(),
+                    })
                 }
             }
         }
