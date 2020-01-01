@@ -11,6 +11,7 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
@@ -31,7 +32,6 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use actix::prelude::Future;
 use std::sync::RwLock;
 
 /// Current latest version of the protocol
@@ -344,6 +344,7 @@ impl AccountOrPeerIdOrHash {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -869,6 +870,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
     pub stream: TcpStream,
@@ -883,12 +885,14 @@ impl InboundTcpConnect {
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
 }
 
 #[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
@@ -921,6 +925,7 @@ pub enum ConsolidateResponse {
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
@@ -954,6 +959,7 @@ impl Message for PeersRequest {
 
 /// Received new peers from another peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
@@ -987,6 +993,7 @@ pub enum ReasonForBan {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -1085,6 +1092,7 @@ pub enum NetworkRequests {
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
+#[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
@@ -1326,15 +1334,13 @@ pub struct PartialEncodedChunkRequestMsg {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct StopSignal {}
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(
-        &self,
-        msg: NetworkRequests,
-    ) -> Box<dyn Future<Item = NetworkResponses, Error = MailboxError>>;
+    fn send(&self, msg: NetworkRequests) -> BoxFuture<Result<NetworkResponses, MailboxError>>;
 
     fn do_send(&self, msg: NetworkRequests);
 }
@@ -1356,18 +1362,14 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: NetworkRequests,
-    ) -> Box<dyn Future<Item = NetworkResponses, Error = MailboxError>> {
-        Box::new(
-            self.network_recipient
-                .read()
-                .unwrap()
-                .as_ref()
-                .expect("Recipient must be set")
-                .send(msg),
-        )
+    fn send(&self, msg: NetworkRequests) -> BoxFuture<Result<NetworkResponses, MailboxError>> {
+        self.network_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .send(msg)
+            .boxed()
     }
 
     fn do_send(&self, msg: NetworkRequests) {

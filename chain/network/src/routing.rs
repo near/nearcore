@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
-use bytes::LittleEndian;
 use cached::{Cached, SizedCache};
 use log::warn;
 use log::{debug, trace};

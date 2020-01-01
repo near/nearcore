@@ -2,8 +2,7 @@
 mod tests {
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
-    use futures::future;
-    use futures::future::Future;
+    use futures::{future, FutureExt};
     use near_chain::test_utils::account_id_to_shard_id;
     use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
@@ -303,7 +302,7 @@ mod tests {
                                                             );
                                                         }
                                                     }
-                                                    future::result(Ok(()))
+                                                    future::ready(())
                                                 }),
                                         );
                                     }
@@ -497,7 +496,7 @@ mod tests {
                                                                 );
                                                             }
                                                         }
-                                                        future::result(Ok(()))
+                                                        future::ready(())
                                                     }),
                                             );
                                         }

@@ -1,6 +1,5 @@
 use actix::System;
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_no_network;
 use near_client::Query;
@@ -20,7 +19,7 @@ fn query_client() {
                     _ => panic!("Invalid response"),
                 }
                 System::current().stop();
-                future::result(Ok(()))
+                future::ready(())
             },
         ));
     })

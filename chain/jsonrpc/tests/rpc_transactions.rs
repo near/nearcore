@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
 use borsh::BorshSerialize;
-use futures::future::Future;
+use futures::{future, FutureExt, TryFutureExt};
 
-use futures::future;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
@@ -49,8 +48,8 @@ fn test_send_tx_async() {
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
                 .broadcast_tx_async(to_base64(&bytes))
-                .map_err(|_| ())
-                .map(move |result| assert_eq!(tx_hash, result))
+                .map_ok(move |result| assert_eq!(tx_hash, result))
+                .map(drop)
         }));
         let mut client1 = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -61,11 +60,12 @@ fn test_send_tx_async() {
                         client1
                             .tx((&tx_hash).into(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
-                            .map(|result| {
+                            .map_ok(|result| {
                                 if let FinalExecutionStatus::SuccessValue(_) = result.status {
                                     System::current().stop();
                                 }
-                            }),
+                            })
+                            .map(drop),
                     )
                 }
             }),
@@ -106,10 +106,11 @@ fn test_send_tx_commit() {
                     System::current().stop();
                     panic!(why);
                 })
-                .map(move |result| {
+                .map_ok(move |result| {
                     assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
                     System::current().stop();
                 })
+                .map(drop)
         }));
         wait_or_panic(10000);
     })
@@ -163,7 +164,7 @@ fn test_expired_tx() {
                         *block_hash.lock().unwrap() = Some(header.hash);
                         *block_height.lock().unwrap() = Some(header.inner_lite.height);
                     };
-                    future::ok(())
+                    future::ready(())
                 }));
             }),
             100,

@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig};
@@ -57,10 +57,10 @@ fn sync_state_nodes() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -71,10 +71,10 @@ fn sync_state_nodes() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("SECOND STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 } else {
                 }
@@ -176,10 +176,10 @@ fn sync_state_nodes_multishard() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -192,17 +192,17 @@ fn sync_state_nodes_multishard() {
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             Err(e) => {
                                 println!("SECOND STAGE ERROR2: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             _ => {
                                 assert!(false);
                             }
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
             }),
@@ -280,10 +280,10 @@ fn sync_empty_state() {
                             Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -296,17 +296,17 @@ fn sync_empty_state() {
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             Err(e) => {
                                 println!("SECOND STAGE ERROR2: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             _ => {
                                 assert!(false);
                             }
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
             }),

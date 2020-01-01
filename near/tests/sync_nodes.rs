@@ -3,8 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix::{Actor, Addr, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
@@ -126,10 +125,10 @@ fn sync_nodes() {
                 actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                     match &res {
                         Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
-                        Err(_) => return futures::future::err(()),
+                        Err(_) => return future::ready(()),
                         _ => {}
                     };
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,
@@ -193,10 +192,10 @@ fn sync_after_sync_nodes() {
                             }
                         }
                         Ok(Ok(b)) if b.header.height > 20 => System::current().stop(),
-                        Err(_) => return futures::future::err(()),
+                        Err(_) => return future::ready(()),
                         _ => {}
                     };
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,
@@ -247,10 +246,7 @@ fn sync_state_stake_change() {
             genesis_hash,
         );
         actix::spawn(
-            client1
-                .send(NetworkClientMessages::Transaction(unstake_transaction))
-                .map(|_| ())
-                .map_err(|_| ()),
+            client1.send(NetworkClientMessages::Transaction(unstake_transaction)).map(drop),
         );
 
         let started = Arc::new(AtomicBool::new(false));
@@ -274,7 +270,7 @@ fn sync_state_stake_change() {
                                             System::current().stop()
                                         }
                                     }
-                                    future::result::<_, ()>(Ok(()))
+                                    future::ready(())
                                 }));
                             }),
                             100,
@@ -282,7 +278,7 @@ fn sync_state_stake_change() {
                         )
                         .start();
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }));
             }),
             100,

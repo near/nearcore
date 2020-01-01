@@ -53,6 +53,7 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
+    near_primitives::test_utils::init_stop_on_panic();
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
         store.clone(),
