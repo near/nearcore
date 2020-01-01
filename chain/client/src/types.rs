@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -206,19 +207,39 @@ impl From<Arc<InMemorySigner>> for BlockProducer {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
-    pub run_me: bool,
+    pub run_me: Arc<AtomicBool>,
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
 }
 
+impl PartialEq for DownloadStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.done == other.done
+    }
+}
+
+impl Clone for DownloadStatus {
+    fn clone(&self) -> Self {
+        DownloadStatus {
+            start_time: self.start_time,
+            prev_update_time: self.prev_update_time,
+            run_me: Arc::new(AtomicBool::new(self.run_me.load(Ordering::SeqCst))),
+            error: self.error,
+            done: self.done,
+            state_requests_count: self.state_requests_count,
+            last_target: self.last_target.clone(),
+        }
+    }
+}
+
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -226,14 +247,14 @@ pub enum ShardSyncStatus {
     StateDownloadComplete,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
     AwaitingPeers,

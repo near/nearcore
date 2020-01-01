@@ -301,8 +301,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 );
                                 download = Some(shard_download);
                             } else {
-                                // TODO: figure out when this happens, potentially ban peer
-                                error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                                // This may happen because of sending too many StateRequests to different peers.
+                                // For example, we received StateResponse after StateSync completion.
                             }
                         }
                     }
@@ -315,8 +315,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
                         } else {
-                            // TODO: figure out when this happens, potentially ban peer
-                            error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                            // This may happen because of sending too many StateRequests to different peers.
+                            // For example, we received StateResponse after StateSync completion.
                         }
                     }
                     // We should not be requesting the same state twice.
