@@ -1,16 +1,18 @@
 use std::cmp::min;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration, Utc};
+use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
 use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
-use near_network::types::{AccountOrPeerIdOrHash, ReasonForBan};
+use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, StateRootNode};
@@ -520,7 +522,7 @@ impl StateSync {
                 DownloadStatus {
                     start_time: now,
                     prev_update_time: now,
-                    run_me: true,
+                    run_me: Arc::new(AtomicBool::new(true)),
                     error: false,
                     done: false,
                     state_requests_count: 0,
@@ -551,7 +553,7 @@ impl StateSync {
                                 DownloadStatus {
                                     start_time: now,
                                     prev_update_time: now,
-                                    run_me: true,
+                                    run_me: Arc::new(AtomicBool::new(true)),
                                     error: false,
                                     done: false,
                                     state_requests_count: 0,
@@ -567,11 +569,11 @@ impl StateSync {
                         let error = shard_sync_download.downloads[0].error;
                         download_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
                         if download_timeout || error {
-                            shard_sync_download.downloads[0].run_me = true;
+                            shard_sync_download.downloads[0].run_me.store(true, Ordering::SeqCst);
                             shard_sync_download.downloads[0].error = false;
                             shard_sync_download.downloads[0].prev_update_time = now;
                         }
-                        if shard_sync_download.downloads[0].run_me {
+                        if shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst) {
                             need_shard = true;
                         }
                     }
@@ -586,11 +588,11 @@ impl StateSync {
                             let part_timeout = now - prev > Duration::seconds(STATE_SYNC_TIMEOUT);
                             if part_timeout || error {
                                 download_timeout |= part_timeout;
-                                part_download.run_me = true;
+                                part_download.run_me.store(true, Ordering::SeqCst);
                                 part_download.error = false;
                                 part_download.prev_update_time = now;
                             }
-                            if part_download.run_me {
+                            if part_download.run_me.load(Ordering::SeqCst) {
                                 need_shard = true;
                             }
                         }
@@ -738,36 +740,57 @@ impl StateSync {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
                     possible_targets[thread_rng().gen_range(0, possible_targets.len())].clone();
-                self.network_adapter.do_send(NetworkRequests::StateRequest {
-                    shard_id,
-                    sync_hash,
-                    need_header: true,
-                    parts: StateRequestParts::default(),
-                    target: target.clone(),
-                });
-                assert!(new_shard_sync_download.downloads[0].run_me);
-                new_shard_sync_download.downloads[0].run_me = false;
+                assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
+                new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(target);
+                new_shard_sync_download.downloads[0].last_target = Some(target.clone());
+                let run_me = new_shard_sync_download.downloads[0].run_me.clone();
+                actix::spawn(
+                    self.network_adapter
+                        .send(NetworkRequests::StateRequest {
+                            shard_id,
+                            sync_hash,
+                            need_header: true,
+                            parts: StateRequestParts::default(),
+                            target: target.clone(),
+                        })
+                        .then(move |result| {
+                            if let Ok(NetworkResponses::RouteNotFound) = result {
+                                // Send a StateRequest on the next iteration
+                                run_me.store(true, Ordering::SeqCst);
+                            }
+                            future::ready(())
+                        }),
+                );
             }
             ShardSyncStatus::StateDownloadParts => {
                 let num_parts = new_shard_sync_download.downloads.len() as u64;
                 for (i, download) in new_shard_sync_download.downloads.iter_mut().enumerate() {
-                    if download.run_me {
+                    if download.run_me.load(Ordering::SeqCst) {
                         let target = possible_targets
                             [thread_rng().gen_range(0, possible_targets.len())]
                         .clone();
-                        self.network_adapter.do_send(NetworkRequests::StateRequest {
-                            shard_id,
-                            sync_hash,
-                            need_header: false,
-                            parts: StateRequestParts { ids: vec![i as u64], num_parts },
-                            target: target.clone(),
-                        });
-                        assert!(download.run_me);
-                        download.run_me = false;
+                        download.run_me.store(false, Ordering::SeqCst);
                         download.state_requests_count += 1;
-                        download.last_target = Some(target);
+                        download.last_target = Some(target.clone());
+                        let run_me = download.run_me.clone();
+                        actix::spawn(
+                            self.network_adapter
+                                .send(NetworkRequests::StateRequest {
+                                    shard_id,
+                                    sync_hash,
+                                    need_header: false,
+                                    parts: StateRequestParts { ids: vec![i as u64], num_parts },
+                                    target: target.clone(),
+                                })
+                                .then(move |result| {
+                                    if let Ok(NetworkResponses::RouteNotFound) = result {
+                                        // Send a StateRequest on the next iteration
+                                        run_me.store(true, Ordering::SeqCst);
+                                    }
+                                    future::ready(())
+                                }),
+                        );
                     }
                 }
             }

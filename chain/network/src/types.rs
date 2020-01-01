@@ -1340,7 +1340,10 @@ pub struct StopSignal {}
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests) -> BoxFuture<Result<NetworkResponses, MailboxError>>;
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
 
     fn do_send(&self, msg: NetworkRequests);
 }
@@ -1362,7 +1365,10 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) -> BoxFuture<Result<NetworkResponses, MailboxError>> {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
         self.network_recipient
             .read()
             .unwrap()

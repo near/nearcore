@@ -38,7 +38,10 @@ pub struct MockNetworkAdapter {
 }
 
 impl NetworkAdapter for MockNetworkAdapter {
-    fn send(&self, msg: NetworkRequests) -> BoxFuture<Result<NetworkResponses, MailboxError>> {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
         self.do_send(msg);
         future::ok(NetworkResponses::NoResponse).boxed()
     }
