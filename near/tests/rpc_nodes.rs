@@ -1,6 +1,6 @@
 use actix::{Actor, System};
 use borsh::BorshSerialize;
-use futures::future::Future;
+use futures::{future, FutureExt, TryFutureExt};
 use tempdir::TempDir;
 
 use near::config::TESTING_INIT_BALANCE;
@@ -56,12 +56,13 @@ fn test_tx_propagation() {
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
                                 .map_err(|err| panic!(err))
-                                .map(move |result| {
+                                .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
                 actix::spawn(
                     view_client
@@ -75,9 +76,9 @@ fn test_tx_propagation() {
                                 {
                                     System::current().stop();
                                 }
-                                _ => return futures::future::err(()),
+                                _ => return future::ready(()),
                             };
-                            futures::future::ok(())
+                            future::ready(())
                         }),
                 );
             }),
@@ -129,7 +130,7 @@ fn test_tx_propagation_through_rpc() {
                             client
                                 .broadcast_tx_commit(to_base64(&bytes))
                                 .map_err(|err| panic!(err))
-                                .map(move |result| {
+                                .map_ok(move |result| {
                                     if result.status
                                         == FinalExecutionStatus::SuccessValue("".to_string())
                                     {
@@ -137,10 +138,11 @@ fn test_tx_propagation_through_rpc() {
                                     } else {
                                         panic!("wrong transaction status");
                                     }
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,
@@ -193,22 +195,25 @@ fn test_tx_status_with_light_client() {
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
                                 .map_err(|err| panic!("{:?}", err))
-                                .map(move |result| {
+                                .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
                 let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
-                    client.tx(tx_hash_clone.to_string(), signer_account_id).map_err(|_| ()).map(
-                        move |result| {
+                    client
+                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .map_err(|_| ())
+                        .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
                                 System::current().stop();
                             }
-                        },
-                    ),
+                        })
+                        .map(drop),
                 );
             }),
             100,
@@ -261,22 +266,25 @@ fn test_tx_status_with_light_client1() {
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
                                 .map_err(|err| panic!("{}", err.to_string()))
-                                .map(move |result| {
+                                .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
                 let mut client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
                 actix::spawn(
-                    client.tx(tx_hash_clone.to_string(), signer_account_id).map_err(|_| ()).map(
-                        move |result| {
+                    client
+                        .tx(tx_hash_clone.to_string(), signer_account_id)
+                        .map_err(|_| ())
+                        .map_ok(move |result| {
                             if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
                                 System::current().stop();
                             }
-                        },
-                    ),
+                        })
+                        .map(drop),
                 );
             }),
             100,
@@ -312,16 +320,17 @@ fn test_rpc_routing() {
                                 .map_err(|err| {
                                     println!("Error retrieving account: {:?}", err);
                                 })
-                                .map(move |result| match result.kind {
+                                .map_ok(move |result| match result.kind {
                                     QueryResponseKind::ViewAccount(account_view) => {
                                         assert_eq!(account_view.amount, TESTING_INIT_BALANCE);
                                         System::current().stop();
                                     }
                                     _ => panic!("wrong query response"),
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,
@@ -359,10 +368,11 @@ fn test_rpc_routing_error() {
                                     println!("error: {}", err.to_string());
                                     System::current().stop();
                                 })
-                                .map(|_| panic!("wrong query response")),
+                                .map_ok(|_| panic!("wrong query response"))
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,
@@ -400,17 +410,18 @@ fn test_get_validator_info_rpc() {
                                 .map_err(|err| {
                                     panic!(format!("error: {:?}", err));
                                 })
-                                .map(move |result| {
+                                .map_ok(move |result| {
                                     assert_eq!(result.current_validators.len(), 1);
                                     assert!(result
                                         .current_validators
                                         .iter()
                                         .any(|r| r.account_id == "near.0".to_string()));
                                     System::current().stop();
-                                }),
+                                })
+                                .map(drop),
                         );
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
             }),
             100,

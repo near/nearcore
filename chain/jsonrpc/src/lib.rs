@@ -5,16 +5,15 @@ use std::string::FromUtf8Error;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
-use actix_cors::Cors;
+use actix_cors::{Cors, CorsFactory};
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
-use futures::future::Future;
-use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
+use futures::Future;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
-use async_utils::{delay, timeout};
+use futures::{FutureExt, TryFutureExt};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
@@ -30,6 +29,7 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
+use tokio::time::{delay_for, timeout};
 
 mod metrics;
 pub mod test_utils;
@@ -167,12 +167,7 @@ impl JsonRpcHandler {
     async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
-        actix::spawn(
-            self.client_addr
-                .send(NetworkClientMessages::Transaction(tx))
-                .map(|_| ())
-                .map_err(|_| ()),
-        );
+        actix::spawn(self.client_addr.send(NetworkClientMessages::Transaction(tx)).map(drop));
         Ok(Value::String(hash))
     }
 
@@ -186,7 +181,6 @@ impl JsonRpcHandler {
                 let final_tx = self
                     .view_client_addr
                     .send(TxStatus { tx_hash, signer_account_id: account_id.clone() })
-                    .compat()
                     .await;
                 if let Ok(Ok(Some(ref tx_result))) = final_tx {
                     match tx_result.status {
@@ -197,7 +191,7 @@ impl JsonRpcHandler {
                         }
                     }
                 }
-                let _ = delay(self.polling_config.polling_interval).await;
+                let _ = delay_for(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -212,7 +206,6 @@ impl JsonRpcHandler {
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
             .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
-            .compat()
             .await?;
         match result {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
@@ -232,7 +225,7 @@ impl JsonRpcHandler {
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status { is_health_check: true }).compat().await {
+        match self.client_addr.send(Status { is_health_check: true }).await {
             Ok(Ok(_)) => Ok(Value::Null),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<String>(None)),
@@ -240,7 +233,7 @@ impl JsonRpcHandler {
     }
 
     pub async fn status(&self) -> Result<Value, RpcError> {
-        match self.client_addr.send(Status { is_health_check: false }).compat().await {
+        match self.client_addr.send(Status { is_health_check: false }).await {
             Ok(Ok(result)) => jsonify(Ok(Ok(result))),
             Ok(Err(err)) => Err(RpcError::new(-32_001, err, None)),
             Err(_) => Err(RpcError::server_error::<String>(None)),
@@ -260,7 +253,7 @@ impl JsonRpcHandler {
         let query = Query::new(path, data);
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let result = self.view_client_addr.send(query.clone()).compat().await;
+                let result = self.view_client_addr.send(query.clone()).await;
                 match result {
                     Ok(ref r) => match r {
                         Ok(Some(_)) => break jsonify(result),
@@ -269,7 +262,7 @@ impl JsonRpcHandler {
                     },
                     Err(e) => break Err(RpcError::server_error(Some(e.to_string()))),
                 }
-                let _ = delay(self.polling_config.polling_interval).await;
+                let _ = delay_for(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -293,7 +286,6 @@ impl JsonRpcHandler {
                     BlockId::Height(height) => GetBlock::Height(height),
                     BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
                 })
-                .compat()
                 .await,
         )
     }
@@ -313,20 +305,17 @@ impl JsonRpcHandler {
                     },
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })
-                .compat()
                 .await,
         )
     }
 
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (last_block_hash,) = parse_params::<(CryptoHash,)>(params)?;
-        jsonify(
-            self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).compat().await,
-        )
+        jsonify(self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).await)
     }
 
     async fn network_info(&self) -> Result<Value, RpcError> {
-        jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
+        jsonify(self.client_addr.send(GetNetworkInfo {}).await)
     }
 
     async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
@@ -336,7 +325,7 @@ impl JsonRpcHandler {
             Some(BlockId::Height(height)) => GetGasPrice::Height(height),
             Some(BlockId::Hash(hash)) => GetGasPrice::Hash(hash),
         };
-        jsonify(self.view_client_addr.send(gas_price_request).compat().await)
+        jsonify(self.view_client_addr.send(gas_price_request).await)
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
@@ -350,31 +339,26 @@ impl JsonRpcHandler {
 
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let block_hash = parse_hash(params)?;
-        jsonify(
-            self.view_client_addr
-                .send(GetValidatorInfo { last_block_hash: block_hash })
-                .compat()
-                .await,
-        )
+        jsonify(self.view_client_addr.send(GetValidatorInfo { last_block_hash: block_hash }).await)
     }
 }
 
 fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Item = HttpResponse, Error = HttpError> {
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     near_metrics::inc_counter(&metrics::HTTP_RPC_REQUEST_COUNT);
 
     let response = async move {
         let message = handler.process(message.0).await?;
         Ok(HttpResponse::Ok().json(message))
     };
-    response.boxed().compat()
+    response.boxed()
 }
 
 fn status_handler(
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Item = HttpResponse, Error = HttpError> {
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     near_metrics::inc_counter(&metrics::HTTP_STATUS_REQUEST_COUNT);
 
     let response = async move {
@@ -383,24 +367,24 @@ fn status_handler(
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
-    response.boxed().compat()
+    response.boxed()
 }
 
 fn network_info_handler(
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Item = HttpResponse, Error = HttpError> {
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.network_info().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
-    response.boxed().compat()
+    response.boxed()
 }
 
 fn prometheus_handler(
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Item = HttpResponse, Error = HttpError> {
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     near_metrics::inc_counter(&metrics::PROMETHEUS_REQUEST_COUNT);
 
     let response = async move {
@@ -409,10 +393,10 @@ fn prometheus_handler(
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
-    response.boxed().compat()
+    response.boxed()
 }
 
-fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+fn get_cors(cors_allowed_origins: &[String]) -> CorsFactory {
     let mut cors = Cors::new();
     if cors_allowed_origins != ["*".to_string()] {
         for origin in cors_allowed_origins {
@@ -423,6 +407,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
         .allowed_header(http::header::CONTENT_TYPE)
         .max_age(3600)
+        .finish()
 }
 
 pub fn start_http(
@@ -439,22 +424,20 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
             })
-            .data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
+            .app_data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())
-            .service(web::resource("/").route(web::post().to_async(rpc_handler)))
+            .service(web::resource("/").route(web::post().to(rpc_handler)))
             .service(
                 web::resource("/status")
-                    .route(web::get().to_async(status_handler))
-                    .route(web::head().to_async(status_handler)),
+                    .route(web::get().to(status_handler))
+                    .route(web::head().to(status_handler)),
             )
-            .service(
-                web::resource("/network_info").route(web::get().to_async(network_info_handler)),
-            )
-            .service(web::resource("/metrics").route(web::get().to_async(prometheus_handler)))
+            .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
+            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
     })
     .bind(addr)
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
-    .start();
+    .run();
 }
