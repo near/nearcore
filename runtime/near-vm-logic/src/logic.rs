@@ -314,7 +314,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -354,6 +354,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
+    /// * If number of bytes is greater than `max_log_len` returns `LogLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -806,6 +807,10 @@ impl<'a> VMLogic<'a> {
     /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
     /// * If called as view function returns `ProhibitedInView`.
+    /// * If the total number of receipt dependencies exceeds `max_number_input_data_dependencies`
+    ///   limit returns `NumInputDataDependenciesExceeded`.
+    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
+    ///   returns `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
@@ -852,7 +857,7 @@ impl<'a> VMLogic<'a> {
             if receipt_dependencies.len() as u32
                 > self.config.limit_config.max_number_input_data_dependencies
             {
-                return Err(HostError::NumInputDataDependencies.into());
+                return Err(HostError::NumInputDataDependenciesExceeded.into());
             }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
@@ -874,6 +879,8 @@ impl<'a> VMLogic<'a> {
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
+    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
+    ///   returns `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
@@ -919,6 +926,8 @@ impl<'a> VMLogic<'a> {
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
+    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
+    ///   returns `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
@@ -1041,6 +1050,7 @@ impl<'a> VMLogic<'a> {
     /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
+    /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
     ///
     /// # Cost
     ///
@@ -1060,6 +1070,9 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         let code = self.get_vec_from_memory_or_register(code_ptr, code_len)?;
+        if code.len() as u64 > self.config.limit_config.max_contract_size {
+            return Err(HostError::ContractSizeExceeded.into());
+        }
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -1530,8 +1543,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` exceeds the memory container or points to an unused register it
-    /// returns `MemoryAccessViolation`.
+    /// * If `value_len + value_ptr` exceeds the memory container or points to an unused register it
+    ///   returns `MemoryAccessViolation`.
+    /// * if the length of the returned data exceeds `max_length_returned_data` returns
+    ///   `ReturnedValueLengthExceeded`.
     ///
     /// # Cost
     /// `base + cost of reading return value from memory or register + dispatch&exec cost per byte of the data sent * num data receivers`
@@ -1540,6 +1555,9 @@ impl<'a> VMLogic<'a> {
         let return_val = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         let mut burn_gas: Gas = 0;
         let num_bytes = return_val.len() as u64;
+        if num_bytes > self.config.limit_config.max_length_returned_data {
+            return Err(HostError::ReturnedValueLengthExceeded.into());
+        }
         let data_cfg = &self.fees_config.data_receipt_creation_config;
         for data_receiver in &self.context.output_data_receivers {
             let sir = data_receiver == &self.context.current_account_id;
@@ -1601,6 +1619,7 @@ impl<'a> VMLogic<'a> {
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
     /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
     ///
     /// # Cost
     ///
@@ -1624,6 +1643,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
+    /// * If number of bytes is greater than `max_log_len` returns `LogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
     ///
     /// # Cost
     ///
@@ -1645,6 +1666,13 @@ impl<'a> VMLogic<'a> {
 
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
     /// contracts directly, but instead called by the code generated by AssemblyScript.
+    ///
+    /// # Errors
+    ///
+    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string is not UTF-8 returns `BadUtf8`.
+    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
     ///
     /// # Cost
     ///
@@ -1705,6 +1733,9 @@ impl<'a> VMLogic<'a> {
     ///   to an unused register it returns `MemoryAccessViolation`;
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If the length of the value exceeds `max_length_storage_value` returns
+    ///   `ValueLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -1789,6 +1820,7 @@ impl<'a> VMLogic<'a> {
     ///   returns `MemoryAccessViolation`;
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -1828,6 +1860,7 @@ impl<'a> VMLogic<'a> {
     /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -1874,7 +1907,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+    /// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -1902,7 +1936,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `prefix_len + prefix_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+    /// * If `prefix_len + prefix_ptr` exceeds the memory container it returns
+    ///   `MemoryAccessViolation`.
+    /// * If the length of the prefix exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -1933,8 +1969,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
-    /// an unused register it returns `MemoryAccessViolation`.
+    /// * If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
+    ///   an unused register it returns `MemoryAccessViolation`.
+    /// * If the length of the `start` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If the length of the `end` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
     ///
     /// # Cost
     ///

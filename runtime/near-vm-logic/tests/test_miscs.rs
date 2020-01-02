@@ -559,7 +559,7 @@ fn test_num_joined_promises() {
     let promises = vec![promise_id; (num_deps + 1) as usize];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumInputDataDependencies.into())
+        Err(HostError::NumInputDataDependenciesExceeded.into())
     );
 }
 
@@ -590,6 +590,46 @@ fn test_num_input_dependencies_recursive_join() {
     let promises = vec![promise_id, promise_id, original_promise_id];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumInputDataDependencies.into())
+        Err(HostError::NumInputDataDependenciesExceeded.into())
+    );
+}
+
+#[test]
+fn test_return_value_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut val = "a".repeat(1024).as_bytes().to_vec();
+    logic_builder.config.limit_config.max_length_returned_data = val.len() as u64;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    logic
+        .value_return(val.len() as _, val.as_ptr() as _)
+        .expect("Returned value length is under the limit");
+    val.push(b'a');
+    assert_eq!(
+        logic.value_return(val.len() as _, val.as_ptr() as _),
+        Err(HostError::ReturnedValueLengthExceeded.into())
+    );
+}
+
+#[test]
+fn test_contract_size_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut code = "a".repeat(1024).as_bytes().to_vec();
+    logic_builder.config.limit_config.max_contract_size = code.len() as u64;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let account_id = b"alice";
+    let promise_id = logic
+        .promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+        .expect("Number of promises is under the limit");
+    logic
+        .promise_batch_action_deploy_contract(promise_id, code.len() as u64, code.as_ptr() as _)
+        .expect("The length of the contract code is under the limit");
+    code.push(b'a');
+    assert_eq!(
+        logic.promise_batch_action_deploy_contract(
+            promise_id,
+            code.len() as u64,
+            code.as_ptr() as _
+        ),
+        Err(HostError::ContractSizeExceeded.into())
     );
 }

@@ -40,7 +40,7 @@ pub enum InvalidTxError {
     CostOverflow,
     InvalidChain,
     Expired,
-    ActionsValidation(ActionsValidationError),
+    ActionsValidation { error: ActionsValidationError },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -55,71 +55,71 @@ pub enum InvalidAccessKeyError {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionsValidationError {
     /// The total prepaid gas (for all given actions) exceeded the limit.
-    TotalPrepaidGasExceeded(Gas, Gas),
+    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
     /// The number of actions exceeded the given limit.
-    TotalNumberOfActionsExceeded(u32, u32),
+    TotalNumberOfActionsExceeded { total_number_of_actions: u32, limit: u32 },
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
-    AddKeyMethodNamesNumberOfBytesExceeded(u64, u64),
+    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 },
     /// The length of some method name exceeded the limit in a Add Key action.
-    AddKeyMethodNameLengthExceeded(u64, u64),
+    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
     /// Integer overflow during a compute.
     IntegerOverflow,
     /// Invalid account ID.
-    InvalidAccountId(AccountId),
+    InvalidAccountId { account_id: AccountId },
     /// The length of the contract size exceeded the limit in a DeployContract action.
-    ContractSizeExceeded(u64, u64),
+    ContractSizeExceeded { length: u64, limit: u64 },
     /// The length of the method name exceeded the limit in a Function Call action.
-    FunctionCallMethodNameLengthExceeded(u64, u64),
+    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
-    FunctionCallArgumentsLengthExceeded(u64, u64),
+    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
 }
 
 impl Display for ActionsValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            ActionsValidationError::TotalPrepaidGasExceeded(total_prepaid_gas, limit) => {
+            ActionsValidationError::TotalPrepaidGasExceeded{ total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
             }
-            ActionsValidationError::TotalNumberOfActionsExceeded(total_number_of_actions, limit) => {
+            ActionsValidationError::TotalNumberOfActionsExceeded{total_number_of_actions, limit} => {
                 write!(
                     f,
                     "The total number of actions {} exceeds the limit {}",
                     total_number_of_actions, limit
                 )
             }
-            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded(num_bytes, limit) => write!(
+            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded{total_number_of_bytes, limit} => write!(
                 f,
                 "The total number of bytes in allowed method names {} exceeds the maximum allowed number {} in a AddKey action",
-                num_bytes, limit
+                total_number_of_bytes, limit
             ),
-            ActionsValidationError::AddKeyMethodNameLengthExceeded(len, limit) => write!(
+            ActionsValidationError::AddKeyMethodNameLengthExceeded{length, limit} => write!(
                 f,
                 "The length of some method name {} exceeds the maximum allowed length {} in a AddKey action",
-                len, limit
+                length, limit
             ),
             ActionsValidationError::IntegerOverflow => write!(
                 f,
                 "Integer overflow during a compute",
             ),
-            ActionsValidationError::InvalidAccountId(account_id) => write!(
+            ActionsValidationError::InvalidAccountId{account_id} => write!(
                 f,
                 "Invalid account ID `{}`",
                 account_id
             ),
-            ActionsValidationError::ContractSizeExceeded(len, limit) => write!(
+            ActionsValidationError::ContractSizeExceeded{length, limit} => write!(
                 f,
                 "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
-                len, limit
+                length, limit
             ),
-            ActionsValidationError::FunctionCallMethodNameLengthExceeded(len, limit) => write!(
+            ActionsValidationError::FunctionCallMethodNameLengthExceeded{length, limit} => write!(
                 f,
                 "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
-                len, limit
+                length, limit
             ),
-            ActionsValidationError::FunctionCallArgumentsLengthExceeded(len, limit) => write!(
+            ActionsValidationError::FunctionCallArgumentsLengthExceeded{length, limit} => write!(
                 f,
                 "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
-                len, limit
+                length, limit
             ),
         }
     }
@@ -179,8 +179,8 @@ impl Display for InvalidTxError {
             InvalidTxError::Expired => {
                 write!(f, "Transaction has expired")
             }
-            InvalidTxError::ActionsValidation(e) => {
-                write!(f, "Transaction actions validation error: {}", e)
+            InvalidTxError::ActionsValidation{ error } => {
+                write!(f, "Transaction actions validation error: {}", error)
             }
         }
     }

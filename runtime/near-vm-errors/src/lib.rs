@@ -90,7 +90,9 @@ pub enum HostError {
     ValueLengthExceeded,
     LogLengthExceeded,
     NumPromisesExceeded,
-    NumInputDataDependencies,
+    NumInputDataDependenciesExceeded,
+    ReturnedValueLengthExceeded,
+    ContractSizeExceeded,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +202,9 @@ impl std::fmt::Display for HostError {
             ValueLengthExceeded => write!(f, "Exceeded the length of a storage value"),
             LogLengthExceeded => write!(f, "Exceeded the length of a log message"),
             NumPromisesExceeded => write!(f, "Exceeded the maximum number of promises within a function call"),
-            NumInputDataDependencies => write!(f, "Exceeded the maximum number of input data dependencies"),
+            NumInputDataDependenciesExceeded => write!(f, "Exceeded the maximum number of input data dependencies"),
+            ReturnedValueLengthExceeded => write!(f, "Exceeded the returned value length"),
+            ContractSizeExceeded => write!(f, "Exceeded the length of a deploy contract code"),
         }
     }
 }

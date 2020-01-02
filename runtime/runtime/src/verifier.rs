@@ -40,7 +40,7 @@ pub fn verify_and_charge_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
+        .map_err(|e| InvalidTxError::ActionsValidation { error: e })?;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -137,15 +137,18 @@ pub fn verify_and_charge_transaction(
 }
 
 /// Validates given actions. Checks limits and validates `account_id` if applicable.
+/// Checks that the total number of actions doesn't exceed the limit.
+/// Validates each individual action.
+/// Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
 ) -> Result<(), ActionsValidationError> {
     if actions.len() as u32 > limit_config.max_actions_per_receipt {
-        return Err(ActionsValidationError::TotalNumberOfActionsExceeded(
-            actions.len() as u32,
-            limit_config.max_actions_per_receipt,
-        ));
+        return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+            total_number_of_actions: actions.len() as u32,
+            limit: limit_config.max_actions_per_receipt,
+        });
     }
 
     for action in actions {
@@ -155,15 +158,16 @@ pub(crate) fn validate_actions(
     let total_prepaid_gas =
         total_prepaid_gas(actions).map_err(|_| ActionsValidationError::IntegerOverflow)?;
     if total_prepaid_gas > limit_config.max_total_prepaid_gas {
-        return Err(ActionsValidationError::TotalPrepaidGasExceeded(
+        return Err(ActionsValidationError::TotalPrepaidGasExceeded {
             total_prepaid_gas,
-            limit_config.max_total_prepaid_gas,
-        ));
+            limit: limit_config.max_total_prepaid_gas,
+        });
     }
 
     Ok(())
 }
 
+/// Validates a single given action. Checks limits and validates `account_id` if applicable.
 fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
@@ -180,79 +184,118 @@ fn validate_action(
     }
 }
 
+/// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
 fn validate_deploy_contract_action(
     limit_config: &VMLimitConfig,
     action: &DeployContractAction,
 ) -> Result<(), ActionsValidationError> {
     if action.code.len() as u64 > limit_config.max_contract_size {
-        return Err(ActionsValidationError::ContractSizeExceeded(
-            action.code.len() as u64,
-            limit_config.max_contract_size,
-        ));
+        return Err(ActionsValidationError::ContractSizeExceeded {
+            length: action.code.len() as u64,
+            limit: limit_config.max_contract_size,
+        });
     }
 
     Ok(())
 }
 
+/// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
+/// the length of the arguments doesn't exceed the limit.
 fn validate_function_call_action(
     limit_config: &VMLimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
     if action.method_name.len() as u64 > limit_config.max_length_method_name {
-        return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded(
-            action.method_name.len() as u64,
-            limit_config.max_length_method_name,
-        ));
+        return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded {
+            length: action.method_name.len() as u64,
+            limit: limit_config.max_length_method_name,
+        });
     }
 
     if action.args.len() as u64 > limit_config.max_arguments_length {
-        return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded(
-            action.args.len() as u64,
-            limit_config.max_arguments_length,
-        ));
+        return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
+            length: action.args.len() as u64,
+            limit: limit_config.max_arguments_length,
+        });
     }
 
     Ok(())
 }
 
+/// Validates `AddKeyAction`. If the access key permission is `FunctionCall` checks that the
+/// `receiver_id` is a valid account ID, checks the total number of bytes of the method names
+/// doesn't exceed the limit and every method name length doesn't exceed the limit.
 fn validate_add_key_action(
     limit_config: &VMLimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
         if !is_valid_account_id(&fc.receiver_id) {
-            return Err(ActionsValidationError::InvalidAccountId(fc.receiver_id.clone()));
+            return Err(ActionsValidationError::InvalidAccountId {
+                account_id: fc.receiver_id.clone(),
+            });
         }
         // Checking method name length limits
-        let mut num_bytes = 0;
+        let mut total_number_of_bytes = 0;
         for method_name in &fc.method_names {
-            let len = method_name.len() as u64;
-            if len > limit_config.max_length_method_name {
-                return Err(ActionsValidationError::AddKeyMethodNameLengthExceeded(
-                    len,
-                    limit_config.max_length_method_name,
-                ));
+            let length = method_name.len() as u64;
+            if length > limit_config.max_length_method_name {
+                return Err(ActionsValidationError::AddKeyMethodNameLengthExceeded {
+                    length,
+                    limit: limit_config.max_length_method_name,
+                });
             }
-            // Adding terminating character to total number of bytes
-            num_bytes += len + 1;
+            // Adding terminating character to the total number of bytes
+            total_number_of_bytes += length + 1;
         }
-        if num_bytes > limit_config.max_number_bytes_method_names {
-            return Err(ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded(
-                num_bytes,
-                limit_config.max_number_bytes_method_names,
-            ));
+        if total_number_of_bytes > limit_config.max_number_bytes_method_names {
+            return Err(ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded {
+                total_number_of_bytes,
+                limit: limit_config.max_number_bytes_method_names,
+            });
         }
     }
 
     Ok(())
 }
 
+/// Validates `DeleteAccountAction`. Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_account_action(
     action: &DeleteAccountAction,
 ) -> Result<(), ActionsValidationError> {
     if !is_valid_account_id(&action.beneficiary_id) {
-        return Err(ActionsValidationError::InvalidAccountId(action.beneficiary_id.clone()));
+        return Err(ActionsValidationError::InvalidAccountId {
+            account_id: action.beneficiary_id.clone(),
+        });
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_actions_empty() {
+        let limit_config = VMLimitConfig::default();
+        validate_actions(&limit_config, &[]).expect("empty actions");
+    }
+
+    #[test]
+    fn test_validate_actions_function_call() {
+        let limit_config = VMLimitConfig::default();
+        validate_actions(
+            &limit_config,
+            &vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 10u64.pow(12),
+                deposit: 0,
+            })],
+        )
+        .expect("valid function call action");
+    }
+
+    // TODO(#1692): Add more tests
 }

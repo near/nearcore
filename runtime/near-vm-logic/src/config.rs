@@ -74,8 +74,6 @@ pub struct VMLimitConfig {
     pub max_promises_per_function_call_action: u32,
     /// Max number of input data dependencies
     pub max_number_input_data_dependencies: u32,
-    // Max number of outgoing data
-    // Contract can be attacked by a limit of outgoing data.
 }
 
 impl Default for VMConfig {
