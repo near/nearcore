@@ -222,7 +222,7 @@ pub struct DownloadStatus {
 
 impl PartialEq for DownloadStatus {
     fn eq(&self, other: &Self) -> bool {
-        self.done == other.done
+        unreachable!("comparing DownloadStatus doesn't make any sense");
     }
 }
 
