@@ -5,10 +5,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context};
+use actix::{Actor, Addr, AsyncContext, Context, MailboxError};
 use chrono::{DateTime, Utc};
-use futures::future;
-use futures::future::Future;
+use futures::{future, future::BoxFuture, FutureExt};
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -39,7 +38,15 @@ pub struct MockNetworkAdapter {
 }
 
 impl NetworkAdapter for MockNetworkAdapter {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.do_send(msg);
+        future::ok(NetworkResponses::NoResponse).boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
@@ -413,7 +420,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }
@@ -447,7 +454,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }
@@ -495,7 +502,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkClientResponses::NoResponse => {}
                                                     _ => assert!(false),
                                                 }
-                                                future::result(Ok(()))
+                                                future::ready(())
                                             }),
                                     );
                                 }

@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 use rand::{thread_rng, RngCore};
-use tokio::timer::Delay;
+use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
@@ -49,6 +48,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
             push_info_period: Duration::from_millis(100),
+            blacklist: HashMap::new(),
         }
     }
 }
@@ -79,10 +79,10 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
         System::current().stop();
         panic!("Timeout exceeded.");
-        future::result(Ok(()))
+        future::ready(())
     }));
 }
 

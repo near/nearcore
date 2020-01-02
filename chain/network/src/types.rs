@@ -3,14 +3,15 @@ use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message, Recipient};
+use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
@@ -343,6 +344,7 @@ impl AccountOrPeerIdOrHash {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -752,6 +754,12 @@ impl PeerMessage {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BlockedPorts {
+    All,
+    Some(HashSet<u16>),
+}
+
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -782,6 +790,37 @@ pub struct NetworkConfig {
     pub most_weighted_peer_horizon: u128,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
+    /// Peers on blacklist by IP:Port.
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: HashMap<IpAddr, BlockedPorts>,
+}
+
+/// Used to match a socket addr by IP:Port or only by IP
+#[derive(Clone, Debug)]
+pub enum PatternAddr {
+    Ip(IpAddr),
+    IpPort(SocketAddr),
+}
+
+impl PatternAddr {
+    pub fn contains(&self, addr: &SocketAddr) -> bool {
+        match self {
+            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
+            PatternAddr::IpPort(pattern) => addr == pattern,
+        }
+    }
+}
+
+impl FromStr for PatternAddr {
+    type Err = AddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(pattern) = s.parse::<IpAddr>() {
+            return Ok(PatternAddr::Ip(pattern));
+        }
+
+        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
+    }
 }
 
 /// Status of the known peers.
@@ -831,6 +870,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
     pub stream: TcpStream,
@@ -845,12 +885,14 @@ impl InboundTcpConnect {
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
 }
 
 #[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
@@ -883,6 +925,7 @@ pub enum ConsolidateResponse {
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
@@ -916,6 +959,7 @@ impl Message for PeersRequest {
 
 /// Received new peers from another peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
@@ -949,6 +993,7 @@ pub enum ReasonForBan {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -1047,6 +1092,7 @@ pub enum NetworkRequests {
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
+#[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
@@ -1091,6 +1137,7 @@ pub enum NetworkResponses {
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Edge),
+    RouteNotFound,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -1287,12 +1334,18 @@ pub struct PartialEncodedChunkRequestMsg {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct StopSignal {}
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
+
+    fn do_send(&self, msg: NetworkRequests);
 }
 
 pub struct NetworkRecipient {
@@ -1312,7 +1365,20 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.network_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .send(msg)
+            .boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         let _ = self
             .network_recipient
             .read()

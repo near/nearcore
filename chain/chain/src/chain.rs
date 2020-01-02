@@ -1775,7 +1775,19 @@ impl Chain {
             })
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
-        Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
+        let transaction = self
+            .store
+            .get_transaction(hash)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Transaction {} is not found", hash))?
+            .clone()
+            .into();
+        Ok(FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome: outcomes.pop().unwrap(),
+            receipts_outcome: receipts,
+        })
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
@@ -2377,6 +2389,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
+                    self.chain_store_update.save_transactions(chunk.transactions);
                 } else {
                     let mut new_extra = self
                         .chain_store_update

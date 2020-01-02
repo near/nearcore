@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use log::LevelFilter;
 
@@ -35,6 +35,7 @@ pub fn init_test_logger() {
         .filter_module("hyper", LevelFilter::Info)
         .filter(None, LevelFilter::Debug)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_test_module_logger(module: &str) {
@@ -46,6 +47,7 @@ pub fn init_test_module_logger(module: &str) {
         .filter_module(module, LevelFilter::Info)
         .filter(None, LevelFilter::Info)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_integration_logger() {
@@ -53,6 +55,20 @@ pub fn init_integration_logger() {
         .filter(None, LevelFilter::Info)
         .filter(Some("actix_web"), LevelFilter::Warn)
         .try_init();
+    init_stop_on_panic();
+}
+
+static SET_PANIC_HOOK: Once = Once::new();
+
+/// This is a workaround to make actix/tokio runtime stop when a task panics.
+pub fn init_stop_on_panic() {
+    SET_PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            actix::System::with_current(|sys| sys.stop_with_code(1));
+            default_hook(info);
+        }));
+    })
 }
 
 impl Transaction {
