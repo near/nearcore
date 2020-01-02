@@ -36,7 +36,7 @@ use near_primitives::utils::{
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
     set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
-    StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    StoreUpdate, Trie, TrieChanges, TrieUpdate, TrieUpdateEvent,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -360,7 +360,9 @@ impl Runtime {
             {
                 Ok(verification_result) => {
                     near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
-                    state_update.commit();
+                    state_update.commit(TrieUpdateEvent::TransactionProcessing {
+                        hash: signed_transaction.get_hash(),
+                    });
                     let transaction = &signed_transaction.transaction;
                     let receipt = Receipt {
                         predecessor_id: transaction.signer_id.clone(),
@@ -561,7 +563,7 @@ impl Runtime {
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
-        state_update.commit();
+        state_update.commit(TrieUpdateEvent::ReceiptProcessing { hash: receipt.get_hash() });
 
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
@@ -637,7 +639,10 @@ impl Runtime {
         match &result.result {
             Ok(_) => {
                 stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
-                state_update.commit();
+                state_update.commit(TrieUpdateEvent::ActionApplication {
+                    hash: receipt.get_hash(),
+                    action_index,
+                });
             }
             Err(_) => {
                 state_update.rollback();
@@ -660,7 +665,10 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit();
+                state_update.commit(TrieUpdateEvent::ActionApplication {
+                    hash: receipt.get_hash(),
+                    action_index,
+                });
             }
         }
 
@@ -908,7 +916,7 @@ impl Runtime {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_update.commit();
+        state_update.commit(TrieUpdateEvent::DelayingActionReceipt { hash: receipt.get_hash() });
         Ok(None)
     }
 
@@ -971,7 +979,7 @@ impl Runtime {
                 set_account(state_update, account_id, &account);
             }
         }
-        state_update.commit();
+        state_update.commit(TrieUpdateEvent::ValidatorAccountsUpdate);
 
         Ok(())
     }
@@ -1105,7 +1113,7 @@ impl Runtime {
             &stats,
         )?;
 
-        state_update.commit();
+        state_update.commit(TrieUpdateEvent::DelayingMultipleReceipts);
         let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
 
         let trie_changes = state_update.finalize()?;

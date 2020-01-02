@@ -35,7 +35,7 @@ use near_primitives::views::{
 };
 use near_store::{
     get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    TrieUpdateEvent, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -746,7 +746,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit();
+                                state_update.commit(TrieUpdateEvent::NonFinalizable);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;
