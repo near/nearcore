@@ -420,3 +420,176 @@ fn test_hash256_register() {
         ExtCosts::sha256_byte: len,
     });
 }
+
+#[test]
+fn test_key_length_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut key = "a".repeat(1024).as_bytes().to_vec();
+    let val = b"hello";
+    logic_builder.config.limit_config.max_length_storage_key = key.len() as u64;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    // Under the limit. Valid calls.
+    logic
+        .storage_has_key(key.len() as _, key.as_ptr() as _)
+        .expect("storage_has_key: key length is under the limit");
+    logic
+        .storage_write(key.len() as _, key.as_ptr() as _, val.len() as _, val.as_ptr() as _, 0)
+        .expect("storage_read: key length is under the limit");
+    logic
+        .storage_read(key.len() as _, key.as_ptr() as _, 0)
+        .expect("storage_read: key length is under the limit");
+    logic
+        .storage_remove(key.len() as _, key.as_ptr() as _, 0)
+        .expect("storage_remove: key length is under the limit");
+    logic
+        .storage_iter_prefix(key.len() as _, key.as_ptr() as _)
+        .expect("storage_iter_prefix: prefix length is under the limit");
+    logic
+        .storage_iter_range(key.len() as _, key.as_ptr() as _, b"z".len() as _, b"z".as_ptr() as _)
+        .expect("storage_iter_range: start length are under the limit");
+    logic
+        .storage_iter_range(b"0".len() as _, b"0".as_ptr() as _, key.len() as _, key.as_ptr() as _)
+        .expect("storage_iter_range: end length are under the limit");
+
+    // Over the limit. Invalid calls.
+    key.push(b'a');
+    assert_eq!(
+        logic.storage_has_key(key.len() as _, key.as_ptr() as _),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_write(
+            key.len() as _,
+            key.as_ptr() as _,
+            val.len() as _,
+            val.as_ptr() as _,
+            0
+        ),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_read(key.len() as _, key.as_ptr() as _, 0),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_remove(key.len() as _, key.as_ptr() as _, 0),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_iter_prefix(key.len() as _, key.as_ptr() as _),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_iter_range(
+            key.len() as _,
+            key.as_ptr() as _,
+            b"z".len() as _,
+            b"z".as_ptr() as _
+        ),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+    assert_eq!(
+        logic.storage_iter_range(
+            b"0".len() as _,
+            b"0".as_ptr() as _,
+            key.len() as _,
+            key.as_ptr() as _
+        ),
+        Err(HostError::KeyLengthExceeded.into())
+    );
+}
+
+#[test]
+fn test_value_length_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut val = "a".repeat(1024).as_bytes().to_vec();
+    logic_builder.config.limit_config.max_length_storage_value = val.len() as u64;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let key = b"hello";
+    logic
+        .storage_write(key.len() as _, key.as_ptr() as _, val.len() as _, val.as_ptr() as _, 0)
+        .expect("Value length is under the limit");
+    val.push(b'a');
+    assert_eq!(
+        logic.storage_write(
+            key.len() as _,
+            key.as_ptr() as _,
+            val.len() as _,
+            val.as_ptr() as _,
+            0
+        ),
+        Err(HostError::ValueLengthExceeded.into())
+    );
+}
+
+#[test]
+fn test_num_promises() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let num_promises = 10;
+    logic_builder.config.limit_config.max_promises_per_function_call_action = num_promises;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let account_id = b"alice";
+    for _ in 0..num_promises {
+        logic
+            .promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+            .expect("Number of promises is under the limit");
+    }
+    assert_eq!(
+        logic.promise_batch_create(account_id.len() as _, account_id.as_ptr() as _),
+        Err(HostError::NumPromisesExceeded.into())
+    );
+}
+
+#[test]
+fn test_num_joined_promises() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let num_deps = 10;
+    logic_builder.config.limit_config.max_number_input_data_dependencies = num_deps;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let account_id = b"alice";
+    let promise_id = logic
+        .promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+        .expect("Number of promises is under the limit");
+    for num in 0..num_deps {
+        let promises = vec![promise_id; num as usize];
+        logic
+            .promise_and(promises.as_ptr() as _, promises.len() as _)
+            .expect("Number of joined promises is under the limit");
+    }
+    let promises = vec![promise_id; (num_deps + 1) as usize];
+    assert_eq!(
+        logic.promise_and(promises.as_ptr() as _, promises.len() as _),
+        Err(HostError::NumInputDataDependencies.into())
+    );
+}
+
+#[test]
+fn test_num_input_dependencies_recursive_join() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let num_steps = 10;
+    logic_builder.config.limit_config.max_number_input_data_dependencies = 1 << num_steps;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let account_id = b"alice";
+    let original_promise_id = logic
+        .promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+        .expect("Number of promises is under the limit");
+    let mut promise_id = original_promise_id;
+    for _ in 1..num_steps {
+        let promises = vec![promise_id, promise_id];
+        promise_id = logic
+            .promise_and(promises.as_ptr() as _, promises.len() as _)
+            .expect("Number of joined promises is under the limit");
+    }
+    // The length of joined promises is exactly the limit (1024).
+    let promises = vec![promise_id, promise_id];
+    logic
+        .promise_and(promises.as_ptr() as _, promises.len() as _)
+        .expect("Number of joined promises is under the limit");
+
+    // The length of joined promises exceeding the limit by 1 (total 1025).
+    let promises = vec![promise_id, promise_id, original_promise_id];
+    assert_eq!(
+        logic.promise_and(promises.as_ptr() as _, promises.len() as _),
+        Err(HostError::NumInputDataDependencies.into())
+    );
+}

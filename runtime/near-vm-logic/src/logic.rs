@@ -852,7 +852,7 @@ impl<'a> VMLogic<'a> {
             if receipt_dependencies.len() as u32
                 > self.config.limit_config.max_number_input_data_dependencies
             {
-                return Err(HostError::NumInputDataDependenciesExceeded.into());
+                return Err(HostError::NumInputDataDependencies.into());
             }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
