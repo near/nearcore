@@ -57,7 +57,7 @@ pub fn run<'a>(
         );
     }
 
-    let module = match cache::compile_cached_module(code_hash, code, wasm_config) {
+    let module = match cache::compile_module(code_hash, code, wasm_config) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

@@ -98,7 +98,7 @@ pub(crate) fn get_code_with_cache(
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
     let code_hash = account.code_hash;
     let code = || get_code(state_update, account_id);
-    crate::cache::get_code_with_cache(code_hash, code)
+    crate::cache::get_code(code_hash, code)
 }
 
 pub(crate) fn action_function_call(
