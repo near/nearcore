@@ -117,7 +117,9 @@ impl Default for VMLimitConfig {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
             max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
 
-            max_stack_height: 32 * 1024,        // 32Kib of stack.
+            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
+            // For experimentation try `test_stack_overflow`.
+            max_stack_height: 16 * 1024,        // 16Kib of stack.
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 
