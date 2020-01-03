@@ -34,7 +34,7 @@ default = []
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting", "near-vm-runner/costs_counting"]
 
-no_cache = []
+no_cache = ["near-vm-runner/no_cache"]
 
 [dev-dependencies]
 tempdir = "0.3"
