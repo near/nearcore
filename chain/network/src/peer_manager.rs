@@ -838,6 +838,19 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            NetworkRequests::StateResponse { response, route_back } => {
+                if self.send_message_to_peer(
+                    ctx,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::StateResponse(response),
+                    },
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 if let Some(peer) = self.active_peers.get(&peer_id) {
                     let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));

@@ -511,6 +511,15 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::StateResponse { response, route_back } => {
+                            for (i, address) in addresses.iter().enumerate() {
+                                if route_back == address {
+                                    connectors1.read().unwrap()[i].0.do_send(
+                                        NetworkClientMessages::StateResponse(response.clone()),
+                                    );
+                                }
+                            }
+                        }
                         NetworkRequests::AnnounceAccount(announce_account) => {
                             let mut aa = announced_accounts1.write().unwrap();
                             let key = (
