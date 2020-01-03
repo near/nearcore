@@ -16,7 +16,7 @@ pub fn get_epoch_block_producers_view(
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<Vec<ValidatorStakeView>, Error> {
     Ok(runtime_adapter
-        .get_epoch_block_producers(epoch_id, prev_hash)?
+        .get_epoch_block_producers_ordered(epoch_id, prev_hash)?
         .iter()
         .map(|x| x.0.clone().into())
         .collect::<Vec<_>>())

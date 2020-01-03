@@ -301,7 +301,7 @@ impl PeerManagerActor {
 
     /// Returns single random peer with the most weight.
     fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
-        // This finds max of weight and height and returns such height.
+        // This finds max of weight and height and returns such peer.
         let max_weight_and_score = match self
             .active_peers
             .values()
@@ -316,7 +316,7 @@ impl PeerManagerActor {
             Some((weight_and_score, _)) => weight_and_score,
             None => return vec![],
         };
-        // Find all peers whose height is within `most_weighted_peer_height_horizon` from max weight peer(s).
+        // Find all peers whose height is within `most_weighted_peer_horizon` from max weight peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
