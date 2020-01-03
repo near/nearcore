@@ -269,13 +269,21 @@ fn main() {
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
         .subcommand(
-            SubCommand::with_name("dump_state").arg(
-                Arg::with_name("output")
-                    .long("output")
-                    .required(true)
-                    .help("Output path for new genesis given current blockchain state")
-                    .takes_value(true),
-            ),
+            SubCommand::with_name("dump_state")
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .required(true)
+                        .help("Output path for new genesis given current blockchain state")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("output_records")
+                        .long("output_records")
+                        .required(false)
+                        .help("Output path for the new genesis records file")
+                        .takes_value(true),
+                ),
         )
         .subcommand(
             SubCommand::with_name("chain")
@@ -341,11 +349,13 @@ fn main() {
         ("dump_state", Some(args)) => {
             let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
             let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
+            let output_records_path = args.value_of("output_records").map(|path| Path::new(path));
             println!(
-                "Saving state at {:?} @ {} into {}",
+                "Saving state at {:?} @ {} into {} and records {:?}",
                 state_roots,
                 height,
-                output_path.display()
+                output_path.display(),
+                output_records_path,
             );
             near_config.genesis_config.records = vec![];
             for state_root in state_roots {
@@ -357,7 +367,13 @@ fn main() {
                     }
                 }
             }
-            near_config.genesis_config.write_to_file(&output_path);
+            if let Some(records_path) = output_records_path {
+                near_config
+                    .genesis_config
+                    .write_to_config_and_records_files(&output_path, records_path);
+            } else {
+                near_config.genesis_config.write_to_file(&output_path);
+            }
         }
         ("chain", Some(args)) => {
             let start_index =
