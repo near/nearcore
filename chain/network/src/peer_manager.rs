@@ -296,6 +296,7 @@ impl PeerManagerActor {
     fn is_outbound_bootstrap_needed(&self) -> bool {
         (self.active_peers.len() + self.outgoing_peers.len())
             < (self.config.peer_max_count as usize)
+            && !self.config.outbound_disabled
     }
 
     /// Returns single random peer with the most weight.
@@ -652,7 +653,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
-        msg.sign(self.peer_id.clone(), &self.config.secret_key)
+        msg.sign(self.peer_id.clone(), &self.config.secret_key, self.config.routed_message_ttl)
     }
 
     // Determine if the given target is referring to us.
@@ -1257,7 +1258,7 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
     type Result = bool;
 
     fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
-        let RoutedMessageFrom { msg, from } = msg;
+        let RoutedMessageFrom { mut msg, from } = msg;
 
         if msg.expect_response() {
             self.routing_table.add_route_back(msg.hash(), from.clone());
@@ -1274,8 +1275,11 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
 
             false
         } else {
-            // Otherwise route it to its corresponding destination.
-            self.send_signed_message_to_peer(ctx, msg);
+            if msg.decrease_ttl() {
+                self.send_signed_message_to_peer(ctx, msg);
+            } else {
+                warn!(target: "network", "Message dropped because TTL reached 0. Message: {:?} From: {:?}", msg, from);
+            }
             false
         }
     }
