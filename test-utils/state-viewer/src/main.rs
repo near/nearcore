@@ -269,13 +269,21 @@ fn main() {
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
         .subcommand(
-            SubCommand::with_name("dump_state").arg(
-                Arg::with_name("output")
-                    .long("output")
-                    .required(true)
-                    .help("Output path for new genesis given current blockchain state")
-                    .takes_value(true),
-            ),
+            SubCommand::with_name("dump_state")
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .required(true)
+                        .help("Output path for new genesis given current blockchain state")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("output_records")
+                        .long("output_records")
+                        .required(false)
+                        .help("Output path for the new genesis records file")
+                        .takes_value(true),
+                ),
         )
         .subcommand(
             SubCommand::with_name("chain")
@@ -346,7 +354,7 @@ fn main() {
                 "Saving state at {:?} @ {} into {} and records {:?}",
                 state_roots,
                 height,
-                output_path.display()
+                output_path.display(),
                 output_records_path,
             );
             near_config.genesis_config.records = vec![];
