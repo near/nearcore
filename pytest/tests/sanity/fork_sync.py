@@ -14,7 +14,7 @@ from cluster import start_cluster
 TIMEOUT = 120
 FIRST_STEP_WAIT = 20
 SECOND_STEP_WAIT = 30
-FINAL_height_THRESHOLD = 80
+FINAL_HEIGHT_THRESHOLD = 80
 
 nodes = start_cluster(4, 0, 4, None, [["epoch_length", 200], ["block_producer_kickout_threshold", 10]], {})
 time.sleep(3)
@@ -76,7 +76,7 @@ while cur_height < TIMEOUT:
         except Exception:
             succeed = False
             break
-    if statuses[0][1] > FINAL_height_THRESHOLD and succeed:
+    if statuses[0][1] > FINAL_HEIGHT_THRESHOLD and succeed:
         exit(0)
     time.sleep(0.5)
 

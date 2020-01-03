@@ -76,7 +76,6 @@ while catch_up_height < observed_height:
 
     status = boot_node.get_status()
     boot_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(boot_height)
 
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:

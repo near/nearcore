@@ -30,29 +30,29 @@ print("step 2")
 synced = False
 while cur_height <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()
-    height0 = status0['sync_info']['latest_block_height']
+    block_height0 = status0['sync_info']['latest_block_height']
     block_hash0 = status0['sync_info']['latest_block_hash']
     status1 = nodes[1].get_status()
-    height1 = status0['sync_info']['latest_block_height']
+    block_height1 = status0['sync_info']['latest_block_height']
     block_hash1 = status0['sync_info']['latest_block_hash']
-    if height0 > BLOCK_WAIT:
-        if height0 > height1:
+    if block_height0 > BLOCK_WAIT:
+        if block_height0 > block_height1:
             try:
                 nodes[0].get_block(block_hash1)
-                if synced and abs(height0 - height1) >= 5:
+                if synced and abs(block_height0 - block_height1) >= 5:
                     assert False, "Nodes fall out of sync"
-                synced = abs(height0 - height1) < 5
+                synced = abs(block_height0 - block_height1) < 5
             except Exception:
                 pass
         else:
             try:
                 nodes[1].get_block(block_hash0)
-                if synced and abs(height0 - height1) >= 5:
+                if synced and abs(block_height0 - block_height1) >= 5:
                     assert False, "Nodes fall out of sync"
-                synced = abs(height0 - height1) < 5
+                synced = abs(block_height0 - block_height1) < 5
             except Exception:
                 pass
-    cur_height = max(height0, height1)
+    cur_height = max(block_height0, block_height1)
     time.sleep(1)
 
 if not synced:
