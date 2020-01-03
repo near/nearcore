@@ -2,7 +2,7 @@ extern crate proc_macro;
 extern crate proc_macro2;
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use syn::{
@@ -32,21 +32,21 @@ impl Drop for Schema {
     fn drop(&mut self) {
         // std::env::var("CARGO_TARGET_DIR") doesn't exists
         let filename = "./target/errors_schema.json";
-        let json_value = serde_json::to_value(self).expect("Schema serialize failed");
-        if let Ok(data) = std::fs::read(filename) {
-            if let Ok(mut existing_schema) = serde_json::from_slice::<Value>(&data) {
-                merge(&mut existing_schema, &json_value);
-                let json = serde_json::to_string_pretty(&existing_schema)
-                    .expect("error schema serialization failed");
-                println!("{}", &existing_schema);
-                std::fs::write(filename, json).expect("Unable to save the errors schema file");
-            };
+        let schema_json = serde_json::to_value(self).expect("Schema serialize failed");
+        let mut new_schema_json = if let Ok(data) = std::fs::read(filename) {
+            // merge to the existing file
+            let mut existing_schema = serde_json::from_slice::<Value>(&data)
+                .expect("cannot deserialize target/existing_schema.json");
+            merge(&mut existing_schema, &schema_json);
+            existing_schema
         } else {
-            let json = serde_json::to_string_pretty(&json_value)
-                .expect("error schema serialization failed");
-            println!("{}", &json);
-            std::fs::write(filename, json).expect("Unable to save the errors schema file");
+            schema_json
         };
+        new_schema_json.as_object_mut().map(Map::sort_keys);
+        let new_schema_json_string = serde_json::to_string_pretty(&new_schema_json)
+            .expect("error schema serialization failed");
+        std::fs::write(filename, new_schema_json_string)
+            .expect("Unable to save the errors schema file");
     }
 }
 
@@ -56,7 +56,7 @@ struct ErrorType {
     pub name: String,
     /// Names of subtypes of the error
     pub subtypes: Vec<String>,
-    // /// An error input name and type
+    /// An error input name and a type
     pub props: HashMap<String, String>,
 }
 
@@ -111,7 +111,7 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
                                     .expect("named fields must have ident")
                                     .to_string(),
                                 "".to_owned(),
-                            ); // TODO: add type
+                            ); // TODO: add type?
                         }
                         direct_error_types.push(error_type);
                     }
