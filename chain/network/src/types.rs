@@ -35,7 +35,7 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::sync::RwLock;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
