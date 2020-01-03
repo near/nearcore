@@ -476,37 +476,14 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    let connectors2 = connectors1.clone();
-                                    actix::spawn(
-                                        connectors1.read().unwrap()[i]
-                                            .0
-                                            .send(NetworkClientMessages::StateRequest(
-                                                *shard_id,
-                                                *sync_hash,
-                                                *need_header,
-                                                parts.clone(),
-                                                my_address,
-                                            ))
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    NetworkClientResponses::StateResponse(
-                                                        info,
-                                                        _,
-                                                    ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                            NetworkClientMessages::StateResponse(
-                                                                info,
-                                                            ),
-                                                        );
-                                                    }
-                                                    NetworkClientResponses::NoResponse => {}
-                                                    _ => assert!(false),
-                                                }
-                                                future::ready(())
-                                            }),
+                                    connectors1.read().unwrap()[i].0.do_send(
+                                        NetworkClientMessages::StateRequest(
+                                            *shard_id,
+                                            *sync_hash,
+                                            *need_header,
+                                            parts.clone(),
+                                            my_address,
+                                        ),
                                     );
                                 }
                             }

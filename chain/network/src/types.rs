@@ -1260,8 +1260,6 @@ pub enum NetworkClientResponses {
     Block(Block),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
 }
