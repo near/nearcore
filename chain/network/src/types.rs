@@ -1057,6 +1057,12 @@ pub enum NetworkRequests {
         parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
     },
+    /// An answer for StateRequest.
+    // TODO discuss with Marcelo
+    StateResponse {
+        response: StateResponseInfo,
+        route_back: CryptoHash,
+    },
     /// Ban given peer.
     BanPeer {
         peer_id: PeerId,

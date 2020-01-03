@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
+use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
+use near_chain::types::AcceptedBlock;
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
@@ -229,56 +230,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
-                let mut data = vec![];
-                for part_id in parts.ids.iter() {
-                    match self.client.chain.get_state_response_part(
-                        shard_id,
-                        *part_id,
-                        parts.num_parts,
-                        hash,
-                    ) {
-                        Ok(part) => data.push(part),
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    }
-                }
-                if need_header {
-                    match self.client.chain.get_state_response_header(shard_id, hash) {
-                        Ok(header) => {
-                            return NetworkClientResponses::StateResponse(
-                                StateResponseInfo {
-                                    shard_id,
-                                    hash,
-                                    shard_state: ShardStateSyncResponse {
-                                        header: Some(header),
-                                        part_ids: parts.ids,
-                                        data,
-                                    },
-                                },
-                                route_back,
-                            );
-                        }
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    }
-                } else {
-                    return NetworkClientResponses::StateResponse(
-                        StateResponseInfo {
-                            shard_id,
-                            hash,
-                            shard_state: ShardStateSyncResponse {
-                                header: None,
-                                part_ids: parts.ids,
-                                data,
-                            },
-                        },
-                        route_back,
-                    );
-                }
+                let network_adapter = self.network_adapter.clone();
+                // TODO discuss vulnerability: a node can be flooded by StateRequests
+                actix::spawn(
+                    self.client
+                        .chain
+                        .get_state_response_by_request(shard_id, hash, need_header, parts)
+                        .then(move |result| {
+                            if let Ok(shard_state) = result {
+                                network_adapter.do_send(NetworkRequests::StateResponse {
+                                    response: StateResponseInfo { shard_id, hash, shard_state },
+                                    route_back,
+                                });
+                            }
+                            future::ready(())
+                        }),
+                );
+                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
