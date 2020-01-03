@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::Future;
+use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_primitives::account::AccessKey;
@@ -222,49 +222,49 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = AccountView, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<AccountView, String>>;
 
     fn view_balance(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = Balance, Error = String>> {
-        Box::new(self.view_account(account_id).map(|acc| acc.amount))
+    ) -> LocalBoxFuture<'static, Result<Balance, String>> {
+        self.view_account(account_id).map(|res| res.map(|acc| acc.amount)).boxed_local()
     }
 
     fn view_state(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = ViewStateResult, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<ViewStateResult, String>>;
 
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+    ) -> LocalBoxFuture<'static, Result<(), String>>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Box<dyn Future<Item = (), Error = String>>;
+    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), String>>;
 
     fn get_account_nonce(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = u64, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<u64, String>>;
 
-    fn get_best_height(&self) -> Box<dyn Future<Item = u64, Error = String>>;
+    fn get_best_height(&self) -> LocalBoxFuture<'static, Result<BlockHeight, String>>;
 
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = ExecutionOutcome, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, String>>;
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
-    ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, String>>;
 
-    fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
+    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, String>>;
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, String>>;
 }

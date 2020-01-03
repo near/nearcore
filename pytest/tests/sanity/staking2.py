@@ -71,7 +71,7 @@ def doit(seq = []):
     last_iter = started
 
     status = nodes[2].get_status()
-    height = status['sync_info']['latest_height']
+    height = status['sync_info']['latest_block_height']
     hash_ = status['sync_info']['latest_block_hash']
 
     print("Initial stakes: %s" % get_stakes())
@@ -88,7 +88,7 @@ def doit(seq = []):
         assert time.time() - last_iter < TIMEOUT_PER_ITER
 
         status = nodes[0].get_status()
-        height = status['sync_info']['latest_height']
+        height = status['sync_info']['latest_block_height']
         hash_ = status['sync_info']['latest_block_hash']
 
         if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (last_fake_stakes_height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH:

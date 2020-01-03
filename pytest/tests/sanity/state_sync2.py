@@ -22,7 +22,7 @@ print("Waiting for %s blocks..." % BLOCKS)
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[1].get_status()
-    height = status['sync_info']['latest_height']
+    height = status['sync_info']['latest_block_height']
     if height >= BLOCKS:
         break
     time.sleep(1)
@@ -37,7 +37,7 @@ nodes[0].start(nodes[1].node_key.pk, nodes[1].addr())
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[0].get_status()
-    height = status['sync_info']['latest_height']
+    height = status['sync_info']['latest_block_height']
     if height >= BLOCKS:
         break
     time.sleep(1)

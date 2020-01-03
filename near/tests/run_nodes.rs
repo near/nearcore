@@ -1,5 +1,5 @@
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near_client::GetBlock;
@@ -33,10 +33,10 @@ fn run_nodes(
                     {
                         System::current().stop()
                     }
-                    Err(_) => return futures::future::err(()),
+                    Err(_) => return future::ready(()),
                     _ => {}
                 };
-                futures::future::ok(())
+                future::ready(())
             }));
         }),
         100,

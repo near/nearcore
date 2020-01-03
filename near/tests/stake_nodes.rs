@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use rand::Rng;
 use tempdir::TempDir;
 
@@ -104,13 +104,7 @@ fn test_stake_nodes() {
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
-        actix::spawn(
-            test_nodes[0]
-                .client
-                .send(NetworkClientMessages::Transaction(tx))
-                .map(|_| ())
-                .map_err(|_| ()),
-        );
+        actix::spawn(test_nodes[0].client.send(NetworkClientMessages::Transaction(tx)).map(drop));
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
@@ -118,7 +112,7 @@ fn test_stake_nodes() {
                     |res| {
                         let res = res.unwrap();
                         if res.is_err() {
-                            return futures::future::ok(());
+                            return future::ready(());
                         }
                         if res.unwrap().validators
                             == vec![
@@ -134,7 +128,7 @@ fn test_stake_nodes() {
                         {
                             System::current().stop();
                         }
-                        futures::future::ok(())
+                        future::ready(())
                     },
                 ));
             }),
@@ -188,8 +182,7 @@ fn test_validator_kickout() {
                 test_node
                     .client
                     .send(NetworkClientMessages::Transaction(stake_transaction))
-                    .map(|_| ())
-                    .map_err(|_| ()),
+                    .map(drop),
             );
         }
 
@@ -212,7 +205,7 @@ fn test_validator_kickout() {
                             .collect();
                         let res = res.unwrap();
                         if res.is_err() {
-                            return futures::future::ok(());
+                            return future::ready(());
                         }
                         if res.unwrap().validators == expected {
                             for i in 0..num_nodes / 2 {
@@ -235,7 +228,7 @@ fn test_validator_kickout() {
                                                     {
                                                         mark.store(true, Ordering::SeqCst);
                                                     }
-                                                    futures::future::ok(())
+                                                    future::ready(())
                                                 }
                                                 _ => panic!("wrong return result"),
                                             }
@@ -264,7 +257,7 @@ fn test_validator_kickout() {
                                                         TESTING_INIT_BALANCE - TESTING_INIT_STAKE
                                                     );
                                                     mark.store(true, Ordering::SeqCst);
-                                                    futures::future::ok(())
+                                                    future::ready(())
                                                 }
                                                 _ => panic!("wrong return result"),
                                             }
@@ -276,7 +269,7 @@ fn test_validator_kickout() {
                                 System::current().stop();
                             }
                         }
-                        futures::future::ok(())
+                        future::ready(())
                     },
                 ));
             }),
@@ -336,15 +329,13 @@ fn test_validator_join() {
             test_nodes[1]
                 .client
                 .send(NetworkClientMessages::Transaction(unstake_transaction))
-                .map(|_| ())
-                .map_err(|_| ()),
+                .map(drop),
         );
         actix::spawn(
             test_nodes[0]
                 .client
                 .send(NetworkClientMessages::Transaction(stake_transaction))
-                .map(|_| ())
-                .map_err(|_| ()),
+                .map(drop),
         );
 
         let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
@@ -362,7 +353,7 @@ fn test_validator_join() {
                         ];
                         let res = res.unwrap();
                         if res.is_err() {
-                            return futures::future::ok(());
+                            return future::ready(());
                         }
                         if res.unwrap().validators == expected {
                             actix::spawn(
@@ -377,7 +368,7 @@ fn test_validator_join() {
                                             if result.locked == 0 {
                                                 done1_copy2.store(true, Ordering::SeqCst);
                                             }
-                                            futures::future::ok(())
+                                            future::ready(())
                                         }
                                         _ => panic!("wrong return result"),
                                     }),
@@ -395,14 +386,14 @@ fn test_validator_join() {
                                                 done2_copy2.store(true, Ordering::SeqCst);
                                             }
 
-                                            futures::future::ok(())
+                                            future::ready(())
                                         }
                                         _ => panic!("wrong return result"),
                                     }),
                             );
                         }
 
-                        futures::future::ok(())
+                        future::ready(())
                     },
                 ));
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
@@ -450,7 +441,7 @@ fn test_inflation() {
                             done1_copy2.store(true, Ordering::SeqCst);
                         }
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
                 actix::spawn(test_nodes[0].view_client.send(GetBlock::Best).then(move |res| {
                     let header_view = res.unwrap().unwrap().header;
@@ -463,7 +454,7 @@ fn test_inflation() {
                             done2_copy2.store(true, Ordering::SeqCst);
                         }
                     }
-                    futures::future::ok(())
+                    future::ready(())
                 }));
                 if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();

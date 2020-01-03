@@ -43,7 +43,7 @@ while True:
     assert time.time() - started < TIMEOUT
     status = boot_node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_height']
+    new_height = status['sync_info']['latest_block_height']
     seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
@@ -65,7 +65,7 @@ while True:
     assert time.time() - started < TIMEOUT
 
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_height']
+    new_height = status['sync_info']['latest_block_height']
     seen_boot_heights.add(new_height)
 
     if new_height > largest_height:
@@ -73,7 +73,7 @@ while True:
         print(new_height)
 
     status = node2.get_status()
-    new_height = status['sync_info']['latest_height']
+    new_height = status['sync_info']['latest_block_height']
     if new_height > TWENTY_FIVE:
         assert new_height in seen_boot_heights, "%s not in %s" % (new_height, seen_boot_heights)
         break
@@ -122,7 +122,7 @@ while True:
 ctx.next_nonce = 100
 # 5. Record the latest height and bring down the first node, wait for couple epochs to pass
 status = node2.get_status()
-last_height = status['sync_info']['latest_height']
+last_height = status['sync_info']['latest_block_height']
 
 ctx.nodes = [boot_node, node2, observer]
 ctx.act_to_val = [1, 1, 1]
@@ -135,7 +135,7 @@ while True:
     assert time.time() - started < TIMEOUT
     status = node2.get_status()
     hash_ = status['sync_info']['latest_block_hash']
-    new_height = status['sync_info']['latest_height']
+    new_height = status['sync_info']['latest_block_height']
     seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height

@@ -301,8 +301,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 );
                                 download = Some(shard_download);
                             } else {
-                                // TODO: figure out when this happens, potentially ban peer
-                                error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                                // This may happen because of sending too many StateRequests to different peers.
+                                // For example, we received StateResponse after StateSync completion.
                             }
                         }
                     }
@@ -315,8 +315,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
                         } else {
-                            // TODO: figure out when this happens, potentially ban peer
-                            error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                            // This may happen because of sending too many StateRequests to different peers.
+                            // For example, we received StateResponse after StateSync completion.
                         }
                     }
                     // We should not be requesting the same state twice.
@@ -589,7 +589,7 @@ impl ClientActor {
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
                     account_id: block_producer.account_id.clone(),
                     peer_id: self.node_id.clone(),
                     epoch_id: next_epoch_id,
@@ -747,7 +747,7 @@ impl ClientActor {
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
@@ -867,7 +867,9 @@ impl ClientActor {
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
-            Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
+            Ok(false) => {
+                self.network_adapter.do_send(NetworkRequests::BlockRequest { hash, peer_id });
+            }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
             }

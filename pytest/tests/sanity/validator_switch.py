@@ -29,7 +29,7 @@ for i in range(4):
 cur_height = 0
 while cur_height < EPOCH_LENGTH * 2:
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_height']
+    cur_height = status['sync_info']['latest_block_height']
     if cur_height > EPOCH_LENGTH + 1:
         status = nodes[0].get_status()
         validator_info = nodes[0].json_rpc('validators', [status['sync_info']['latest_block_hash']])
@@ -42,7 +42,7 @@ while cur_height <= EPOCH_LENGTH * 3:
     statuses = []
     for i, node in enumerate(nodes):
         cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_height'], cur_status['sync_info']['latest_block_hash']))
+        statuses.append((i, cur_status['sync_info']['latest_block_height'], cur_status['sync_info']['latest_block_hash']))
     statuses.sort(key=lambda x: x[1])
     last = statuses[-1]
     cur_height = last[1]

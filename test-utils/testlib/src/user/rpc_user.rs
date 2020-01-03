@@ -6,6 +6,7 @@ use std::time::Duration;
 use actix::System;
 use borsh::BorshSerialize;
 
+use futures::Future;
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
@@ -25,21 +26,34 @@ use crate::user::User;
 pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<dyn Signer>,
-    pub client: RwLock<JsonRpcClient>,
+    pub client: Arc<RwLock<JsonRpcClient>>,
 }
 
 impl RpcUser {
+    fn actix<F, Fut, R>(&self, f: F) -> R
+    where
+        Fut: Future<Output = R> + 'static,
+        F: FnOnce(Arc<RwLock<JsonRpcClient>>) -> Fut + 'static,
+    {
+        let client = Arc::clone(&self.client);
+        System::new("actix").block_on(async { f(client).await })
+    }
+
     pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {
-        RpcUser { account_id, client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
+        RpcUser {
+            account_id,
+            client: Arc::new(RwLock::new(new_client(&format!("http://{}", addr)))),
+            signer,
+        }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
-        System::new("actix").block_on(self.client.write().unwrap().status()).ok()
+        self.actix(|client| client.write().unwrap().status()).ok()
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
-        System::new("actix")
-            .block_on(self.client.write().unwrap().query(path, to_base(data)))
+        let data = to_base(data);
+        self.actix(move |client| client.write().unwrap().query(path, data))
             .map_err(|err| err.to_string())
     }
 }
@@ -55,8 +69,8 @@ impl User for RpcUser {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         let bytes = transaction.try_to_vec().unwrap();
-        let _ = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
+        let _ = self
+            .actix(move |client| client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
             .map_err(|err| err.to_string())?;
         Ok(())
     }
@@ -66,8 +80,8 @@ impl User for RpcUser {
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, String> {
         let bytes = transaction.try_to_vec().unwrap();
-        let result = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
+        let result = self
+            .actix(move |client| client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
         let height = self.get_best_height().unwrap();
         while height == self.get_best_height().unwrap() {
@@ -86,7 +100,7 @@ impl User for RpcUser {
         unimplemented!()
     }
 
-    fn get_best_height(&self) -> Option<u64> {
+    fn get_best_height(&self) -> Option<BlockHeight> {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
@@ -95,9 +109,7 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
-        System::new("actix")
-            .block_on(self.client.write().unwrap().block(BlockId::Height(height)))
-            .ok()
+        self.actix(move |client| client.write().unwrap().block(BlockId::Height(height))).ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
@@ -106,9 +118,8 @@ impl User for RpcUser {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
-        System::new("actix")
-            .block_on(self.client.write().unwrap().tx(hash.into(), account_id))
-            .unwrap()
+        let hash = *hash;
+        self.actix(move |client| client.write().unwrap().tx((&hash).into(), account_id)).unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {

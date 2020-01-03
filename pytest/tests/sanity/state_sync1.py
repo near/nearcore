@@ -21,7 +21,7 @@ cur_height = 0
 print("step 1")
 while cur_height < BLOCK_WAIT:
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_height']
+    cur_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(2)
@@ -30,10 +30,10 @@ print("step 2")
 synced = False
 while cur_height <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()
-    height0 = status0['sync_info']['latest_height']
+    height0 = status0['sync_info']['latest_block_height']
     block_hash0 = status0['sync_info']['latest_block_hash']
     status1 = nodes[1].get_status()
-    height1 = status0['sync_info']['latest_height']
+    height1 = status0['sync_info']['latest_block_height']
     block_hash1 = status0['sync_info']['latest_block_hash']
     if height0 > BLOCK_WAIT:
         if height0 > height1:

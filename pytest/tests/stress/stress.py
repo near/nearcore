@@ -69,7 +69,7 @@ def get_recent_hash(node):
     hash_ = status['sync_info']['latest_block_hash']
     info = node.json_rpc('block', [hash_])
     hash_ = info['result']['header']['hash']
-    return hash_, status['sync_info']['latest_height']
+    return hash_, status['sync_info']['latest_block_height']
 
 
 def get_validator_ids(nodes):
@@ -317,7 +317,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     last_validators = status['validators']
                     print("VALIDATORS TRACKER: validators set changed, new set: %s" % [x['account_id'] for x in last_validators])
                 hash_ = status['sync_info']['latest_block_hash']
-                height = status['sync_info']['latest_height']
+                height = status['sync_info']['latest_block_height']
                 largest_per_node[val_id] = height
                 if height > largest_height:
                     if stopped.value != 0:

@@ -111,7 +111,7 @@ impl InfoHelper {
                     "node_id": format!("{}", node_id),
                     "status": display_sync_status(&sync_status, &head),
                     "latest_block_hash": to_base(&head.last_block_hash),
-                    "latest_height": head.height,
+                    "latest_block_height": head.height,
                     "num_peers":  network_info.num_active_peers,
                     "bandwidth_download": network_info.received_bytes_per_sec,
                     "bandwidth_upload": network_info.sent_bytes_per_sec,

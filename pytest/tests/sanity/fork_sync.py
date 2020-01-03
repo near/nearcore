@@ -25,7 +25,7 @@ fork2_height = 0
 # step 1, let nodes run for some time
 while cur_height < FIRST_STEP_WAIT:
     status = nodes[0].get_status()
-    cur_height = status['sync_info']['latest_height']
+    cur_height = status['sync_info']['latest_block_height']
     time.sleep(0.1)
 
 for i in range(2):
@@ -34,7 +34,7 @@ for i in range(2):
 print("killing node 0 and 1")
 while fork1_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[2].get_status()
-    fork1_height = status['sync_info']['latest_height']
+    fork1_height = status['sync_info']['latest_block_height']
     time.sleep(0.5)
 
 for i in range(2, 4):
@@ -49,7 +49,7 @@ time.sleep(1)
 
 while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[0].get_status()
-    fork2_height = status['sync_info']['latest_height']
+    fork2_height = status['sync_info']['latest_block_height']
     time.sleep(0.5)
 
 for i in range(2, 4):
@@ -63,7 +63,7 @@ while cur_height < TIMEOUT:
     statuses = []
     for i, node in enumerate(nodes):
         cur_status = node.get_status()
-        statuses.append((i, cur_status['sync_info']['latest_height'], cur_status['sync_info']['latest_block_hash']))
+        statuses.append((i, cur_status['sync_info']['latest_block_height'], cur_status['sync_info']['latest_block_hash']))
     statuses.sort(key=lambda x: x[1])
     last = statuses[-1]
     cur_height = last[1]

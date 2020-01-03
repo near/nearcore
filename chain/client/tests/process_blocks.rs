@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
-use futures::{future, Future};
+use futures::{future, FutureExt};
 
 use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -108,7 +108,7 @@ fn produce_blocks_with_tx() {
             let block_hash = header.hash;
             client
                 .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
-            future::ok(())
+            future::ready(())
         }))
     })
     .unwrap();
@@ -160,7 +160,7 @@ fn receive_network_block() {
                 last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
-            future::result(Ok(()))
+            future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);
     })
@@ -185,7 +185,7 @@ fn receive_network_block_header() {
                     actix::spawn(
                         client_addr
                             .send(NetworkClientMessages::Block(block, peer_id.clone(), false))
-                            .then(|_| futures::future::ok(())),
+                            .map(drop),
                     );
                     NetworkResponses::NoResponse
                 }
@@ -228,7 +228,7 @@ fn receive_network_block_header() {
                 PeerInfo::random().id,
             ));
             *block_holder.write().unwrap() = Some(block);
-            future::result(Ok(()))
+            future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);
     })
@@ -306,7 +306,7 @@ fn produce_block_with_approvals() {
 
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
 
-            future::result(Ok(()))
+            future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);
     })
@@ -424,7 +424,7 @@ fn invalid_blocks() {
                 last_block.header.next_bp_hash,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
-            future::result(Ok(()))
+            future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);
     })
