@@ -40,7 +40,7 @@ pub fn verify_and_charge_transaction(
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(|e| InvalidTxError::ActionsValidation { error: e })?;
+        .map_err(|e| InvalidTxError::ActionsValidation(e))?;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,

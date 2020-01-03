@@ -40,7 +40,7 @@ pub enum InvalidTxError {
     CostOverflow,
     InvalidChain,
     Expired,
-    ActionsValidation { error: ActionsValidationError },
+    ActionsValidation(ActionsValidationError),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -179,7 +179,7 @@ impl Display for InvalidTxError {
             InvalidTxError::Expired => {
                 write!(f, "Transaction has expired")
             }
-            InvalidTxError::ActionsValidation{ error } => {
+            InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
         }
