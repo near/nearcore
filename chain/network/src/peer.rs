@@ -457,10 +457,6 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse(info, hash)) => {
-                        let body = RoutedMessageBody::StateResponse(info);
-                        act.peer_manager_addr.do_send(PeerRequest::RouteBack(body, hash));
-                    }
                     Err(err) => {
                         error!(
                             target: "network",
