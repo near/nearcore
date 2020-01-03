@@ -220,12 +220,6 @@ pub struct DownloadStatus {
     pub last_target: Option<AccountOrPeerIdOrHash>,
 }
 
-impl PartialEq for DownloadStatus {
-    fn eq(&self, other: &Self) -> bool {
-        self.done == other.done
-    }
-}
-
 impl Clone for DownloadStatus {
     fn clone(&self) -> Self {
         DownloadStatus {
@@ -241,7 +235,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -249,14 +243,14 @@ pub enum ShardSyncStatus {
     StateDownloadComplete,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
     AwaitingPeers,
@@ -275,7 +269,10 @@ pub enum SyncStatus {
 impl SyncStatus {
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
-        self != &SyncStatus::NoSync
+        match self {
+            SyncStatus::NoSync => false,
+            _ => true,
+        }
     }
 }
 

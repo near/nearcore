@@ -603,7 +603,7 @@ impl ClientActor {
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
         // If syncing, don't try to produce blocks.
-        if self.client.sync_status != SyncStatus::NoSync {
+        if self.client.sync_status.is_syncing() {
             return Ok(());
         }
         let head = self.client.chain.head()?;
