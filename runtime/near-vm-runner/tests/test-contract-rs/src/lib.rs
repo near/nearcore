@@ -18,6 +18,7 @@ extern "C" {
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
+    // TODO #1903 fn block_height() -> u64;
     fn block_index() -> u64;
     fn block_timestamp() -> u64;
     fn storage_usage() -> u64;

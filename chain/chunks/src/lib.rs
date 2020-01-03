@@ -25,7 +25,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
@@ -59,7 +59,7 @@ pub enum ProcessPartialEncodedChunkResult {
 
 #[derive(Clone, Debug)]
 struct ChunkRequestInfo {
-    height: BlockIndex,
+    height: BlockHeight,
     parent_hash: CryptoHash,
     shard_id: ShardId,
     added: Instant,
@@ -155,7 +155,7 @@ impl ShardsManager {
         }
     }
 
-    pub fn update_largest_seen_height(&mut self, new_height: BlockIndex) {
+    pub fn update_largest_seen_height(&mut self, new_height: BlockHeight) {
         self.encoded_chunks.update_largest_seen_height(
             new_height,
             &self.requested_partial_encoded_chunks.requests,
@@ -179,7 +179,7 @@ impl ShardsManager {
 
     fn request_partial_encoded_chunk(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
@@ -213,7 +213,7 @@ impl ShardsManager {
             }
         };
 
-        for part_ord in 0..self.runtime_adapter.num_total_parts(parent_hash) {
+        for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
             if cache_entry.map_or(false, |cache_entry| cache_entry.parts.contains_key(&part_ord)) {
                 continue;
@@ -282,7 +282,7 @@ impl ShardsManager {
         let mut block_producers = vec![];
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
         for (validator_stake, is_slashed) in
-            self.runtime_adapter.get_epoch_block_producers(&epoch_id, parent_hash)?
+            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
         {
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
@@ -551,13 +551,12 @@ impl ShardsManager {
 
     pub fn decode_and_persist_encoded_chunk_if_complete(
         &mut self,
-        prev_block_hash: &CryptoHash,
         mut encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
     ) -> Result<bool, Error> {
         match ShardsManager::check_chunk_complete(
-            self.runtime_adapter.num_data_parts(&prev_block_hash),
-            self.runtime_adapter.num_total_parts(&prev_block_hash),
+            self.runtime_adapter.num_data_parts(),
+            self.runtime_adapter.num_total_parts(),
             &mut encoded_chunk,
         ) {
             ChunkStatus::Complete(merkle_paths) => {
@@ -642,7 +641,7 @@ impl ShardsManager {
             return Err(Error::InvalidChunkShardId);
         }
 
-        let num_total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
+        let num_total_parts = self.runtime_adapter.num_total_parts();
         for part_info in partial_encoded_chunk.parts.iter() {
             // TODO: only validate parts we care about
             self.validate_part(header.inner.encoded_merkle_root, part_info, num_total_parts)?;
@@ -681,8 +680,7 @@ impl ShardsManager {
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
 
-        let can_reconstruct =
-            entry.parts.len() >= self.runtime_adapter.num_data_parts(&prev_block_hash);
+        let can_reconstruct = entry.parts.len() >= self.runtime_adapter.num_data_parts();
 
         if have_all_parts {
             self.encoded_chunks.insert_chunk_header(partial_encoded_chunk.shard_id, header.clone());
@@ -717,20 +715,15 @@ impl ShardsManager {
         }
 
         if can_reconstruct {
-            let mut encoded_chunk = EncodedShardChunk::from_header(
-                header,
-                self.runtime_adapter.num_total_parts(&prev_block_hash),
-            );
+            let mut encoded_chunk =
+                EncodedShardChunk::from_header(header, self.runtime_adapter.num_total_parts());
 
             for (part_ord, part_entry) in entry.parts.iter() {
                 encoded_chunk.content.parts[*part_ord as usize] = Some(part_entry.part.clone());
             }
 
-            let successfully_decoded = self.decode_and_persist_encoded_chunk_if_complete(
-                &prev_block_hash,
-                encoded_chunk,
-                chain_store,
-            )?;
+            let successfully_decoded =
+                self.decode_and_persist_encoded_chunk_if_complete(encoded_chunk, chain_store)?;
 
             assert!(successfully_decoded);
 
@@ -776,7 +769,7 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
-        for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
+        for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
             if !chunk_entry.parts.contains_key(&part_ord) {
                 if self.need_part(&prev_block_hash, part_ord)? {
@@ -806,8 +799,8 @@ impl ShardsManager {
         tx_root: CryptoHash,
         signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
-        let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
-        let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
+        let total_parts = self.runtime_adapter.num_total_parts();
+        let data_parts = self.runtime_adapter.num_data_parts();
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
@@ -882,9 +875,7 @@ impl ShardsManager {
 
         let mut store_update = chain_store.store_update();
         if let Ok(shard_chunk) = encoded_chunk
-            .decode_chunk(
-                self.runtime_adapter.num_data_parts(&encoded_chunk.header.inner.prev_block_hash),
-            )
+            .decode_chunk(self.runtime_adapter.num_data_parts())
             .map_err(|err| Error::from(err))
             .and_then(|shard_chunk| {
                 if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter) {
@@ -987,7 +978,7 @@ impl ShardsManager {
 
         let mut block_producer_mapping = HashMap::new();
 
-        for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
+        for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
 

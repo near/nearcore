@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
+use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
@@ -14,12 +14,12 @@ pub struct Account {
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
     pub storage_usage: StorageUsage,
-    /// Last block index at which the storage was paid for.
-    pub storage_paid_at: BlockIndex,
+    /// Last height at which the storage was paid for.
+    pub storage_paid_at: BlockHeight,
 }
 
 impl Account {
-    pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockIndex) -> Self {
+    pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockHeight) -> Self {
         Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
 }

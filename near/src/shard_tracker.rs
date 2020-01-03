@@ -7,11 +7,11 @@ use log::info;
 
 use near_epoch_manager::{EpochError, EpochManager};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId, NumShards, ShardId};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
@@ -37,7 +37,7 @@ pub struct ShardTracker {
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
     /// Number of shards in the system.
-    num_shards: ShardId,
+    num_shards: NumShards,
 }
 
 impl ShardTracker {
@@ -46,7 +46,7 @@ impl ShardTracker {
         shards: Vec<ShardId>,
         epoch_id: EpochId,
         epoch_manager: Arc<RwLock<EpochManager>>,
-        num_shards: ShardId,
+        num_shards: NumShards,
     ) -> Self {
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
             let shard_id = account_id_to_shard_id(&x, num_shards);
@@ -232,21 +232,21 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockIndex, EpochId, ShardId, ValidatorStake};
+    use near_primitives::types::{BlockHeight, EpochId, NumShards, ValidatorStake};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
-    fn get_epoch_manager(num_shards: ShardId) -> Arc<RwLock<EpochManager>> {
+    fn get_epoch_manager(num_shards: NumShards) -> Arc<RwLock<EpochManager>> {
         let store = create_test_store();
         let initial_epoch_config = EpochConfig {
             epoch_length: 1,
             num_shards,
-            num_block_producers: 1,
-            block_producers_per_shard: vec![1],
-            avg_hidden_validators_per_shard: vec![],
+            num_block_producer_seats: 1,
+            num_block_producer_seats_per_shard: vec![1],
+            avg_hidden_validator_seats_per_shard: vec![],
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 60,
             fishermen_threshold: 0,
@@ -278,14 +278,14 @@ mod tests {
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
         cur_h: CryptoHash,
-        index: BlockIndex,
+        height: BlockHeight,
         proposals: Vec<ValidatorStake>,
     ) {
         epoch_manager
             .record_block_info(
                 &cur_h,
                 BlockInfo::new(
-                    index,
+                    height,
                     0,
                     prev_h,
                     proposals,

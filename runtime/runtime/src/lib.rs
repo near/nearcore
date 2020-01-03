@@ -23,7 +23,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, Nonce, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -63,10 +63,11 @@ mod verifier;
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// Currently building block index.
-    pub block_index: BlockIndex,
+    /// Currently building block height.
+    // TODO #1903 pub block_height: BlockHeight,
+    pub block_index: BlockHeight,
     /// Current epoch length.
-    pub epoch_length: BlockIndex,
+    pub epoch_length: BlockHeightDelta,
     /// Price for the gas.
     pub gas_price: Balance,
     /// A block timestamp

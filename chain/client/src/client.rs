@@ -26,7 +26,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
@@ -91,7 +91,7 @@ impl Client {
         );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
-        let num_block_producers = config.num_block_producers as usize;
+        let num_block_producer_seats = config.num_block_producer_seats as usize;
         Ok(Self {
             config,
             sync_status,
@@ -101,7 +101,7 @@ impl Client {
             network_adapter,
             block_producer,
             approvals: SizedCache::with_size(NUM_BLOCKS_FOR_APPROVAL),
-            pending_approvals: SizedCache::with_size(num_block_producers),
+            pending_approvals: SizedCache::with_size(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             header_sync,
             block_sync,
@@ -156,14 +156,14 @@ impl Client {
         }
     }
 
-    /// Produce block if we are block producer for given `next_height` index.
+    /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(
         &mut self,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
-        // Check that this height is not known yet.
+        // Check that this block height is not known yet.
         if next_height <= self.chain.mut_store().get_latest_known()?.height {
             return Ok(None);
         }
@@ -212,7 +212,7 @@ impl Client {
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let block_producers =
-            self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
+            self.runtime_adapter.get_epoch_block_producers_ordered(&head.epoch_id, &prev_hash)?;
         let total_block_producers = block_producers.len();
         let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, head.height)?
             == block_producer.account_id.clone();
@@ -374,7 +374,7 @@ impl Client {
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
@@ -494,9 +494,9 @@ impl Client {
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &mut self,
-        next_height: u64,
+        next_height: BlockHeight,
         prev_block_timestamp: u64,
-        shard_id: u64,
+        shard_id: ShardId,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Vec<SignedTransaction> {
@@ -754,7 +754,7 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC && self.sync_status == SyncStatus::NoSync {
+            if provenance != Provenance::SYNC && !self.sync_status.is_syncing() {
                 // Produce new chunks
                 for shard_id in 0..self.runtime_adapter.num_shards() {
                     let epoch_id = self
@@ -827,10 +827,10 @@ impl Client {
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
-            if let Ok(validators) = self
-                .runtime_adapter
-                .get_epoch_block_producers(&block_header.inner_lite.epoch_id, &block_header.hash())
-            {
+            if let Ok(validators) = self.runtime_adapter.get_epoch_block_producers_ordered(
+                &block_header.inner_lite.epoch_id,
+                &block_header.hash(),
+            ) {
                 if let Some((_, is_slashed)) =
                     validators.into_iter().find(|v| v.0.account_id == block_producer.account_id)
                 {
@@ -890,7 +890,7 @@ impl Client {
         // If given account is not current block proposer.
         let position = match self
             .runtime_adapter
-            .get_epoch_block_producers(&header.inner_lite.epoch_id, &parent_hash)
+            .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &parent_hash)
         {
             Ok(validators) => {
                 let position = validators.iter().position(|x| &(x.0.account_id) == account_id);
