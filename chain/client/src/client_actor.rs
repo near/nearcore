@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
-use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 
 use near_chain::types::AcceptedBlock;
@@ -159,7 +158,7 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::BlockHeader(header, peer_id) => {
@@ -230,22 +229,21 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
-                let network_adapter = self.network_adapter.clone();
                 // TODO discuss vulnerability: a node can be flooded by StateRequests
-                actix::spawn(
-                    self.client
-                        .chain
-                        .get_state_response_by_request(shard_id, hash, need_header, parts)
-                        .then(move |result| {
-                            if let Ok(shard_state) = result {
-                                network_adapter.do_send(NetworkRequests::StateResponse {
-                                    response: StateResponseInfo { shard_id, hash, shard_state },
-                                    route_back,
-                                });
-                            }
-                            future::ready(())
-                        }),
-                );
+                ctx.run_later(Duration::from_millis(0), move |act, _ctx| {
+                    if let Ok(shard_state) = act.client.chain.get_state_response_by_request(
+                        shard_id,
+                        hash,
+                        need_header,
+                        parts,
+                    ) {
+                        act.network_adapter.do_send(NetworkRequests::StateResponse {
+                            response: StateResponseInfo { shard_id, hash, shard_state },
+                            route_back,
+                        });
+                    }
+                });
+
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {

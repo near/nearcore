@@ -5,7 +5,6 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
-use futures::{future, future::BoxFuture, FutureExt};
 use log::{debug, error, info};
 
 use near_primitives::block::{genesis_chunks, Approval, WeightAndScore};
@@ -1321,47 +1320,39 @@ impl Chain {
         need_header: bool,
         parts: StateRequestParts,
         // TODO discuss: can 'static flood the memory?
-    ) -> BoxFuture<'static, Result<ShardStateSyncResponse, Error>> {
+    ) -> Result<ShardStateSyncResponse, Error> {
         let mut data = vec![];
         for part_id in parts.ids.iter() {
             match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
                 Ok(part) => data.push(part),
                 Err(e) => {
                     error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                    return future::err(
-                        ErrorKind::Other(
-                            "Cannot build sync header (get_state_response_header)".to_string(),
-                        )
-                        .into(),
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
                     )
-                    .boxed();
+                    .into());
                 }
             }
         }
         if need_header {
             match self.get_state_response_header(shard_id, sync_hash) {
                 Ok(header) => {
-                    return future::ok(ShardStateSyncResponse {
+                    return Ok(ShardStateSyncResponse {
                         header: Some(header),
                         part_ids: parts.ids,
                         data,
-                    })
-                    .boxed();
+                    });
                 }
                 Err(e) => {
                     error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                    return future::err(
-                        ErrorKind::Other(
-                            "Cannot build sync header (get_state_response_header)".to_string(),
-                        )
-                        .into(),
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
                     )
-                    .boxed();
+                    .into());
                 }
             }
         } else {
-            return future::ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data })
-                .boxed();
+            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
         }
     }
 
