@@ -451,8 +451,6 @@ impl Block {
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
-        time_delta: u128,
-        weight_delta: u128,
         score: Weight,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
@@ -491,12 +489,11 @@ impl Block {
         let new_total_supply =
             prev.inner_rest.total_supply + inflation.unwrap_or(0) - balance_burnt;
 
+        let num_approvals: u128 = approvals.len() as u128;
+        let total_weight = prev.inner_rest.total_weight.next(num_approvals);
         let now = to_timestamp(Utc::now());
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
-        let time_delta = std::cmp::max(time_delta, 1);
-
-        let total_weight = prev.inner_rest.total_weight.next(weight_delta * time_delta);
 
         Block {
             header: BlockHeader::new(
@@ -721,7 +718,7 @@ impl Weight {
     }
 
     pub fn next(self, num: u128) -> Self {
-        Weight { num: self.num + num }
+        Weight { num: self.num + num + 1 }
     }
 }
 

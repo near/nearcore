@@ -54,8 +54,6 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        1,
-        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -160,7 +158,6 @@ fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
-    let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
@@ -224,8 +221,6 @@ fn create_chunk(
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
         0.into(),
         last_block.header.prev_hash,
         CryptoHash::default(),
@@ -442,7 +437,6 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let prev_timestamp = env.clients[0].chain.head().unwrap().prev_timestamp;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
@@ -500,9 +494,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
-        prev_to_last_block.header.inner_rest.total_weight,
+        0.into(),
         last_block.header.prev_hash,
         prev_to_last_block.header.prev_hash,
         last_block.header.inner_lite.next_bp_hash,

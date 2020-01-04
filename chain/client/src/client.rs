@@ -198,7 +198,6 @@ impl Client {
         let prev_prev_hash = prev.prev_hash;
         let prev_epoch_id = prev.inner_lite.epoch_id.clone();
         let prev_next_bp_hash = prev.inner_lite.next_bp_hash;
-        let prev_timestamp = prev.inner_lite.timestamp;
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
@@ -306,19 +305,6 @@ impl Client {
             prev_next_bp_hash
         };
 
-        let weight_delta = self.runtime_adapter.compute_block_weight_delta(
-            approvals.iter().map(|x| &x.account_id).collect(),
-            &prev_epoch_id,
-            &prev_hash,
-        )?;
-
-        let time_delta = if prev_prev_hash == CryptoHash::default() {
-            1
-        } else {
-            (prev_timestamp - self.chain.get_block_header(&prev_prev_hash)?.inner_lite.timestamp)
-                as u128
-        };
-
         // Get block extra from previous block.
         let prev_block_extra = self.chain.get_block_extra(&head.last_block_hash)?.clone();
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
@@ -358,8 +344,6 @@ impl Client {
             prev_block_extra.challenges_result,
             challenges,
             &*block_producer.signer,
-            time_delta,
-            weight_delta,
             score,
             quorums.last_quorum_pre_vote,
             quorums.last_quorum_pre_commit,

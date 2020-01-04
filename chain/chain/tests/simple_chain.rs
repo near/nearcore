@@ -1,4 +1,4 @@
-use near_chain::test_utils::{setup, tamper_with_block};
+use near_chain::test_utils::setup;
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
 use near_crypto::Signer;
 use near_primitives::hash::CryptoHash;
@@ -50,8 +50,6 @@ fn build_chain_with_orhpans() {
         vec![],
         vec![],
         &*signer,
-        20,
-        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -147,14 +145,12 @@ fn blocks_at_height() {
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let mut c_1 = Block::empty_with_height(&genesis, 1, &*signer);
-    tamper_with_block(&mut c_1, 1, &*signer);
+    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
 
-    let mut d_3 = Block::empty_with_height(&b_2, 3, &*signer);
-    tamper_with_block(&mut d_3, 1, &*signer);
+    let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
     let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
     let d_5 = Block::empty_with_height(&d_4, 5, &*signer);
 
@@ -178,7 +174,6 @@ fn blocks_at_height() {
 
     let e_2_hash = e_2.hash();
 
-    assert_ne!(c_1_hash, b_1_hash);
     assert_ne!(d_3_hash, b_3_hash);
 
     chain.process_block(&None, b_1, Provenance::PRODUCED, |_| {}, |_| {}, |_| {}).unwrap();
