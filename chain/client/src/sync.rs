@@ -1031,10 +1031,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header_and_prev_timestamp(
-                    &block.header,
-                    last_block.header.inner_lite.timestamp,
-                ),
+                &Tip::from_header(&block.header),
             );
 
             last_added_block_ord += 3;
@@ -1051,10 +1048,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header_and_prev_timestamp(
-                    &block.header,
-                    last_block.header.inner_lite.timestamp,
-                ),
+                &Tip::from_header(&block.header),
             );
 
             last_added_block_ord += 2;

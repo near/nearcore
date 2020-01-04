@@ -53,8 +53,6 @@ fn create_block() -> Block {
         vec![],
         vec![],
         &signer,
-        1,
-        1,
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
