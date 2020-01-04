@@ -488,7 +488,7 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::StateResponse { response, route_back } => {
+                        NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     connectors1.read().unwrap()[i].0.do_send(

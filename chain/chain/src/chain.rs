@@ -1319,7 +1319,6 @@ impl Chain {
         sync_hash: CryptoHash,
         need_header: bool,
         parts: StateRequestParts,
-        // TODO discuss: can 'static flood the memory?
     ) -> Result<ShardStateSyncResponse, Error> {
         let mut data = vec![];
         for part_id in parts.ids.iter() {

@@ -838,7 +838,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateResponse { response, route_back } => {
+            NetworkRequests::StateResponse { route_back, response } => {
                 if self.send_message_to_peer(
                     ctx,
                     RawRoutedMessage {

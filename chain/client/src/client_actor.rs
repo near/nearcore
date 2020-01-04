@@ -229,7 +229,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
-                // TODO discuss vulnerability: a node can be flooded by StateRequests
                 ctx.run_later(Duration::from_millis(0), move |act, _ctx| {
                     if let Ok(shard_state) = act.client.chain.get_state_response_by_request(
                         shard_id,
@@ -243,7 +242,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         });
                     }
                 });
-
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
