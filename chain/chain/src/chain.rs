@@ -60,9 +60,6 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 /// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
-/// The multiplier of the stake percentage when computing block weight
-pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
-
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -326,7 +323,7 @@ impl Chain {
         }
         store_update.commit()?;
 
-        info!(target: "chain", "Init: head: weight: {}, score: {} @ {} [{}]", head.weight_and_score.weight.to_num(), head.weight_and_score.score.to_num(), head.height, head.last_block_hash);
+        info!(target: "chain", "Init: head: score: {} @ {} [{}]", head.score.to_num(), head.height, head.last_block_hash);
 
         Ok(Chain {
             store,
@@ -684,9 +681,9 @@ impl Chain {
         );
 
         if let Some(header) = headers.last() {
-            // Update sync_head regardless of the total weight.
+            // Update sync_head whether or not it's the new tip
             chain_update.update_sync_head(header)?;
-            // Update header_head if total weight changed.
+            // Update header_head if it's the new tip
             chain_update.update_header_head_if_not_challenged(header)?;
         }
 
@@ -702,7 +699,7 @@ impl Chain {
         let header_head = self.header_head()?;
         let mut hashes = vec![];
 
-        if block_head.weight_and_score >= header_head.weight_and_score {
+        if block_head.score_and_height() >= header_head.score_and_height() {
             return Ok((false, hashes));
         }
 
@@ -2584,7 +2581,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        // Update the chain head if total weight has increased.
+        // Update the chain head if it's the new tip
         let res = self.update_head(block)?;
 
         if res.is_some() {
@@ -2754,7 +2751,7 @@ impl<'a> ChainUpdate<'a> {
             .into());
         }
         // If this is not the block we produced (hence trust in it) - validates block
-        // producer, confirmation signatures to check that total weight is correct.
+        // producer, confirmation signatures, finality info and score.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
             if !self.runtime_adapter.verify_approval_signature(
@@ -2765,10 +2762,7 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidApprovals.into());
             };
 
-            let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
-            if weight != header.inner_rest.total_weight {
-                return Err(ErrorKind::InvalidBlockWeight.into());
-            }
+            self.runtime_adapter.verify_block_signature(header)?;
 
             let quorums = Chain::compute_quorums(
                 header.prev_hash,
@@ -2785,6 +2779,20 @@ impl<'a> ChainUpdate<'a> {
             {
                 return Err(ErrorKind::InvalidFinalityInfo.into());
             }
+
+            let expected_score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
+                0.into()
+            } else {
+                self.chain_store_update
+                    .get_block_header(&quorums.last_quorum_pre_vote)?
+                    .inner_lite
+                    .height
+                    .into()
+            };
+
+            if header.inner_rest.score != expected_score {
+                return Err(ErrorKind::InvalidBlockScore.into());
+            }
         }
 
         Ok(())
@@ -2796,7 +2804,7 @@ impl<'a> ChainUpdate<'a> {
         header: &BlockHeader,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.inner_rest.weight_and_score() > header_head.weight_and_score {
+        if header.score_and_height() > header_head.score_and_height() {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
@@ -2808,13 +2816,12 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Directly updates the head if we've just appended a new block to it or handle
-    /// the situation where we've just added enough weight to have a fork with more
-    /// work than the head.
+    /// the situation where the block has higher score/height to have a fork
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
-        // if we made a fork with more weight than the head (which should also be true
+        // if we made a fork with higher score/height than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.inner_rest.weight_and_score() > head.weight_and_score {
+        if block.header.score_and_height() > head.score_and_height() {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip)?;
@@ -2875,10 +2882,10 @@ impl<'a> ChainUpdate<'a> {
             //   bring this node's head to that chain.
             let prev_header =
                 self.chain_store_update.get_block_header(&block_header.prev_hash)?.clone();
-            let prev_weight = prev_header.inner_rest.total_weight;
+            let prev_height = prev_header.inner_lite.height;
             let new_head_header = if let Some(hash) = challenger_hash {
                 let challenger_header = self.chain_store_update.get_block_header(hash)?;
-                if challenger_header.inner_rest.total_weight > prev_weight {
+                if challenger_header.inner_lite.height > prev_height {
                     challenger_header
                 } else {
                     &prev_header

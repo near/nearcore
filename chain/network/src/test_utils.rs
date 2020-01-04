@@ -48,7 +48,7 @@ impl NetworkConfig {
             ttl_account_id_router: Duration::from_secs(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
-            most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
+            highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
             blacklist: HashMap::new(),
             outbound_disabled: false,

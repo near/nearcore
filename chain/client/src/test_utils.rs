@@ -21,7 +21,7 @@ use near_network::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::{Block, GenesisId, WeightAndScore};
+use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -253,10 +253,10 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
-    let last_height_weight =
-        Arc::new(RwLock::new(vec![(0, WeightAndScore::from_ints(0, 0)); key_pairs.len()]));
+    let last_height_score =
+        Arc::new(RwLock::new(vec![(0, ScoreAndHeight::from_ints(0, 0)); key_pairs.len()]));
     let hash_to_score = Arc::new(RwLock::new(HashMap::new()));
-    let approval_intervals: Arc<RwLock<Vec<BTreeSet<(WeightAndScore, WeightAndScore)>>>> =
+    let approval_intervals: Arc<RwLock<Vec<BTreeSet<(ScoreAndHeight, ScoreAndHeight)>>>> =
         Arc::new(RwLock::new(key_pairs.iter().map(|_| BTreeSet::new()).collect()));
 
     for account_id in validators.iter().flatten().cloned() {
@@ -272,8 +272,8 @@ pub fn setup_mock_all_validators(
         let connectors2 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
-        let last_height_weight1 = last_height_weight.clone();
-        let last_height_weight2 = last_height_weight.clone();
+        let last_height_score1 = last_height_score.clone();
+        let last_height_score2 = last_height_score.clone();
         let hash_to_score1 = hash_to_score.clone();
         let approval_intervals1 = approval_intervals.clone();
         let client_addr = ClientActor::create(move |ctx| {
@@ -301,7 +301,7 @@ pub fn setup_mock_all_validators(
                     let my_ord = my_ord.unwrap();
 
                     {
-                        let last_height_weight2 = last_height_weight2.read().unwrap();
+                        let last_height_score2 = last_height_score2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
                             .take(connectors2.read().unwrap().len())
@@ -313,8 +313,8 @@ pub fn setup_mock_all_validators(
                                         chain_id: "unittest".to_string(),
                                         hash: Default::default(),
                                     },
-                                    height: last_height_weight2[i].0,
-                                    weight_and_score: last_height_weight2[i].1,
+                                    height: last_height_score2[i].0,
+                                    score: last_height_score2[i].1.score,
                                     tracked_shards: vec![],
                                 },
                                 edge_info: EdgeInfo::default(),
@@ -325,7 +325,7 @@ pub fn setup_mock_all_validators(
                             active_peers: peers,
                             num_active_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
-                            most_weight_peers: peers2,
+                            highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
@@ -343,19 +343,19 @@ pub fn setup_mock_all_validators(
                                 ))
                             }
 
-                            let mut last_height_weight1 = last_height_weight1.write().unwrap();
+                            let mut last_height_score1 = last_height_score1.write().unwrap();
 
-                            let my_height_weight = &mut last_height_weight1[my_ord];
+                            let my_height_score = &mut last_height_score1[my_ord];
 
-                            my_height_weight.0 =
-                                max(my_height_weight.0, block.header.inner_lite.height);
-                            my_height_weight.1 =
-                                max(my_height_weight.1, block.header.inner_rest.weight_and_score());
+                            my_height_score.0 =
+                                max(my_height_score.0, block.header.inner_lite.height);
+                            my_height_score.1 =
+                                max(my_height_score.1, block.header.score_and_height());
 
-                            hash_to_score1.write().unwrap().insert(
-                                block.header.hash(),
-                                block.header.inner_rest.weight_and_score(),
-                            );
+                            hash_to_score1
+                                .write()
+                                .unwrap()
+                                .insert(block.header.hash(), block.header.score_and_height());
                         }
                         NetworkRequests::PartialEncodedChunkRequest {
                             account_id: their_account_id,
@@ -626,12 +626,11 @@ pub fn setup_mock_all_validators(
                                 let prev = approval_intervals
                                     .range((Unbounded, Excluded((arange.0, arange.0))))
                                     .next_back();
-                                let mut next_weight_and_score = arange.0;
-                                next_weight_and_score.weight =
-                                    (next_weight_and_score.weight.to_num() + 1).into();
+                                let mut next_score_and_height = arange.0;
+                                next_score_and_height.height += 1;
                                 let next = approval_intervals
                                     .range((
-                                        Included((next_weight_and_score, next_weight_and_score)),
+                                        Included((next_score_and_height, next_score_and_height)),
                                         Unbounded,
                                     ))
                                     .next();
@@ -693,10 +692,10 @@ pub fn setup_mock_all_validators(
 
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
-    hash_to_score.write().unwrap().insert(CryptoHash::default(), WeightAndScore::from_ints(0, 0));
+    hash_to_score.write().unwrap().insert(CryptoHash::default(), ScoreAndHeight::from_ints(0, 0));
     hash_to_score.write().unwrap().insert(
         genesis_block.read().unwrap().as_ref().unwrap().header.clone().hash(),
-        WeightAndScore::from_ints(0, 0),
+        ScoreAndHeight::from_ints(0, 0),
     );
     *locked_connectors = ret.clone();
     let value = genesis_block.read().unwrap();

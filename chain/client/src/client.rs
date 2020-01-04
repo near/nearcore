@@ -90,7 +90,7 @@ impl Client {
             config.header_sync_initial_timeout,
             config.header_sync_progress_timeout,
             config.header_sync_stall_ban_timeout,
-            config.header_sync_expected_weight_per_second,
+            config.header_sync_expected_height_per_second,
         );
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
@@ -253,7 +253,7 @@ impl Client {
                 Err(_) => {
                     // It's OK here to not filter by DBNotFoundError, if the approval wasn't fetched
                     //    for any other reason, but actually existed, `create_block_approval` will
-                    //    fail because the score/weight of the largest approval will not match that
+                    //    fail because the score/height of the largest approval will not match that
                     //    of the approval as of *two* blocks ago
                     self.create_block_approval(&prev).map(|x| x.approval)
                 }
@@ -293,7 +293,7 @@ impl Client {
         let score = if quorums.last_quorum_pre_vote == CryptoHash::default() {
             0.into()
         } else {
-            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_rest.total_weight
+            self.chain.get_block_header(&quorums.last_quorum_pre_vote)?.inner_lite.height.into()
         };
 
         let gas_price_adjustment_rate = self.chain.block_economics_config.gas_price_adjustment_rate;
@@ -1075,7 +1075,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1098,7 +1098,7 @@ impl Client {
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,
-                most_weight_peers,
+                highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}

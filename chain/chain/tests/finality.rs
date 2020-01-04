@@ -117,7 +117,6 @@ fn create_block(
     let mut block = Block::empty(prev, signer);
     block.header.inner_rest.approvals = approvals.clone();
     block.header.inner_lite.height = height;
-    block.header.inner_rest.total_weight = (height as u128).into();
 
     /*println!(
         "Creating block at height {} with parent {:?} and approvals {:?}",
@@ -148,8 +147,9 @@ fn create_block(
         chain_store
             .get_block_header(&fast_quorums.last_quorum_pre_vote)
             .unwrap()
-            .inner_rest
-            .total_weight
+            .inner_lite
+            .height
+            .into()
     };
 
     block.header.init();

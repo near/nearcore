@@ -78,7 +78,7 @@ mod test {
     };
 
     use super::*;
-    use near_primitives::block::{Approval, WeightAndScore};
+    use near_primitives::block::Approval;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -98,7 +98,7 @@ mod test {
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
-                weight_and_score: WeightAndScore::from_ints(0, 0),
+                score: 0.into(),
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
