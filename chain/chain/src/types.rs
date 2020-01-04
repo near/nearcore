@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-use near_primitives::block::{Approval, WeightAndScore};
-pub use near_primitives::block::{Block, BlockHeader, Weight};
+use near_primitives::block::{Approval, BlockScore, ScoreAndHeight};
+pub use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -110,18 +110,14 @@ impl ApplyTransactionResult {
 
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
-/// Additionally handles validators and block weight computation.
+/// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>);
 
-    /// Verify block producer validity and return weight of given block for fork choice rule.
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error>;
+    /// Verify block producer validity
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
 
     /// Validates a given signed transaction on top of the given state root.
     /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
@@ -466,7 +462,7 @@ pub struct LatestKnown {
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
-/// blocks for convenience and the total weight.
+/// blocks for convenience and the score.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
@@ -475,8 +471,8 @@ pub struct Tip {
     pub last_block_hash: CryptoHash,
     /// Previous block
     pub prev_block_hash: CryptoHash,
-    /// Total weight on that fork
-    pub weight_and_score: WeightAndScore,
+    /// The score on that fork
+    pub score: BlockScore,
     /// Previous epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
 }
@@ -488,9 +484,13 @@ impl Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
-            weight_and_score: header.inner_rest.weight_and_score(),
+            score: header.inner_rest.score,
             epoch_id: header.inner_lite.epoch_id.clone(),
         }
+    }
+
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.score, height: self.height }
     }
 }
 
@@ -545,7 +545,6 @@ mod tests {
         let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.inner_rest.total_weight.to_num(), 1);
         let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
         let approvals = vec![
             (Approval {
@@ -566,7 +565,6 @@ mod tests {
             genesis.header.inner_lite.next_bp_hash,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 3);
     }
 
     #[test]

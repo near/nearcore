@@ -29,7 +29,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::InfoHelper;
-use crate::sync::{most_weight_peer, StateSyncResult};
+use crate::sync::{highest_height_peer, StateSyncResult};
 use crate::types::{
     BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload,
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
@@ -100,7 +100,7 @@ impl ClientActor {
                 active_peers: vec![],
                 num_active_peers: 0,
                 peer_max_count: 0,
-                most_weight_peers: vec![],
+                highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
@@ -773,43 +773,39 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info =
-            if let Some(full_peer_info) = most_weight_peer(&self.network_info.most_weight_peers) {
-                full_peer_info
-            } else {
-                if !self.client.config.skip_sync_wait {
-                    warn!(target: "client", "Sync: no peers available, disabling sync");
-                }
-                return Ok((false, 0));
-            };
+        let full_peer_info = if let Some(full_peer_info) =
+            highest_height_peer(&self.network_info.highest_height_peers)
+        {
+            full_peer_info
+        } else {
+            if !self.client.config.skip_sync_wait {
+                warn!(target: "client", "Sync: no peers available, disabling sync");
+            }
+            return Ok((false, 0));
+        };
 
         if is_syncing {
-            if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
-                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, most weight peer: {} @ {:?}",
-                      head.height, head.weight_and_score, format_hash(head.last_block_hash),
+            if full_peer_info.chain_info.score_and_height() <= head.score_and_height() {
+                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, highest height peer: {} @ {:?}",
+                      head.height, head.score, format_hash(head.last_block_hash),
                     full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height, full_peer_info.chain_info.weight_and_score
+                    full_peer_info.chain_info.height, full_peer_info.chain_info.score
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info
-                .chain_info
-                .weight_and_score
-                .beyond_threshold(&head.weight_and_score, self.client.config.sync_weight_threshold)
-                && full_peer_info.chain_info.height
-                    > head.height + self.client.config.sync_height_threshold
-            {
+            if full_peer_info.chain_info.score_and_height().beyond_threshold(
+                &head.score_and_height(),
+                self.client.config.sync_height_threshold,
+            ) {
                 info!(
                     target: "client",
-                    "Sync: height/weight/score: {}/{}/{}, peer id/height/weight/score: {}/{}/{}/{}, enabling sync",
+                    "Sync: height/score: {}/{}, peer id/height//score: {}/{}/{}, enabling sync",
                     head.height,
-                    head.weight_and_score.weight,
-                    head.weight_and_score.score,
+                    head.score,
                     full_peer_info.peer_info.id,
                     full_peer_info.chain_info.height,
-                    full_peer_info.chain_info.weight_and_score.weight,
-                    full_peer_info.chain_info.weight_and_score.score,
+                    full_peer_info.chain_info.score,
                 );
                 is_syncing = true;
             }
@@ -843,7 +839,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.run_catchup(&self.network_info.most_weight_peers) {
+        match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -910,7 +906,7 @@ impl ClientActor {
                 &mut self.client.sync_status,
                 &mut self.client.chain,
                 highest_height,
-                &self.network_info.most_weight_peers
+                &self.network_info.highest_height_peers
             ));
             // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.client.chain.header_head());
@@ -926,7 +922,7 @@ impl ClientActor {
                         &mut self.client.sync_status,
                         &mut self.client.chain,
                         highest_height,
-                        &self.network_info.most_weight_peers
+                        &self.network_info.highest_height_peers
                     ))
                 }
                 _ => false,
@@ -959,14 +955,14 @@ impl ClientActor {
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
-                    &self.network_info.most_weight_peers,
+                    &self.network_info.highest_height_peers,
                     shards_to_sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if let Some(peer_info) =
-                            most_weight_peer(&self.network_info.most_weight_peers)
+                            highest_height_peer(&self.network_info.highest_height_peers)
                         {
                             if fetch_block {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {

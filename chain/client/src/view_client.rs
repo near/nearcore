@@ -530,7 +530,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         hash: self.chain.genesis().hash(),
                     },
                     height: head.height,
-                    weight_and_score: head.weight_and_score,
+                    score: head.score,
                     tracked_shards: self.config.tracked_shards.clone(),
                 },
                 Err(err) => {

@@ -35,7 +35,7 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-use near_primitives::block::{Approval, Weight};
+use near_primitives::block::{Approval, BlockScore};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::merkle::MerklePath;
 use near_primitives::views::LightClientBlockView;
@@ -45,7 +45,7 @@ const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
-const LARGEST_APPROVED_WEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_WEIGHT";
+const LARGEST_APPROVED_HEIGHT_KEY: &[u8; 23] = b"LARGEST_APPROVED_HEIGHT";
 const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
 
 /// lru cache size
@@ -183,9 +183,9 @@ pub trait ChainStoreAccess {
     fn sync_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
-    /// Largest weight and score for which the approval was ever created
-    fn largest_approved_weight(&self) -> Result<Weight, Error>;
-    fn largest_approved_score(&self) -> Result<Weight, Error>;
+    /// Largest score and height for which the approval was ever created
+    fn largest_approved_height(&self) -> Result<BlockHeight, Error>;
+    fn largest_approved_score(&self) -> Result<BlockScore, Error>;
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
@@ -575,16 +575,16 @@ impl ChainStoreAccess for ChainStore {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
-    /// Largest weight for which the approval was ever created
-    fn largest_approved_weight(&self) -> Result<Weight, Error> {
+    /// Largest height for which the approval was ever created
+    fn largest_approved_height(&self) -> Result<BlockHeight, Error> {
         option_to_not_found(
-            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_WEIGHT_KEY),
+            self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_HEIGHT_KEY),
             "LARGEST_APPROVED_WEIGHT_KEY",
         )
     }
 
     /// Largest score for which the approval was ever created
-    fn largest_approved_score(&self) -> Result<Weight, Error> {
+    fn largest_approved_score(&self) -> Result<BlockScore, Error> {
         option_to_not_found(
             self.store.get_ser(ColBlockMisc, LARGEST_APPROVED_SCORE_KEY),
             "LARGEST_APPROVED_SCORE_KEY",
@@ -1025,8 +1025,8 @@ pub struct ChainStoreUpdate<'a> {
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
-    largest_approved_weight: Option<Weight>,
-    largest_approved_score: Option<Weight>,
+    largest_approved_height: Option<BlockHeight>,
+    largest_approved_score: Option<BlockScore>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -1048,7 +1048,7 @@ impl<'a> ChainStoreUpdate<'a> {
             tail: None,
             header_head: None,
             sync_head: None,
-            largest_approved_weight: None,
+            largest_approved_height: None,
             largest_approved_score: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
@@ -1143,15 +1143,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn largest_approved_weight(&self) -> Result<Weight, Error> {
-        if let Some(largest_approved_weight) = &self.largest_approved_weight {
-            Ok(largest_approved_weight.clone())
+    fn largest_approved_height(&self) -> Result<BlockHeight, Error> {
+        if let Some(largest_approved_height) = &self.largest_approved_height {
+            Ok(largest_approved_height.clone())
         } else {
-            self.chain_store.largest_approved_weight()
+            self.chain_store.largest_approved_height()
         }
     }
 
-    fn largest_approved_score(&self) -> Result<Weight, Error> {
+    fn largest_approved_score(&self) -> Result<BlockScore, Error> {
         if let Some(largest_approved_score) = &self.largest_approved_score {
             Ok(largest_approved_score.clone())
         } else {
@@ -1527,11 +1527,11 @@ impl<'a> ChainStoreUpdate<'a> {
         self.sync_head = Some(t.clone());
     }
 
-    pub fn save_largest_approved_weight(&mut self, weight: &Weight) {
-        self.largest_approved_weight = Some(weight.clone());
+    pub fn save_largest_approved_height(&mut self, height: &BlockHeight) {
+        self.largest_approved_height = Some(height.clone());
     }
 
-    pub fn save_largest_approved_score(&mut self, score: &Weight) {
+    pub fn save_largest_approved_score(&mut self, score: &BlockScore) {
         self.largest_approved_score = Some(score.clone());
     }
 
@@ -1733,9 +1733,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColBlockMisc, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        if let Some(t) = self.largest_approved_weight {
+        if let Some(t) = self.largest_approved_height {
             store_update
-                .set_ser(ColBlockMisc, LARGEST_APPROVED_WEIGHT_KEY, &t)
+                .set_ser(ColBlockMisc, LARGEST_APPROVED_HEIGHT_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.largest_approved_score {
