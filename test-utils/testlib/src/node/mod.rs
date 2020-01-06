@@ -12,7 +12,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc::ServerError;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::views::AccountView;
 use node_runtime::StateRecord;
 
@@ -142,7 +142,7 @@ fn near_configs_to_node_configs(
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
     let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(1, num_nodes, 0, prefix, true);
+        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true);
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 

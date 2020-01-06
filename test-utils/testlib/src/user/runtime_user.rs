@@ -8,7 +8,7 @@ use near_primitives::errors::{ExecutionError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
     ExecutionStatusView, ViewStateResult,
@@ -28,7 +28,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
-    pub epoch_length: BlockIndex,
+    pub epoch_length: BlockHeightDelta,
 }
 
 impl MockClient {
@@ -218,8 +218,8 @@ impl User for RuntimeUser {
         Ok(())
     }
 
-    fn get_best_block_index(&self) -> Option<u64> {
-        unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
+    fn get_best_height(&self) -> Option<u64> {
+        unimplemented!("get_best_height should not be implemented for RuntimeUser");
     }
 
     // This function is needed to sign transactions
@@ -227,7 +227,7 @@ impl User for RuntimeUser {
         Some(CryptoHash::default())
     }
 
-    fn get_block(&self, _index: u64) -> Option<BlockView> {
+    fn get_block(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 

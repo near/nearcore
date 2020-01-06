@@ -5,17 +5,16 @@ use near::config::{
     get_initial_supply, Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CONFIG_FILENAME, DEVELOPER_PERCENT, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCERS, PROTOCOL_PERCENT,
+    MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_PERCENT,
     TRANSACTION_VALIDITY_PERIOD,
 };
 use near::{GenesisConfig, NEAR_BASE};
 use near_network::types::PROTOCOL_VERSION;
-use near_primitives::types::Balance;
-use near_primitives::types::ShardId;
-use near_primitives::utils::get_num_block_producers_per_shard;
+use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::utils::get_num_seats_per_shard;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const NUM_SHARDS: usize = 8;
+const NUM_SHARDS: NumShards = 8;
 
 fn verify_total_supply(total_supply: Balance, chain_id: &String) {
     if chain_id == "mainnet" {
@@ -37,7 +36,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Verify that key files exist.
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 
-    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS as ShardId) {
+    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS) {
         panic!("Trying to track a shard that does not exist");
     }
 
@@ -61,12 +60,12 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         protocol_version: PROTOCOL_VERSION,
         genesis_time,
         chain_id,
-        num_block_producers: 50,
-        block_producers_per_shard: get_num_block_producers_per_shard(
-            NUM_SHARDS as ShardId,
-            NUM_BLOCK_PRODUCERS,
+        num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
+        num_block_producer_seats_per_shard: get_num_seats_per_shard(
+            NUM_SHARDS,
+            NUM_BLOCK_PRODUCER_SEATS,
         ),
-        avg_fisherman_per_shard: (0..NUM_SHARDS).map(|_| 0).collect(),
+        avg_hidden_validator_seats_per_shard: (0..NUM_SHARDS).map(|_| 0).collect(),
         dynamic_resharding: false,
         epoch_length: EXPECTED_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,

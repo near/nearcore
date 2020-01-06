@@ -15,7 +15,7 @@ use git_version::git_version;
 use near::config::create_testnet_configs;
 use near::{get_default_home, get_store_path};
 use near_crypto::Signer;
-use near_primitives::types::Version;
+use near_primitives::types::{NumSeats, NumShards, Version};
 use near_store::{create_store, ColState};
 use remote_node::RemoteNode;
 
@@ -167,16 +167,16 @@ fn main() {
 pub const CONFIG_FILENAME: &str = "config.json";
 
 fn create_genesis(matches: &clap::ArgMatches) {
-    let n = value_t_or_exit!(matches, "accounts", u64) as usize;
-    let v = value_t_or_exit!(matches, "validators", u64) as usize;
-    let s = value_t_or_exit!(matches, "shards", u64) as usize;
+    let n = value_t_or_exit!(matches, "accounts", u64) as u64;
+    let v = value_t_or_exit!(matches, "validators", u64) as NumSeats;
+    let s = value_t_or_exit!(matches, "shards", u64) as NumShards;
     let prefix = value_t_or_exit!(matches, "prefix", String);
     let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
     let dir = dir_buf.as_path();
 
     let (mut configs, signers, network_signers, genesis_config) =
         create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false);
-    for i in 0..v {
+    for i in 0..v as usize {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 

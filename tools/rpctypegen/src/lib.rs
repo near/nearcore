@@ -2,7 +2,7 @@ extern crate proc_macro;
 extern crate proc_macro2;
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use syn::{
@@ -33,7 +33,7 @@ impl Drop for Schema {
         // std::env::var("CARGO_TARGET_DIR") doesn't exists
         let filename = "./target/rpc_errors_schema.json";
         let schema_json = serde_json::to_value(self).expect("Schema serialize failed");
-        let mut new_schema_json = if let Ok(data) = std::fs::read(filename) {
+        let new_schema_json = if let Ok(data) = std::fs::read(filename) {
             // merge to the existing file
             let mut existing_schema = serde_json::from_slice::<Value>(&data)
                 .expect("cannot deserialize target/existing_schema.json");
@@ -42,7 +42,6 @@ impl Drop for Schema {
         } else {
             schema_json
         };
-        new_schema_json.as_object_mut().map(Map::sort_keys);
         let new_schema_json_string = serde_json::to_string_pretty(&new_schema_json)
             .expect("error schema serialization failed");
         std::fs::write(filename, new_schema_json_string)

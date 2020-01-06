@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near_client::{GetBlock, GetChunk};
@@ -32,9 +32,9 @@ fn track_shards() {
                                 Ok(Ok(_)) => {
                                     System::current().stop();
                                 }
-                                _ => return futures::future::err(()),
+                                _ => return future::ready(()),
                             };
-                            futures::future::ok(())
+                            future::ready(())
                         },
                     ));
                 } else {
@@ -45,10 +45,10 @@ fn track_shards() {
                                 *last_block_hash1.write().unwrap() =
                                     Some(b.header.hash.clone().into());
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
             }),

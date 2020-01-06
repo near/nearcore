@@ -11,7 +11,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, Nonce};
+use near_primitives::types::{AccountId, ChunkExtra, EpochId, Nonce, NumBlocks};
 use near_store::PartialStorage;
 
 use crate::byzantine_assert;
@@ -63,7 +63,7 @@ pub fn validate_chunk_transactions(
     chain_store: &mut ChainStore,
     transactions: &[SignedTransaction],
     block_header: &BlockHeader,
-    transaction_validity_period: BlockIndex,
+    transaction_validity_period: NumBlocks,
 ) -> bool {
     if !validate_transactions_order(transactions) {
         return false;
@@ -252,7 +252,7 @@ fn validate_chunk_proofs_challenge(
     chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_proofs: &ChunkProofs,
-    transaction_validity_period: BlockIndex,
+    transaction_validity_period: NumBlocks,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(runtime_adapter, &block_header)?;
@@ -274,9 +274,7 @@ fn validate_chunk_proofs_challenge(
     let tmp_chunk;
     let chunk_ref = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
-            match encoded_chunk
-                .decode_chunk(runtime_adapter.num_data_parts(&chunk_header.inner.prev_block_hash))
-            {
+            match encoded_chunk.decode_chunk(runtime_adapter.num_data_parts()) {
                 Ok(chunk) => {
                     tmp_chunk = Some(chunk);
                     tmp_chunk.as_ref().unwrap()
@@ -378,7 +376,7 @@ pub fn validate_challenge(
     epoch_id: &EpochId,
     last_block_hash: &CryptoHash,
     challenge: &Challenge,
-    transaction_validity_period: BlockIndex,
+    transaction_validity_period: NumBlocks,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
     if !runtime_adapter.verify_validator_or_fisherman_signature(

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::Future;
+use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
@@ -12,7 +12,7 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash};
 use near_primitives::views::{AccessKeyView, AccountView, BlockView, ViewStateResult};
 use near_primitives::views::{ExecutionOutcomeView, FinalExecutionOutcomeView};
 
@@ -46,11 +46,11 @@ pub trait User {
             .map(|access_key| access_key.nonce)
     }
 
-    fn get_best_block_index(&self) -> Option<u64>;
+    fn get_best_height(&self) -> Option<BlockHeight>;
 
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
-    fn get_block(&self, index: u64) -> Option<BlockView>;
+    fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 
@@ -223,49 +223,86 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = AccountView, Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<AccountView, String>>;
+>>>>>>> staging
 
     fn view_balance(
         &self,
         account_id: &AccountId,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = Balance, Error = ServerError>> {
         Box::new(self.view_account(account_id).map(|acc| acc.amount))
+=======
+    ) -> LocalBoxFuture<'static, Result<Balance, String>> {
+        self.view_account(account_id).map(|res| res.map(|acc| acc.amount)).boxed_local()
+>>>>>>> staging
     }
 
     fn view_state(
         &self,
         account_id: &AccountId,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = ViewStateResult, Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<ViewStateResult, String>>;
+>>>>>>> staging
 
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = (), Error = ServerError> + Send>;
 
     fn add_receipt(&self, receipt: Receipt) -> Box<dyn Future<Item = (), Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<(), String>>;
+
+    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), String>>;
+>>>>>>> staging
 
     fn get_account_nonce(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = u64, Error = String>>;
+    ) -> LocalBoxFuture<'static, Result<u64, String>>;
 
+<<<<<<< HEAD
     fn get_best_block_index(&self) -> Box<dyn Future<Item = u64, Error = ServerError>>;
+=======
+    fn get_best_height(&self) -> LocalBoxFuture<'static, Result<BlockHeight, String>>;
+>>>>>>> staging
 
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = ExecutionOutcome, Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, String>>;
+>>>>>>> staging
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = FinalExecutionOutcomeView, Error = ServerError>>;
 
     fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, String>>;
+
+    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, String>>;
+>>>>>>> staging
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
+<<<<<<< HEAD
     ) -> Box<dyn Future<Item = Option<AccessKey>, Error = ServerError>>;
+=======
+    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, String>>;
+>>>>>>> staging
 }

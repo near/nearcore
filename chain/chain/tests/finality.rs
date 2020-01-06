@@ -4,7 +4,7 @@ use near_chain::{FinalityGadget, FinalityGadgetQuorums};
 use near_crypto::{KeyType, PublicKey, Signature, Signer};
 use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -108,7 +108,7 @@ fn compute_quorums_slow(
 
 fn create_block(
     prev: &Block,
-    height: BlockIndex,
+    height: BlockHeight,
     chain_store: &mut ChainStore,
     signer: &dyn Signer,
     approvals: Vec<Approval>,

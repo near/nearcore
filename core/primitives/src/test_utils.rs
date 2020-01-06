@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use log::LevelFilter;
 
@@ -12,7 +12,7 @@ use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockIndex, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -35,6 +35,7 @@ pub fn init_test_logger() {
         .filter_module("hyper", LevelFilter::Info)
         .filter(None, LevelFilter::Debug)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_test_module_logger(module: &str) {
@@ -46,6 +47,7 @@ pub fn init_test_module_logger(module: &str) {
         .filter_module(module, LevelFilter::Info)
         .filter(None, LevelFilter::Info)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_integration_logger() {
@@ -53,6 +55,20 @@ pub fn init_integration_logger() {
         .filter(None, LevelFilter::Info)
         .filter(Some("actix_web"), LevelFilter::Warn)
         .try_init();
+    init_stop_on_panic();
+}
+
+static SET_PANIC_HOOK: Once = Once::new();
+
+/// This is a workaround to make actix/tokio runtime stop when a task panics.
+pub fn init_stop_on_panic() {
+    SET_PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            actix::System::with_current(|sys| sys.stop_with_code(1));
+            default_hook(info);
+        }));
+    })
 }
 
 impl Transaction {
@@ -133,7 +149,7 @@ impl SignedTransaction {
 impl Block {
     pub fn empty_with_epoch(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
@@ -156,7 +172,7 @@ impl Block {
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -179,7 +195,7 @@ impl Block {
     /// Done because chain tests don't have a good way to store chunks right now.
     pub fn empty_with_approvals(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
