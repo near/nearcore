@@ -53,7 +53,7 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance(AccountId, PublicKey, Balance, Balance),
 }
 
-/// Describes the error for validation a list of actions.
+/// Describes the error for validating a list of actions.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionsValidationError {
     /// The total prepaid gas (for all given actions) exceeded the limit.
@@ -76,7 +76,7 @@ pub enum ActionsValidationError {
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
 }
 
-/// Describes the error for validation a receipt.
+/// Describes the error for validating a receipt.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
@@ -89,10 +89,42 @@ pub enum ReceiptValidationError {
     InvalidDataReceiverId { account_id: AccountId },
     /// The length of the returned data exceeded the limit in a DataReceipt.
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
-    /// The number of input data dependencies exceeds the limit in an ActionReceipt,
+    /// The number of input data dependencies exceeds the limit in an ActionReceipt.
     NumberInputDataDependenciesExceeded { number: u64, limit: u64 },
     /// An error occurred while validating actions of an ActionReceipt.
     ActionsValidation(ActionsValidationError),
+}
+
+impl Display for ReceiptValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ReceiptValidationError::InvalidPredecessorId { account_id } => {
+                write!(f, "The predecessor_id `{}` of a Receipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidReceiverId { account_id } => {
+                write!(f, "The receiver_id `{}` of a Receipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidSignerId { account_id } => {
+                write!(f, "The signer_id `{}` of an ActionReceipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidDataReceiverId { account_id } => write!(
+                f,
+                "The receiver_id `{}` of a DataReceiver within an ActionReceipt is not valid.",
+                account_id
+            ),
+            ReceiptValidationError::ReturnedValueLengthExceeded { length, limit } => write!(
+                f,
+                "The length of the returned data {} exceeded the limit {} in a DataReceipt",
+                length, limit
+            ),
+            ReceiptValidationError::NumberInputDataDependenciesExceeded { number, limit } => write!(
+                f,
+                "The number of input data dependencies {} exceeded the limit {} in an ActionReceipt",
+                number, limit
+            ),
+            ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
+        }
+    }
 }
 
 impl Display for ActionsValidationError {
@@ -160,6 +192,8 @@ pub enum ActionError {
     TriesToUnstake(AccountId),
     TriesToStake(AccountId, Balance, Balance, Balance),
     FunctionCallError(String), // TODO type
+    /// Error occurred if any of the new ActionReceipts created by the FunctionCall action fails the
+    /// validation.
     NewReceiptValidationError(ReceiptValidationError),
 }
 
@@ -416,7 +450,9 @@ impl Display for ActionError {
                 account_id, balance
             ),
             ActionError::FunctionCallError(s) => write!(f, "{}", s),
-            ActionError::NewReceiptValidationError(e) => write!(f, "{:?}", e),
+            ActionError::NewReceiptValidationError(e) => {
+                write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
+            }
         }
     }
 }

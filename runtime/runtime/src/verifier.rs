@@ -138,6 +138,8 @@ pub fn verify_and_charge_transaction(
     Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
 }
 
+/// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
+/// the validity of the Action or Data receipt.
 pub(crate) fn validate_receipt(
     limit_config: &VMLimitConfig,
     receipt: &Receipt,
@@ -160,6 +162,8 @@ pub(crate) fn validate_receipt(
     }
 }
 
+/// Validates given ActionReceipt. Checks validity of the signer account ID, validity of all
+/// data receiver account IDs, the number of input data dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
@@ -186,6 +190,7 @@ fn validate_action_receipt(
         .map_err(|e| ReceiptValidationError::ActionsValidation(e))
 }
 
+/// Validates given data receipt. Checks validity of the length of the returned data.
 fn validate_data_receipt(
     limit_config: &VMLimitConfig,
     receipt: &DataReceipt,
