@@ -31,7 +31,7 @@ struct Schema {
 impl Drop for Schema {
     fn drop(&mut self) {
         // std::env::var("CARGO_TARGET_DIR") doesn't exists
-        let filename = "./target/errors_schema.json";
+        let filename = "./target/rpc_errors_schema.json";
         let schema_json = serde_json::to_value(self).expect("Schema serialize failed");
         let mut new_schema_json = if let Ok(data) = std::fs::read(filename) {
             // merge to the existing file
