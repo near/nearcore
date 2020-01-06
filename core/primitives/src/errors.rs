@@ -40,6 +40,7 @@ pub enum InvalidTxError {
     CostOverflow,
     InvalidChain,
     Expired,
+    /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
 }
 
@@ -52,12 +53,13 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance(AccountId, PublicKey, Balance, Balance),
 }
 
+/// Describes the error for validation a list of actions.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionsValidationError {
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
     /// The number of actions exceeded the given limit.
-    TotalNumberOfActionsExceeded { total_number_of_actions: u32, limit: u32 },
+    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 },
     /// The total number of bytes of the method names exceeded the limit in a Add Key action.
     AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 },
     /// The length of some method name exceeded the limit in a Add Key action.
@@ -72,6 +74,25 @@ pub enum ActionsValidationError {
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+}
+
+/// Describes the error for validation a receipt.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptValidationError {
+    /// The `predecessor_id` of a Receipt is not valid.
+    InvalidPredecessorId { account_id: AccountId },
+    /// The `receiver_id` of a Receipt is not valid.
+    InvalidReceiverId { account_id: AccountId },
+    /// The `signer_id` of an ActionReceipt is not valid.
+    InvalidSignerId { account_id: AccountId },
+    /// The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.
+    InvalidDataReceiverId { account_id: AccountId },
+    /// The length of the returned data exceeded the limit in a DataReceipt.
+    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    /// The number of input data dependencies exceeds the limit in an ActionReceipt,
+    NumberInputDataDependenciesExceeded { number: u64, limit: u64 },
+    /// An error occurred while validating actions of an ActionReceipt.
+    ActionsValidation(ActionsValidationError),
 }
 
 impl Display for ActionsValidationError {
@@ -139,6 +160,7 @@ pub enum ActionError {
     TriesToUnstake(AccountId),
     TriesToStake(AccountId, Balance, Balance, Balance),
     FunctionCallError(String), // TODO type
+    NewReceiptValidationError(ReceiptValidationError),
 }
 
 impl Display for InvalidTxError {
@@ -394,6 +416,7 @@ impl Display for ActionError {
                 account_id, balance
             ),
             ActionError::FunctionCallError(s) => write!(f, "{}", s),
+            ActionError::NewReceiptValidationError(e) => write!(f, "{:?}", e),
         }
     }
 }

@@ -855,20 +855,20 @@ impl<'a> VMLogic<'a> {
                 }
             }
             // Checking this in the loop to prevent abuse of too many joined vectors.
-            if receipt_dependencies.len() as u32
+            if receipt_dependencies.len() as u64
                 > self.config.limit_config.max_number_input_data_dependencies
             {
-                return Err(HostError::NumInputDataDependenciesExceeded.into());
+                return Err(HostError::NumberInputDataDependenciesExceeded.into());
             }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises.push(Promise {
             promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
         });
-        if self.promises.len() as u32
+        if self.promises.len() as u64
             > self.config.limit_config.max_promises_per_function_call_action
         {
-            return Err(HostError::NumPromisesExceeded.into());
+            return Err(HostError::NumberPromisesExceeded.into());
         }
         Ok(new_promise_idx)
     }
@@ -910,10 +910,10 @@ impl<'a> VMLogic<'a> {
         let promise_idx = self.promises.len() as PromiseIndex;
         self.promises
             .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        if self.promises.len() as u32
+        if self.promises.len() as u64
             > self.config.limit_config.max_promises_per_function_call_action
         {
-            return Err(HostError::NumPromisesExceeded.into());
+            return Err(HostError::NumberPromisesExceeded.into());
         }
         Ok(promise_idx)
     }
@@ -977,10 +977,10 @@ impl<'a> VMLogic<'a> {
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises
             .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        if self.promises.len() as u32
+        if self.promises.len() as u64
             > self.config.limit_config.max_promises_per_function_call_action
         {
-            return Err(HostError::NumPromisesExceeded.into());
+            return Err(HostError::NumberPromisesExceeded.into());
         }
         Ok(new_promise_idx)
     }

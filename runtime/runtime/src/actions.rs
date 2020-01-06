@@ -189,7 +189,7 @@ pub(crate) fn action_function_call(
             // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
             // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
             // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` for
-            // `FunctionCall`s.
+            // `FunctionCall`s error.
             result.gas_used += outcome.used_gas;
             result.logs.extend(outcome.logs.into_iter());
         }

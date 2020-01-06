@@ -48,6 +48,7 @@ use crate::config::{
     total_prepaid_gas, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
+use crate::verifier::validate_receipt;
 pub use crate::verifier::verify_and_charge_transaction;
 
 mod actions;
@@ -449,7 +450,7 @@ impl Runtime {
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let is_last_action = action_index + 1 == action_receipt.actions.len();
-            result.merge(self.apply_action(
+            let mut new_result = self.apply_action(
                 action,
                 state_update,
                 apply_state,
@@ -463,7 +464,15 @@ impl Runtime {
                     u64::max_value() - action_index as u64,
                 ),
                 is_last_action,
-            )?)?;
+            )?;
+            if new_result.result.is_ok() {
+                if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
+                    validate_receipt(&self.config.wasm_config.limit_config, receipt)
+                }) {
+                    new_result.result = Err(ActionError::NewReceiptValidationError(e));
+                }
+            }
+            result.merge(new_result)?;
             // TODO storage error
             if result.result.is_err() {
                 break;
@@ -1099,7 +1108,7 @@ impl Runtime {
                 _ => panic!("Expected action receipt"),
             };
             // Logic similar to `apply_receipt`
-            let mut pending_data_count = 0;
+            let mut pending_data_count: u32 = 0;
             for data_id in &action_receipt.input_data_ids {
                 if get_received_data(&state_update, account_id, data_id)
                     .expect("Genesis storage error")

@@ -5,8 +5,10 @@ use crate::config::{
 use crate::{ApplyState, VerificationResult};
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::{
-    ActionsValidationError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+    ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+    RuntimeError,
 };
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
     SignedTransaction,
@@ -136,6 +138,68 @@ pub fn verify_and_charge_transaction(
     Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
 }
 
+pub(crate) fn validate_receipt(
+    limit_config: &VMLimitConfig,
+    receipt: &Receipt,
+) -> Result<(), ReceiptValidationError> {
+    if !is_valid_account_id(&receipt.predecessor_id) {
+        return Err(ReceiptValidationError::InvalidPredecessorId {
+            account_id: receipt.predecessor_id.clone(),
+        });
+    }
+    if !is_valid_account_id(&receipt.receiver_id) {
+        return Err(ReceiptValidationError::InvalidReceiverId {
+            account_id: receipt.receiver_id.clone(),
+        });
+    }
+    match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            validate_action_receipt(limit_config, action_receipt)
+        }
+        ReceiptEnum::Data(data_receipt) => validate_data_receipt(limit_config, data_receipt),
+    }
+}
+
+fn validate_action_receipt(
+    limit_config: &VMLimitConfig,
+    receipt: &ActionReceipt,
+) -> Result<(), ReceiptValidationError> {
+    if !is_valid_account_id(&receipt.signer_id) {
+        return Err(ReceiptValidationError::InvalidSignerId {
+            account_id: receipt.signer_id.clone(),
+        });
+    }
+    for data_receiver in &receipt.output_data_receivers {
+        if !is_valid_account_id(&data_receiver.receiver_id) {
+            return Err(ReceiptValidationError::InvalidDataReceiverId {
+                account_id: data_receiver.receiver_id.clone(),
+            });
+        }
+    }
+    if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
+        return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
+            number: receipt.input_data_ids.len() as u64,
+            limit: limit_config.max_number_input_data_dependencies,
+        });
+    }
+    validate_actions(limit_config, &receipt.actions)
+        .map_err(|e| ReceiptValidationError::ActionsValidation(e))
+}
+
+fn validate_data_receipt(
+    limit_config: &VMLimitConfig,
+    receipt: &DataReceipt,
+) -> Result<(), ReceiptValidationError> {
+    let data_len = receipt.data.as_ref().map(|data| data.len()).unwrap_or(0);
+    if data_len as u64 > limit_config.max_length_returned_data {
+        return Err(ReceiptValidationError::ReturnedValueLengthExceeded {
+            length: data_len as u64,
+            limit: limit_config.max_length_returned_data,
+        });
+    }
+    Ok(())
+}
+
 /// Validates given actions. Checks limits and validates `account_id` if applicable.
 /// Checks that the total number of actions doesn't exceed the limit.
 /// Validates each individual action.
@@ -144,9 +208,9 @@ pub(crate) fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
 ) -> Result<(), ActionsValidationError> {
-    if actions.len() as u32 > limit_config.max_actions_per_receipt {
+    if actions.len() as u64 > limit_config.max_actions_per_receipt {
         return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
-            total_number_of_actions: actions.len() as u32,
+            total_number_of_actions: actions.len() as u64,
             limit: limit_config.max_actions_per_receipt,
         });
     }
@@ -168,7 +232,7 @@ pub(crate) fn validate_actions(
 }
 
 /// Validates a single given action. Checks limits and validates `account_id` if applicable.
-fn validate_action(
+pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
 ) -> Result<(), ActionsValidationError> {

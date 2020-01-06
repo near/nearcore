@@ -54,7 +54,7 @@ pub struct VMLimitConfig {
     pub max_total_prepaid_gas: Gas,
 
     /// Max number of actions per receipt.
-    pub max_actions_per_receipt: u32,
+    pub max_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
     /// permission access key.
     pub max_number_bytes_method_names: u64,
@@ -71,9 +71,9 @@ pub struct VMLimitConfig {
     /// Max storage value size
     pub max_length_storage_value: u64,
     /// Max number of promises that a function call can create
-    pub max_promises_per_function_call_action: u32,
+    pub max_promises_per_function_call_action: u64,
     /// Max number of input data dependencies
-    pub max_number_input_data_dependencies: u32,
+    pub max_number_input_data_dependencies: u64,
 }
 
 impl Default for VMConfig {

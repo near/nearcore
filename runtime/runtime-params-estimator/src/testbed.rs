@@ -59,9 +59,9 @@ impl RuntimeTestbed {
             max_register_size: u64::max_value(),
             max_number_logs: u64::max_value(),
 
-            max_actions_per_receipt: u32::max_value(),
-            max_promises_per_function_call_action: u32::max_value(),
-            max_number_input_data_dependencies: u32::max_value(),
+            max_actions_per_receipt: u64::max_value(),
+            max_promises_per_function_call_action: u64::max_value(),
+            max_number_input_data_dependencies: u64::max_value(),
 
             max_total_prepaid_gas: u64::max_value(),
             max_number_bytes_method_names: u64::max_value(),

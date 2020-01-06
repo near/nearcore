@@ -712,6 +712,9 @@ impl From<ExecutionError> for ExecutionErrorView {
                     ActionError::FunctionCallError(_) => {
                         "ActionError::FunctionCallError".to_string()
                     }
+                    ActionError::NewReceiptValidationError(_) => {
+                        "ActionError::NewReceiptValidationError".to_string()
+                    }
                 },
                 ExecutionError::InvalidTx(e) => match e {
                     InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),

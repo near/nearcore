@@ -536,7 +536,7 @@ fn test_num_promises() {
     }
     assert_eq!(
         logic.promise_batch_create(account_id.len() as _, account_id.as_ptr() as _),
-        Err(HostError::NumPromisesExceeded.into())
+        Err(HostError::NumberPromisesExceeded.into())
     );
 }
 
@@ -559,7 +559,7 @@ fn test_num_joined_promises() {
     let promises = vec![promise_id; (num_deps + 1) as usize];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumInputDataDependenciesExceeded.into())
+        Err(HostError::NumberInputDataDependenciesExceeded.into())
     );
 }
 
@@ -590,7 +590,7 @@ fn test_num_input_dependencies_recursive_join() {
     let promises = vec![promise_id, promise_id, original_promise_id];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumInputDataDependenciesExceeded.into())
+        Err(HostError::NumberInputDataDependenciesExceeded.into())
     );
 }
 

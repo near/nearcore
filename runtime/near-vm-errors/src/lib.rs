@@ -89,8 +89,8 @@ pub enum HostError {
     KeyLengthExceeded,
     ValueLengthExceeded,
     LogLengthExceeded,
-    NumPromisesExceeded,
-    NumInputDataDependenciesExceeded,
+    NumberPromisesExceeded,
+    NumberInputDataDependenciesExceeded,
     ReturnedValueLengthExceeded,
     ContractSizeExceeded,
 }
@@ -201,8 +201,8 @@ impl std::fmt::Display for HostError {
             KeyLengthExceeded => write!(f, "Exceeded the length of a storage key"),
             ValueLengthExceeded => write!(f, "Exceeded the length of a storage value"),
             LogLengthExceeded => write!(f, "Exceeded the length of a log message"),
-            NumPromisesExceeded => write!(f, "Exceeded the maximum number of promises within a function call"),
-            NumInputDataDependenciesExceeded => write!(f, "Exceeded the maximum number of input data dependencies"),
+            NumberPromisesExceeded => write!(f, "Exceeded the maximum number of promises within a function call"),
+            NumberInputDataDependenciesExceeded => write!(f, "Exceeded the maximum number of input data dependencies"),
             ReturnedValueLengthExceeded => write!(f, "Exceeded the returned value length"),
             ContractSizeExceeded => write!(f, "Exceeded the length of a deploy contract code"),
         }
