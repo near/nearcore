@@ -88,7 +88,7 @@ impl InfoHelper {
             * 1000.0;
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
-        info!(target: "info", "{} {} {} {} {} {}",
+        info!(target: "stats", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
