@@ -35,7 +35,7 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::sync::RwLock;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 4;
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
