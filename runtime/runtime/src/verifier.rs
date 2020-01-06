@@ -344,6 +344,7 @@ fn validate_delete_account_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use testlib::runtime_utils::alice_account;
 
     #[test]
     fn test_validate_actions_empty() {
@@ -364,6 +365,35 @@ mod tests {
             })],
         )
         .expect("valid function call action");
+    }
+
+    #[test]
+    fn test_validate_receipt_incorrect_predecessor_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        let mut receipt = Receipt::new_refund(&alice_account(), 10);
+        receipt.predecessor_id = invalid_account_id.clone();
+        assert_eq!(
+            validate_receipt(&limit_config, &receipt).unwrap_err(),
+            ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_receipt_incorrect_receiver_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_receipt(&limit_config, &Receipt::new_refund(&invalid_account_id, 10))
+                .unwrap_err(),
+            ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_receipt_valid() {
+        let limit_config = VMLimitConfig::default();
+        validate_receipt(&limit_config, &Receipt::new_refund(&alice_account(), 10)).unwrap();
     }
 
     // TODO(#1692): Add more tests
