@@ -12,7 +12,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+};
 use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -21,7 +23,7 @@ use near_store::{
     ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
     ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain, ColNextBlockHashes,
     ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
-    ColStateDlInfos, ColTransactionResult, Store, StoreUpdate, WrappedTrieChanges,
+    ColStateDlInfos, ColTransactionResult, ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -305,6 +307,11 @@ pub trait ChainStoreAccess {
         &mut self,
         shard_id: ShardId,
     ) -> Result<Option<&CryptoHash>, Error>;
+
+    fn get_transaction(
+        &mut self,
+        tx_hash: &CryptoHash,
+    ) -> Result<Option<&SignedTransaction>, Error>;
 }
 
 /// All chain-related database operations.
@@ -353,6 +360,8 @@ pub struct ChainStore {
     next_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
     /// Shard id to last block that contains a new chunk for this shard.
     last_block_with_new_chunk: SizedCache<Vec<u8>, CryptoHash>,
+    /// Transactions
+    transactions: SizedCache<Vec<u8>, SignedTransaction>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -388,6 +397,7 @@ impl ChainStore {
             receipt_id_to_shard_id: SizedCache::with_size(CHUNK_CACHE_SIZE),
             next_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
             last_block_with_new_chunk: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            transactions: SizedCache::with_size(CHUNK_CACHE_SIZE),
         }
     }
 
@@ -843,6 +853,14 @@ impl ChainStoreAccess for ChainStore {
         )
         .map_err(|e| e.into())
     }
+
+    fn get_transaction(
+        &mut self,
+        tx_hash: &CryptoHash,
+    ) -> Result<Option<&SignedTransaction>, Error> {
+        read_with_cache(&*self.store, ColTransactions, &mut self.transactions, tx_hash.as_ref())
+            .map_err(|e| e.into())
+    }
 }
 
 /// Cache update for ChainStore
@@ -867,6 +885,7 @@ struct ChainStoreCacheUpdate {
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     next_block_with_new_chunk: HashMap<(CryptoHash, ShardId), CryptoHash>,
     last_block_with_new_chunk: HashMap<ShardId, CryptoHash>,
+    transactions: HashSet<SignedTransaction>,
 }
 
 impl ChainStoreCacheUpdate {
@@ -892,6 +911,7 @@ impl ChainStoreCacheUpdate {
             receipt_id_to_shard_id: Default::default(),
             next_block_with_new_chunk: Default::default(),
             last_block_with_new_chunk: Default::default(),
+            transactions: Default::default(),
         }
     }
 }
@@ -1284,6 +1304,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.get_last_block_with_new_chunk(shard_id)
         }
     }
+
+    fn get_transaction(
+        &mut self,
+        tx_hash: &CryptoHash,
+    ) -> Result<Option<&SignedTransaction>, Error> {
+        if let Some(tx) = self.chain_store_cache_update.transactions.get(tx_hash) {
+            Ok(Some(tx))
+        } else {
+            self.chain_store.get_transaction(tx_hash)
+        }
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1486,6 +1517,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 outcome_with_id.id,
                 ExecutionOutcomeWithIdAndProof { outcome_with_id, proof, block_hash: *block_hash },
             );
+        }
+    }
+
+    pub fn save_transactions(&mut self, transactions: Vec<SignedTransaction>) {
+        for transaction in transactions {
+            self.chain_store_cache_update.transactions.insert(transaction);
         }
     }
 
@@ -1700,6 +1737,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 block_hash,
             )?;
         }
+        for transaction in self.chain_store_cache_update.transactions.iter() {
+            store_update.set_ser(ColTransactions, transaction.get_hash().as_ref(), transaction)?;
+        }
         for trie_changes in self.trie_changes.drain(..) {
             trie_changes
                 .insertions_into(&mut store_update)
@@ -1809,6 +1849,7 @@ impl<'a> ChainStoreUpdate<'a> {
             receipt_id_to_shard_id,
             next_block_with_new_chunk,
             last_block_with_new_chunk,
+            transactions,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
@@ -1885,6 +1926,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store
                 .last_block_with_new_chunk
                 .cache_set(index_to_bytes(shard_id), block_hash);
+        }
+        for transaction in transactions {
+            self.chain_store.transactions.cache_set(transaction.get_hash().into(), transaction);
         }
 
         Ok(())
