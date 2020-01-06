@@ -46,4 +46,4 @@ q['config_version'] = config_version
 
 # We overwrite the file instead of creating a new one.
 # Too bad the file is too large so you can't see the difference in git.
-open(filename, 'w').write(json.dumps(q, indent=2))
+open(filename, 'w').write(json.dumps(q, indent=2, sort_keys=True))
