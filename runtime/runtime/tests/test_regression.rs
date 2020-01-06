@@ -18,7 +18,8 @@ use near_primitives::types::StateChangeCause;
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, StateUpdate, StorageChanges,
+    Trie,
 };
 use near_vm_logic::types::Balance;
 use node_runtime::StateRecord;
@@ -95,7 +96,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
     let wasm_binary_base64 = to_base64(wasm_binary);
     let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
-        let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
+        let mut state_update = StateUpdate::from_trie(runtime.trie.clone(), runtime.root);
         // Put state records directly into trie and save them separately to compute storage usage.
         let mut records = Vec::with_capacity(CHUNK_SIZE * 3);
         for account_index in chunk {
@@ -176,11 +177,11 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             set_account(&mut state_update, &account_id, &account);
         }
         state_update.commit(StateChangeCause::InitialState);
-        let trie = state_update.trie.clone();
+        let trie = runtime.trie.clone();
         let (store_update, root) = state_update
             .finalize()
             .expect("Genesis state update failed")
-            .into(trie)
+            .into2(trie)
             .expect("Genesis state update failed");
         store_update.commit().unwrap();
         runtime.root = root;

@@ -11,7 +11,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_primitives::views::ViewStateResult;
 use near_runtime_fees::RuntimeFeesConfig;
-use near_store::{get_access_key, get_account, TrieUpdate};
+use near_store::{get_access_key, get_account, StateUpdate, StorageChanges};
 use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
@@ -26,7 +26,7 @@ impl TrieViewer {
 
     pub fn view_account(
         &self,
-        state_update: &TrieUpdate,
+        state_update: &StateUpdate,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
@@ -39,7 +39,7 @@ impl TrieViewer {
 
     pub fn view_access_key(
         &self,
-        state_update: &TrieUpdate,
+        state_update: &StateUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, Box<dyn std::error::Error>> {
@@ -53,7 +53,7 @@ impl TrieViewer {
 
     pub fn view_state(
         &self,
-        state_update: &TrieUpdate,
+        state_update: &StateUpdate,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
@@ -75,7 +75,7 @@ impl TrieViewer {
 
     pub fn call_function(
         &self,
-        mut state_update: TrieUpdate,
+        mut state_update: StateUpdate,
         block_height: BlockHeight,
         block_timestamp: u64,
         contract_id: &AccountId,
@@ -153,7 +153,7 @@ impl TrieViewer {
             debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
             logs.extend(outcome.logs);
             let trie_update = state_update.finalize()?;
-            if trie_update.new_root != root {
+            if trie_update.get_new_root() != root {
                 return Err("function call for viewing tried to change storage".into());
             }
             let mut result = vec![];
@@ -234,13 +234,13 @@ mod tests {
     #[test]
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = StateUpdate::from_trie(trie.clone(), root);
         state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
         state_update.commit(StateChangeCause::InitialState);
-        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (db_changes, new_root) = state_update.finalize().unwrap().into2(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
-        let state_update = TrieUpdate::new(trie, new_root);
+        let state_update = StateUpdate::from_trie(trie, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(

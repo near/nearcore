@@ -3,7 +3,7 @@ use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, ColState, Trie};
+use near_store::{create_store, ColState, StorageChanges, Trie, TrieState};
 use near_vm_logic::VMLimitConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
@@ -88,19 +88,13 @@ impl RuntimeTestbed {
         transactions: &[SignedTransaction],
         allow_failures: bool,
     ) -> Gas {
+        let state = Arc::new(TrieState::new(self.trie.clone(), self.root));
         let apply_result = self
             .runtime
-            .apply(
-                self.trie.clone(),
-                self.root,
-                &None,
-                &self.apply_state,
-                &self.prev_receipts,
-                transactions,
-            )
+            .apply(state, &None, &self.apply_state, &self.prev_receipts, transactions)
             .unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(self.trie.clone()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

@@ -29,7 +29,6 @@ pub mod iterator;
 mod nibble_slice;
 mod state_parts;
 mod trie_storage;
-pub mod update;
 
 #[cfg(test)]
 mod trie_tests;
@@ -461,16 +460,15 @@ impl TrieChanges {
         &self,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), StorageError> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.insertions.iter() {
             let storage_rc = trie
                 .storage
                 .as_caching_storage()
                 .expect("Must be caching storage")
-                .retrieve_rc(&key)
-                .unwrap_or_default();
-            let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
+                .retrieve_rc(&key)?; // TODO: this error means storage failed, consider changing to panic
+            let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("encode cannot fail");
             store_update.set(ColState, key.as_ref(), &bytes);
         }
         Ok(())
@@ -480,18 +478,18 @@ impl TrieChanges {
         &self,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), StorageError> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.deletions.iter() {
             let storage_rc = trie
                 .storage
                 .as_caching_storage()
                 .expect("Must be caching storage")
-                .retrieve_rc(&key)
-                .unwrap_or_default();
+                .retrieve_rc(&key)?; // TODO: this error means storage failed, consider changing to panic
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
-                let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
+                let bytes =
+                    RcTrieNode::encode(&value, storage_rc - rc).expect("encode cannot fail");
                 store_update.set(ColState, key.as_ref(), &bytes);
             } else {
                 store_update.delete(ColState, key.as_ref());
@@ -500,10 +498,7 @@ impl TrieChanges {
         Ok(())
     }
 
-    pub fn into(
-        self,
-        trie: Arc<Trie>,
-    ) -> Result<(StoreUpdate, StateRoot), Box<dyn std::error::Error>> {
+    pub fn into(self, trie: Arc<Trie>) -> Result<(StoreUpdate, StateRoot), StorageError> {
         let mut store_update = StoreUpdate::new_with_trie(
             trie.storage
                 .as_caching_storage()
@@ -516,63 +511,6 @@ impl TrieChanges {
         self.insertions_into(trie.clone(), &mut store_update)?;
         self.deletions_into(trie, &mut store_update)?;
         Ok((store_update, self.new_root))
-    }
-}
-
-pub struct WrappedTrieChanges {
-    trie: Arc<Trie>,
-    trie_changes: TrieChanges,
-    kv_changes: StateChanges,
-    block_hash: CryptoHash,
-}
-
-impl WrappedTrieChanges {
-    pub fn new(
-        trie: Arc<Trie>,
-        trie_changes: TrieChanges,
-        kv_changes: StateChanges,
-        block_hash: CryptoHash,
-    ) -> Self {
-        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
-    }
-
-    pub fn insertions_into(
-        &self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.insertions_into(self.trie.clone(), store_update)
-    }
-
-    pub fn deletions_into(
-        &self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.trie_changes.deletions_into(self.trie.clone(), store_update)
-    }
-
-    pub fn key_value_changes_into(
-        &self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.trie = Some(self.trie.clone());
-        for (key, changes) in &self.kv_changes {
-            assert!(
-                !changes.iter().any(|(change_cause, _)| {
-                    if let StateChangeCause::NotWritableToDisk = change_cause {
-                        true
-                    } else {
-                        false
-                    }
-                }),
-                "NotWritableToDisk changes must never be finalized."
-            );
-            let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
-            storage_key.extend_from_slice(self.block_hash.as_ref());
-            storage_key.extend_from_slice(key);
-            let value = changes.try_to_vec()?;
-            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
-        }
-        Ok(())
     }
 }
 

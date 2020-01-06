@@ -18,7 +18,7 @@ use near_primitives::utils::{
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
-    StorageError, TrieUpdate,
+    StateUpdate, StorageError,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
@@ -92,7 +92,7 @@ pub(crate) fn apply_rent(
 }
 
 pub(crate) fn get_code_with_cache(
-    state_update: &TrieUpdate,
+    state_update: &StateUpdate,
     account_id: &AccountId,
     account: &Account,
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
@@ -103,7 +103,7 @@ pub(crate) fn get_code_with_cache(
 }
 
 pub(crate) fn action_function_call(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     apply_state: &ApplyState,
     account: &mut Account,
     receipt: &Receipt,
@@ -295,7 +295,7 @@ pub(crate) fn action_create_account(
 
 pub(crate) fn action_deploy_contract(
     fee_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
@@ -328,7 +328,7 @@ pub(crate) fn action_deploy_contract(
 }
 
 pub(crate) fn action_delete_account(
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
@@ -352,7 +352,7 @@ pub(crate) fn action_delete_account(
 
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
@@ -390,7 +390,7 @@ pub(crate) fn action_delete_key(
 
 pub(crate) fn action_add_key(
     fees_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,

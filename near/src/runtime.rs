@@ -35,8 +35,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    get_access_key_raw, ColState, PartialStorage, ReadOnlyState, StateUpdate, Store, StoreUpdate,
+    Trie, TrieState, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -189,8 +189,9 @@ impl NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
+            let state_update = StateUpdate::from_trie(self.trie.clone(), MerkleHash::default());
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
+                self.trie.clone(),
                 state_update,
                 &validators,
                 &shard_records[shard_id as usize],
@@ -204,8 +205,7 @@ impl NightshadeRuntime {
     /// Processes state update.
     fn process_state_update(
         &self,
-        trie: Arc<Trie>,
-        state_root: CryptoHash,
+        state: Arc<dyn ReadOnlyState>,
         shard_id: ShardId,
         block_height: BlockHeight,
         block_hash: &CryptoHash,
@@ -295,8 +295,7 @@ impl NightshadeRuntime {
         let apply_result = self
             .runtime
             .apply(
-                trie.clone(),
-                state_root,
+                state.clone(),
                 &validator_accounts_update,
                 &apply_state,
                 &receipts,
@@ -327,7 +326,7 @@ impl NightshadeRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 apply_result.trie_changes,
-                apply_result.key_value_changes,
+                //                apply_result.key_value_changes,
                 block_hash.clone(),
             ),
             new_root: apply_result.state_root,
@@ -339,7 +338,7 @@ impl NightshadeRuntime {
             total_validator_reward: apply_result.stats.total_validator_reward,
             total_balance_burnt: apply_result.stats.total_balance_burnt
                 + apply_result.stats.total_balance_slashed,
-            proof: trie.recorded_storage(),
+            proof: state.get_trie_state().and_then(|trie_state| trie_state.trie.recorded_storage()),
         };
 
         Ok(result)
@@ -408,7 +407,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let mut state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
@@ -445,7 +444,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let mut state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
@@ -840,9 +839,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             self.trie.clone()
         };
+        let state = Arc::new(TrieState::new(trie.clone(), *state_root));
         match self.process_state_update(
-            trie,
-            *state_root,
+            state,
             shard_id,
             height,
             block_hash,
@@ -882,9 +881,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Arc::new(Trie::from_recorded_storage(partial_storage));
+        let state = Arc::new(TrieState::new(trie.clone(), *state_root));
         self.process_state_update(
-            trie.clone(),
-            *state_root,
+            state,
             shard_id,
             height,
             block_hash,
@@ -1112,7 +1111,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
@@ -1126,7 +1125,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         self.trie_viewer.call_function(
             state_update,
             height,
@@ -1144,7 +1143,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
@@ -1153,7 +1152,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
@@ -1178,7 +1177,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }

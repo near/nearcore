@@ -21,7 +21,8 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, ColState, StateUpdate,
+    StorageChanges, Store,
 };
 use node_runtime::StateRecord;
 
@@ -41,7 +42,7 @@ pub struct GenesisBuilder {
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
-    state_updates: BTreeMap<ShardId, TrieUpdate>,
+    state_updates: BTreeMap<ShardId, StateUpdate>,
 
     // Things that can be set.
     additional_accounts_num: u64,
@@ -116,7 +117,7 @@ impl GenesisBuilder {
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, TrieUpdate::new(self.runtime.trie.clone(), *root))
+                (*shard_idx, StateUpdate::from_trie(self.runtime.trie.clone(), *root))
             })
             .collect();
         self.unflushed_records =
@@ -172,12 +173,13 @@ impl GenesisBuilder {
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
-        let trie = state_update.trie.clone();
-        let (store_update, root) = state_update.finalize()?.into(trie)?;
+        let trie = self.runtime.trie.clone();
+        let (store_update, root) = state_update.finalize()?.into2(trie)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
-        self.state_updates.insert(shard_idx, TrieUpdate::new(self.runtime.trie.clone(), root));
+        self.state_updates
+            .insert(shard_idx, StateUpdate::from_trie(self.runtime.trie.clone(), root));
         Ok(())
     }
 

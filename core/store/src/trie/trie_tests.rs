@@ -2,7 +2,7 @@ use crate::test_utils::create_trie;
 use crate::trie::tests::{gen_changes, simplify_changes};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{PartialStorage, Trie, TrieUpdate};
+use crate::{PartialStorage, StateUpdate, Trie};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use rand::seq::SliceRandom;
@@ -123,7 +123,7 @@ fn test_reads_with_incomplete_storage() {
             let key_prefix = &key[0..rng.gen_range(0, key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Arc<Trie>| -> Result<_, StorageError> {
-                let trie_update = TrieUpdate::new(trie, state_root);
+                let trie_update = StateUpdate::from_trie(trie, state_root);
                 let mut keys = Vec::new();
                 trie_update.for_keys_with_prefix(key_prefix, |key| {
                     keys.push(key.to_vec());

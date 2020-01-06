@@ -13,11 +13,11 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
+use near_store::{StateUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 
 pub struct RuntimeExt<'a> {
-    trie_update: &'a mut TrieUpdate,
+    trie_update: &'a mut StateUpdate,
     storage_prefix: Vec<u8>,
     action_receipts: Vec<(AccountId, ActionReceipt)>,
     iters: HashMap<u64, Peekable<TrieUpdateIterator<'a>>>,
@@ -43,7 +43,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
-        trie_update: &'a mut TrieUpdate,
+        trie_update: &'a mut StateUpdate,
         account_id: &'a AccountId,
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
@@ -139,7 +139,7 @@ impl<'a> External for RuntimeExt<'a> {
             // Danger: we're creating a read reference to trie_update while still
             // having a mutable reference.
             // Any function that mutates trie_update must drop all existing iterators first.
-            unsafe { &*(self.trie_update as *const TrieUpdate) }
+            unsafe { &*(self.trie_update as *const StateUpdate) }
                 .iter(&self.create_storage_key(prefix))
                 // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
                 .expect("Error reading from storage")
@@ -152,7 +152,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u64> {
         self.iters.insert(
             self.last_iter_id,
-            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
+            unsafe { &mut *(self.trie_update as *mut StateUpdate) }
                 .range(&self.storage_prefix, start, end)
                 .expect("Error reading from storage")
                 .peekable(),
@@ -361,10 +361,11 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn get_touched_nodes_count(&self) -> u64 {
-        self.trie_update.trie.counter.get()
+        0
+        //        self.trie_update.trie.counter.get()
     }
 
     fn reset_touched_nodes_counter(&mut self) {
-        self.trie_update.trie.counter.reset()
+        //        self.trie_update.trie.counter.reset()
     }
 }

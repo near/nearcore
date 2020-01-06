@@ -7,7 +7,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_store::{StateUpdate, StorageChanges, Trie, TrieState};
 use node_runtime::{ApplyState, Runtime, StateRecord};
 use random_config::random_config;
 use std::collections::HashMap;
@@ -44,9 +44,10 @@ impl StandaloneRuntime {
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
-        let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let trie_update = StateUpdate::from_trie(trie.clone(), MerkleHash::default());
 
-        let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
+        let (store_update, root) =
+            runtime.apply_genesis_state(trie.clone(), trie_update, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -67,12 +68,11 @@ impl StandaloneRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
-        let apply_result = self
-            .runtime
-            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
-            .unwrap();
+        let state = Arc::new(TrieState::new(self.trie.clone(), self.root));
+        let apply_result =
+            self.runtime.apply(state, &None, &self.apply_state, receipts, transactions).unwrap();
 
-        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(self.trie.clone()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

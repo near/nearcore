@@ -7,7 +7,7 @@ use near::GenesisConfig;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, MerkleHash, StateRoot};
 use near_store::test_utils::create_trie;
-use near_store::{Trie, TrieUpdate};
+use near_store::{StateUpdate, Trie};
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 pub fn alice_account() -> AccountId {
@@ -32,8 +32,9 @@ pub fn get_runtime_and_trie_from_genesis(
 ) -> (Runtime, Arc<Trie>, StateRoot) {
     let trie = create_trie();
     let runtime = Runtime::new(genesis_config.runtime_config.clone());
-    let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+    let trie_update = StateUpdate::from_trie(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
+        trie.clone(),
         trie_update,
         &genesis_config
             .validators
@@ -58,10 +59,10 @@ pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, StateRoot) {
     get_runtime_and_trie_from_genesis(&genesis_config)
 }
 
-pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
+pub fn get_test_trie_viewer() -> (TrieViewer, StateUpdate) {
     let (_, trie, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::new();
-    let state_update = TrieUpdate::new(trie, root);
+    let state_update = StateUpdate::from_trie(trie, root);
     (trie_viewer, state_update)
 }
 

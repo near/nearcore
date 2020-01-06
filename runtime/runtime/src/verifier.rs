@@ -14,14 +14,14 @@ use near_primitives::transaction::{
     SignedTransaction,
 };
 use near_primitives::utils::is_valid_account_id;
-use near_store::{get_access_key, get_account, set_access_key, set_account, TrieUpdate};
+use near_store::{get_access_key, get_account, set_access_key, set_account, StateUpdate};
 use near_vm_logic::VMLimitConfig;
 
 /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
 /// and balances, and updates the state for the used account and access keys.
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
-    state_update: &mut TrieUpdate,
+    state_update: &mut StateUpdate,
     apply_state: &ApplyState,
     signed_transaction: &SignedTransaction,
 ) -> Result<VerificationResult, RuntimeError> {
@@ -377,6 +377,7 @@ mod tests {
     };
     use near_primitives::types::{Balance, Gas, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
+    use near_store::StorageChanges;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -391,7 +392,7 @@ mod tests {
         initial_locked: Balance,
         gas_limit: Gas,
         access_key: Option<AccessKey>,
-    ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
+    ) -> (Arc<InMemorySigner>, StateUpdate, ApplyState) {
         let trie = create_trie();
         let root = MerkleHash::default();
 
@@ -399,7 +400,7 @@ mod tests {
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = StateUpdate::from_trie(trie.clone(), root);
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
@@ -408,7 +409,7 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -418,7 +419,7 @@ mod tests {
             block_timestamp: 100,
             gas_limit: Some(gas_limit),
         };
-        (signer, TrieUpdate::new(trie.clone(), root), apply_state)
+        (signer, StateUpdate::from_trie(trie.clone(), root), apply_state)
     }
 
     // Transactions

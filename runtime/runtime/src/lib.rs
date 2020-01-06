@@ -23,8 +23,8 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
-    StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateRoot,
+    ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -34,7 +34,8 @@ use near_primitives::utils::{
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
-    set_receipt, set_received_data, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_receipt, set_received_data, CombinedDBChanges, ReadOnlyState, StateUpdate, StorageChanges,
+    StorageError, StoreUpdate, Trie,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -112,11 +113,10 @@ pub struct ApplyStats {
 
 pub struct ApplyResult {
     pub state_root: StateRoot,
-    pub trie_changes: TrieChanges,
+    pub trie_changes: CombinedDBChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub outgoing_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: StateChanges,
     pub stats: ApplyStats,
 }
 
@@ -220,7 +220,7 @@ impl Runtime {
     /// or a `StorageError` wrapped into `RuntimeError`.
     fn process_transaction(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
@@ -279,7 +279,7 @@ impl Runtime {
     fn apply_action(
         &self,
         action: &Action,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         apply_state: &ApplyState,
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
@@ -404,7 +404,7 @@ impl Runtime {
     // Executes when all Receipt `input_data_ids` are in the state
     fn apply_action_receipt(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
@@ -685,7 +685,7 @@ impl Runtime {
 
     fn process_receipt(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
@@ -815,7 +815,7 @@ impl Runtime {
     /// shard.
     fn update_validator_accounts(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
         stats: &mut ApplyStats,
     ) -> Result<(), RuntimeError> {
@@ -934,15 +934,14 @@ impl Runtime {
     /// receivers) and incoming action receipts.
     pub fn apply(
         &self,
-        trie: Arc<Trie>,
-        root: CryptoHash,
+        state: Arc<dyn ReadOnlyState>,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, RuntimeError> {
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let initial_state = StateUpdate::from_state(state.clone());
+        let mut state_update = StateUpdate::from_state(state);
 
         let mut stats = ApplyStats::default();
 
@@ -983,7 +982,7 @@ impl Runtime {
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         let mut process_receipt = |receipt: &Receipt,
-                                   state_update: &mut TrieUpdate,
+                                   state_update: &mut StateUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
             self.process_receipt(
@@ -1061,24 +1060,22 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
-        let key_value_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
-        let state_root = trie_changes.new_root;
+        let state_root = trie_changes.get_new_root();
         Ok(ApplyResult {
             state_root,
             trie_changes,
             validator_proposals,
             outgoing_receipts,
             outcomes,
-            key_value_changes,
             stats,
         })
     }
 
     // Adds the given receipt into the end of the delayed receipt queue in the state.
     fn delay_receipt(
-        state_update: &mut TrieUpdate,
+        state_update: &mut StateUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         receipt: &Receipt,
     ) -> Result<(), StorageError> {
@@ -1148,7 +1145,8 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
-        mut state_update: TrieUpdate,
+        trie: Arc<Trie>,
+        mut state_update: StateUpdate,
         validators: &[(AccountId, PublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, StateRoot) {
@@ -1236,12 +1234,11 @@ impl Runtime {
             account.locked = *amount;
             set_account(&mut state_update, account_id, &account);
         }
-        let trie = state_update.trie.clone();
         state_update.commit(StateChangeCause::InitialState);
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
-            .into(trie)
+            .into2(trie)
             .expect("Genesis state update failed");
         (store_update, state_root)
     }
@@ -1257,13 +1254,14 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
+    use near_store::TrieState;
 
     const GAS_PRICE: Balance = 100;
 
     #[test]
     fn test_get_and_set_accounts() {
         let trie = create_trie();
-        let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
+        let mut state_update = StateUpdate::from_trie(trie, MerkleHash::default());
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
@@ -1275,14 +1273,15 @@ mod tests {
     fn test_get_account_from_trie() {
         let trie = create_trie();
         let root = MerkleHash::default();
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = StateUpdate::from_trie(trie.clone(), root);
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) =
+            state_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
-        let new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let new_state_update = StateUpdate::from_trie(trie.clone(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -1304,7 +1303,7 @@ mod tests {
         let signer =
             Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = StateUpdate::from_trie(trie.clone(), root);
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
@@ -1316,7 +1315,7 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
-        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1333,7 +1332,8 @@ mod tests {
     #[test]
     fn test_apply_no_op() {
         let (runtime, trie, root, apply_state, _) = setup_runtime(1_000_000, 0, 10_000_000);
-        runtime.apply(trie, root, &None, &apply_state, &[], &[]).unwrap();
+        let state = Arc::new(TrieState::new(trie.clone(), root));
+        runtime.apply(state, &None, &apply_state, &[], &[]).unwrap();
     }
 
     #[test]
@@ -1352,10 +1352,10 @@ mod tests {
             slashing_info: HashMap::default(),
         };
 
+        let state = Arc::new(TrieState::new(trie, root));
         runtime
             .apply(
-                trie,
-                root,
+                state,
                 &Some(validator_accounts_update),
                 &apply_state,
                 &[Receipt::new_refund(&alice_account(), small_refund)],
@@ -1379,12 +1379,13 @@ mod tests {
         // Checking n receipts delayed by 1 + 3 extra
         for i in 1..=n + 3 {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let state = Arc::new(TrieState::new(trie.clone(), root));
             let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+                runtime.apply(state, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = StateUpdate::from_trie(trie.clone(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
             assert_eq!(
@@ -1416,12 +1417,13 @@ mod tests {
         // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
+            let state = Arc::new(TrieState::new(trie.clone(), root));
             let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+                runtime.apply(state, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = StateUpdate::from_trie(trie.clone(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
             assert_eq!(
@@ -1462,12 +1464,13 @@ mod tests {
             apply_state.gas_limit = Some(num_receipts_per_block * receipt_gas_cost);
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             num_receipts_given += prev_receipts.len() as u64;
+            let state = Arc::new(TrieState::new(trie.clone(), root));
             let apply_result =
-                runtime.apply(trie.clone(), root, &None, &apply_state, prev_receipts, &[]).unwrap();
-            let (store_update, new_root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+                runtime.apply(state, &None, &apply_state, prev_receipts, &[]).unwrap();
+            let (store_update, new_root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
             root = new_root;
             store_update.commit().unwrap();
-            let state = TrieUpdate::new(trie.clone(), root);
+            let state = StateUpdate::from_trie(trie.clone(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             assert_eq!(
@@ -1539,17 +1542,11 @@ mod tests {
         // We can process only 3 local TX receipts TX#0, TX#1, TX#2.
         // TX#3 receipt and R#0, R#1 are delayed.
         // The new delayed queue is TX#3, R#0, R#1.
+        let state = Arc::new(TrieState::new(trie.clone(), root));
         let apply_result = runtime
-            .apply(
-                trie.clone(),
-                root,
-                &None,
-                &apply_state,
-                &receipts[0..2],
-                &local_transactions[0..4],
-            )
+            .apply(state, &None, &apply_state, &receipts[0..2], &local_transactions[0..4])
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1570,17 +1567,11 @@ mod tests {
         // We process 1 local receipts for TX#4, then delayed TX#3 receipt and then receipt R#0.
         // R#2 is added to delayed queue.
         // The new delayed queue is R#1, R#2
+        let state = Arc::new(TrieState::new(trie.clone(), root));
         let apply_result = runtime
-            .apply(
-                trie.clone(),
-                root,
-                &None,
-                &apply_state,
-                &receipts[2..3],
-                &local_transactions[4..5],
-            )
+            .apply(state, &None, &apply_state, &receipts[2..3], &local_transactions[4..5])
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1598,17 +1589,11 @@ mod tests {
         // We process 3 local receipts for TX#5, TX#6, TX#7.
         // TX#8 and R#3 are added to delayed queue.
         // The new delayed queue is R#1, R#2, TX#8, R#3
+        let state = Arc::new(TrieState::new(trie.clone(), root));
         let apply_result = runtime
-            .apply(
-                trie.clone(),
-                root,
-                &None,
-                &apply_state,
-                &receipts[3..4],
-                &local_transactions[5..9],
-            )
+            .apply(state, &None, &apply_state, &receipts[3..4], &local_transactions[5..9])
             .unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1629,9 +1614,9 @@ mod tests {
         // We process R#1, R#2, TX#8.
         // R#4 is added to delayed queue.
         // The new delayed queue is R#3, R#4
-        let apply_result =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts[4..5], &[]).unwrap();
-        let (store_update, root) = apply_result.trie_changes.into(trie.clone()).unwrap();
+        let state = Arc::new(TrieState::new(trie.clone(), root));
+        let apply_result = runtime.apply(state, &None, &apply_state, &receipts[4..5], &[]).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into2(trie.clone()).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1647,8 +1632,8 @@ mod tests {
         // STEP #5. Pass no new TXs and 1 receipt R#5.
         // We process R#3, R#4, R#5.
         // The new delayed queue is empty.
-        let apply_result =
-            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts[5..6], &[]).unwrap();
+        let state = Arc::new(TrieState::new(trie.clone(), root));
+        let apply_result = runtime.apply(state, &None, &apply_state, &receipts[5..6], &[]).unwrap();
 
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),

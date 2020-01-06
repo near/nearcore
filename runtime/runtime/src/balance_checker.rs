@@ -16,15 +16,15 @@ use near_primitives::utils::{
     key_for_delayed_receipt, key_for_postponed_receipt_id, system_account,
 };
 use near_runtime_fees::RuntimeFeesConfig;
-use near_store::{get, get_account, get_receipt, TrieUpdate};
+use near_store::{get, get_account, get_receipt, StateUpdate};
 use std::collections::HashSet;
 
 // TODO: Check for balance overflows
 // TODO: Fix StorageError for partial states when looking up something that doesn't exist.
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
-    initial_state: &TrieUpdate,
-    final_state: &TrieUpdate,
+    initial_state: &StateUpdate,
+    final_state: &StateUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
     transactions: &[SignedTransaction],
@@ -229,7 +229,7 @@ mod tests {
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
     use near_store::test_utils::create_trie;
-    use near_store::{set_account, TrieUpdate};
+    use near_store::{set_account, StateUpdate};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;
@@ -244,8 +244,8 @@ mod tests {
     fn test_check_balance_no_op() {
         let trie = create_trie();
         let root = MerkleHash::default();
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let initial_state = StateUpdate::from_trie(trie.clone(), root);
+        let final_state = StateUpdate::from_trie(trie.clone(), root);
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
             &transaction_costs,
@@ -264,8 +264,8 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let trie = create_trie();
         let root = MerkleHash::default();
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let final_state = TrieUpdate::new(trie.clone(), root);
+        let initial_state = StateUpdate::from_trie(trie.clone(), root);
+        let final_state = StateUpdate::from_trie(trie.clone(), root);
         let transaction_costs = RuntimeFeesConfig::default();
         let err = check_balance(
             &transaction_costs,
@@ -290,12 +290,12 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = StateUpdate::from_trie(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let mut final_state = StateUpdate::from_trie(trie.clone(), root);
         let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
         set_account(&mut final_state, &account_id, &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
@@ -332,12 +332,12 @@ mod tests {
             / cfg.burnt_gas_reward.denominator) as Balance
             * gas_price;
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = StateUpdate::from_trie(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = TrieUpdate::new(trie.clone(), root);
+        let mut final_state = StateUpdate::from_trie(trie.clone(), root);
         let final_account = Account::new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
@@ -397,7 +397,7 @@ mod tests {
         let gas_price = 100;
         let deposit = 1000;
 
-        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_state = StateUpdate::from_trie(trie.clone(), root);
         let alice = Account::new(std::u128::MAX, hash(&[]), 0);
         let bob = Account::new(1u128, hash(&[]), 0);
 

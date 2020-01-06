@@ -30,9 +30,7 @@ use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{
-    ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
-};
+use near_store::{ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::chain::{Chain, ChainGenesis};
 use crate::error::{Error, ErrorKind};
@@ -623,11 +621,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.state_size.write().unwrap().insert(state_root.clone(), state_size);
 
         Ok(ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(
+            // trie_changes: WrappedTrieChanges::empty(self.trie.clone(), state_root),
+            trie_changes: WrappedTrieChanges::empty(
                 self.trie.clone(),
-                TrieChanges::empty(state_root),
-                Default::default(),
                 block_hash.clone(),
+                state_root,
             ),
             new_root: state_root,
             outcomes: tx_results,

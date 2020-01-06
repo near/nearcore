@@ -1,28 +1,33 @@
+use crate::flat_db_state::FlatKVState;
+use crate::runtime_state::iterator::StateIterator;
+use crate::runtime_state::state::{PersistentState, ReadOnlyState, ValueRef};
+use crate::runtime_state::state_changes::StorageChanges;
+use crate::runtime_state::state_trie::TrieState;
+use crate::{CombinedDBChanges, TrieChanges};
+use near_primitives::hash::CryptoHash;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::{StateChangeCause, StateChanges};
 
-use crate::trie::TrieChanges;
 use crate::StorageError;
 
-use super::{Trie, TrieIterator};
+use crate::Trie;
+//use super::{Trie, TrieIterator};
 
 /// key that was updated -> the update.
-pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+pub type ProspectiveUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 
 /// Provides a way to access Storage and record changes with future commit.
-pub struct TrieUpdate {
-    pub trie: Arc<Trie>,
-    root: CryptoHash,
+pub struct StateUpdate {
+    pub state: Arc<dyn ReadOnlyState>,
     committed: StateChanges,
-    prospective: TrieUpdates,
+    prospective: ProspectiveUpdates,
 }
 
 pub enum TrieUpdateValuePtr<'a> {
-    HashAndSize(&'a Trie, u32, CryptoHash),
+    HashAndSize(&'a dyn ReadOnlyState, u32, CryptoHash),
     MemoryRef(&'a Vec<u8>),
 }
 
@@ -37,7 +42,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
-            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.retrieve_raw_bytes(hash),
+            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => trie.deref(hash),
         }
     }
 }
@@ -46,33 +51,40 @@ impl<'a> TrieUpdateValuePtr<'a> {
 /// trie update.
 pub type PrefixKeyValueChanges = HashMap<Vec<u8>, HashMap<Vec<u8>, Option<Vec<u8>>>>;
 
-impl TrieUpdate {
-    pub fn new(trie: Arc<Trie>, root: CryptoHash) -> Self {
-        TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
+impl StateUpdate {
+    pub fn from_state(state: Arc<dyn ReadOnlyState>) -> Self {
+        StateUpdate { state, committed: BTreeMap::default(), prospective: BTreeMap::default() }
+    }
+    pub fn from_trie(trie: Arc<Trie>, root: CryptoHash) -> Self {
+        let trie = TrieState { trie, root };
+        let flat_state = FlatKVState {};
+        let state = PersistentState { trie, flat_state };
+        StateUpdate::from_state(Arc::new(state))
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
             return Ok(value.as_ref().map(<Vec<u8>>::clone));
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(<Vec<u8>>::clone));
-            }
+            let (_, last_change) = changes.last().expect("changes are never empty");
+            return Ok(last_change.as_ref().map(<Vec<u8>>::clone));
         }
 
-        self.trie.get(&self.root, key)
+        self.state.get(key)
     }
 
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<TrieUpdateValuePtr>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
-            return Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            Ok(value.as_ref().map(TrieUpdateValuePtr::MemoryRef))
         } else if let Some(changes) = self.committed.get(key) {
-            if let Some((_, last_change)) = changes.last() {
-                return Ok(last_change.as_ref().map(TrieUpdateValuePtr::MemoryRef));
-            }
+            let (_, last_change) = changes.last().expect("changes are never empty");
+            Ok(last_change.as_ref().map(TrieUpdateValuePtr::MemoryRef))
+        } else {
+            self.state.get_ref(key).map(|option| {
+                option.map(|ValueRef((length, hash))| {
+                    TrieUpdateValuePtr::HashAndSize(self.state.as_ref(), length, hash)
+                })
+            })
         }
-        self.trie.get_ref(&self.root, key).map(|option| {
-            option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
-        })
     }
 
     /// Get values in trie update for a set of keys.
@@ -147,19 +159,16 @@ impl TrieUpdate {
         self.prospective.clear();
     }
 
-    pub fn finalize(self) -> Result<TrieChanges, StorageError> {
+    pub fn finalize(self) -> Result<CombinedDBChanges, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, root, committed, .. } = self;
-        trie.update(
-            &root,
-            committed.iter().map(|(k, changes)| {
-                let (_, last_change) = &changes
-                    .last()
-                    .as_ref()
-                    .expect("Committed entry should have at least one change");
-                (k.clone(), last_change.clone())
-            }),
-        )
+        let StateUpdate { state, committed, .. } = self;
+        let iter = Box::new(committed.iter().map(|(k, changes)| {
+            let (_, last_change) =
+                &changes.last().as_ref().expect("Committed entry should have at least one change");
+            (k.clone(), last_change.clone())
+        }));
+        let trie_changes = state.get_trie_state().expect("always have a trie").update(iter)?;
+        Ok(CombinedDBChanges { trie_changes, kv_changes: committed })
     }
 
     /// Returns Error if the underlying storage fails
@@ -177,7 +186,7 @@ impl TrieUpdate {
     }
 
     pub fn get_root(&self) -> CryptoHash {
-        self.root
+        self.state.state_root()
     }
 }
 
@@ -213,19 +222,19 @@ impl<'a> Iterator for MergeIter<'a> {
 pub struct TrieUpdateIterator<'a> {
     prefix: Vec<u8>,
     end_offset: Option<Vec<u8>>,
-    trie_iter: Peekable<TrieIterator<'a>>,
+    trie_iter: Peekable<Box<dyn StateIterator + 'a>>,
     overlay_iter: Peekable<MergeIter<'a>>,
 }
 
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     pub fn new(
-        state_update: &'a TrieUpdate,
+        state_update: &'a StateUpdate,
         prefix: &[u8],
         start: &[u8],
         end: Option<&[u8]>,
     ) -> Result<Self, StorageError> {
-        let mut trie_iter = state_update.trie.iter(&state_update.root)?;
+        let mut trie_iter = state_update.state.iter()?;
         let mut start_offset = prefix.to_vec();
         start_offset.extend_from_slice(start);
         let end_offset = match end {
@@ -351,20 +360,21 @@ mod tests {
     use crate::test_utils::create_trie;
 
     use super::*;
+    use crate::runtime_state::state_changes::StorageChanges;
+    use crate::runtime_state::state_trie::TrieState;
 
     #[test]
     fn trie() {
         let trie = create_trie();
-        let root = CryptoHash::default();
-        let mut trie_update = TrieUpdate::new(trie.clone(), root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
-        let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
+        let trie_update2 = StateUpdate::from_trie(trie.clone(), new_root);
         assert_eq!(trie_update2.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         let mut values = vec![];
         trie_update2.for_keys_with_prefix(b"dog", |key| values.push(key.to_vec())).unwrap();
@@ -376,37 +386,37 @@ mod tests {
         let trie = create_trie();
 
         // Delete non-existing element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), CryptoHash::default());
         trie_update.remove(b"dog");
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add and right away delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.remove(b"dog");
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
 
         // Add, apply changes and then delete element.
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), new_root);
         trie_update.remove(b"dog");
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
     }
@@ -414,15 +424,15 @@ mod tests {
     #[test]
     fn trie_iter() {
         let trie = create_trie();
-        let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"aaa".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
+        let (store_update, new_root) = trie_update.finalize().unwrap().into2(trie.clone()).unwrap();
         store_update.commit().ok();
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
 
@@ -434,13 +444,13 @@ mod tests {
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), new_root);
         trie_update.remove(b"dog");
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.unwrap().len(), 0);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
@@ -449,7 +459,7 @@ mod tests {
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values.unwrap(), vec![b"dog".to_vec()]);
 
-        let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
+        let mut trie_update = StateUpdate::from_trie(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });

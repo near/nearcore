@@ -14,7 +14,7 @@ use near_primitives::views::{
     ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_store::{Trie, TrieUpdate};
+use near_store::{StateUpdate, StorageChanges, Trie, TrieState};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -32,8 +32,8 @@ pub struct MockClient {
 }
 
 impl MockClient {
-    pub fn get_state_update(&self) -> TrieUpdate {
-        TrieUpdate::new(self.trie.clone(), self.state_root)
+    pub fn get_state_update(&self) -> StateUpdate {
+        StateUpdate::from_trie(self.trie.clone(), self.state_root)
     }
 }
 
@@ -75,9 +75,10 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
+            let state = Arc::new(TrieState::new(client.trie.clone(), client.state_root));
             let apply_result = client
                 .runtime
-                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
+                .apply(state, &None, &apply_state, &receipts, &txs)
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
                         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
@@ -93,7 +94,7 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
+            apply_result.trie_changes.into2(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());
