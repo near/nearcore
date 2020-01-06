@@ -632,6 +632,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root),
+                Default::default(),
             ),
             new_root: state_root,
             outcomes: tx_results,

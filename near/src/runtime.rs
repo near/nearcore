@@ -34,8 +34,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
-    TrieUpdateEvent, WrappedTrieChanges,
+    get_access_key_raw, ColState, KVChangeCause, PartialStorage, Store, StoreUpdate, Trie,
+    TrieUpdate, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -320,7 +320,11 @@ impl NightshadeRuntime {
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
+            trie_changes: WrappedTrieChanges::new(
+                self.trie.clone(),
+                apply_result.trie_changes,
+                apply_result.key_value_changes,
+            ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
             receipt_result,
@@ -746,7 +750,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit(TrieUpdateEvent::NonFinalizable);
+                                state_update.commit(KVChangeCause::NonFinalizable);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;
@@ -1237,6 +1241,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
+            result.trie_changes.key_value_changes_into(block_hash, &mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }

@@ -13,6 +13,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{StateRoot, StateRootNode};
 
+use crate::db::DBCol::ColKeyValueChanges;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -20,7 +21,9 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
+use crate::trie::update::KVChanges;
 use crate::{ColState, StorageError, Store, StoreUpdate};
+use borsh::BorshSerialize;
 
 mod insert_delete;
 pub mod iterator;
@@ -520,11 +523,12 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
+    kv_changes: KVChanges,
 }
 
 impl WrappedTrieChanges {
-    pub fn new(trie: Arc<Trie>, trie_changes: TrieChanges) -> Self {
-        WrappedTrieChanges { trie, trie_changes }
+    pub fn new(trie: Arc<Trie>, trie_changes: TrieChanges, kv_changes: KVChanges) -> Self {
+        WrappedTrieChanges { trie, trie_changes, kv_changes }
     }
 
     pub fn insertions_into(
@@ -539,6 +543,22 @@ impl WrappedTrieChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
+    }
+
+    pub fn key_value_changes_into(
+        &self,
+        block_hash: &CryptoHash,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        store_update.trie = Some(self.trie.clone());
+        for (key, changes) in &self.kv_changes {
+            let mut storage_key = Vec::with_capacity(block_hash.as_ref().len() + key.len());
+            storage_key.extend_from_slice(block_hash.as_ref());
+            storage_key.extend_from_slice(key);
+            let value = changes.try_to_vec()?;
+            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
+        }
+        Ok(())
     }
 }
 

@@ -2,15 +2,18 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::TrieChanges;
-
-use super::{Trie, TrieIterator};
 use crate::StorageError;
 
+use super::{Trie, TrieIterator};
+
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-pub enum TrieUpdateEvent {
+#[derive(BorshSerialize, BorshDeserialize)]
+pub enum KVChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
     /// change will lead to panic.
@@ -33,13 +36,13 @@ pub enum TrieUpdateEvent {
 /// key that was updated -> the update.
 pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 /// key that was updated -> list of updates with the corresponding indexing event.
-pub type TrieUpdatesPerEvent = BTreeMap<Vec<u8>, Vec<(TrieUpdateEvent, Option<Vec<u8>>)>>;
+pub type KVChanges = BTreeMap<Vec<u8>, Vec<(KVChangeCause, Option<Vec<u8>>)>>;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
     root: CryptoHash,
-    committed: TrieUpdatesPerEvent,
+    committed: KVChanges,
     prospective: TrieUpdates,
 }
 
@@ -123,6 +126,10 @@ impl TrieUpdate {
         Ok(res)
     }
 
+    pub fn committed_updates_per_cause(&self) -> &KVChanges {
+        &self.committed
+    }
+
     pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.prospective.insert(key, Some(value));
     }
@@ -155,7 +162,7 @@ impl TrieUpdate {
         Ok(())
     }
 
-    pub fn commit(&mut self, event: TrieUpdateEvent) {
+    pub fn commit(&mut self, event: KVChangeCause) {
         for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
             self.committed.entry(key).or_default().push((event, val));
         }
@@ -201,7 +208,7 @@ impl TrieUpdate {
     }
 }
 
-struct MergeIter<I1, I2> {
+struct MergeIter<I1: Iterator, I2: Iterator> {
     left: Peekable<I1>,
     right: Peekable<I2>,
 }
@@ -234,8 +241,10 @@ where
     }
 }
 
-type MergeBTreeRange<'a> =
-    MergeIter<'a, std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>>;
+type MergeBTreeRange<'a> = MergeIter<
+    std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
+    std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
+>;
 
 pub struct TrieUpdateIterator<'a> {
     prefix: Vec<u8>,
