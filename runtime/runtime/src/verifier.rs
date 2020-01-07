@@ -344,7 +344,152 @@ fn validate_delete_account_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::receipt::DataReceiver;
+    use near_primitives::transaction::{
+        CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+    };
     use testlib::runtime_utils::alice_account;
+
+    // Receipts
+
+    #[test]
+    fn test_validate_receipt_valid() {
+        let limit_config = VMLimitConfig::default();
+        validate_receipt(&limit_config, &Receipt::new_refund(&alice_account(), 10))
+            .expect("valid receipt");
+    }
+
+    #[test]
+    fn test_validate_receipt_incorrect_predecessor_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        let mut receipt = Receipt::new_refund(&alice_account(), 10);
+        receipt.predecessor_id = invalid_account_id.clone();
+        assert_eq!(
+            validate_receipt(&limit_config, &receipt).expect_err("expected an error"),
+            ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_receipt_incorrect_receiver_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_receipt(&limit_config, &Receipt::new_refund(&invalid_account_id, 10))
+                .expect_err("expected an error"),
+            ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
+        );
+    }
+
+    // ActionReceipt
+
+    #[test]
+    fn test_validate_action_receipt_invalid_signer_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_action_receipt(
+                &limit_config,
+                &ActionReceipt {
+                    signer_id: invalid_account_id.clone(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![]
+                }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::InvalidSignerId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_action_receipt_invalid_data_receiver_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_action_receipt(
+                &limit_config,
+                &ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![DataReceiver {
+                        data_id: CryptoHash::default(),
+                        receiver_id: invalid_account_id.clone(),
+                    }],
+                    input_data_ids: vec![],
+                    actions: vec![]
+                }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::InvalidDataReceiverId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_action_receipt_too_many_input_deps() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_number_input_data_dependencies = 1;
+        assert_eq!(
+            validate_action_receipt(
+                &limit_config,
+                &ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![CryptoHash::default(), CryptoHash::default()],
+                    actions: vec![]
+                }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::NumberInputDataDependenciesExceeded { number: 2, limit: 1 }
+        );
+    }
+
+    // DataReceipt
+
+    #[test]
+    fn test_validate_data_receipt_valid() {
+        let limit_config = VMLimitConfig::default();
+        validate_data_receipt(
+            &limit_config,
+            &DataReceipt { data_id: CryptoHash::default(), data: None },
+        )
+        .expect("valid data receipt");
+        let data = b"hello".to_vec();
+        validate_data_receipt(
+            &limit_config,
+            &DataReceipt { data_id: CryptoHash::default(), data: Some(data) },
+        )
+        .expect("valid data receipt");
+    }
+
+    #[test]
+    fn test_validate_data_receipt_too_much_data() {
+        let mut limit_config = VMLimitConfig::default();
+        let data = b"hello".to_vec();
+        limit_config.max_length_returned_data = data.len() as u64 - 1;
+        assert_eq!(
+            validate_data_receipt(
+                &limit_config,
+                &DataReceipt { data_id: CryptoHash::default(), data: Some(data.clone()) }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::ReturnedValueLengthExceeded {
+                length: data.len() as u64,
+                limit: limit_config.max_length_returned_data
+            }
+        );
+    }
+
+    // Group of actions
 
     #[test]
     fn test_validate_actions_empty() {
@@ -353,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_actions_function_call() {
+    fn test_validate_actions_valid_function_call() {
         let limit_config = VMLimitConfig::default();
         validate_actions(
             &limit_config,
@@ -368,33 +513,168 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_receipt_incorrect_predecessor_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
-        let mut receipt = Receipt::new_refund(&alice_account(), 10);
-        receipt.predecessor_id = invalid_account_id.clone();
+    fn test_validate_actions_too_much_gas() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
-            validate_receipt(&limit_config, &receipt).unwrap_err(),
-            ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 100,
+                        deposit: 0,
+                    }),
+                    Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 150,
+                        deposit: 0,
+                    })
+                ]
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas: 250, limit: 220 }
         );
     }
 
     #[test]
-    fn test_validate_receipt_incorrect_receiver_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
+    fn test_validate_actions_gas_overflow() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
-            validate_receipt(&limit_config, &Receipt::new_refund(&invalid_account_id, 10))
-                .unwrap_err(),
-            ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: u64::max_value() / 2 + 1,
+                        deposit: 0,
+                    }),
+                    Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: u64::max_value() / 2 + 1,
+                        deposit: 0,
+                    })
+                ]
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::IntegerOverflow,
         );
     }
 
     #[test]
-    fn test_validate_receipt_valid() {
-        let limit_config = VMLimitConfig::default();
-        validate_receipt(&limit_config, &Receipt::new_refund(&alice_account(), 10)).unwrap();
+    fn test_validate_actions_num_actions() {
+        let mut limit_config = VMLimitConfig::default();
+        limit_config.max_actions_per_receipt = 1;
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::CreateAccount(CreateAccountAction {}),
+                ]
+            )
+            .expect_err("Expected an error"),
+            ActionsValidationError::TotalNumberOfActionsExceeded {
+                total_number_of_actions: 2,
+                limit: 1
+            },
+        );
     }
 
-    // TODO(#1692): Add more tests
+    // Individual actions
+
+    #[test]
+    fn test_validate_action_valid_create_account() {
+        validate_action(&VMLimitConfig::default(), &Action::CreateAccount(CreateAccountAction {}))
+            .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_function_call() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::FunctionCall(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 100,
+                deposit: 0,
+            }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_transfer() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::Transfer(TransferAction { deposit: 10 }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_stake() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::Stake(StakeAction {
+                stake: 100,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_add_key_full_permission() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::AddKey(AddKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: AccessKey::full_access(),
+            }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_add_key_function_call() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::AddKey(AddKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: AccessKey {
+                    nonce: 0,
+                    permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                        allowance: Some(1000),
+                        receiver_id: alice_account(),
+                        method_names: vec!["hello".to_string(), "world".to_string()],
+                    }),
+                },
+            }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_delete_key() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::DeleteKey(DeleteKeyAction { public_key: PublicKey::empty(KeyType::ED25519) }),
+        )
+        .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_valid_delete_account() {
+        validate_action(
+            &VMLimitConfig::default(),
+            &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+        )
+        .expect("valid action");
+    }
 }
