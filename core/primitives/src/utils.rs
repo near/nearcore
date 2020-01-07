@@ -280,16 +280,14 @@ pub fn generate_random_string(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
 }
 
-pub struct Serializable<'a, T> {
-    object: &'a T,
-}
+pub struct Serializable<'a, T>(&'a T);
 
 impl<'a, T> fmt::Display for Serializable<'a, T>
 where
     T: serde::Serialize,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", serde_json::to_string(&self.object).unwrap())
+        write!(f, "{:?}", serde_json::to_string(&self.0).unwrap())
     }
 }
 
@@ -305,8 +303,9 @@ pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
 where
     T: serde::Serialize,
 {
-    Serializable { object }
+    Serializable(object)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
