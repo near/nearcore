@@ -230,7 +230,6 @@ impl EncodedShardChunk {
         signer: &dyn Signer,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
-        let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];
         let encoded_length = bytes.len();
@@ -267,8 +266,6 @@ impl EncodedShardChunk {
             validator_proposals,
             encoded_length as u64,
             parts,
-            data_parts,
-            parity_parts,
             rs,
             signer,
         );
@@ -293,8 +290,6 @@ impl EncodedShardChunk {
         encoded_length: u64,
         parts: Vec<Option<Box<[u8]>>>,
 
-        data_shards: usize,
-        parity_shards: usize,
         rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
 
         signer: &dyn Signer,

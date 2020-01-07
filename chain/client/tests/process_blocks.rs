@@ -98,7 +98,6 @@ fn produce_blocks_with_tx() {
 
                     if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
                         data_parts,
-                        total_parts,
                         &mut encoded_chunks[height - 2],
                         &rs,
                     ) {

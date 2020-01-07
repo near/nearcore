@@ -512,11 +512,9 @@ impl ShardsManager {
 
     pub fn check_chunk_complete(
         data_parts: usize,
-        total_parts: usize,
         chunk: &mut EncodedShardChunk,
         rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> ChunkStatus {
-        let parity_parts = total_parts - data_parts;
         if chunk.content.num_fetched_parts() >= data_parts {
             if let Ok(_) = chunk.content.reconstruct(rs) {
                 let (merkle_root, merkle_paths) = chunk.content.get_merkle_hash_and_paths();
@@ -559,7 +557,6 @@ impl ShardsManager {
     ) -> Result<bool, Error> {
         match ShardsManager::check_chunk_complete(
             self.runtime_adapter.num_data_parts(),
-            self.runtime_adapter.num_total_parts(),
             &mut encoded_chunk,
             rs,
         ) {
