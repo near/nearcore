@@ -8,13 +8,13 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::unwrap_option_or_return;
-use near_primitives::utils::DisplayOption;
+use near_primitives::utils::{ser, DisplayOption};
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -199,6 +199,9 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
+
+        trace!(target: "diagnostic", key="tx", msg=%ser(&msg));
+
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
@@ -446,7 +449,7 @@ impl Peer {
                 match res {
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
-                        // TODO: count as malicious behaviour?
+                        // TODO: count as malicious behavior?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.ban_peer(ctx, ban_reason);
@@ -525,6 +528,8 @@ impl StreamHandler<Vec<u8>> for Peer {
                 return;
             }
         };
+
+        trace!(target: "diagnostic", key="rx", length=msg.len(), msg=%ser(&peer_msg));
 
         peer_msg.record(msg.len());
 
@@ -800,8 +805,9 @@ impl Handler<PeerManagerRequest> for Peer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use near_primitives::hash::hash;
+
+    use super::*;
 
     #[test]
     #[should_panic]
