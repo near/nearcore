@@ -118,7 +118,7 @@ pub struct ApplyResult {
 }
 
 /// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Default, BorshSerialize, BorshDeserialize)]
 pub struct DelayedReceiptIndices {
     // First inclusive index in the queue.
     first_index: u64,
