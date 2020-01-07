@@ -242,9 +242,9 @@ impl Default for ExecutionStatus {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default)]
 struct PartialExecutionOutcome {
-    pub status: ExecutionStatus,
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
+    pub status: ExecutionStatus,
 }
 
 /// Execution outcome for one signed transaction or one receipt.
@@ -265,9 +265,9 @@ impl ExecutionOutcome {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = vec![hash(
             &PartialExecutionOutcome {
-                status: self.status.clone(),
                 receipt_ids: self.receipt_ids.clone(),
                 gas_burnt: self.gas_burnt,
+                status: self.status.clone(),
             }
             .try_to_vec()
             .expect("Failed to serialize"),
@@ -282,10 +282,10 @@ impl ExecutionOutcome {
 impl fmt::Debug for ExecutionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
-            .field("status", &self.status)
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))
             .field("burnt_gas", &self.gas_burnt)
+            .field("status", &self.status)
             .finish()
     }
 }
@@ -297,6 +297,7 @@ impl fmt::Debug for ExecutionOutcome {
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
+    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
     pub outcome: ExecutionOutcome,
 }
 
