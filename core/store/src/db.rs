@@ -81,6 +81,7 @@ pub enum DBCol {
     LastComponentNonce = 33,
     // Transactions
     ColTransactions = 34,
+    ColChunkPerHeightShard = 35,
 }
 
 impl std::fmt::Display for DBCol {
@@ -121,12 +122,13 @@ impl std::fmt::Display for DBCol {
             Self::ColComponentEdges => "component edges",
             Self::LastComponentNonce => "last component nonce",
             Self::ColTransactions => "transactions",
+            Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 35;
+const NUM_COLS: usize = 36;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
