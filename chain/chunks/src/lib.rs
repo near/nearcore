@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error};
 use rand::seq::SliceRandom;
+use reed_solomon_erasure::ReedSolomon;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
@@ -513,10 +514,11 @@ impl ShardsManager {
         data_parts: usize,
         total_parts: usize,
         chunk: &mut EncodedShardChunk,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> ChunkStatus {
         let parity_parts = total_parts - data_parts;
         if chunk.content.num_fetched_parts() >= data_parts {
-            if let Ok(_) = chunk.content.reconstruct(data_parts, parity_parts) {
+            if let Ok(_) = chunk.content.reconstruct(rs) {
                 let (merkle_root, merkle_paths) = chunk.content.get_merkle_hash_and_paths();
                 if merkle_root == chunk.header.inner.encoded_merkle_root {
                     ChunkStatus::Complete(merkle_paths)
@@ -553,11 +555,13 @@ impl ShardsManager {
         &mut self,
         mut encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> Result<bool, Error> {
         match ShardsManager::check_chunk_complete(
             self.runtime_adapter.num_data_parts(),
             self.runtime_adapter.num_total_parts(),
             &mut encoded_chunk,
+            rs,
         ) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
@@ -576,6 +580,7 @@ impl ShardsManager {
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
         chain_store: &mut ChainStore,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
 
@@ -723,7 +728,7 @@ impl ShardsManager {
             }
 
             let successfully_decoded =
-                self.decode_and_persist_encoded_chunk_if_complete(encoded_chunk, chain_store)?;
+                self.decode_and_persist_encoded_chunk_if_complete(encoded_chunk, chain_store, rs)?;
 
             assert!(successfully_decoded);
 
@@ -798,6 +803,7 @@ impl ShardsManager {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn Signer,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts();
         let data_parts = self.runtime_adapter.num_data_parts();
@@ -809,6 +815,7 @@ impl ShardsManager {
             shard_id,
             total_parts,
             data_parts,
+            rs,
             gas_used,
             gas_limit,
             rent_paid,

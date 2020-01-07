@@ -415,6 +415,8 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
+    use reed_solomon_erasure::ReedSolomon;
+
     let store1 = create_test_store();
     let genesis_config = GenesisConfig::test(vec!["test0", "test1"], 1);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
@@ -444,6 +446,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
+    let rs = ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_parts, parity_parts)
+        .unwrap();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -463,6 +467,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &signer,
+            rs,
         )
         .unwrap();
 

@@ -183,12 +183,8 @@ impl EncodedShardChunkBody {
     /// Returns true if reconstruction was successful
     pub fn reconstruct(
         &mut self,
-        data_shards: usize,
-        parity_shards: usize,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
     ) -> Result<(), reed_solomon_erasure::Error> {
-        let rs =
-            ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_shards, parity_shards)
-                .unwrap();
         rs.reconstruct(self.parts.as_mut_slice())
     }
 
@@ -219,6 +215,7 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         total_parts: usize,
         data_parts: usize,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
@@ -272,6 +269,7 @@ impl EncodedShardChunk {
             parts,
             data_parts,
             parity_parts,
+            rs,
             signer,
         );
         Ok((new_chunk, merkle_paths))
@@ -297,11 +295,12 @@ impl EncodedShardChunk {
 
         data_shards: usize,
         parity_shards: usize,
+        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
 
         signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
-        content.reconstruct(data_shards, parity_shards).unwrap();
+        content.reconstruct(rs).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         let header = ShardChunkHeader::new(
             prev_block_hash,
