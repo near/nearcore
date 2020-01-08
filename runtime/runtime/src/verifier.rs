@@ -344,14 +344,624 @@ fn validate_delete_account_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_crypto::{KeyType, PublicKey};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
-    use near_primitives::hash::CryptoHash;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
+    use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
-    use testlib::runtime_utils::alice_account;
+    use near_primitives::types::{Balance, Gas, MerkleHash};
+    use near_store::test_utils::create_trie;
+    use std::sync::Arc;
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+
+    /// Initial balance used in tests.
+    const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+
+    /// One NEAR, divisible by 10^24.
+    const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
+    fn setup_common(
+        initial_balance: Balance,
+        initial_locked: Balance,
+        gas_limit: Gas,
+        access_key: Option<AccessKey>,
+    ) -> (Arc<InMemorySigner>, TrieUpdate, ApplyState) {
+        let trie = create_trie();
+        let root = MerkleHash::default();
+
+        let account_id = alice_account();
+        let signer =
+            Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+
+        let mut initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
+        initial_account.locked = initial_locked;
+        set_account(&mut initial_state, &account_id, &initial_account);
+        if let Some(access_key) = access_key {
+            set_access_key(&mut initial_state, &account_id, &signer.public_key(), &access_key);
+        }
+        let trie_changes = initial_state.finalize().unwrap();
+        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        store_update.commit().unwrap();
+
+        let apply_state = ApplyState {
+            block_index: 0,
+            epoch_length: 3,
+            gas_price: 100,
+            block_timestamp: 100,
+            gas_limit: Some(gas_limit),
+        };
+        (signer, TrieUpdate::new(trie.clone(), root), apply_state)
+    }
+
+    // Transactions
+
+    #[test]
+    fn test_validate_transaction_valid() {
+        let mut config = RuntimeConfig::default();
+        let account_10_char_base_cost = 123;
+        config.account_length_baseline_cost_per_block = 3u128.pow(8) * account_10_char_base_cost;
+        let (signer, mut state_update, mut apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+        apply_state.block_index = 5;
+
+        let deposit = 100;
+        let verification_result = verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            &apply_state,
+            &SignedTransaction::send_money(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signer,
+                deposit,
+                CryptoHash::default(),
+            ),
+        )
+        .expect("valid transaction");
+        // Should not be free. Burning for sending
+        assert!(verification_result.gas_burnt > 0);
+        // Transfer action is not free, so execution cost is added on top.
+        assert!(verification_result.gas_used > verification_result.gas_burnt);
+        // All burned gas goes to the validators at current gas price
+        assert_eq!(
+            verification_result.validator_reward,
+            Balance::from(verification_result.gas_burnt) * apply_state.gas_price
+        );
+
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        // Rent is just the 10 char account ID length rent. Storage for this test is 0.
+        let rent = account_10_char_base_cost * Balance::from(apply_state.block_index);
+        // Balance is decreased by the (TX fees + transfer balance + rent).
+        assert_eq!(
+            account.amount,
+            TESTING_INIT_BALANCE
+                - Balance::from(verification_result.gas_used) * apply_state.gas_price
+                - deposit
+                - rent
+        );
+        // Check that the paid rent time was updated.
+        assert_eq!(account.storage_paid_at, apply_state.block_index);
+
+        let access_key =
+            get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
+        assert_eq!(access_key.nonce, 1);
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_signer_id() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    invalid_account_id.clone(),
+                    bob_account(),
+                    &*signer,
+                    100,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidSigner(invalid_account_id))
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_receiver_id() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    invalid_account_id.clone(),
+                    &*signer,
+                    100,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidReceiver(invalid_account_id))
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_signature() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        let mut tx = SignedTransaction::send_money(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            100,
+            CryptoHash::default(),
+        );
+        tx.signature = signer.sign(CryptoHash::default().as_ref());
+
+        assert_eq!(
+            verify_and_charge_transaction(&config, &mut state_update, &apply_state, &tx)
+                .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_access_key_not_found() {
+        let config = RuntimeConfig::default();
+        let (bad_signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, None);
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*bad_signer,
+                    100,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::AccessKeyNotFound(alice_account(), bad_signer.public_key())
+            ))
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_bad_action() {
+        let mut config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        config.wasm_config.limit_config.max_total_prepaid_gas = 100;
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 200,
+                        deposit: 0,
+                    })],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::ActionsValidation(
+                ActionsValidationError::TotalPrepaidGasExceeded {
+                    total_prepaid_gas: 200,
+                    limit: 100
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_bad_signer() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    bob_account(),
+                    alice_account(),
+                    &*signer,
+                    100,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::SignerDoesNotExist(bob_account())),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_bad_nonce() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    100,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidNonce(1, 2)),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_balance_overflow() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    u128::max_value(),
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::CostOverflow),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_not_enough_balance() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        let err = verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            &apply_state,
+            &SignedTransaction::send_money(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signer,
+                TESTING_INIT_BALANCE,
+                CryptoHash::default(),
+            ),
+        )
+        .expect_err("expected an error");
+        if let RuntimeError::InvalidTxError(InvalidTxError::NotEnoughBalance(
+            account_id,
+            actual_balance,
+            required_balance,
+        )) = err
+        {
+            assert_eq!(account_id, alice_account());
+            assert_eq!(actual_balance, TESTING_INIT_BALANCE);
+            assert!(required_balance > actual_balance);
+        } else {
+            panic!("Incorrect error");
+        }
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_not_enough_allowance() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: bob_account(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        let err = verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            &apply_state,
+            &SignedTransaction::from_actions(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::FunctionCall(FunctionCallAction {
+                    method_name: "hello".to_string(),
+                    args: b"abc".to_vec(),
+                    gas: 300,
+                    deposit: 0,
+                })],
+                CryptoHash::default(),
+            ),
+        )
+        .expect_err("expected an error");
+        if let RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+            InvalidAccessKeyError::NotEnoughAllowance(
+                account_id,
+                public_key,
+                actual_allowance,
+                required_balance,
+            ),
+        )) = err
+        {
+            assert_eq!(account_id, alice_account());
+            assert_eq!(public_key, signer.public_key());
+            assert_eq!(actual_allowance, 100);
+            assert!(required_balance > actual_allowance);
+        } else {
+            panic!("Incorrect error");
+        }
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_rent_unpaid() {
+        let mut config = RuntimeConfig::free();
+        config.account_length_baseline_cost_per_block = 3u128.pow(8);
+        config.poke_threshold = 3;
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        // The logic is the following:
+        // Account `alice.near` is 10 characters, so the rent for the account length is 1 per block.
+        // Poke threshold is 3. We're trying to send all but 1 token.
+        // The rent due is 3 versus the remaining balance 1.
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    TESTING_INIT_BALANCE - 1,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::RentUnpaid(
+                alice_account(),
+                config.poke_threshold as u128
+            ))
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_actions_for_function_call() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![
+                        Action::FunctionCall(FunctionCallAction {
+                            method_name: "hello".to_string(),
+                            args: b"abc".to_vec(),
+                            gas: 100,
+                            deposit: 0,
+                        }),
+                        Action::CreateAccount(CreateAccountAction {})
+                    ],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::ActionError
+            )),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::ActionError
+            )),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![Action::CreateAccount(CreateAccountAction {})],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::ActionError
+            )),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_receiver_for_function_call() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    eve_dot_alice_account(),
+                    &*signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 100,
+                        deposit: 0,
+                    }),],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::ReceiverMismatch(eve_dot_alice_account(), bob_account())
+            )),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_method_name_for_function_call() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account(),
+                    method_names: vec!["not_hello".to_string(), "world".to_string()],
+                }),
+            }),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 100,
+                        deposit: 0,
+                    }),],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::MethodNameMismatch("hello".to_string())
+            )),
+        );
+    }
 
     // Receipts
 
@@ -505,7 +1115,7 @@ mod tests {
             &vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
-                gas: 10u64.pow(12),
+                gas: 100,
                 deposit: 0,
             })],
         )
