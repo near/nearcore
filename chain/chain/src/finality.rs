@@ -2,7 +2,7 @@ use crate::error::{Error, ErrorKind};
 use crate::{ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::{Approval, BlockHeader, BlockHeaderInnerRest, Weight};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
 use std::collections::{HashMap, HashSet};
 
 // How many blocks back to search for a new reference hash when the chain switches and the block
@@ -175,7 +175,7 @@ impl FinalityGadget {
     pub fn compute_quorums(
         mut prev_hash: CryptoHash,
         epoch_id: EpochId,
-        mut height: BlockIndex,
+        mut height: BlockHeight,
         mut approvals: Vec<Approval>,
         chain_store: &mut dyn ChainStoreAccess,
         stakes: &Vec<ValidatorStake>,

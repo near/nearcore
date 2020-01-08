@@ -8,7 +8,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
@@ -16,7 +16,7 @@ use std::cmp::{max, Ordering};
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block since the genesis block (height 0).
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     /// Epoch start hash of this block's epoch.
     /// Used for retrieving validator information
     pub epoch_id: EpochId,
@@ -71,7 +71,7 @@ pub struct BlockHeaderInnerRest {
 
 impl BlockHeaderInnerLite {
     pub fn new(
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         prev_state_root: MerkleHash,
@@ -235,7 +235,7 @@ impl BlockHeader {
     }
 
     pub fn new(
-        height: BlockIndex,
+        height: BlockHeight,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
@@ -367,7 +367,7 @@ pub struct Block {
 
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
-    num_shards: ShardId,
+    num_shards: NumShards,
     initial_gas_limit: Gas,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
@@ -428,7 +428,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         prev: &BlockHeader,
-        height: BlockIndex,
+        height: BlockHeight,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
@@ -585,7 +585,7 @@ impl Block {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
+    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockHeight) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
     }
 
@@ -594,9 +594,9 @@ impl Block {
             .0
     }
 
-    pub fn compute_gas_used(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+    pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.height_included == height {
                 acc + chunk.inner.gas_used
             } else {
                 acc
@@ -604,9 +604,9 @@ impl Block {
         })
     }
 
-    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.height_included == height {
                 acc + chunk.inner.gas_limit
             } else {
                 acc
