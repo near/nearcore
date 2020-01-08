@@ -85,6 +85,7 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
     let name = parse_rpc_error_variant(input).expect("should have a rpc_error_variant with value");
     match &input.data {
         Data::Enum(DataEnum { ref variants, .. }) => {
+            // TODO: check for uniqueness
             let error_type = error_type_name(schema, name);
             let mut direct_error_types = vec![];
             for variant in variants {
@@ -110,7 +111,7 @@ fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput
                                     .expect("named fields must have ident")
                                     .to_string(),
                                 "".to_owned(),
-                            ); // TODO: add type?
+                            );
                         }
                         direct_error_types.push(error_type);
                     }
