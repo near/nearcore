@@ -24,9 +24,9 @@ use near_primitives::utils::{
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
-    iterator::TrieIterator, update::KVChangeCause, update::PrefixKeyValueChanges,
-    update::TrieUpdate, update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage,
-    Trie, TrieChanges, WrappedTrieChanges,
+    iterator::TrieIterator, update::KVChangeCause, update::KVChanges,
+    update::PrefixKeyValueChanges, update::TrieUpdate, update::TrieUpdateIterator,
+    update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 mod db;

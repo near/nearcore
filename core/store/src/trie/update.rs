@@ -12,7 +12,7 @@ use crate::StorageError;
 use super::{Trie, TrieIterator};
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub enum KVChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -164,7 +164,7 @@ impl TrieUpdate {
 
     pub fn commit(&mut self, event: KVChangeCause) {
         for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
-            self.committed.entry(key).or_default().push((event, val));
+            self.committed.entry(key).or_default().push((event.clone(), val));
         }
     }
 
@@ -208,16 +208,12 @@ impl TrieUpdate {
     }
 }
 
-struct MergeIter<I1: Iterator, I2: Iterator> {
-    left: Peekable<I1>,
-    right: Peekable<I2>,
+struct MergeIter<'a> {
+    left: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
+    right: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
 }
 
-impl<'a, I1, I2> Iterator for MergeIter<I1, I2>
-where
-    I1: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>,
-    I2: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>,
-{
+impl<'a> Iterator for MergeIter<'a> {
     type Item = (&'a Vec<u8>, &'a Option<Vec<u8>>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -241,16 +237,11 @@ where
     }
 }
 
-type MergeBTreeRange<'a> = MergeIter<
-    std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
-    std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
->;
-
 pub struct TrieUpdateIterator<'a> {
     prefix: Vec<u8>,
     end_offset: Option<Vec<u8>>,
     trie_iter: Peekable<TrieIterator<'a>>,
-    overlay_iter: Peekable<MergeBTreeRange<'a>>,
+    overlay_iter: Peekable<MergeIter<'a>>,
 }
 
 impl<'a> TrieUpdateIterator<'a> {
@@ -285,9 +276,11 @@ impl<'a> TrieUpdateIterator<'a> {
                 )
             });
         let prospective_iter = state_update.prospective.range(start_offset..);
-        let overlay_iter =
-            MergeIter { left: committed_iter.peekable(), right: prospective_iter.peekable() }
-                .peekable();
+        let overlay_iter = MergeIter {
+            left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
+            right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
+        }
+        .peekable();
         Ok(TrieUpdateIterator {
             prefix: prefix.to_vec(),
             end_offset,

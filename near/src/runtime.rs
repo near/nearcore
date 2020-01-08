@@ -1128,7 +1128,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
-        match state_update.iter(&prefix) {
+        let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let key = key?;
@@ -1141,7 +1141,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
             Err(e) => Err(e.into()),
-        }
+        };
+        access_keys
     }
 
     fn view_state(

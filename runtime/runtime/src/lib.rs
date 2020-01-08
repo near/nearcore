@@ -35,8 +35,8 @@ use near_primitives::utils::{
 };
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
-    set_account, set_code, set_receipt, set_received_data, KVChangeCause, StorageError,
-    StoreUpdate, Trie, TrieChanges, TrieUpdate, TrieUpdatesPerCause,
+    set_account, set_code, set_receipt, set_received_data, KVChangeCause, KVChanges, StorageError,
+    StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -112,7 +112,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: TrieUpdatesPerCause,
+    pub key_value_changes: KVChanges,
     pub stats: ApplyStats,
 }
 
@@ -639,10 +639,8 @@ impl Runtime {
         match &result.result {
             Ok(_) => {
                 stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
-                state_update.commit(KVChangeCause::ActionApplication {
-                    hash: receipt.get_hash(),
-                    action_index,
-                });
+                state_update
+                    .commit(KVChangeCause::TransactionProcessing { hash: receipt.get_hash() });
             }
             Err(_) => {
                 state_update.rollback();
@@ -665,10 +663,7 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit(KVChangeCause::ActionApplication {
-                    hash: receipt.get_hash(),
-                    action_index,
-                });
+                state_update.commit(KVChangeCause::ValidatorAccountsUpdate);
             }
         }
 
