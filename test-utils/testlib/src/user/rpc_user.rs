@@ -73,8 +73,10 @@ impl User for RpcUser {
         let _ = self
             .actix(move |client| client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
             .map_err(|err| {
-                serde_json::from_value::<ServerError>(e.data.expect("server error must carry data"))
-                    .expect("deserialize server error must be ok")
+                serde_json::from_value::<ServerError>(
+                    err.data.expect("server error must carry data"),
+                )
+                .expect("deserialize server error must be ok")
             })?;
         Ok(())
     }

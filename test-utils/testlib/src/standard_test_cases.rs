@@ -83,7 +83,9 @@ pub fn test_smart_contract_panic(node: impl Node) {
             ActionError {
                 index: Some(0),
                 kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::HostError(HostError::GuestPanic("WAT?".to_string()))
+                    FunctionExecError::HostError(HostError::GuestPanic {
+                        panic_msg: "WAT?".to_string()
+                    })
                 ))
             }
             .into()
