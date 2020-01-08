@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
+use near_chain::types::AcceptedBlock;
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
@@ -158,7 +158,7 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::BlockHeader(header, peer_id) => {
@@ -229,56 +229,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
-                let mut data = vec![];
-                for part_id in parts.ids.iter() {
-                    match self.client.chain.get_state_response_part(
+                ctx.run_later(Duration::from_millis(0), move |act, _ctx| {
+                    if let Ok(shard_state) = act.client.chain.get_state_response_by_request(
                         shard_id,
-                        *part_id,
-                        parts.num_parts,
                         hash,
+                        need_header,
+                        parts,
                     ) {
-                        Ok(part) => data.push(part),
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
+                        act.network_adapter.do_send(NetworkRequests::StateResponse {
+                            response: StateResponseInfo { shard_id, hash, shard_state },
+                            route_back,
+                        });
                     }
-                }
-                if need_header {
-                    match self.client.chain.get_state_response_header(shard_id, hash) {
-                        Ok(header) => {
-                            return NetworkClientResponses::StateResponse(
-                                StateResponseInfo {
-                                    shard_id,
-                                    hash,
-                                    shard_state: ShardStateSyncResponse {
-                                        header: Some(header),
-                                        part_ids: parts.ids,
-                                        data,
-                                    },
-                                },
-                                route_back,
-                            );
-                        }
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    }
-                } else {
-                    return NetworkClientResponses::StateResponse(
-                        StateResponseInfo {
-                            shard_id,
-                            hash,
-                            shard_state: ShardStateSyncResponse {
-                                header: None,
-                                part_ids: parts.ids,
-                                data,
-                            },
-                        },
-                        route_back,
-                    );
-                }
+                });
+                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
