@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use borsh::BorshSerialize;
-use reed_solomon_erasure::ReedSolomon;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near::config::FISHERMEN_THRESHOLD;
 use near::{GenesisConfig, NightshadeRuntime};
@@ -178,9 +178,7 @@ fn create_chunk(
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let rs =
-            ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_parts, parity_parts)
-                .unwrap();
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let (tx_root, _) = merklize(&transactions);
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
@@ -421,8 +419,6 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    use reed_solomon_erasure::ReedSolomon;
-
     let store1 = create_test_store();
     let genesis_config = GenesisConfig::test(vec!["test0", "test1"], 1);
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
@@ -455,8 +451,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
-    let rs = ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_parts, parity_parts)
-        .unwrap();
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(

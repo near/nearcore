@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error};
 use rand::seq::SliceRandom;
-use reed_solomon_erasure::ReedSolomon;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
@@ -513,7 +513,7 @@ impl ShardsManager {
     pub fn check_chunk_complete(
         data_parts: usize,
         chunk: &mut EncodedShardChunk,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
     ) -> ChunkStatus {
         if chunk.content.num_fetched_parts() >= data_parts {
             if let Ok(_) = chunk.content.reconstruct(rs) {
@@ -553,7 +553,7 @@ impl ShardsManager {
         &mut self,
         mut encoded_chunk: EncodedShardChunk,
         chain_store: &mut ChainStore,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
     ) -> Result<bool, Error> {
         match ShardsManager::check_chunk_complete(
             self.runtime_adapter.num_data_parts(),
@@ -577,7 +577,7 @@ impl ShardsManager {
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
         chain_store: &mut ChainStore,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
 
@@ -800,7 +800,7 @@ impl ShardsManager {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn Signer,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts();
         let data_parts = self.runtime_adapter.num_data_parts();

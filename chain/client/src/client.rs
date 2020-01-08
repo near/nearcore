@@ -9,7 +9,7 @@ use std::time::Duration;
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
-use reed_solomon_erasure::ReedSolomon;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
@@ -66,7 +66,7 @@ pub struct Client {
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
-    pub rs: ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+    pub rs: ReedSolomon,
 }
 
 impl Client {
@@ -112,8 +112,7 @@ impl Client {
             block_sync,
             state_sync,
             challenges: Default::default(),
-            rs: ReedSolomon::<reed_solomon_erasure::galois_8::Field>::new(data_parts, parity_parts)
-                .unwrap(),
+            rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
         })
     }
 

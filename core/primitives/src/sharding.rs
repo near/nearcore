@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use reed_solomon_erasure::ReedSolomon;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_crypto::{Signature, Signer};
 
@@ -181,10 +181,7 @@ impl EncodedShardChunkBody {
     }
 
     /// Returns true if reconstruction was successful
-    pub fn reconstruct(
-        &mut self,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
-    ) -> Result<(), reed_solomon_erasure::Error> {
+    pub fn reconstruct(&mut self, rs: &ReedSolomon) -> Result<(), reed_solomon_erasure::Error> {
         rs.reconstruct(self.parts.as_mut_slice())
     }
 
@@ -215,7 +212,7 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         total_parts: usize,
         data_parts: usize,
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
@@ -290,7 +287,7 @@ impl EncodedShardChunk {
         encoded_length: u64,
         parts: Vec<Option<Box<[u8]>>>,
 
-        rs: &ReedSolomon<reed_solomon_erasure::galois_8::Field>,
+        rs: &ReedSolomon,
 
         signer: &dyn Signer,
     ) -> (Self, Vec<MerklePath>) {
