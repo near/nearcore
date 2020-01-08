@@ -10,7 +10,7 @@ mod tests {
     use near_primitives::block::{Approval, Block, BlockHeader, Weight};
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::combine_hash;
-    use near_primitives::types::{AccountId, BlockIndex, EpochId, ValidatorStake};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
     use near_primitives::views::ValidatorStakeView;
     use rand::seq::SliceRandom;
     use rand::Rng;
@@ -19,7 +19,7 @@ mod tests {
     fn create_block(
         em: &mut EpochManager,
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         chain_store: &mut ChainStore,
         signer: &dyn Signer,
         approvals: Vec<Approval>,
@@ -109,7 +109,7 @@ mod tests {
     fn check_safety(
         chain: &mut Chain,
         new_final_hash: CryptoHash,
-        old_final_height: BlockIndex,
+        old_final_height: BlockHeight,
         old_final_hash: CryptoHash,
     ) {
         let on_chain_hash =
@@ -304,7 +304,7 @@ mod tests {
                     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
                     let mut last_final_block_hash = CryptoHash::default();
-                    let mut last_final_block_height = 0;
+                    let mut last_final_height = 0;
                     let mut largest_height = 0;
                     let mut finalized_hashes = HashSet::new();
                     let mut largest_weight: HashMap<AccountId, Weight> = HashMap::new();
@@ -464,24 +464,24 @@ mod tests {
 
                         let final_block_hash = new_block.header.inner_rest.last_quorum_pre_commit;
                         if final_block_hash != CryptoHash::default() {
-                            let new_final_block_height = chain
+                            let new_final_height = chain
                                 .get_block_header(&final_block_hash)
                                 .unwrap()
                                 .inner_lite
                                 .height;
-                            if last_final_block_height != 0 {
-                                if new_final_block_height > last_final_block_height {
+                            if last_final_height != 0 {
+                                if new_final_height > last_final_height {
                                     check_safety(
                                         &mut chain,
                                         final_block_hash,
-                                        last_final_block_height,
+                                        last_final_height,
                                         last_final_block_hash,
                                     );
-                                } else if new_final_block_height < last_final_block_height {
+                                } else if new_final_height < last_final_height {
                                     check_safety(
                                         &mut chain,
                                         last_final_block_hash,
-                                        new_final_block_height,
+                                        new_final_height,
                                         final_block_hash,
                                     );
                                 } else {
@@ -495,7 +495,7 @@ mod tests {
 
                             finalized_hashes.insert(final_block_hash);
 
-                            if new_final_block_height > last_final_block_height {
+                            if new_final_height > last_final_height {
                                 if test_light_client {
                                     let mut chain_store_update =
                                         ChainStoreUpdate::new(chain.mut_store());
@@ -526,7 +526,7 @@ mod tests {
                                 }
 
                                 last_final_block_hash = final_block_hash;
-                                last_final_block_height = new_final_block_height;
+                                last_final_height = new_final_height;
                             }
                         }
 
@@ -538,8 +538,8 @@ mod tests {
 
                         all_blocks.push(new_block);
                     }
-                    println!("Finished iteration {}, largest finalized height: {}, largest height: {}, final blocks: {}", iter, last_final_block_height, largest_height, finalized_hashes.len());
-                    if last_final_block_height > 0 {
+                    println!("Finished iteration {}, largest finalized height: {}, largest height: {}, final blocks: {}", iter, last_final_height, largest_height, finalized_hashes.len());
+                    if last_final_height > 0 {
                         good_iters += 1;
                     }
                 }

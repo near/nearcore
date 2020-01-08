@@ -11,7 +11,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
@@ -31,7 +31,7 @@ use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
 /// Number of epochs it takes to unstake.
-const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+const NUM_UNSTAKING_EPOCHS: u64 = 3;
 
 fn cost_per_block(
     account_id: &AccountId,
@@ -59,7 +59,7 @@ pub(crate) fn check_rent(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-    epoch_length: BlockIndex,
+    epoch_length: BlockHeightDelta,
 ) -> Result<(), u128> {
     let buffer_length = if account.locked > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
@@ -79,7 +79,8 @@ pub(crate) fn check_rent(
 pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
-    block_index: BlockIndex,
+    // TODO #1903 block_height: BlockHeight,
+    block_index: BlockHeight,
     runtime_config: &RuntimeConfig,
 ) -> Balance {
     let charge = u128::from(block_index - account.storage_paid_at)

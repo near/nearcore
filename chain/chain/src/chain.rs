@@ -22,7 +22,8 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockIndex, ChunkExtra, EpochId, Gas, ShardId, ValidatorStake,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
+    NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
@@ -39,7 +40,8 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateRequestParts, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -57,8 +59,8 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Over this number of blocks in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockIndex = 4;
+/// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
+pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
@@ -82,7 +84,7 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
@@ -172,8 +174,8 @@ pub struct ChainGenesis {
     pub total_supply: Balance,
     pub max_inflation_rate: u8,
     pub gas_price_adjustment_rate: u8,
-    pub transaction_validity_period: BlockIndex,
-    pub epoch_length: BlockIndex,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: BlockHeightDelta,
 }
 
 impl ChainGenesis {
@@ -184,8 +186,8 @@ impl ChainGenesis {
         total_supply: Balance,
         max_inflation_rate: u8,
         gas_price_adjustment_rate: u8,
-        transaction_validity_period: BlockIndex,
-        epoch_length: BlockIndex,
+        transaction_validity_period: NumBlocks,
+        epoch_length: BlockHeightDelta,
     ) -> Self {
         Self {
             time,
@@ -208,8 +210,8 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
-    pub transaction_validity_period: BlockIndex,
-    pub epoch_length: BlockIndex,
+    pub transaction_validity_period: NumBlocks,
+    pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
 }
@@ -382,7 +384,7 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter
-            .get_epoch_block_producers(&epoch_id, last_known_hash)?
+            .get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?
             .iter()
             .map(|x| x.0.clone())
             .collect();
@@ -392,14 +394,14 @@ impl Chain {
     pub fn compute_quorums(
         prev_hash: CryptoHash,
         epoch_id: EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         approvals: Vec<Approval>,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_store: &mut dyn ChainStoreAccess,
         push_back_if_needed: bool,
     ) -> Result<FinalityGadgetQuorums, Error> {
         let stakes = runtime_adapter
-            .get_epoch_block_producers(&epoch_id, &prev_hash)?
+            .get_epoch_block_producers_ordered(&epoch_id, &prev_hash)?
             .iter()
             .map(|x| x.0.clone())
             .collect();
@@ -701,7 +703,7 @@ impl Chain {
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
     pub fn check_state_needed(
         &mut self,
-        block_fetch_horizon: BlockIndex,
+        block_fetch_horizon: BlockHeightDelta,
     ) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
@@ -895,10 +897,10 @@ impl Chain {
                     Some(tip) => {
                         near_metrics::set_gauge(
                             &metrics::VALIDATOR_ACTIVE_TOTAL,
-                            match self
-                                .runtime_adapter
-                                .get_epoch_block_producers(&tip.epoch_id, &tip.last_block_hash)
-                            {
+                            match self.runtime_adapter.get_epoch_block_producers_ordered(
+                                &tip.epoch_id,
+                                &tip.last_block_hash,
+                            ) {
                                 Ok(value) => value
                                     .iter()
                                     .map(|(_, is_slashed)| if *is_slashed { 0 } else { 1 })
@@ -1130,7 +1132,7 @@ impl Chain {
         &mut self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
-        last_height_included: BlockIndex,
+        last_height_included: BlockHeight,
     ) -> Result<ReceiptResponse, Error> {
         self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
     }
@@ -1309,6 +1311,48 @@ impl Chain {
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
+    }
+
+    pub fn get_state_response_by_request(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        need_header: bool,
+        parts: StateRequestParts,
+    ) -> Result<ShardStateSyncResponse, Error> {
+        let mut data = vec![];
+        for part_id in parts.ids.iter() {
+            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
+                Ok(part) => data.push(part),
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        }
+        if need_header {
+            match self.get_state_response_header(shard_id, sync_hash) {
+                Ok(header) => {
+                    return Ok(ShardStateSyncResponse {
+                        header: Some(header),
+                        part_ids: parts.ids,
+                        data,
+                    });
+                }
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        } else {
+            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
+        }
     }
 
     pub fn set_state_header(
@@ -1847,7 +1891,7 @@ impl Chain {
 
     /// Gets a block from the current chain by height.
     #[inline]
-    pub fn get_block_by_height(&mut self, height: BlockIndex) -> Result<&Block, Error> {
+    pub fn get_block_by_height(&mut self, height: BlockHeight) -> Result<&Block, Error> {
         let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block(&hash)
     }
@@ -1860,7 +1904,7 @@ impl Chain {
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+    pub fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
         self.store.get_header_by_height(height)
     }
 
@@ -1869,7 +1913,7 @@ impl Chain {
     pub fn get_header_on_chain_by_height(
         &mut self,
         sync_hash: &CryptoHash,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&BlockHeader, Error> {
         self.store.get_header_on_chain_by_height(sync_hash, height)
     }
@@ -2000,8 +2044,8 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
-    transaction_validity_period: BlockIndex,
-    epoch_length: BlockIndex,
+    transaction_validity_period: NumBlocks,
+    epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
 }
 
@@ -2011,8 +2055,8 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
-        transaction_validity_period: BlockIndex,
-        epoch_length: BlockIndex,
+        transaction_validity_period: NumBlocks,
+        epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();
@@ -2076,7 +2120,7 @@ impl<'a> ChainUpdate<'a> {
                 return Ok(true);
             }
         }
-        for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
+        for part_id in 0..self.runtime_adapter.num_total_parts() {
             if &Some(self.runtime_adapter.get_part_owner(&parent_hash, part_id as u64)?) == me {
                 return Ok(true);
             }
@@ -3141,7 +3185,7 @@ impl<'a> ChainUpdate<'a> {
 
     pub fn set_state_finalize_on_height(
         &mut self,
-        height: u64,
+        height: BlockHeight,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {

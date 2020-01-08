@@ -15,10 +15,12 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, BlockExtra, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
-    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockIndex, ColBlockMisc,
+    read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
     ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
     ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain, ColNextBlockHashes,
@@ -219,9 +221,9 @@ pub trait ChainStoreAccess {
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
+    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns block header from the current chain for given height if present.
-    fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+    fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
@@ -236,13 +238,13 @@ pub trait ChainStoreAccess {
     /// height must be the same.
     fn get_any_block_hash_by_height(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&HashMap<EpochId, CryptoHash>, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &mut self,
         sync_hash: &CryptoHash,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&BlockHeader, Error> {
         let mut header = self.get_block_header(sync_hash)?;
         let mut hash = sync_hash.clone();
@@ -334,7 +336,7 @@ pub struct ChainStore {
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     /// Cache with index to hash on the main chain.
-    block_index: SizedCache<Vec<u8>, CryptoHash>,
+    height: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with index to hash on any chain.
     block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
     /// Next block hashes for each block on the canonical chain
@@ -384,7 +386,7 @@ impl ChainStore {
             partial_chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
             block_extras: SizedCache::with_size(CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
-            block_index: SizedCache::with_size(CACHE_SIZE),
+            height: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
             next_block_hashes: SizedCache::with_size(CACHE_SIZE),
             epoch_light_client_blocks: SizedCache::with_size(CACHE_SIZE),
@@ -425,7 +427,7 @@ impl ChainStore {
         &mut self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
-        last_included_height: BlockIndex,
+        last_included_height: BlockHeight,
     ) -> Result<ReceiptResponse, Error> {
         let mut receipts_block_hash = prev_block_hash;
         loop {
@@ -450,7 +452,7 @@ impl ChainStore {
         &mut self,
         cur_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        max_difference_in_height: u64,
+        max_difference_in_blocks: NumBlocks,
     ) -> Result<(), InvalidTxError> {
         // first step: update cache head
         if self.header_history.is_empty() {
@@ -480,21 +482,21 @@ impl ChainStore {
             if !found_ancestor {
                 self.header_history = HeaderList::from_headers(header_list);
             }
-            // It is possible that cur_len is max_difference_in_height + 1 after the above update.
-            let cur_len = self.header_history.len() as u64;
-            if cur_len > max_difference_in_height {
-                for _ in 0..cur_len - max_difference_in_height {
+            // It is possible that cur_len is max_difference_in_blocks + 1 after the above update.
+            let cur_len = self.header_history.len() as NumBlocks;
+            if cur_len > max_difference_in_blocks {
+                for _ in 0..cur_len - max_difference_in_blocks {
                     self.header_history.pop_back();
                 }
             }
         }
 
         // second step: check if `base_block_hash` exists
-        assert!(max_difference_in_height >= self.header_history.len() as u64);
+        assert!(max_difference_in_blocks >= self.header_history.len() as NumBlocks);
         if self.header_history.contains(base_block_hash) {
             return Ok(());
         }
-        let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
+        let num_to_fetch = max_difference_in_blocks - self.header_history.len() as NumBlocks;
         // here the queue cannot be empty so it is safe to unwrap
         let last_hash = self.header_history.queue.back().unwrap();
         prev_block_hash = self.header_history.headers.get(last_hash).unwrap().prev_hash;
@@ -514,7 +516,7 @@ impl ChainStore {
         Err(InvalidTxError::Expired)
     }
 
-    pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockIndex, Error> {
+    pub fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
             Ok(0)
         } else {
@@ -646,20 +648,20 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.get_ser(ColBlockIndex, &index_to_bytes(height)),
-            &format!("BLOCK INDEX: {}", height),
+            self.store.get_ser(ColBlockHeight, &index_to_bytes(height)),
+            &format!("BLOCK HEIGHT: {}", height),
         )
         // TODO: cache needs to be deleted when things get updated.
         //        option_to_not_found(
         //            read_with_cache(
         //                &*self.store,
-        //                ColBlockIndex,
-        //                &mut self.block_index,
+        //                ColBlockHeight,
+        //                &mut self.height,
         //                &index_to_bytes(height),
         //            ),
-        //            &format!("BLOCK INDEX: {}", height),
+        //            &format!("BLOCK HEIGHT: {}", height),
         //        )
     }
 
@@ -692,7 +694,7 @@ impl ChainStoreAccess for ChainStore {
 
     fn get_any_block_hash_by_height(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
         option_to_not_found(
             read_with_cache(
@@ -872,8 +874,8 @@ struct ChainStoreCacheUpdate {
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
-    block_hash_per_height: HashMap<BlockIndex, HashMap<EpochId, CryptoHash>>,
-    block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, CryptoHash>>,
+    height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, LightClientBlockView>,
     my_last_approvals: HashMap<CryptoHash, Approval>,
@@ -899,7 +901,7 @@ impl ChainStoreCacheUpdate {
             chunks: Default::default(),
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
-            block_index: Default::default(),
+            height_to_hashes: Default::default(),
             next_block_hashes: HashMap::default(),
             epoch_light_client_blocks: HashMap::default(),
             my_last_approvals: HashMap::default(),
@@ -966,7 +968,7 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         shard_id: ShardId,
         mut block_hash: CryptoHash,
-        last_chunk_height_included: BlockIndex,
+        last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let mut ret = vec![];
 
@@ -1119,13 +1121,13 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get block header from the current chain by height.
-    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
         self.chain_store.get_block_hash_by_height(height)
     }
 
     fn get_any_block_hash_by_height(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
@@ -1336,9 +1338,9 @@ impl<'a> ChainStoreUpdate<'a> {
         self.tail = Some(t.clone());
     }
 
-    fn update_block_index_if_not_challenged(
+    fn update_height_if_not_challenged(
         &mut self,
-        height: BlockIndex,
+        height: BlockHeight,
         hash: CryptoHash,
     ) -> Result<(), Error> {
         let mut prev_hash = hash;
@@ -1349,7 +1351,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 (header.inner_lite.height, header.hash(), header.prev_hash);
             // Clean up block indicies between blocks.
             for height in (header_height + 1)..prev_height {
-                self.chain_store_cache_update.block_index.insert(height, None);
+                self.chain_store_cache_update.height_to_hashes.insert(height, None);
             }
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
@@ -1361,7 +1363,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         return Err(ErrorKind::ChallengedBlockOnChain.into());
                     }
                     self.chain_store_cache_update
-                        .block_index
+                        .height_to_hashes
                         .insert(header_height, Some(header_hash));
                     self.chain_store_cache_update
                         .next_block_hashes
@@ -1376,7 +1378,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
         if t.height > 0 {
-            self.update_block_index_if_not_challenged(t.height, t.prev_block_hash)?;
+            self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;
 
@@ -1384,7 +1386,7 @@ impl<'a> ChainStoreUpdate<'a> {
             Ok(prev_tip) => {
                 if prev_tip.height > t.height {
                     for height in (t.height + 1)..=prev_tip.height {
-                        self.chain_store_cache_update.block_index.insert(height, None);
+                        self.chain_store_cache_update.height_to_hashes.insert(height, None);
                     }
                 }
             }
@@ -1394,7 +1396,7 @@ impl<'a> ChainStoreUpdate<'a> {
             },
         }
 
-        self.chain_store_cache_update.block_index.insert(t.height, Some(t.last_block_hash));
+        self.chain_store_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
         self.chain_store_cache_update
             .next_block_hashes
             .insert(t.prev_block_hash, t.last_block_hash);
@@ -1416,7 +1418,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save new height if it's above currently latest known.
-    pub fn try_save_latest_known(&mut self, height: BlockIndex) -> Result<(), Error> {
+    pub fn try_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let latest_known = self.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
             self.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
@@ -1667,13 +1669,13 @@ impl<'a> ChainStoreUpdate<'a> {
                 .set_ser(ColPartialChunks, chunk_hash.as_ref(), partial_chunk)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (height, hash) in self.chain_store_cache_update.block_index.iter() {
+        for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
                 store_update
-                    .set_ser(ColBlockIndex, &index_to_bytes(*height), hash)
+                    .set_ser(ColBlockHeight, &index_to_bytes(*height), hash)
                     .map_err::<Error, _>(|e| e.into())?;
             } else {
-                store_update.delete(ColBlockIndex, &index_to_bytes(*height));
+                store_update.delete(ColBlockHeight, &index_to_bytes(*height));
             }
         }
         for (block_hash, next_hash) in self.chain_store_cache_update.next_block_hashes.iter() {
@@ -1837,7 +1839,7 @@ impl<'a> ChainStoreUpdate<'a> {
             chunks,
             partial_chunks,
             block_hash_per_height,
-            block_index,
+            height_to_hashes,
             next_block_hashes,
             epoch_light_client_blocks,
             last_approvals_per_account,
@@ -1878,12 +1880,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 .block_hash_per_height
                 .cache_set(index_to_bytes(height), epoch_id_to_hash);
         }
-        for (height, block_hash) in block_index {
+        for (height, block_hash) in height_to_hashes {
             let bytes = index_to_bytes(height);
             if let Some(hash) = block_hash {
-                self.chain_store.block_index.cache_set(bytes, hash);
+                self.chain_store.height.cache_set(bytes, hash);
             } else {
-                self.chain_store.block_index.cache_remove(&bytes);
+                self.chain_store.height.cache_remove(&bytes);
             }
         }
         for (account_id, approval) in last_approvals_per_account {
@@ -2124,20 +2126,20 @@ mod tests {
         block2.header.signature = signer.sign(block2.header.hash.as_ref());
 
         let mut store_update = chain.mut_store().store_update();
-        store_update.chain_store_cache_update.block_index.insert(1, Some(hash(&[1])));
+        store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
         store_update.chain_store_cache_update.headers.insert(block1.hash(), block1.header);
         store_update.commit().unwrap();
 
-        let block_hash = chain.mut_store().block_index.cache_get(&index_to_bytes(1)).cloned();
+        let block_hash = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
         let epoch_id_to_hash =
             chain.mut_store().block_hash_per_height.cache_get(&index_to_bytes(1)).cloned();
 
         let mut store_update = chain.mut_store().store_update();
-        store_update.chain_store_cache_update.block_index.insert(1, Some(hash(&[2])));
+        store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
         store_update.chain_store_cache_update.headers.insert(block2.header.hash, block2.header);
         store_update.commit().unwrap();
 
-        let block_hash1 = chain.mut_store().block_index.cache_get(&index_to_bytes(1)).cloned();
+        let block_hash1 = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
         let epoch_id_to_hash1 =
             chain.mut_store().block_hash_per_height.cache_get(&index_to_bytes(1)).cloned();
 

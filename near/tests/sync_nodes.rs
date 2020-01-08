@@ -18,15 +18,15 @@ use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockIndex, EpochId, ValidatorStake};
+use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
 use testlib::genesis_block;
 
-// This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
+// This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
     num: usize,
-    epoch_length: BlockIndex,
+    epoch_length: BlockHeightDelta,
     signer: &dyn Signer,
 ) -> Vec<Block> {
     let mut prev_prev_timestamp = if blocks.len() == 1 {
@@ -257,8 +257,8 @@ fn sync_state_stake_change() {
                 let near2_copy = near2.clone();
                 let dir2_path_copy = dir2_path.clone();
                 actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                    let latest_block_height = res.unwrap().unwrap().header.height;
-                    if !started_copy.load(Ordering::SeqCst) && latest_block_height > 10 {
+                    let latest_height = res.unwrap().unwrap().header.height;
+                    if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                         started_copy.store(true, Ordering::SeqCst);
                         let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
 
@@ -266,7 +266,7 @@ fn sync_state_stake_change() {
                             Box::new(move |_ctx| {
                                 actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                                     if let Ok(block) = res.unwrap() {
-                                        if block.header.height > latest_block_height + 1 {
+                                        if block.header.height > latest_height + 1 {
                                             System::current().stop()
                                         }
                                     }

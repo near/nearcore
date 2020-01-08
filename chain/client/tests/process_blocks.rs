@@ -691,7 +691,7 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_block_height() {
+fn test_invalid_height() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);

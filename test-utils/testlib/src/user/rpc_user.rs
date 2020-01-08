@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
     FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
@@ -83,8 +83,8 @@ impl User for RpcUser {
         let result = self
             .actix(move |client| client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
-        let height = self.get_best_block_index().unwrap();
-        while height == self.get_best_block_index().unwrap() {
+        let height = self.get_best_height().unwrap();
+        while height == self.get_best_height().unwrap() {
             thread::sleep(Duration::from_millis(50));
         }
         match result {
@@ -100,7 +100,7 @@ impl User for RpcUser {
         unimplemented!()
     }
 
-    fn get_best_block_index(&self) -> Option<u64> {
+    fn get_best_height(&self) -> Option<BlockHeight> {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
@@ -108,8 +108,8 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_hash.into())
     }
 
-    fn get_block(&self, index: u64) -> Option<BlockView> {
-        self.actix(move |client| client.write().unwrap().block(BlockId::Height(index))).ok()
+    fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
+        self.actix(move |client| client.write().unwrap().block(BlockId::Height(height))).ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
