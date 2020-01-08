@@ -803,8 +803,6 @@ impl ShardsManager {
             outcome_root,
             height,
             shard_id,
-            total_parts,
-            data_parts,
             rs,
             gas_used,
             gas_limit,
