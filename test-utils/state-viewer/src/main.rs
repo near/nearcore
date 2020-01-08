@@ -15,7 +15,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::types::{BlockIndex, StateRoot};
+use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
@@ -124,7 +124,7 @@ fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockIndex) {
+) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeight) {
     let mut chain_store = ChainStore::new(store.clone());
 
     let runtime = NightshadeRuntime::new(
@@ -151,8 +151,8 @@ fn print_chain(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-    start_index: BlockIndex,
-    end_index: BlockIndex,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
 ) {
     let mut chain_store = ChainStore::new(store.clone());
     let runtime = NightshadeRuntime::new(
@@ -164,10 +164,10 @@ fn print_chain(
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
-    for index in start_index..=end_index {
-        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+    for height in start_height..=end_height {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
-            if index == 0 {
+            if height == 0 {
                 println!("{: >3} {}", header.inner_lite.height, format_hash(header.hash()));
             } else {
                 let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
@@ -179,7 +179,9 @@ fn print_chain(
                     println!(
                         "Epoch {} Validators {:?}",
                         format_hash(epoch_id.0),
-                        runtime.get_epoch_block_producers(&epoch_id, &header.hash()).unwrap()
+                        runtime
+                            .get_epoch_block_producers_ordered(&epoch_id, &header.hash())
+                            .unwrap()
                     );
                 }
                 let block_producer =
@@ -199,10 +201,15 @@ fn print_chain(
             }
         } else {
             if let Some(epoch_id) = &cur_epoch_id {
-                let block_producer = runtime.get_block_producer(epoch_id, index).unwrap();
-                println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
+                let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
+                println!(
+                    "{: >3} {} | {: >10}",
+                    height,
+                    Red.bold().paint("MISSING"),
+                    block_producer
+                );
             } else {
-                println!("{: >3} {}", index, Red.bold().paint("MISSING"));
+                println!("{: >3} {}", height, Red.bold().paint("MISSING"));
             }
         }
     }
@@ -212,8 +219,8 @@ fn replay_chain(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-    start_index: BlockIndex,
-    end_index: BlockIndex,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
 ) {
     let mut chain_store = ChainStore::new(store);
     let new_store = create_test_store();
@@ -224,8 +231,8 @@ fn replay_chain(
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
     );
-    for index in start_index..=end_index {
-        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+    for height in start_height..=end_height {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             runtime
                 .add_validator_proposals(

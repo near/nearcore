@@ -7,7 +7,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
+use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHash(pub CryptoHash);
@@ -39,7 +39,7 @@ pub struct ShardChunkHeaderInner {
     pub outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
-    pub height_created: BlockIndex,
+    pub height_created: BlockHeight,
     /// Shard index.
     pub shard_id: ShardId,
     /// Gas used in this chunk.
@@ -65,7 +65,7 @@ pub struct ShardChunkHeaderInner {
 pub struct ShardChunkHeader {
     pub inner: ShardChunkHeaderInner,
 
-    pub height_included: BlockIndex,
+    pub height_included: BlockHeight,
 
     /// Signature of the chunk producer.
     pub signature: Signature,
@@ -75,7 +75,7 @@ pub struct ShardChunkHeader {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
-pub struct ChunkHashHeight(pub ChunkHash, pub BlockIndex);
+pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
 impl ShardChunkHeader {
     pub fn init(&mut self) {
@@ -92,7 +92,7 @@ impl ShardChunkHeader {
         outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
@@ -215,7 +215,7 @@ impl EncodedShardChunk {
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
-        height: u64,
+        height: BlockHeight,
         shard_id: ShardId,
         total_parts: usize,
         data_parts: usize,
@@ -281,7 +281,7 @@ impl EncodedShardChunk {
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
-        height: u64,
+        height: BlockHeight,
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
