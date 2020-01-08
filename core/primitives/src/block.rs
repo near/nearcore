@@ -382,8 +382,6 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 0,
                 i,
-                3,
-                1,
                 &rs,
                 0,
                 initial_gas_limit,

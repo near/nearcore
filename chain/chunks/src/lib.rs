@@ -510,11 +510,8 @@ impl ShardsManager {
         });
     }
 
-    pub fn check_chunk_complete(
-        data_parts: usize,
-        chunk: &mut EncodedShardChunk,
-        rs: &ReedSolomon,
-    ) -> ChunkStatus {
+    pub fn check_chunk_complete(chunk: &mut EncodedShardChunk, rs: &ReedSolomon) -> ChunkStatus {
+        let data_parts = rs.data_shard_count();
         if chunk.content.num_fetched_parts() >= data_parts {
             if let Ok(_) = chunk.content.reconstruct(rs) {
                 let (merkle_root, merkle_paths) = chunk.content.get_merkle_hash_and_paths();
@@ -555,11 +552,7 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &ReedSolomon,
     ) -> Result<bool, Error> {
-        match ShardsManager::check_chunk_complete(
-            self.runtime_adapter.num_data_parts(),
-            &mut encoded_chunk,
-            rs,
-        ) {
+        match ShardsManager::check_chunk_complete(&mut encoded_chunk, rs) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
                 Ok(true)
@@ -802,8 +795,8 @@ impl ShardsManager {
         signer: &dyn Signer,
         rs: &ReedSolomon,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
-        let total_parts = self.runtime_adapter.num_total_parts();
-        let data_parts = self.runtime_adapter.num_data_parts();
+        let total_parts = rs.total_shard_count();
+        let data_parts = rs.data_shard_count();
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,

@@ -187,8 +187,6 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            total_parts,
-            data_parts,
             &rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,

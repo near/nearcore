@@ -92,11 +92,9 @@ fn produce_blocks_with_tx() {
                     let parity_parts = total_parts - data_parts;
                     let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
-                        data_parts,
-                        &mut encoded_chunks[height - 2],
-                        &rs,
-                    ) {
+                    if let ChunkStatus::Complete(_) =
+                        ShardsManager::check_chunk_complete(&mut encoded_chunks[height - 2], &rs)
+                    {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();

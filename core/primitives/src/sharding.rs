@@ -210,8 +210,6 @@ impl EncodedShardChunk {
         outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-        total_parts: usize,
-        data_parts: usize,
         rs: &ReedSolomon,
         gas_used: Gas,
         gas_limit: Gas,
@@ -229,6 +227,8 @@ impl EncodedShardChunk {
         let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
 
         let mut parts = vec![];
+        let data_parts = rs.data_shard_count();
+        let total_parts = rs.total_shard_count();
         let encoded_length = bytes.len();
 
         if bytes.len() % data_parts != 0 {
