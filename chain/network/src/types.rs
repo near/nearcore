@@ -1057,6 +1057,11 @@ pub enum NetworkRequests {
         parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
     },
+    /// Response to state request.
+    StateResponse {
+        route_back: CryptoHash,
+        response: StateResponseInfo,
+    },
     /// Ban given peer.
     BanPeer {
         peer_id: PeerId,
@@ -1254,8 +1259,6 @@ pub enum NetworkClientResponses {
     Block(Block),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
 }
