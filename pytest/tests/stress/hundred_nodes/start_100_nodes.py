@@ -27,7 +27,7 @@ from cluster import apply_config_changes, apply_genesis_changes
 # it works with your gcloud credentials
 
 # After you're done, fill image_name here
-image_name = 'near-staging-20191227-bo'
+image_name = 'near-block-prod-100-20200109-bo'
 
 machine_name_prefix = 'pytest-node-'
 

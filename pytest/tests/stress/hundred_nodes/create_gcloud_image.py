@@ -3,6 +3,8 @@ import os
 import datetime
 from rc import gcloud
 
+additional_flags = '-Z package-features --features near-client/produce_time'
+
 try:
     image_name = sys.argv[1]
     branch = sys.argv[2]
@@ -37,7 +39,7 @@ source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
-cargo build --workspace --release
+cargo build --workspace --release {additional_flags}
 
 ''')
 
