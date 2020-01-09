@@ -3,8 +3,9 @@
 
 use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::io::Write;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use cached::{Cached, SizedCache};
 use chrono::Utc;
@@ -38,6 +39,14 @@ use crate::{BlockProducer, ClientConfig, SyncStatus};
 
 /// Number of blocks we keep approvals for.
 const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
+
+#[cfg(feature = "produce_time")]
+lazy_static! {
+    static ref PRODUCE_TIME_RECORD_FILE: Mutex<std::io::LineWriter<std::fs::File>> = {
+        let file = std::fs::File::create("produce_record.txt").unwrap();
+        Mutex::new(std::io::LineWriter::new(file))
+    };
+}
 
 pub struct Client {
     pub config: ClientConfig,
@@ -163,6 +172,8 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
+        #[cfg(feature = "produce_time")]
+        let start_time = Instant::now();
         // Check that this height is not known yet.
         if next_height <= self.chain.mut_store().get_latest_known()?.height {
             return Ok(None);
@@ -366,6 +377,17 @@ impl Client {
             seen: to_timestamp(Utc::now()),
         })?;
 
+        #[cfg(feature = "produce_time")]
+        {
+            let time_passed = start_time.elapsed();
+            writeln!(
+                (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
+                "produce_block {} {:?}",
+                next_height,
+                time_passed
+            )
+            .unwrap();
+        }
         Ok(Some(block))
     }
 
@@ -378,6 +400,8 @@ impl Client {
         prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+        #[cfg(feature = "produce_time")]
+        let start_time = Instant::now();
         let block_producer = self
             .block_producer
             .as_ref()
@@ -488,6 +512,21 @@ impl Client {
         );
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+        #[cfg(feature = "produce_time")]
+        {
+            let time_passed = start_time.elapsed();
+            writeln!(
+                (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
+                "produce_trunk height {} shard {} txs {} receipts {} producer {} chunk_hash {} time_passed {:?}",
+                next_height,
+                shard_id,
+                num_filtered_transactions,
+                outgoing_receipts.len(),
+                block_producer.account_id,
+                encoded_chunk.chunk_hash().0,
+                time_passed
+            ).unwrap();
+        }
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -816,6 +855,8 @@ impl Client {
 
     /// Create approval for given block or return none if not a block producer.
     fn create_block_approval(&mut self, block_header: &BlockHeader) -> Option<ApprovalMessage> {
+        #[cfg(feature = "produce_time")]
+        let start_time = Instant::now();
         let epoch_id =
             self.runtime_adapter.get_epoch_id_from_prev_block(&block_header.hash()).ok()?;
         let next_block_producer_account =
@@ -854,6 +895,17 @@ impl Client {
                             return None;
                         }
 
+                        #[cfg(feature = "produce_time")]
+                        {
+                            let time_passed = start_time.elapsed();
+                            writeln!(
+                                (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
+                                "create_block_approval block_hash {} epoch_id {:?} time_passed {:?}",
+                                block_header.hash(),
+                                epoch_id,
+                                time_passed
+                            ).unwrap();
+                        }
                         return Some(msg);
                     }
                 }
