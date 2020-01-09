@@ -35,7 +35,6 @@ use near_store::{ColStateHeaders, ColStateParts, Store};
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::metrics;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
@@ -46,7 +45,8 @@ use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
     validate_chunk_with_chunk_extra,
 };
-use crate::{byzantine_assert, create_light_client_block_view};
+use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
+use crate::{metrics, DoomslugThresholdMode};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -212,6 +212,7 @@ pub struct Chain {
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
+    pub doomslug_threshold_mode: DoomslugThresholdMode,
 }
 
 impl Chain {
@@ -219,6 +220,7 @@ impl Chain {
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
+        doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
@@ -337,6 +339,7 @@ impl Chain {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
                 min_gas_price: chain_genesis.min_gas_price,
             },
+            doomslug_threshold_mode,
         })
     }
 
@@ -511,6 +514,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         chain_update.process_block_header(header, on_challenge)?;
         Ok(())
@@ -529,6 +533,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
         chain_update.commit()?;
@@ -590,6 +595,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         match chain_update.verify_challenges(
             &vec![challenge.clone()],
@@ -640,6 +646,7 @@ impl Chain {
                     self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
+                    self.doomslug_threshold_mode,
                 );
 
                 match chain_update.check_header_known(header) {
@@ -678,6 +685,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
 
         if let Some(header) = headers.last() {
@@ -862,6 +870,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
 
@@ -1552,6 +1561,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -1568,6 +1578,7 @@ impl Chain {
                 self.transaction_validity_period,
                 self.epoch_length,
                 &self.block_economics_config,
+                self.doomslug_threshold_mode,
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
@@ -1624,6 +1635,7 @@ impl Chain {
             self.transaction_validity_period,
             self.epoch_length,
             &self.block_economics_config,
+            self.doomslug_threshold_mode,
         );
         chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
@@ -1655,6 +1667,7 @@ impl Chain {
                     self.transaction_validity_period,
                     self.epoch_length,
                     &self.block_economics_config,
+                    self.doomslug_threshold_mode,
                 );
 
                 chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
@@ -1995,6 +2008,7 @@ pub struct ChainUpdate<'a> {
     transaction_validity_period: NumBlocks,
     epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
+    doomslug_threshold_mode: DoomslugThresholdMode,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2006,6 +2020,7 @@ impl<'a> ChainUpdate<'a> {
         transaction_validity_period: NumBlocks,
         epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
+        doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate = store.store_update();
         ChainUpdate {
@@ -2016,6 +2031,7 @@ impl<'a> ChainUpdate<'a> {
             transaction_validity_period,
             epoch_length,
             block_economics_config,
+            doomslug_threshold_mode,
         }
     }
 
@@ -2494,7 +2510,8 @@ impl<'a> ChainUpdate<'a> {
             if let Ok(prev_approval) = self.chain_store_update.get_my_last_approval(&prev_prev_hash)
             {
                 let prev_approval = prev_approval.clone();
-                self.chain_store_update.save_my_last_approval(&prev_hash, prev_approval);
+                self.chain_store_update
+                    .save_my_last_approval_with_reference_hash(&prev_hash, prev_approval);
             }
         }
 
@@ -2778,6 +2795,35 @@ impl<'a> ChainUpdate<'a> {
                 || header.inner_rest.last_quorum_pre_vote != quorums.last_quorum_pre_vote
             {
                 return Err(ErrorKind::InvalidFinalityInfo.into());
+            };
+            let account_id_to_stake = self
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(
+                    &prev_header.inner_lite.epoch_id,
+                    &header.prev_hash,
+                )?
+                .iter()
+                .map(|x| (x.0.account_id.clone(), x.0.stake))
+                .collect();
+            if !Doomslug::can_approved_block_be_produced(
+                self.doomslug_threshold_mode,
+                &header.inner_rest.approvals,
+                &account_id_to_stake,
+            ) {
+                return Err(ErrorKind::NotEnoughApprovals.into());
+            }
+
+            let expected_last_ds_final_block = if Doomslug::is_approved_block_ds_final(
+                &header.inner_rest.approvals,
+                &account_id_to_stake,
+            ) {
+                header.prev_hash
+            } else {
+                prev_header.inner_rest.last_ds_final_block
+            };
+
+            if header.inner_rest.last_ds_final_block != expected_last_ds_final_block {
+                return Err(ErrorKind::InvalidDoomslugFinalityInfo.into());
             }
 
             let expected_score = if quorums.last_quorum_pre_vote == CryptoHash::default() {

@@ -14,7 +14,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
-    use near_primitives::test_utils::{init_integration_logger, init_test_logger};
+    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
     use near_primitives::views::QueryResponseKind::ViewAccount;
@@ -141,6 +141,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -435,6 +436,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
@@ -612,7 +614,7 @@ mod tests {
     #[cfg(feature = "expensive_tests")]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -642,6 +644,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -652,6 +655,81 @@ mod tests {
                         }
                     }
                     (NetworkResponses::NoResponse, true)
+                })),
+            );
+            *connectors.write().unwrap() = conn;
+
+            near_network::test_utils::wait_or_panic(30000);
+        })
+        .unwrap();
+    }
+
+    /// Similar to `test_catchup_sanity_blocks_produced`, but
+    ///  a) Enables doomslug,
+    ///  b) Doesn't allow the propagation of some heights
+    /// Ensures that the block production doesn't get stuck.
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_catchup_sanity_blocks_produced_doomslug() {
+        let validator_groups = 2;
+        init_integration_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let heights = Arc::new(RwLock::new(HashMap::new()));
+            let heights1 = heights.clone();
+
+            let check_height =
+                move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone())
+                {
+                    Entry::Occupied(entry) => {
+                        assert_eq!(*entry.get(), height);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(height);
+                    }
+                };
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+
+            let (_, conn) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                400,
+                false,
+                false,
+                5,
+                true,
+                Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+                    let propagate = if let NetworkRequests::Block { block } = msg {
+                        check_height(block.hash(), block.header.inner_lite.height);
+
+                        if block.header.inner_lite.height % 10 == 5 {
+                            check_height(
+                                block.header.prev_hash,
+                                block.header.inner_lite.height - 2,
+                            );
+                        } else {
+                            check_height(
+                                block.header.prev_hash,
+                                block.header.inner_lite.height - 1,
+                            );
+                        }
+
+                        if block.header.inner_lite.height >= 25 {
+                            System::current().stop();
+                        }
+
+                        // Do not propagate blocks at heights %10=4
+                        block.header.inner_lite.height % 10 != 4
+                    } else {
+                        true
+                    };
+
+                    (NetworkResponses::NoResponse, propagate)
                 })),
             );
             *connectors.write().unwrap() = conn;
@@ -695,6 +773,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
                     let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
@@ -811,19 +890,19 @@ mod tests {
 
     #[test]
     fn test_all_chunks_accepted_10() {
-        test_all_chunks_accepted_common(10, 1000, 5)
+        test_all_chunks_accepted_common(10, 2000, 5)
     }
 
     #[test]
     #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000() {
-        test_all_chunks_accepted_common(1000, 1000, 5)
+        test_all_chunks_accepted_common(1000, 2000, 5)
     }
 
     #[test]
     #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_slow() {
-        test_all_chunks_accepted_common(1000, 3000, 5)
+        test_all_chunks_accepted_common(1000, 4000, 5)
     }
 
     #[test]
@@ -862,6 +941,7 @@ mod tests {
                 false,
                 false,
                 epoch_length,
+                false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
                     let mut requested = requested.write().unwrap();

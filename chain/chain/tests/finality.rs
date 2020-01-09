@@ -40,8 +40,11 @@ fn compute_quorums_slow(
     let all_approvals = all_approvals
         .into_iter()
         .map(|approval| {
-            let reference_height =
-                chain_store.get_block_header(&approval.reference_hash).unwrap().inner_lite.height;
+            let reference_height = chain_store
+                .get_block_header(&approval.reference_hash.unwrap())
+                .unwrap()
+                .inner_lite
+                .height;
             let parent_height =
                 chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.height;
 
@@ -165,7 +168,14 @@ fn create_block(
 }
 
 fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHash) -> Approval {
-    Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
+    Approval {
+        account_id,
+        reference_hash: Some(reference_hash),
+        is_endorsement: true,
+        target_height: 0,
+        parent_hash,
+        signature: Signature::default(),
+    }
 }
 
 fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
@@ -528,7 +538,14 @@ fn test_my_approvals() {
             FinalityGadget::get_my_approval_reference_hash(block.hash(), chain.mut_store())
                 .unwrap();
         assert_eq!(reference_hash, expected_reference);
-        let approval = Approval::new(block.hash(), reference_hash, &*signer, account_id.clone());
+        let approval = Approval::new(
+            block.hash(),
+            Some(reference_hash),
+            0,
+            true,
+            &*signer,
+            account_id.clone(),
+        );
         let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
         FinalityGadget::process_approval(
             &Some(account_id.clone()),
@@ -575,7 +592,7 @@ fn test_fuzzy_finality() {
                     }
                     let prev_reference =
                         if let Some(prev_approval) = last_approvals_entry.get(block_producer) {
-                            prev_approval.reference_hash
+                            prev_approval.reference_hash.unwrap()
                         } else {
                             genesis_block.hash().clone()
                         };

@@ -149,7 +149,9 @@ mod test {
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
                 parent_hash: CryptoHash::default(),
-                reference_hash: CryptoHash::default(),
+                reference_hash: Some(CryptoHash::default()),
+                target_height: 1,
+                is_endorsement: true,
                 signature: bls_signature,
             }),
         });

@@ -65,6 +65,8 @@ pub struct BlockHeaderInnerRest {
     pub last_quorum_pre_vote: CryptoHash,
     /// Last block that has a quorum pre-commit on this chain
     pub last_quorum_pre_commit: CryptoHash,
+    /// Last block that has doomslug finality
+    pub last_ds_final_block: CryptoHash,
 
     /// All the approvals included in this block
     pub approvals: Vec<Approval>,
@@ -113,6 +115,7 @@ impl BlockHeaderInnerRest {
         challenges_result: ChallengesResult,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         approvals: Vec<Approval>,
     ) -> Self {
         Self {
@@ -131,6 +134,7 @@ impl BlockHeaderInnerRest {
             challenges_result,
             last_quorum_pre_vote,
             last_quorum_pre_commit,
+            last_ds_final_block,
             approvals,
         }
     }
@@ -144,7 +148,9 @@ impl BlockHeaderInnerRest {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
     pub parent_hash: CryptoHash,
-    pub reference_hash: CryptoHash,
+    pub reference_hash: Option<CryptoHash>,
+    pub target_height: BlockHeight,
+    pub is_endorsement: bool,
     pub signature: Signature,
     pub account_id: AccountId,
 }
@@ -159,32 +165,51 @@ pub struct ApprovalMessage {
 impl Approval {
     pub fn new(
         parent_hash: CryptoHash,
-        reference_hash: CryptoHash,
+        reference_hash: Option<CryptoHash>,
+        target_height: BlockHeight,
+        is_endorsement: bool,
         signer: &dyn Signer,
         account_id: AccountId,
     ) -> Self {
-        let signature =
-            signer.sign(Approval::get_data_for_sig(&parent_hash, &reference_hash).as_ref());
-        Approval { parent_hash, reference_hash, signature, account_id }
+        let signature = signer.sign(
+            Approval::get_data_for_sig(
+                &parent_hash,
+                &reference_hash,
+                target_height,
+                is_endorsement,
+            )
+            .as_ref(),
+        );
+        Approval {
+            parent_hash,
+            reference_hash,
+            target_height,
+            is_endorsement,
+            signature,
+            account_id,
+        }
     }
 
-    pub fn get_data_for_sig(parent_hash: &CryptoHash, reference_hash: &CryptoHash) -> Vec<u8> {
-        let mut res = Vec::with_capacity(64);
+    pub fn get_data_for_sig(
+        parent_hash: &CryptoHash,
+        reference_hash: &Option<CryptoHash>,
+        target_height: BlockHeight,
+        is_endorsement: bool,
+    ) -> Vec<u8> {
+        let mut res = Vec::with_capacity(73);
         res.extend_from_slice(parent_hash.as_ref());
-        res.extend_from_slice(reference_hash.as_ref());
+        res.extend_from_slice(match reference_hash {
+            Some(x) => x.as_ref(),
+            None => [0; 32].as_ref(),
+        });
+        res.extend_from_slice(target_height.to_be_bytes().as_ref());
+        res.extend_from_slice(if is_endorsement { &[1] } else { &[0] });
         res
     }
 }
 
 impl ApprovalMessage {
-    pub fn new(
-        parent_hash: CryptoHash,
-        reference_hash: CryptoHash,
-        signer: &dyn Signer,
-        account_id: AccountId,
-        target: AccountId,
-    ) -> Self {
-        let approval = Approval::new(parent_hash, reference_hash, signer, account_id);
+    pub fn new(approval: Approval, target: AccountId) -> Self {
         ApprovalMessage { approval, target }
     }
 }
@@ -255,6 +280,7 @@ impl BlockHeader {
         signer: &dyn Signer,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         approvals: Vec<Approval>,
         next_bp_hash: CryptoHash,
     ) -> Self {
@@ -283,6 +309,7 @@ impl BlockHeader {
             challenges_result,
             last_quorum_pre_vote,
             last_quorum_pre_commit,
+            last_ds_final_block,
             approvals,
         );
         let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
@@ -324,6 +351,7 @@ impl BlockHeader {
             0,
             initial_total_supply,
             vec![],
+            CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
@@ -447,6 +475,7 @@ impl Block {
         score: BlockScore,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         next_bp_hash: CryptoHash,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
@@ -511,6 +540,7 @@ impl Block {
                 signer,
                 last_quorum_pre_vote,
                 last_quorum_pre_commit,
+                last_ds_final_block,
                 approvals,
                 next_bp_hash,
             ),

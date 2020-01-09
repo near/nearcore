@@ -542,10 +542,13 @@ mod tests {
         let approvals = vec![
             (Approval {
                 parent_hash: b1.hash(),
-                reference_hash: b1.hash(),
+                reference_hash: Some(b1.hash()),
                 account_id: "other2".to_string(),
-                signature: other_signer
-                    .sign(Approval::get_data_for_sig(&b1.hash(), &b1.hash()).as_ref()),
+                target_height: 2,
+                is_endorsement: true,
+                signature: other_signer.sign(
+                    Approval::get_data_for_sig(&b1.hash(), &Some(b1.hash()), 2, true).as_ref(),
+                ),
             }),
         ];
         let b2 = Block::empty_with_approvals(

@@ -53,15 +53,18 @@ expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
 expensive near-client catching_up tests::test_all_chunks_accepted_1000
 expensive near-client catching_up tests::test_all_chunks_accepted_1000_slow
 expensive near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
+expensive near-client catching_up tests::test_catchup_sanity_blocks_produced_doomslug
 
 expensive nearcore test_catchup test_catchup
 
 # cross-shard transactions tests
 expensive --timeout=1500 near-client cross_shard_tx tests::test_cross_shard_tx
+expensive --timeout=1500 near-client cross_shard_tx tests::test_cross_shard_tx_doomslug
 expensive --timeout=1500 near-client cross_shard_tx tests::test_cross_shard_tx_drop_chunks
 expensive --timeout=3600 near-client cross_shard_tx tests::test_cross_shard_tx_with_validator_rotation
 
-# finality gadget safety and light client fuzzy test
+# doomslug / finality gadget safety and light client fuzzy tests
+expensive --timeout=900 near-chain doomslug tests::test_fuzzy_doomslug_liveness_and_safety
 expensive --timeout=900 near-epoch-manager finality tests::test_fuzzy_safety
 expensive --timeout=900 near-epoch-manager finality tests::test_fuzzy_light_client
 

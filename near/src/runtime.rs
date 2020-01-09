@@ -595,8 +595,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                         return Ok(false);
                     }
                     if !approval.signature.verify(
-                        Approval::get_data_for_sig(&approval.parent_hash, &approval.reference_hash)
-                            .as_ref(),
+                        Approval::get_data_for_sig(
+                            &approval.parent_hash,
+                            &approval.reference_hash,
+                            approval.target_height,
+                            approval.is_endorsement,
+                        )
+                        .as_ref(),
                         &validator.public_key,
                     ) {
                         return Ok(false);

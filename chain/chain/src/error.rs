@@ -104,6 +104,12 @@ pub enum ErrorKind {
     /// Invalid quorum_pre_vote or quorum_pre_commit
     #[fail(display = "Invalid Finality Info")]
     InvalidFinalityInfo,
+    /// The block doesn't have approvals from 50% of the block producers
+    #[fail(display = "Not enough approvals")]
+    NotEnoughApprovals,
+    /// The information about the last doomslug final block is incorrect
+    #[fail(display = "Invalid doomslug finality info")]
+    InvalidDoomslugFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -228,6 +234,8 @@ impl Error {
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidNextBPHash
             | ErrorKind::InvalidFinalityInfo
+            | ErrorKind::NotEnoughApprovals
+            | ErrorKind::InvalidDoomslugFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals
