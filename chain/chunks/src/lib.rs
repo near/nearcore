@@ -795,8 +795,6 @@ impl ShardsManager {
         signer: &dyn Signer,
         rs: &ReedSolomon,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
-        let total_parts = rs.total_shard_count();
-        let data_parts = rs.data_shard_count();
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
