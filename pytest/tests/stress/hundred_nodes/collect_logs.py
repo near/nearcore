@@ -15,7 +15,7 @@ run(['mkdir', '-p', collected_place])
 
 def collect_file(node):
     print(f'Download file from {node.name}')
-    node.download(f'/home/{node.username}/nearprotocol/{log_file}', collected_place)
+    node.download(f'/home/{node.username}/nearcore/{log_file}', collected_place)
     print(f'Download file from {node.name} finished')
 
 
