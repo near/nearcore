@@ -39,8 +39,7 @@ source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
-cargo build --workspace --release {additional_flags}
-
+cargo build -p near --release {additional_flags}
 ''')
 
 assert p.returncode == 0
