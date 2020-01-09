@@ -9,13 +9,13 @@ nodes = list(filter(lambda m: m.name.startswith(node_prefix), machines))
 
 log_file = sys.argv[2] if len(sys.argv) >= 3 else "produce_record.txt"
 
-collected_place = f'/tmp/near/collected_logs_{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}/'
+collected_place = f'/tmp/near/collected_logs_{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}'
 
 run(['mkdir', '-p', collected_place])
 
 def collect_file(node):
     print(f'Download file from {node.name}')
-    node.download(f'/home/{node.username}/nearcore/{log_file}', collected_place)
+    node.download(f'/home/{node.username}/nearcore/{log_file}', f'collected_place/{node.name}.txt')
     print(f'Download file from {node.name} finished')
 
 
