@@ -1,8 +1,8 @@
 use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::{BufMut, BytesMut};
-use tokio::codec::{Decoder, Encoder};
+use bytes::{Buf, BufMut, BytesMut};
+use tokio_util::codec::{Decoder, Encoder};
 
 use crate::types::PeerMessage;
 
@@ -28,7 +28,7 @@ impl Encoder for Codec {
             // First four bytes is the length of the buffer.
             buf.reserve(item.len() + 4);
             buf.put_u32_le(item.len() as u32);
-            buf.put(item);
+            buf.put(&item[..]);
             Ok(())
         }
     }
@@ -145,6 +145,7 @@ mod test {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
+            ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
                 parent_hash: CryptoHash::default(),

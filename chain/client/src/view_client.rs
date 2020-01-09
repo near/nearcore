@@ -122,7 +122,7 @@ impl ViewClientActor {
                         .chain
                         .find_validator_for_forwarding(shard_id)
                         .map_err(|e| e.to_string())?;
-                    self.network_adapter.send(NetworkRequests::Query {
+                    self.network_adapter.do_send(NetworkRequests::Query {
                         account_id: validator,
                         path: msg.path.clone(),
                         data: msg.data.clone(),
@@ -174,10 +174,12 @@ impl ViewClientActor {
                                     .chain
                                     .find_validator_for_forwarding(dst_shard_id)
                                     .map_err(|e| e.to_string())?;
-                                self.network_adapter.send(NetworkRequests::ReceiptOutComeRequest(
-                                    validator,
-                                    receipt_view.id,
-                                ));
+                                self.network_adapter.do_send(
+                                    NetworkRequests::ReceiptOutComeRequest(
+                                        validator,
+                                        receipt_view.id,
+                                    ),
+                                );
                             }
                         }
                     }
@@ -193,7 +195,7 @@ impl ViewClientActor {
                 .chain
                 .find_validator_for_forwarding(target_shard_id)
                 .map_err(|e| e.to_string())?;
-            self.network_adapter.send(NetworkRequests::TxStatus(
+            self.network_adapter.do_send(NetworkRequests::TxStatus(
                 validator,
                 signer_account_id,
                 tx_hash,
@@ -248,8 +250,8 @@ impl Handler<GetChunk> for ViewClientActor {
                         .map(Clone::clone)
                 })
             }
-            GetChunk::BlockHeight(block_height, shard_id) => {
-                self.chain.get_block_by_height(block_height).map(Clone::clone).and_then(|block| {
+            GetChunk::Height(height, shard_id) => {
+                self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
                     self.chain
                         .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
                         .map(Clone::clone)

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
-use futures::{future, Future};
+use futures::{future, FutureExt};
 use log::info;
 
 use near_chain::ChainGenesis;
@@ -207,7 +207,7 @@ fn chunks_produced_and_distributed_common(
             connectors_[2]
                 .0
                 .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
-            future::ok(())
+            future::ready(())
         }));
     })
     .unwrap();
