@@ -5,7 +5,9 @@ from rc import gcloud
 
 try:
     image_name = sys.argv[1]
+    branch = sys.argv[2]
 except:
+    branch = 'staging'
     image_name = f'near-staging-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{os.getlogin()}'
 
 machine_name = f'{image_name}-image-builder'
@@ -23,7 +25,7 @@ m = gcloud.create(
 
 print('machine created')
 
-p = m.run('bash', input='''
+p = m.run('bash', input=f'''
 for i in `seq 1 3`; do
     sudo apt update
 done
@@ -33,7 +35,7 @@ sudo apt install -y python pkg-config libssl-dev build-essential cmake clang llv
 curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-10-04
 source ~/.cargo/env
 
-git clone --single-branch --branch staging https://github.com/nearprotocol/nearcore.git nearcore
+git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
 cargo build --workspace --release
 
