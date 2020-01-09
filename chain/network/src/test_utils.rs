@@ -8,7 +8,6 @@ use log::debug;
 use rand::{thread_rng, RngCore};
 use tokio::time::delay_for;
 
-use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::types::EpochId;

@@ -87,7 +87,14 @@ mod tests {
     }
 
     fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHash) -> Approval {
-        Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
+        Approval {
+            account_id,
+            reference_hash: Some(reference_hash),
+            target_height: 0,
+            is_endorsement: true,
+            parent_hash,
+            signature: Signature::default(),
+        }
     }
 
     fn print_chain(chain: &mut Chain, mut hash: CryptoHash) {
@@ -396,7 +403,7 @@ mod tests {
                                 let prev_reference = if let Some(prev_approval) =
                                     last_approvals_entry.get(block_producer)
                                 {
-                                    prev_approval.reference_hash
+                                    prev_approval.reference_hash.unwrap()
                                 } else {
                                     genesis_block.hash().clone()
                                 };

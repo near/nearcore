@@ -52,6 +52,7 @@ fn build_chain_with_orhpans() {
         0.into(),
         CryptoHash::default(),
         CryptoHash::default(),
+        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash.clone(),
     );
     assert_eq!(

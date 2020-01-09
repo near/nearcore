@@ -6,7 +6,9 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
+use near_chain::{
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
+};
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -63,7 +65,12 @@ impl ViewClientActor {
         config: ClientConfig,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain = Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
+        let chain = Chain::new(
+            store,
+            runtime_adapter.clone(),
+            chain_genesis,
+            DoomslugThresholdMode::HalfStake,
+        )?;
         Ok(ViewClientActor {
             chain,
             runtime_adapter,

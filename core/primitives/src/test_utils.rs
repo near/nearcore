@@ -219,6 +219,7 @@ impl Block {
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
+            CryptoHash::default(),
             next_bp_hash,
         )
     }

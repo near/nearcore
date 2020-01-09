@@ -68,6 +68,7 @@ pub fn setup_network_node(
             network_adapter.clone(),
             Some(block_producer),
             telemetry_actor,
+            false,
         )
         .unwrap()
         .start();

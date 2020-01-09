@@ -57,6 +57,7 @@ fn create_block() -> Block {
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
+        CryptoHash::default(),
     )
 }
 

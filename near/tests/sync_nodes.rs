@@ -13,6 +13,7 @@ use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
@@ -45,7 +46,14 @@ fn add_blocks(
             blocks[0].chunks.clone(),
             epoch_id,
             next_epoch_id,
-            vec![],
+            vec![Approval::new(
+                prev.hash(),
+                None,
+                prev.header.inner_lite.height + 1,
+                false,
+                signer,
+                "other".to_string(),
+            )],
             0,
             0,
             Some(0),
@@ -53,6 +61,7 @@ fn add_blocks(
             vec![],
             signer,
             0.into(),
+            CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {

@@ -4,7 +4,7 @@ use actix::Addr;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
@@ -48,7 +48,8 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
         genesis_config.transaction_validity_period,
         genesis_config.epoch_length,
     );
-    let chain = Chain::new(store, runtime, &chain_genesis).unwrap();
+    let chain =
+        Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
@@ -63,7 +64,9 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
         vec![],
         vec![],
     ));
-    let mut chain = Chain::new(store, runtime, &genesis_config.into()).unwrap();
+    let mut chain =
+        Chain::new(store, runtime, &genesis_config.into(), DoomslugThresholdMode::HalfStake)
+            .unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 

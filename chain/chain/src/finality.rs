@@ -28,6 +28,12 @@ impl FinalityGadget {
         approval: &Approval,
         chain_store_update: &mut ChainStoreUpdate,
     ) -> Result<(), Error> {
+        // Approvals without reference hash are for doomslug / randomness only and are ignored by
+        // the finality gadget
+        if approval.reference_hash.is_none() {
+            return Ok(());
+        }
+
         if me.as_ref().map(|me| me == &approval.account_id).unwrap_or(false) {
             // First update the statistics for the current block producer if the approval is created by us
             let header = chain_store_update.get_block_header(&approval.parent_hash)?;
@@ -64,7 +70,8 @@ impl FinalityGadget {
                 chain_store_update.save_largest_approved_score(&score);
             }
 
-            chain_store_update.save_my_last_approval(&approval.parent_hash, approval.clone());
+            chain_store_update
+                .save_my_last_approval_with_reference_hash(&approval.parent_hash, approval.clone());
         }
 
         Ok(())
@@ -169,8 +176,9 @@ impl FinalityGadget {
         //    their parent hashes on two different chains, so this check is sufficient
         if last_height_approved_on_chain == largest_height_approved
             && last_score_approved_on_chain == largest_score_approved
+            && last_approval_on_chain.reference_hash.is_some()
         {
-            Some(last_approval_on_chain.reference_hash)
+            Some(last_approval_on_chain.reference_hash).unwrap()
         } else {
             default_f(chain_store)
         }
@@ -215,14 +223,16 @@ impl FinalityGadget {
 
             // Update surrounding approvals
             for approval in approvals {
+                let reference_height = match approval.reference_hash {
+                    Some(rh) => chain_store.get_block_header(&rh)?.inner_lite.height,
+                    None => continue,
+                };
+
                 let account_id = approval.account_id.clone();
                 let cur_account_stake = match account_id_to_stake.get(&account_id) {
                     Some(stake) => *stake,
                     None => continue,
                 };
-
-                let reference_height =
-                    chain_store.get_block_header(&approval.reference_hash)?.inner_lite.height;
 
                 let was_surrounding_no_quroum = if let Some(old_height) =
                     accounts_to_height_to_remove.get(&account_id)

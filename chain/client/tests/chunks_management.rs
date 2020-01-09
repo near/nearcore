@@ -18,47 +18,59 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
+use std::time::Instant;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(1, false, 1500);
+        chunks_produced_and_distributed_common(1, false, 3000);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, false, 1500);
+        chunks_produced_and_distributed_common(2, false, 3000);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, false, 1500);
+        chunks_produced_and_distributed_common(4, false, 3000);
     });
 }
 
+/// The timeout for requesting chunk from others is 1s. 3000 block timeout means that a participant
+/// that is otherwise ready to produce a block will wait for 3000/2 milliseconds for all the chunks.
+/// We block all the communication from test1 to test4, and expect that in 1.5 seconds test4 will
+/// give up on getting the part from test1 and will get it from test2 (who will have it because
+/// `validator_groups=2`)
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 1500);
+        chunks_produced_and_distributed_common(2, true, 3000);
     });
 }
 
+/// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
+/// part test4 needs. The only way test4 can recover the part is by reconstructing the whole chunk,
+/// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
+/// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 1500);
+        chunks_produced_and_distributed_common(4, true, 3000);
     });
 }
 
+/// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
+/// chunk
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 4000);
+        chunks_produced_and_distributed_common(4, true, 8000);
     });
 }
 
@@ -105,6 +117,7 @@ fn chunks_produced_and_distributed_common(
             false,
             false,
             5,
+            false,
             Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -115,7 +128,8 @@ fn chunks_produced_and_distributed_common(
                         height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            Instant::now(),
                             block.hash(),
                             block.header.inner_lite.height,
                             block.chunks[0].inner.height_created,
@@ -128,6 +142,9 @@ fn chunks_produced_and_distributed_common(
 
                         // Make sure blocks are finalized. 6 is the epoch boundary.
                         let h = block.header.inner_lite.height;
+                        if h > 1 {
+                            assert_eq!(block.header.inner_rest.last_ds_final_block, *height_to_hash.get(&(h - 1)).unwrap());
+                        }
                         if h > 1 && h != 6 {
                             assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
                         }
