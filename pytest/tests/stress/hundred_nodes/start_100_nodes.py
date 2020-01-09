@@ -56,8 +56,8 @@ client_config_changes = {
 
 # default is 50; 7,7,6,6,6,6,6,6
 genesis_config_changes = [
-  ["num_block_producers", 100],
-  ["block_producers_per_shard", [
+  ["num_block_producer_seats", 100],
+  ["num_block_producer_seats_per_shard", [
     13,
     13,
     13,
