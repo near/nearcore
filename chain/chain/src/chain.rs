@@ -40,7 +40,8 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateRequestParts, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -1310,6 +1311,48 @@ impl Chain {
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
+    }
+
+    pub fn get_state_response_by_request(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        need_header: bool,
+        parts: StateRequestParts,
+    ) -> Result<ShardStateSyncResponse, Error> {
+        let mut data = vec![];
+        for part_id in parts.ids.iter() {
+            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
+                Ok(part) => data.push(part),
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        }
+        if need_header {
+            match self.get_state_response_header(shard_id, sync_hash) {
+                Ok(header) => {
+                    return Ok(ShardStateSyncResponse {
+                        header: Some(header),
+                        part_ids: parts.ids,
+                        data,
+                    });
+                }
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        } else {
+            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
+        }
     }
 
     pub fn set_state_header(
