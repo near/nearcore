@@ -35,7 +35,7 @@ genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
 
 # binary search this to observe if network forks, default is 1
-block_production_time = 30
+block_production_time = 1
 
 client_config_changes = {
     "consensus": {
