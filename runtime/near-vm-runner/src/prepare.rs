@@ -57,7 +57,6 @@ impl<'a> ContractModule<'a> {
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
         let gas_rules = rules::Set::new(config.regular_op_cost, Default::default())
-            .with_forbidden_floats()
             .with_grow_cost(config.grow_mem_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;

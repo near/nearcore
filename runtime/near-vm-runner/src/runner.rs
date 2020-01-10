@@ -48,6 +48,12 @@ pub fn run<'a>(
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
+        // See https://github.com/nearprotocol/nearcore/issues/1940
+        panic!(
+            "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
+        );
+    }
     if method_name.is_empty() {
         return (
             None,
