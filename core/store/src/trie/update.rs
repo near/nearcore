@@ -172,7 +172,7 @@ impl TrieUpdate {
         self.prospective.clear();
     }
 
-    pub fn finalize(mut self) -> Result<TrieChanges, StorageError> {
+    pub fn finalize(self) -> Result<TrieChanges, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let root = self.root.clone().clone();
         let trie = self.trie.clone();
@@ -387,6 +387,7 @@ mod tests {
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
@@ -403,6 +404,7 @@ mod tests {
         // Delete non-existing element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.remove(b"dog");
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -411,6 +413,7 @@ mod tests {
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.remove(b"dog");
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -418,11 +421,13 @@ mod tests {
         // Add, apply changes and then delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -434,6 +439,7 @@ mod tests {
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"aaa".to_vec(), b"puppy".to_vec());
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
 
@@ -457,7 +463,7 @@ mod tests {
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.commit();
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         trie_update.remove(b"dog2");
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
@@ -465,7 +471,7 @@ mod tests {
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.commit();
+        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         trie_update.set(b"dog3".to_vec(), b"puppy".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
