@@ -4,7 +4,7 @@ use near_crypto::PublicKey;
 use std::fmt::Display;
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -27,7 +27,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// External
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidTxError {
     InvalidSigner(AccountId),
     SignerDoesNotExist(AccountId),
@@ -44,7 +44,7 @@ pub enum InvalidTxError {
     ActionsValidation(ActionsValidationError),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidAccessKeyError {
     AccessKeyNotFound(AccountId, PublicKey),
     ReceiverMismatch(AccountId, AccountId),
@@ -54,7 +54,7 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionsValidationError {
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
@@ -77,7 +77,7 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
     InvalidPredecessorId { account_id: AccountId },
@@ -178,7 +178,7 @@ impl Display for ActionsValidationError {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionError {
     AccountAlreadyExists(AccountId),
     AccountDoesNotExist(String, AccountId),
@@ -192,8 +192,8 @@ pub enum ActionError {
     TriesToUnstake(AccountId),
     TriesToStake(AccountId, Balance, Balance, Balance),
     FunctionCallError(String), // TODO type
-    /// Error occurred if any of the new ActionReceipts created by the FunctionCall action fails the
-    /// validation.
+    /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
+    /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
 }
 
@@ -281,7 +281,7 @@ impl Display for InvalidAccessKeyError {
 }
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BalanceMismatchError {
     // Input balances
     pub incoming_validator_rewards: Balance,
@@ -355,7 +355,7 @@ impl Display for BalanceMismatchError {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct IntegerOverflowError;
 
 /// Error returned from `Runtime::apply`
@@ -458,7 +458,7 @@ impl Display for ActionError {
 }
 
 /// Error returned in the ExecutionOutcome in case of failure.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     Action(ActionError),
     InvalidTx(InvalidTxError),

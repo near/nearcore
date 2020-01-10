@@ -329,7 +329,7 @@ impl<'a> VMLogic<'a> {
         let max_len = self.config.limit_config.max_log_len;
         if len != std::u64::MAX {
             if len > max_len {
-                return Err(HostError::LogLengthExceeded.into());
+                return Err(HostError::TotalLogLengthExceeded.into());
             }
             buf = self.memory_get_vec(ptr, len)?;
         } else {
@@ -340,7 +340,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == max_len {
-                    return Err(HostError::LogLengthExceeded.into());
+                    return Err(HostError::TotalLogLengthExceeded.into());
                 }
                 buf.push(el);
             }
@@ -373,7 +373,7 @@ impl<'a> VMLogic<'a> {
                 return Err(HostError::BadUTF16.into());
             }
             if len > max_len {
-                return Err(HostError::LogLengthExceeded.into());
+                return Err(HostError::TotalLogLengthExceeded.into());
             }
             u16_buffer = vec![0u16; len as usize / 2];
             byteorder::LittleEndian::read_u16_into(&input, &mut u16_buffer);
@@ -389,7 +389,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == limit {
-                    return Err(HostError::LogLengthExceeded.into());
+                    return Err(HostError::TotalLogLengthExceeded.into());
                 }
                 u16_buffer.push(el);
             }
@@ -1628,7 +1628,7 @@ impl<'a> VMLogic<'a> {
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
+            return Err(HostError::NumberOfLogsExceeded.into());
         }
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
@@ -1653,7 +1653,7 @@ impl<'a> VMLogic<'a> {
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
+            return Err(HostError::NumberOfLogsExceeded.into());
         }
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
@@ -1684,7 +1684,7 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::BadUTF16.into());
         }
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::TooManyLogs.into());
+            return Err(HostError::NumberOfLogsExceeded.into());
         }
 
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
