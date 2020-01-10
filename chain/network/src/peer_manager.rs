@@ -12,10 +12,10 @@ use actix::{
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use futures::{future, Stream, StreamExt};
-use log::{debug, error, info, trace, warn};
 use rand::{thread_rng, Rng};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
+use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
@@ -759,7 +759,7 @@ impl Actor for PeerManagerActor {
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
                     let incoming = IncomingCrutch { listener };
-                    info!(target: "info", "Server listening at {}@{}", act.peer_id, server_addr);
+                    info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
                     ctx.add_message_stream(
                         incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
                     );

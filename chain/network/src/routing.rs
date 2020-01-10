@@ -3,6 +3,8 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
@@ -35,7 +37,7 @@ pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
-#[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Default)]
 pub struct EdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
@@ -51,7 +53,7 @@ impl EdgeInfo {
 }
 
 /// Status of the edge
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum EdgeType {
     Added,
     Removed,
@@ -59,7 +61,7 @@ pub enum EdgeType {
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
     pub peer0: PeerId,
