@@ -495,11 +495,12 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, self.context.input.clone())
     }
 
-    /// Returns the current block index.
+    /// Returns the current block height.
     ///
     /// # Cost
     ///
     /// `base`
+    // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         Ok(self.context.block_index)

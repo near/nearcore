@@ -14,7 +14,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
-use near_network::types::{BlockedPorts, OutboundTcpConnect, StopSignal};
+use near_network::types::{BlockedPorts, OutboundTcpConnect, StopSignal, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
@@ -35,15 +35,21 @@ pub fn setup_network_node(
     genesis_time: DateTime<Utc>,
     peer_max_count: u32,
     blacklist: HashMap<IpAddr, BlockedPorts>,
+    routed_message_ttl: u8,
+    outbound_disabled: bool,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
     // Network config
     let ttl_account_id_router = Duration::from_millis(2000);
     let mut config = NetworkConfig::from_seed(account_id.as_str(), port);
+
+    config.outbound_disabled = true;
     config.peer_max_count = peer_max_count;
     config.ttl_account_id_router = ttl_account_id_router;
+    config.routed_message_ttl = routed_message_ttl;
     config.blacklist = blacklist;
+    config.outbound_disabled = outbound_disabled;
 
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -297,21 +303,24 @@ impl StateMachine {
                                 .map_err(|_| ())
                                 .and_then(move |res| {
                                     if let NetworkResponses::PingPongInfo { pings, pongs } = res {
-                                        let ping_ok =
-                                            pings_expected.into_iter().all(|(nonce, source)| {
+                                        let len_matches = pings.len() == pings_expected.len()
+                                            && pongs.len() == pongs_expected.len();
+
+                                        let ping_ok = len_matches
+                                            && pings_expected.into_iter().all(|(nonce, source)| {
                                                 pings
                                                     .get(&nonce)
                                                     .map_or(false, |ping| ping.source == source)
                                             });
 
-                                        let pong_ok =
-                                            pongs_expected.into_iter().all(|(nonce, source)| {
+                                        let pong_ok = len_matches
+                                            && pongs_expected.into_iter().all(|(nonce, source)| {
                                                 pongs
                                                     .get(&nonce)
                                                     .map_or(false, |pong| pong.source == source)
                                             });
 
-                                        if ping_ok && pong_ok {
+                                        if len_matches && ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
                                         }
                                     }
@@ -338,6 +347,8 @@ struct Runner {
     /// It add 127.0.0.1 to the blacklist of node u.
     blacklist: HashMap<usize, HashSet<Option<usize>>>,
     boot_nodes: Vec<usize>,
+    routed_message_ttl: u8,
+    outbound_disabled: bool,
 }
 
 impl Runner {
@@ -349,6 +360,8 @@ impl Runner {
             state_machine: Some(StateMachine::new()),
             blacklist: HashMap::new(),
             boot_nodes: vec![],
+            routed_message_ttl: ROUTED_MESSAGE_TTL,
+            outbound_disabled: true,
         }
     }
 
@@ -359,6 +372,16 @@ impl Runner {
 
     fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.boot_nodes = boot_nodes;
+        self
+    }
+
+    fn routed_message_ttl(mut self, routed_message_ttl: u8) -> Self {
+        self.routed_message_ttl = routed_message_ttl;
+        self
+    }
+
+    fn enable_outbound(mut self) -> Self {
+        self.outbound_disabled = false;
         self
     }
 
@@ -412,6 +435,8 @@ impl Runner {
                     genesis_time,
                     self.peer_max_count,
                     blacklist,
+                    self.routed_message_ttl,
+                    self.outbound_disabled,
                 )
             })
             .collect();
@@ -426,8 +451,6 @@ impl Runner {
         let mut flag = Arc::new(AtomicBool::new(true));
         let mut state_machine = self.state_machine.take().unwrap();
 
-        // TODO(MarX, #1312): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
-        //  instead of using fixed `check_interval_ms`.
         WaitOrTimeout::new(
             Box::new(move |ctx| {
                 if flag.load(Ordering::Relaxed) {
@@ -470,7 +493,7 @@ fn from_boot_nodes() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(2, 1, 1).use_boot_nodes(vec![0]);
+        let mut runner = Runner::new(2, 1, 1).use_boot_nodes(vec![0]).enable_outbound();
 
         runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
         runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
@@ -603,6 +626,61 @@ fn ping_jump() {
     .unwrap();
 }
 
+/// Test routed messages are not dropped if have enough TTL.
+/// Spawn three nodes and connect them in a line:
+///
+/// 0 ---- 1 ---- 2
+///
+/// Set routed message ttl to 2, so routed message can't pass through more than 2 edges.
+/// Send Ping from 0 to 2. It should arrive since there are only 2 edges from 0 to 2.
+/// Check Ping arrive at node 2 and later Pong arrive at node 0.
+#[test]
+fn test_dont_drop_after_ttl() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 1, 3).routed_message_ttl(2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::PingTo(0, 0, 2));
+        runner.push(Action::CheckPingPong(2, vec![(0, 0)], vec![]));
+        runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2)]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+/// Test routed messages are dropped if don't have enough TTL.
+/// Spawn three nodes and connect them in a line:
+///
+/// 0 ---- 1 ---- 2
+///
+/// Set routed message ttl to 1, so routed message can't pass through more than 1 edges.
+/// Send Ping from 0 to 2. It should not arrive since there are 2 edges from 0 to 2.
+/// Check none of Ping and Pong arrived.
+#[test]
+fn test_drop_after_ttl() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(3, 1, 3).routed_message_ttl(1);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::PingTo(0, 0, 2));
+        runner.push(Action::Wait(100));
+        runner.push(Action::CheckPingPong(2, vec![], vec![]));
+        runner.push(Action::CheckPingPong(0, vec![], vec![]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
 #[test]
 fn simple_remove() {
     init_test_logger();
@@ -655,7 +733,7 @@ fn churn_attack() {
     init_test_logger();
 
     System::run(|| {
-        let mut runner = Runner::new(4, 4, 1);
+        let mut runner = Runner::new(4, 4, 1).enable_outbound();
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));

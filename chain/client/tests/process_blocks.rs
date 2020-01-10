@@ -59,6 +59,7 @@ fn produce_two_blocks() {
 // TODO: figure out how to re-enable it correctly
 #[ignore]
 fn produce_blocks_with_tx() {
+    use reed_solomon_erasure::galois_8::ReedSolomon;
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
@@ -88,11 +89,12 @@ fn produce_blocks_with_tx() {
                             Some(part.part.clone());
                     }
 
-                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
-                        data_parts,
-                        total_parts,
-                        &mut encoded_chunks[height - 2],
-                    ) {
+                    let parity_parts = total_parts - data_parts;
+                    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+
+                    if let ChunkStatus::Complete(_) =
+                        ShardsManager::check_chunk_complete(&mut encoded_chunks[height - 2], &rs)
+                    {
                         let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
@@ -691,7 +693,7 @@ fn test_invalid_gas_price() {
 }
 
 #[test]
-fn test_invalid_block_height() {
+fn test_invalid_height() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);

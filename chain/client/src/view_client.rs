@@ -250,8 +250,8 @@ impl Handler<GetChunk> for ViewClientActor {
                         .map(Clone::clone)
                 })
             }
-            GetChunk::BlockHeight(block_height, shard_id) => {
-                self.chain.get_block_by_height(block_height).map(Clone::clone).and_then(|block| {
+            GetChunk::Height(height, shard_id) => {
+                self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
                     self.chain
                         .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
                         .map(Clone::clone)

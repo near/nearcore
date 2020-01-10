@@ -134,7 +134,7 @@ mod test {
                 while Instant::now() < timeout {
                     // Get random node.
                     let node = &nodes[sample_queryable_node(&nodes)];
-                    if let Some(new_ind) = node.read().unwrap().user().get_best_block_index() {
+                    if let Some(new_ind) = node.read().unwrap().user().get_best_height() {
                         if new_ind > prev_ind {
                             let blocks = ((prev_ind + 1)..=new_ind)
                                 .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())

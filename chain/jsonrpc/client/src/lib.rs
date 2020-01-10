@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     QueryResponse, StatusResponse,
@@ -19,7 +19,7 @@ pub mod message;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
-    Height(BlockIndex),
+    Height(BlockHeight),
     Hash(CryptoHash),
 }
 

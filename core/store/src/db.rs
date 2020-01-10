@@ -39,7 +39,7 @@ pub enum DBCol {
     ColBlockMisc = 0,
     ColBlock = 1,
     ColBlockHeader = 2,
-    ColBlockIndex = 3,
+    ColBlockHeight = 3,
     ColState = 4,
     ColChunkExtra = 5,
     ColTransactionResult = 6,
@@ -91,7 +91,7 @@ impl std::fmt::Display for DBCol {
             Self::ColBlockMisc => "miscellaneous block data",
             Self::ColBlock => "block data",
             Self::ColBlockHeader => "block header data",
-            Self::ColBlockIndex => "block index",
+            Self::ColBlockHeight => "block height",
             Self::ColState => "blockchain state",
             Self::ColChunkExtra => "extra information of trunk",
             Self::ColTransactionResult => "transaction results",
@@ -260,12 +260,12 @@ fn rocksdb_options() -> Options {
 
 fn rocksdb_block_based_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(1024 * 1024 * 8);
+    block_opts.set_block_size(1024 * 16);
     let cache_size = 1024 * 1024 * 512 / 3;
     block_opts.set_lru_cache(cache_size);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
-
+    block_opts.set_bloom_filter(10, true);
     block_opts
 }
 

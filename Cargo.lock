@@ -1962,6 +1962,7 @@ dependencies = [
  "chrono 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure_derive 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-crypto 0.1.0",
@@ -1992,6 +1993,7 @@ dependencies = [
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "reed-solomon-erasure 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2019,6 +2021,7 @@ dependencies = [
  "near-store 0.1.0",
  "near-telemetry 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "reed-solomon-erasure 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
