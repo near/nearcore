@@ -103,14 +103,12 @@ fn peers_connect_all() {
                         if info.num_active_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                         {
-                            println!("Peer {}: {}", i, info.num_active_peers);
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
                         }
                         future::ready(())
                     }));
                 }
                 // Stop if all connected to all after exchanging peers.
-                println!("Flags: {}", flags.load(Ordering::Relaxed));
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
                     System::current().stop();
                 }
