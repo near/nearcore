@@ -170,6 +170,14 @@ def create_staking_action(amount, pk):
     action.stake = stake
     return action
 
+def create_deploy_contract_action(code):
+    deployContract = DeployContract()
+    deployContract.code = code
+    action = Action()
+    action.enum = 'deployContract'
+    action.deployContract = deployContract
+    return action
+
 def sign_payment_tx(key, to, amount, nonce, blockHash):
     action = create_payment_action(amount)
     return sign_and_serialize_transaction(to, nonce, [action], blockHash, key.account_id, key.decoded_pk(), key.decoded_sk())
@@ -178,3 +186,6 @@ def sign_staking_tx(signer_key, validator_key, amount, nonce, blockHash):
     action = create_staking_action(amount, validator_key.decoded_pk())
     return sign_and_serialize_transaction(signer_key.account_id, nonce, [action], blockHash, signer_key.account_id, signer_key.decoded_pk(), signer_key.decoded_sk())
 
+def sign_deploy_contract_tx(signer_key, code, nonce, blockHash):
+    action = create_deploy_contract_action(code)
+    return sign_and_serialize_transaction(signer_key.account_id, nonce, [action], blockHash, signer_key.account_id, signer_key.decoded_pk(), signer_key.decoded_sk())
