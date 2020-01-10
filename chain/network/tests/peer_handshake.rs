@@ -128,7 +128,7 @@ fn peer_recover() {
 
     System::run(|| {
         let port0 = open_port();
-        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 0).start());
+        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
         let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
 
         let mut pm2 =
