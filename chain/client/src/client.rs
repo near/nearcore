@@ -388,7 +388,8 @@ impl Client {
             let time_passed = start_time.elapsed();
             writeln!(
                 (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                "produce_block {} {:?}",
+                "{} produce_block {} {:?}",
+                Utc::now().to_rfc3339(),
                 next_height,
                 time_passed
             )
@@ -524,7 +525,8 @@ impl Client {
             let time_passed = start_time.elapsed();
             writeln!(
                 (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                "produce_trunk height {} shard {} txs {} receipts {} producer {} chunk_hash {} time_passed {:?}",
+                "{} produce_trunk height {} shard {} txs {} receipts {} producer {} chunk_hash {} time_passed {:?}",
+                Utc::now().to_rfc3339(),
                 next_height,
                 shard_id,
                 num_filtered_transactions,
@@ -913,7 +915,8 @@ impl Client {
                             let time_passed = start_time.elapsed();
                             writeln!(
                                 (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                                "create_block_approval block_hash {} epoch_id {:?} time_passed {:?}",
+                                "{} create_block_approval block_hash {} epoch_id {:?} time_passed {:?}",
+                                Utc::now().to_rfc3339(),
                                 block_header.hash(),
                                 epoch_id,
                                 time_passed
