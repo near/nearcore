@@ -23,15 +23,15 @@ q = json.loads(open(filename).read())
 
 config_version = q.get('config_version', 0)
 
+num_sec_per_year = 31556952
+
 if config_version == 0:
-    ext_costs = q['runtime_config']['wasm_config']['ext_costs']
-    wasm_config = {
-        "ext_costs": ext_costs,
-        "grow_mem_cost": 1,
-        "regular_op_cost": 1,
-        "limit_config": json.loads("""{"max_gas_burnt":200000000000000,"max_gas_burnt_view":200000000000000,"max_stack_height":16384,"initial_memory_pages":1024,"max_memory_pages":2048,"registers_memory_limit":1073741824,"max_register_size":104857600,"max_number_registers":100,"max_number_logs":100,"max_log_len":500,"max_total_prepaid_gas":10000000000000000,"max_actions_per_receipt":100,"max_number_bytes_method_names":2000,"max_length_method_name":256,"max_arguments_length":4194304,"max_length_returned_data":4194304,"max_contract_size":4194304,"max_length_storage_key":4194304,"max_length_storage_value":4194304,"max_promises_per_function_call_action":1024,"max_number_input_data_dependencies":128}"""),
+    # The rest of `runtime_config` fields are default
+    q['runtime_config'] = {
+        'poke_threshold': 24 * 3600,
+        'storage_cost_byte_per_block': str(5 * 10**6),
+        'account_length_baseline_cost_per_block': str(10**24 * 3**8 // num_sec_per_year),
     }
-    q['runtime_config']['wasm_config'] = wasm_config
     config_version = 1
 
 # Add future migration code below, without removing the previous migration code.
@@ -47,3 +47,8 @@ q['config_version'] = config_version
 # We overwrite the file instead of creating a new one.
 # Too bad the file is too large so you can't see the difference in git.
 open(filename, 'w').write(json.dumps(q, indent=2, sort_keys=True))
+
+# Dump the config into a separate file for easier reviewing the git.
+# It's not used for the reading genesis.
+del q['records']
+open(filename + '.config', 'w').write(json.dumps(q, indent=2, sort_keys=True))

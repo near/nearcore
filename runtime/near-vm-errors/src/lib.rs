@@ -85,14 +85,45 @@ pub enum HostError {
     InvalidMethodName,
     InvalidPublicKey,
     ProhibitedInView(String),
-    NumberOfLogsExceeded { number_of_logs: u64, limit: u64 },
-    KeyLengthExceeded { length: u64, limit: u64 },
-    ValueLengthExceeded { length: u64, limit: u64 },
-    TotalLogLengthExceeded { length: u64, limit: u64 },
-    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
-    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
-    ReturnedValueLengthExceeded { length: u64, limit: u64 },
-    ContractSizeExceeded { length: u64, limit: u64 },
+    /// The total number of logs will exceed the limit.
+    NumberOfLogsExceeded {
+        limit: u64,
+    },
+    /// The storage key length exceeded the limit.
+    KeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// The storage value length exceeded the limit.
+    ValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// The total log length exceeded the limit.
+    TotalLogLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// The maximum number of promises within a FunctionCall exceeded the limit.
+    NumberPromisesExceeded {
+        number_of_promises: u64,
+        limit: u64,
+    },
+    /// The maximum number of input data dependencies exceeded the limit.
+    NumberInputDataDependenciesExceeded {
+        number_of_input_data_dependencies: u64,
+        limit: u64,
+    },
+    /// The returned value length exceeded the limit.
+    ReturnedValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// The contract size for DeployContract action exceeded the limit.
+    ContractSizeExceeded {
+        size: u64,
+        limit: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,14 +228,14 @@ impl std::fmt::Display for HostError {
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
-            NumberOfLogsExceeded => write!(f, "Exceeded the maximum number of log messages"),
-            KeyLengthExceeded => write!(f, "Exceeded the length of a storage key"),
-            ValueLengthExceeded => write!(f, "Exceeded the length of a storage value"),
-            TotalLogLengthExceeded => write!(f, "Exceeded the length of a log message"),
-            NumberPromisesExceeded => write!(f, "Exceeded the maximum number of promises within a function call"),
-            NumberInputDataDependenciesExceeded => write!(f, "Exceeded the maximum number of input data dependencies"),
-            ReturnedValueLengthExceeded => write!(f, "Exceeded the returned value length"),
-            ContractSizeExceeded => write!(f, "Exceeded the length of a deploy contract code"),
+            NumberOfLogsExceeded{  limit} => write!(f, "The number of logs will exceed the limit {}", limit),
+            KeyLengthExceeded{ length, limit } => write!(f, "The length of a storage key {} exceeds the limit {}", length, limit),
+            ValueLengthExceeded{ length, limit } => write!(f, "The length of a storage value {} exceeds the limit {}", length, limit),
+            TotalLogLengthExceeded{ length, limit } => write!(f, "The length of a log message {} exceeds the limit {}", length, limit),
+            NumberPromisesExceeded { number_of_promises, limit } => write!(f, "The number of promises within a FunctionCall {} exceeds the limit {}", number_of_promises, limit),
+            NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
+            ReturnedValueLengthExceeded{ length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
+            ContractSizeExceeded  {size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
         }
     }
 }

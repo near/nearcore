@@ -182,7 +182,7 @@ fn validate_action_receipt(
     }
     if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
-            number: receipt.input_data_ids.len() as u64,
+            number_of_input_data_dependencies: receipt.input_data_ids.len() as u64,
             limit: limit_config.max_number_input_data_dependencies,
         });
     }
@@ -260,7 +260,7 @@ fn validate_deploy_contract_action(
 ) -> Result<(), ActionsValidationError> {
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
-            length: action.code.len() as u64,
+            size: action.code.len() as u64,
             limit: limit_config.max_contract_size,
         });
     }

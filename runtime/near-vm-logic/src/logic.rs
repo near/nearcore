@@ -58,6 +58,9 @@ pub struct VMLogic<'a> {
     promises: Vec<Promise>,
     /// Record the accounts towards which the receipts are directed.
     receipt_to_account: HashMap<ReceiptIndex, AccountId>,
+
+    /// Tracks the total log length. The sum of length of all logs.
+    total_log_length: u64,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -137,6 +140,7 @@ impl<'a> VMLogic<'a> {
             invalid_iterators: HashSet::new(),
             promises: vec![],
             receipt_to_account: HashMap::new(),
+            total_log_length: 0,
         }
     }
 
@@ -314,7 +318,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+    ///   `TotalLogLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -326,10 +331,15 @@ impl<'a> VMLogic<'a> {
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf8_decoding_base)?;
         let mut buf;
-        let max_len = self.config.limit_config.max_log_len;
+        let max_len =
+            self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
         if len != std::u64::MAX {
             if len > max_len {
-                return Err(HostError::TotalLogLengthExceeded.into());
+                return Err(HostError::TotalLogLengthExceeded {
+                    length: self.total_log_length.saturating_add(len),
+                    limit: self.config.limit_config.max_total_log_length,
+                }
+                .into());
             }
             buf = self.memory_get_vec(ptr, len)?;
         } else {
@@ -340,7 +350,11 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == max_len {
-                    return Err(HostError::TotalLogLengthExceeded.into());
+                    return Err(HostError::TotalLogLengthExceeded {
+                        length: self.total_log_length.saturating_add(max_len).saturating_add(1),
+                        limit: self.config.limit_config.max_total_log_length,
+                    }
+                    .into());
                 }
                 buf.push(el);
             }
@@ -354,7 +368,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    /// * If number of bytes is greater than `max_log_len` returns `LogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+    ///   `TotalLogLengthExceeded`.
     ///
     /// # Cost
     ///
@@ -366,14 +381,19 @@ impl<'a> VMLogic<'a> {
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf16_decoding_base)?;
         let mut u16_buffer;
-        let max_len = self.config.limit_config.max_log_len;
+        let max_len =
+            self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
         if len != std::u64::MAX {
             let input = self.memory_get_vec(ptr, len)?;
             if len % 2 != 0 {
                 return Err(HostError::BadUTF16.into());
             }
             if len > max_len {
-                return Err(HostError::TotalLogLengthExceeded.into());
+                return Err(HostError::TotalLogLengthExceeded {
+                    length: self.total_log_length.saturating_add(len),
+                    limit: self.config.limit_config.max_total_log_length,
+                }
+                .into());
             }
             u16_buffer = vec![0u16; len as usize / 2];
             byteorder::LittleEndian::read_u16_into(&input, &mut u16_buffer);
@@ -389,7 +409,14 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == limit {
-                    return Err(HostError::TotalLogLengthExceeded.into());
+                    return Err(HostError::TotalLogLengthExceeded {
+                        length: self
+                            .total_log_length
+                            .saturating_add(i * size_of::<u16>() as u64)
+                            .saturating_add(size_of::<u16>() as u64),
+                        limit: self.config.limit_config.max_total_log_length,
+                    }
+                    .into());
                 }
                 u16_buffer.push(el);
             }
@@ -397,6 +424,51 @@ impl<'a> VMLogic<'a> {
         self.gas_counter
             .pay_per_byte(utf16_decoding_byte, u16_buffer.len() as u64 * size_of::<u16>() as u64)?;
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
+    }
+
+    // ####################################################
+    // # Helper functions to prevent code duplication API #
+    // ####################################################
+
+    /// Checks that the current log number didn't reach the limit yet, so we can add a new message.
+    fn check_can_add_a_log_message(&self) -> Result<()> {
+        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
+            Err(HostError::NumberOfLogsExceeded { limit: self.config.limit_config.max_number_logs }
+                .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Adds a given promise to the vector of promises and returns a new promise index.
+    /// Throws `NumberPromisesExceeded` if the total number of promises exceeded the limit.
+    fn checked_push_promise(&mut self, promise: Promise) -> Result<PromiseIndex> {
+        let new_promise_idx = self.promises.len() as PromiseIndex;
+        self.promises.push(promise);
+        if self.promises.len() as u64
+            > self.config.limit_config.max_promises_per_function_call_action
+        {
+            Err(HostError::NumberPromisesExceeded {
+                number_of_promises: self.promises.len() as u64,
+                limit: self.config.limit_config.max_promises_per_function_call_action,
+            }
+            .into())
+        } else {
+            Ok(new_promise_idx)
+        }
+    }
+
+    fn checked_push_log(&mut self, message: String) -> Result<()> {
+        self.total_log_length += message.as_bytes().len() as u64;
+        if self.total_log_length > self.config.limit_config.max_total_log_length {
+            return Err(HostError::TotalLogLengthExceeded {
+                length: self.total_log_length,
+                limit: self.config.limit_config.max_total_log_length,
+            }
+            .into());
+        }
+        self.logs.push(message);
+        Ok(())
     }
 
     // ###############
@@ -858,19 +930,16 @@ impl<'a> VMLogic<'a> {
             if receipt_dependencies.len() as u64
                 > self.config.limit_config.max_number_input_data_dependencies
             {
-                return Err(HostError::NumberInputDataDependenciesExceeded.into());
+                return Err(HostError::NumberInputDataDependenciesExceeded {
+                    number_of_input_data_dependencies: receipt_dependencies.len() as u64,
+                    limit: self.config.limit_config.max_number_input_data_dependencies,
+                }
+                .into());
             }
         }
-        let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises.push(Promise {
+        self.checked_push_promise(Promise {
             promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
-        });
-        if self.promises.len() as u64
-            > self.config.limit_config.max_promises_per_function_call_action
-        {
-            return Err(HostError::NumberPromisesExceeded.into());
-        }
-        Ok(new_promise_idx)
+        })
     }
 
     /// Creates a new promise towards given `account_id` without any actions attached to it.
@@ -907,15 +976,9 @@ impl<'a> VMLogic<'a> {
         let new_receipt_idx = self.ext.create_receipt(vec![], account_id.clone())?;
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
-        let promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        if self.promises.len() as u64
-            > self.config.limit_config.max_promises_per_function_call_action
-        {
-            return Err(HostError::NumberPromisesExceeded.into());
-        }
-        Ok(promise_idx)
+        self.checked_push_promise(Promise {
+            promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
+        })
     }
 
     /// Creates a new promise towards given `account_id` without any actions attached, that is
@@ -974,15 +1037,10 @@ impl<'a> VMLogic<'a> {
 
         let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id.clone())?;
         self.receipt_to_account.insert(new_receipt_idx, account_id);
-        let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        if self.promises.len() as u64
-            > self.config.limit_config.max_promises_per_function_call_action
-        {
-            return Err(HostError::NumberPromisesExceeded.into());
-        }
-        Ok(new_promise_idx)
+
+        self.checked_push_promise(Promise {
+            promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
+        })
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -1072,7 +1130,11 @@ impl<'a> VMLogic<'a> {
         }
         let code = self.get_vec_from_memory_or_register(code_ptr, code_len)?;
         if code.len() as u64 > self.config.limit_config.max_contract_size {
-            return Err(HostError::ContractSizeExceeded.into());
+            return Err(HostError::ContractSizeExceeded {
+                size: code.len() as u64,
+                limit: self.config.limit_config.max_contract_size,
+            }
+            .into());
         }
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -1557,7 +1619,11 @@ impl<'a> VMLogic<'a> {
         let mut burn_gas: Gas = 0;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
-            return Err(HostError::ReturnedValueLengthExceeded.into());
+            return Err(HostError::ReturnedValueLengthExceeded {
+                length: num_bytes,
+                limit: self.config.limit_config.max_length_returned_data,
+            }
+            .into());
         }
         let data_cfg = &self.fees_config.data_receipt_creation_config;
         for data_receiver in &self.context.output_data_receivers {
@@ -1603,7 +1669,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
+    /// * If string is longer than `max_log_len` returns `TotalLogLengthExceeded`.
     ///
     /// # Cost
     /// `base + cost of reading and decoding a utf8 string`
@@ -1619,22 +1685,21 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
-    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
+    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+    ///   `TotalLogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns
+    ///   `NumberOfLogsExceeded`.
     ///
     /// # Cost
     ///
     /// `base + log_base + log_byte + num_bytes + utf8 decoding cost`
     pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::NumberOfLogsExceeded.into());
-        }
+        self.check_can_add_a_log_message()?;
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
-        self.logs.push(message);
-        Ok(())
+        self.checked_push_log(message)
     }
 
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
@@ -1644,25 +1709,24 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    /// * If number of bytes is greater than `max_log_len` returns `LogLengthExceeded`.
-    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
+    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+    ///   `TotalLogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns
+    ///   `NumberOfLogsExceeded`.
     ///
     /// # Cost
     ///
     /// `base + log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::NumberOfLogsExceeded.into());
-        }
+        self.check_can_add_a_log_message()?;
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(
             log_byte,
             message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
         )?;
-        self.logs.push(message);
-        Ok(())
+        self.checked_push_log(message)
     }
 
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
@@ -1672,8 +1736,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `LogLengthExceeded`.
-    /// * If the total number of logs will exceed the `max_number_logs` returns `TooManyLogs`.
+    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
+    ///   `TotalLogLengthExceeded`.
+    /// * If the total number of logs will exceed the `max_number_logs` returns
+    ///   `NumberOfLogsExceeded`.
     ///
     /// # Cost
     ///
@@ -1683,9 +1749,7 @@ impl<'a> VMLogic<'a> {
         if msg_ptr < 4 || filename_ptr < 4 {
             return Err(HostError::BadUTF16.into());
         }
-        if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
-            return Err(HostError::NumberOfLogsExceeded.into());
-        }
+        self.check_can_add_a_log_message()?;
 
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
         let filename_len = self.memory_get_u32((filename_ptr - 4) as u64)?;
@@ -1696,7 +1760,7 @@ impl<'a> VMLogic<'a> {
         let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
         self.gas_counter.pay_base(log_base)?;
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
-        self.logs.push(format!("ABORT: {}", message));
+        self.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic(message).into())
     }
@@ -1761,11 +1825,19 @@ impl<'a> VMLogic<'a> {
         }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         if value.len() as u64 > self.config.limit_config.max_length_storage_value {
-            return Err(HostError::ValueLengthExceeded.into());
+            return Err(HostError::ValueLengthExceeded {
+                length: value.len() as u64,
+                limit: self.config.limit_config.max_length_storage_value,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per_byte(storage_write_value_byte, value.len() as u64)?;
@@ -1832,7 +1904,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(storage_read_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
@@ -1877,7 +1953,11 @@ impl<'a> VMLogic<'a> {
         }
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
@@ -1919,7 +1999,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(storage_has_key_base)?;
         let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
@@ -1951,7 +2035,11 @@ impl<'a> VMLogic<'a> {
 
         let prefix = self.get_vec_from_memory_or_register(prefix_ptr, prefix_len)?;
         if prefix.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: prefix.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_iter_create_prefix_byte, prefix.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
@@ -1990,11 +2078,19 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(storage_iter_create_range_base)?;
         let start_key = self.get_vec_from_memory_or_register(start_ptr, start_len)?;
         if start_key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: start_key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         let end_key = self.get_vec_from_memory_or_register(end_ptr, end_len)?;
         if end_key.len() as u64 > self.config.limit_config.max_length_storage_key {
-            return Err(HostError::KeyLengthExceeded.into());
+            return Err(HostError::KeyLengthExceeded {
+                length: end_key.len() as u64,
+                limit: self.config.limit_config.max_length_storage_key,
+            }
+            .into());
         }
         self.gas_counter.pay_per_byte(storage_iter_create_from_byte, start_key.len() as u64)?;
         self.gas_counter.pay_per_byte(storage_iter_create_to_byte, end_key.len() as u64)?;

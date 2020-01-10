@@ -68,8 +68,8 @@ pub enum ActionsValidationError {
     IntegerOverflow,
     /// Invalid account ID.
     InvalidAccountId { account_id: AccountId },
-    /// The length of the contract size exceeded the limit in a DeployContract action.
-    ContractSizeExceeded { length: u64, limit: u64 },
+    /// The size of the contract code exceeded the limit in a DeployContract action.
+    ContractSizeExceeded { size: u64, limit: u64 },
     /// The length of the method name exceeded the limit in a Function Call action.
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     /// The length of the arguments exceeded the limit in a Function Call action.
@@ -90,7 +90,7 @@ pub enum ReceiptValidationError {
     /// The length of the returned data exceeded the limit in a DataReceipt.
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     /// The number of input data dependencies exceeds the limit in an ActionReceipt.
-    NumberInputDataDependenciesExceeded { number: u64, limit: u64 },
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
     /// An error occurred while validating actions of an ActionReceipt.
     ActionsValidation(ActionsValidationError),
 }
@@ -117,10 +117,10 @@ impl Display for ReceiptValidationError {
                 "The length of the returned data {} exceeded the limit {} in a DataReceipt",
                 length, limit
             ),
-            ReceiptValidationError::NumberInputDataDependenciesExceeded { number, limit } => write!(
+            ReceiptValidationError::NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(
                 f,
                 "The number of input data dependencies {} exceeded the limit {} in an ActionReceipt",
-                number, limit
+                number_of_input_data_dependencies, limit
             ),
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
         }
@@ -159,10 +159,10 @@ impl Display for ActionsValidationError {
                 "Invalid account ID `{}`",
                 account_id
             ),
-            ActionsValidationError::ContractSizeExceeded{length, limit} => write!(
+            ActionsValidationError::ContractSizeExceeded{ size, limit} => write!(
                 f,
                 "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
-                length, limit
+                size, limit
             ),
             ActionsValidationError::FunctionCallMethodNameLengthExceeded{length, limit} => write!(
                 f,

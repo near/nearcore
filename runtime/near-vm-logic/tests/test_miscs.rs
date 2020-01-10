@@ -54,7 +54,7 @@ fn test_valid_null_terminated_utf8() {
     let mut string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
     string_bytes.push(0u8);
     let bytes_len = string_bytes.len();
-    logic_builder.config.limit_config.max_log_len = string_bytes.len() as u64;
+    logic_builder.config.limit_config.max_total_log_length = string_bytes.len() as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
     logic
         .log_utf8(std::u64::MAX, string_bytes.as_ptr() as _)
@@ -78,12 +78,13 @@ fn test_valid_null_terminated_utf8() {
 fn test_log_max_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
-    logic_builder.config.limit_config.max_log_len = (string_bytes.len() - 1) as u64;
+    let limit = (string_bytes.len() - 1) as u64;
+    logic_builder.config.limit_config.max_total_log_length = limit;
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     assert_eq!(
         logic.log_utf8(string_bytes.len() as _, string_bytes.as_ptr() as _),
-        Err(HostError::TotalLogLengthExceeded.into())
+        Err(HostError::TotalLogLengthExceeded { length: string_bytes.len() as _, limit }.into())
     );
 
     assert_costs(map! {
@@ -96,11 +97,36 @@ fn test_log_max_limit() {
 }
 
 #[test]
+fn test_log_total_length_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
+    let num_logs = 10;
+    let limit = string_bytes.len() as u64 * num_logs - 1;
+    logic_builder.config.limit_config.max_total_log_length = limit;
+    logic_builder.config.limit_config.max_number_logs = num_logs;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    for _ in 0..num_logs - 1 {
+        logic
+            .log_utf8(string_bytes.len() as _, string_bytes.as_ptr() as _)
+            .expect("total is still under the limit");
+    }
+    assert_eq!(
+        logic.log_utf8(string_bytes.len() as _, string_bytes.as_ptr() as _),
+        Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
+    );
+
+    let outcome = logic.outcome();
+    assert_eq!(outcome.logs.len() as u64, num_logs - 1);
+}
+
+#[test]
 fn test_log_number_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let string_bytes = "blabla".as_bytes().to_vec();
-    logic_builder.config.limit_config.max_log_len = (string_bytes.len() + 1) as u64;
     let max_number_logs = 3;
+    logic_builder.config.limit_config.max_total_log_length =
+        (string_bytes.len() + 1) as u64 * (max_number_logs + 1);
     logic_builder.config.limit_config.max_number_logs = max_number_logs;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let len = string_bytes.len() as u64;
@@ -111,7 +137,7 @@ fn test_log_number_limit() {
     }
     assert_eq!(
         logic.log_utf8(len, string_bytes.as_ptr() as _),
-        Err(HostError::NumberOfLogsExceeded.into())
+        Err(HostError::NumberOfLogsExceeded { limit: max_number_logs }.into())
     );
 
     assert_costs(map! {
@@ -137,8 +163,9 @@ fn test_log_utf16_number_limit() {
         string_bytes.push(u16_ as u8);
         string_bytes.push((u16_ >> 8) as u8);
     }
-    logic_builder.config.limit_config.max_log_len = (string_bytes.len() + 1) as u64;
     let max_number_logs = 3;
+    logic_builder.config.limit_config.max_total_log_length =
+        (string_bytes.len() + 1) as u64 * (max_number_logs + 1);
     logic_builder.config.limit_config.max_number_logs = max_number_logs;
 
     let mut logic = logic_builder.build(get_context(vec![], false));
@@ -150,7 +177,7 @@ fn test_log_utf16_number_limit() {
     }
     assert_eq!(
         logic.log_utf16(len, string_bytes.as_ptr() as _),
-        Err(HostError::NumberOfLogsExceeded.into())
+        Err(HostError::NumberOfLogsExceeded { limit: max_number_logs }.into())
     );
 
     assert_costs(map! {
@@ -168,16 +195,58 @@ fn test_log_utf16_number_limit() {
 }
 
 #[test]
+fn test_log_total_length_limit_mixed() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let utf8_bytes = "abc".as_bytes().to_vec();
+
+    let string = "abc";
+    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    for u16_ in string.encode_utf16() {
+        utf16_bytes.push(u16_ as u8);
+        utf16_bytes.push((u16_ >> 8) as u8);
+    }
+
+    let final_bytes = "abc".as_bytes().to_vec();
+
+    let num_logs_each = 10;
+    let limit = utf8_bytes.len() as u64 * num_logs_each
+        + string.as_bytes().len() as u64 * num_logs_each
+        + final_bytes.len() as u64
+        - 1;
+    logic_builder.config.limit_config.max_total_log_length = limit;
+    logic_builder.config.limit_config.max_number_logs = num_logs_each * 2 + 1;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    for _ in 0..num_logs_each {
+        logic
+            .log_utf16(utf16_bytes.len() as _, utf16_bytes.as_ptr() as _)
+            .expect("total is still under the limit");
+
+        logic
+            .log_utf8(utf8_bytes.len() as _, utf8_bytes.as_ptr() as _)
+            .expect("total is still under the limit");
+    }
+    assert_eq!(
+        logic.log_utf8(final_bytes.len() as _, final_bytes.as_ptr() as _),
+        Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
+    );
+
+    let outcome = logic.outcome();
+    assert_eq!(outcome.logs.len() as u64, num_logs_each * 2);
+}
+
+#[test]
 fn test_log_utf8_max_limit_null_terminated() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut string_bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes().to_vec();
-    logic_builder.config.limit_config.max_log_len = (string_bytes.len() - 1) as u64;
+    let limit = (string_bytes.len() - 1) as u64;
+    logic_builder.config.limit_config.max_total_log_length = limit;
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     string_bytes.push(0u8);
     assert_eq!(
         logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _),
-        Err(HostError::TotalLogLengthExceeded.into())
+        Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
     );
 
     let len = string_bytes.len() as u64;
@@ -223,7 +292,7 @@ fn test_valid_log_utf16() {
 #[test]
 fn test_valid_log_utf16_max_log_len_not_even() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_log_len = 5;
+    logic_builder.config.limit_config.max_total_log_length = 5;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let string = "ab";
     let mut utf16_bytes: Vec<u8> = Vec::new();
@@ -254,13 +323,17 @@ fn test_valid_log_utf16_max_log_len_not_even() {
     utf16_bytes.extend_from_slice(&[0, 0]);
     assert_eq!(
         logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _),
-        Err(HostError::TotalLogLengthExceeded.into())
+        Err(HostError::TotalLogLengthExceeded {
+            length: 6,
+            limit: logic_builder.config.limit_config.max_total_log_length,
+        }
+        .into())
     );
 
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_log_len/2 + 1,
-        ExtCosts::read_memory_byte: 2*(logic_builder.config.limit_config.max_log_len/2 + 1),
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 2 * 2,
         ExtCosts::utf16_decoding_base: 1,
     });
 }
@@ -270,14 +343,14 @@ fn test_log_utf8_max_limit_null_terminated_fail() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut string_bytes = "abcd".as_bytes().to_vec();
     string_bytes.push(0u8);
-    logic_builder.config.limit_config.max_log_len = 3;
+    logic_builder.config.limit_config.max_total_log_length = 3;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let res = logic.log_utf8(std::u64::MAX, string_bytes.as_ptr() as _);
-    assert_eq!(res, Err(HostError::TotalLogLengthExceeded.into()));
+    assert_eq!(res, Err(HostError::TotalLogLengthExceeded { length: 4, limit: 3 }.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_log_len + 1,
-        ExtCosts::read_memory_byte: logic_builder.config.limit_config.max_log_len + 1,
+        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_total_log_length + 1,
+        ExtCosts::read_memory_byte: logic_builder.config.limit_config.max_total_log_length + 1,
         ExtCosts::utf8_decoding_base: 1,
     });
 }
@@ -429,7 +502,8 @@ fn test_key_length_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut key = "a".repeat(1024).as_bytes().to_vec();
     let val = b"hello";
-    logic_builder.config.limit_config.max_length_storage_key = key.len() as u64;
+    let limit = key.len() as u64;
+    logic_builder.config.limit_config.max_length_storage_key = limit;
     let mut logic = logic_builder.build(get_context(vec![], false));
     // Under the limit. Valid calls.
     logic
@@ -458,7 +532,7 @@ fn test_key_length_limit() {
     key.push(b'a');
     assert_eq!(
         logic.storage_has_key(key.len() as _, key.as_ptr() as _),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_write(
@@ -468,19 +542,19 @@ fn test_key_length_limit() {
             val.as_ptr() as _,
             0
         ),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_read(key.len() as _, key.as_ptr() as _, 0),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_remove(key.len() as _, key.as_ptr() as _, 0),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_iter_prefix(key.len() as _, key.as_ptr() as _),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_iter_range(
@@ -489,7 +563,7 @@ fn test_key_length_limit() {
             b"z".len() as _,
             b"z".as_ptr() as _
         ),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
     assert_eq!(
         logic.storage_iter_range(
@@ -498,7 +572,7 @@ fn test_key_length_limit() {
             key.len() as _,
             key.as_ptr() as _
         ),
-        Err(HostError::KeyLengthExceeded.into())
+        Err(HostError::KeyLengthExceeded { length: key.len() as _, limit }.into())
     );
 }
 
@@ -521,7 +595,11 @@ fn test_value_length_limit() {
             val.as_ptr() as _,
             0
         ),
-        Err(HostError::ValueLengthExceeded.into())
+        Err(HostError::ValueLengthExceeded {
+            length: val.len() as u64,
+            limit: logic_builder.config.limit_config.max_length_storage_value
+        }
+        .into())
     );
 }
 
@@ -539,7 +617,11 @@ fn test_num_promises() {
     }
     assert_eq!(
         logic.promise_batch_create(account_id.len() as _, account_id.as_ptr() as _),
-        Err(HostError::NumberPromisesExceeded.into())
+        Err(HostError::NumberPromisesExceeded {
+            number_of_promises: num_promises + 1,
+            limit: logic_builder.config.limit_config.max_promises_per_function_call_action
+        }
+        .into())
     );
 }
 
@@ -562,7 +644,11 @@ fn test_num_joined_promises() {
     let promises = vec![promise_id; (num_deps + 1) as usize];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumberInputDataDependenciesExceeded.into())
+        Err(HostError::NumberInputDataDependenciesExceeded {
+            number_of_input_data_dependencies: promises.len() as u64,
+            limit: logic_builder.config.limit_config.max_number_input_data_dependencies,
+        }
+        .into())
     );
 }
 
@@ -593,7 +679,15 @@ fn test_num_input_dependencies_recursive_join() {
     let promises = vec![promise_id, promise_id, original_promise_id];
     assert_eq!(
         logic.promise_and(promises.as_ptr() as _, promises.len() as _),
-        Err(HostError::NumberInputDataDependenciesExceeded.into())
+        Err(HostError::NumberInputDataDependenciesExceeded {
+            number_of_input_data_dependencies: logic_builder
+                .config
+                .limit_config
+                .max_number_input_data_dependencies
+                + 1,
+            limit: logic_builder.config.limit_config.max_number_input_data_dependencies,
+        }
+        .into())
     );
 }
 
@@ -609,7 +703,11 @@ fn test_return_value_limit() {
     val.push(b'a');
     assert_eq!(
         logic.value_return(val.len() as _, val.as_ptr() as _),
-        Err(HostError::ReturnedValueLengthExceeded.into())
+        Err(HostError::ReturnedValueLengthExceeded {
+            length: val.len() as u64,
+            limit: logic_builder.config.limit_config.max_length_returned_data
+        }
+        .into())
     );
 }
 
@@ -633,6 +731,10 @@ fn test_contract_size_limit() {
             code.len() as u64,
             code.as_ptr() as _
         ),
-        Err(HostError::ContractSizeExceeded.into())
+        Err(HostError::ContractSizeExceeded {
+            size: code.len() as u64,
+            limit: logic_builder.config.limit_config.max_contract_size
+        }
+        .into())
     );
 }

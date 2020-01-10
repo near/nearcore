@@ -53,7 +53,7 @@ impl RuntimeTestbed {
         let mut runtime_config = RuntimeConfig::default();
 
         runtime_config.wasm_config.limit_config = VMLimitConfig {
-            max_log_len: u64::max_value(),
+            max_total_log_length: u64::max_value(),
             max_number_registers: u64::max_value(),
             max_gas_burnt: u64::max_value(),
             max_register_size: u64::max_value(),

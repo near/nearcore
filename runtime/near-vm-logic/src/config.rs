@@ -47,8 +47,8 @@ pub struct VMLimitConfig {
 
     /// Maximum number of log entries.
     pub max_number_logs: u64,
-    /// Maximum length of a single log, in bytes.
-    pub max_log_len: u64,
+    /// Maximum total length in bytes in all log messages.
+    pub max_total_log_length: u64,
 
     /// Max total prepaid gas for all function call actions per receipt.
     pub max_total_prepaid_gas: Gas,
@@ -131,7 +131,8 @@ impl Default for VMLimitConfig {
             max_number_registers: 100,
 
             max_number_logs: 100,
-            max_log_len: 500,
+            // Total logs size is 16Kib
+            max_total_log_length: 16 * 1024,
 
             // Fills 10 blocks. It defines how long a single receipt might live.
             max_total_prepaid_gas: 10 * 10u64.pow(15),
