@@ -19,6 +19,7 @@ sysinfo = "0.10"
 cached = "0.11.0"
 lazy_static = "1.4"
 borsh = "0.2.10"
+reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
