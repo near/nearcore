@@ -1746,8 +1746,12 @@ impl<'a> ChainStoreUpdate<'a> {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            trie_changes
+                .key_value_changes_into(&mut store_update)
+                .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
+
         let mut affected_catchup_blocks = HashSet::new();
         for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));

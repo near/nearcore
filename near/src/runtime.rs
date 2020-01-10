@@ -208,6 +208,7 @@ impl NightshadeRuntime {
         state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
+        block_hash: &CryptoHash,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
@@ -328,6 +329,7 @@ impl NightshadeRuntime {
                 self.trie.clone(),
                 apply_result.trie_changes,
                 apply_result.key_value_changes,
+                block_hash.clone(),
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -818,7 +820,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -837,6 +839,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -864,7 +867,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -878,6 +881,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -1242,7 +1246,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
-            result.trie_changes.key_value_changes_into(block_hash, &mut store_update).unwrap();
+            result.trie_changes.key_value_changes_into(&mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }

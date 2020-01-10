@@ -524,11 +524,17 @@ pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
     kv_changes: KVChanges,
+    block_hash: CryptoHash,
 }
 
 impl WrappedTrieChanges {
-    pub fn new(trie: Arc<Trie>, trie_changes: TrieChanges, kv_changes: KVChanges) -> Self {
-        WrappedTrieChanges { trie, trie_changes, kv_changes }
+    pub fn new(
+        trie: Arc<Trie>,
+        trie_changes: TrieChanges,
+        kv_changes: KVChanges,
+        block_hash: CryptoHash,
+    ) -> Self {
+        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -547,13 +553,12 @@ impl WrappedTrieChanges {
 
     pub fn key_value_changes_into(
         &self,
-        block_hash: &CryptoHash,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
         for (key, changes) in &self.kv_changes {
-            let mut storage_key = Vec::with_capacity(block_hash.as_ref().len() + key.len());
-            storage_key.extend_from_slice(block_hash.as_ref());
+            let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
+            storage_key.extend_from_slice(self.block_hash.as_ref());
             storage_key.extend_from_slice(key);
             let value = changes.try_to_vec()?;
             store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css" integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous">
+</head>
+<body style="background: #fff; margin-top: 3em">
+  <div>Please run the following command in shell, then enter account id here. masterAccountId default: test.near
+  </div>
+  <div>
+      <code id="shell-command"></code>
+  </div>
+  <input type="text" id="accountId" name="accountId" placeholder="Account id"></input>
+  <button type="button" onClick="done()">done</button>
+  <script>
+    const currentUrl = new URL(window.location.href);
+    const message = `NODE_ENV=local near create_account {newAccountId} --masterAccount {masterAccountId} --publicKey ${currentUrl.searchParams.get('public_key')} --initialAmount 10000000000000000000`;
+    document.getElementById('shell-command').innerText = message;
+
+    function done() {
+      const successUrl = new URL(currentUrl.searchParams.get('success_url'));
+      successUrl.searchParams.set('account_id', document.getElementById('accountId').value);
+      successUrl.searchParams.set('public_key', currentUrl.searchParams.get('public_key'));
+      window.location.assign(successUrl.toString());
+    }
+  </script>
+</body>
+</html>
