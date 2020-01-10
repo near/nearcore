@@ -1264,6 +1264,7 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
+        state_update.commit(KVChangeCause::InitialState);
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
@@ -1305,6 +1306,7 @@ mod tests {
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
+        state_update.commit(KVChangeCause::InitialState);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -1331,6 +1333,7 @@ mod tests {
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
+        initial_state.commit(KVChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();

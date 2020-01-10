@@ -18,13 +18,16 @@ pub enum KVChangeCause {
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
     /// change will lead to panic.
     NonFinalizable,
+    /// A type of update that is used to mark the initial storage update, e.g. during genesis
+    /// or in tests setup.
+    InitialState,
     /// Processing of a transaction.
     TransactionProcessing { hash: CryptoHash },
     /// Processing of a receipt.
     ReceiptProcessing { hash: CryptoHash },
     /// Delaying of the receipt that cannot be executed immediately.
     DelayingActionReceipt { hash: CryptoHash },
-    /// Delaying multiple receips because we cannot process them all at once.
+    /// Delaying multiple receipts because we cannot process them all at once.
     DelayingMultipleReceipts,
     /// Application of an action from the receipt.
     ActionApplication { hash: CryptoHash, action_index: u64 },
