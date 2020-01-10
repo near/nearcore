@@ -13,7 +13,7 @@
 # ```
 #
 # Config version change log:
-# - #1: Adds `limit_config` to `VMConfig` and introduces `config_version`.
+# - #1: Replaces `runtime_config` to use defaults and introduces `config_version`.
 
 import json
 import os
@@ -23,9 +23,8 @@ q = json.loads(open(filename).read())
 
 config_version = q.get('config_version', 0)
 
-num_sec_per_year = 31556952
-
 if config_version == 0:
+    num_sec_per_year = 31556952
     # The rest of `runtime_config` fields are default
     q['runtime_config'] = {
         'poke_threshold': 24 * 3600,
