@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
@@ -371,6 +372,8 @@ pub fn genesis_chunks(
     initial_gas_limit: Gas,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    let rs = ReedSolomon::new(1, 2).unwrap();
+
     (0..num_shards)
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
@@ -379,8 +382,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 0,
                 i,
-                3,
-                1,
+                &rs,
                 0,
                 initial_gas_limit,
                 0,
