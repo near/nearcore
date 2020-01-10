@@ -3,6 +3,8 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
@@ -48,7 +50,7 @@ const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
 const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
@@ -59,7 +61,7 @@ fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
 }
 
 /// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateSyncInfo {
     /// The first block of the epoch for which syncing is happening
     pub epoch_tail_hash: CryptoHash,

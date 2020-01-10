@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
@@ -5,6 +6,7 @@ use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
+use serde;
 
 use lazy_static::lazy_static;
 use near_crypto::PublicKey;
@@ -13,7 +15,6 @@ use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, NumSeats, NumShards};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::cmp::max;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -277,6 +278,32 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
 /// Generate random string of given length
 pub fn generate_random_string(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
+}
+
+pub struct Serializable<'a, T>(&'a T);
+
+impl<'a, T> fmt::Display for Serializable<'a, T>
+where
+    T: serde::Serialize,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", serde_json::to_string(&self.0).unwrap())
+    }
+}
+
+/// Wrap an object that implements Serialize into another object
+/// that implements Display. When used display in this object
+/// it shows its json representation. It is used to display complex
+/// objects using tracing.
+///
+/// ```
+/// tracing::debug!(target: "diagnostic", value=%ser(&object));
+/// ```
+pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
+where
+    T: serde::Serialize,
+{
+    Serializable(object)
 }
 
 #[cfg(test)]
