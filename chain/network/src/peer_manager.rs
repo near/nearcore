@@ -295,7 +295,7 @@ impl PeerManagerActor {
 
     fn is_outbound_bootstrap_needed(&self) -> bool {
         self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
-        && !self.config.outbound_disabled
+            && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
