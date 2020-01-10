@@ -1059,7 +1059,10 @@ mod tests {
                 }
             )
             .expect_err("expected an error"),
-            ReceiptValidationError::NumberInputDataDependenciesExceeded { number: 2, limit: 1 }
+            ReceiptValidationError::NumberInputDataDependenciesExceeded {
+                number_of_input_data_dependencies: 2,
+                limit: 1
+            }
         );
     }
 
