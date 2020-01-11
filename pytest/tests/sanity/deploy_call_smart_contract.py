@@ -11,10 +11,6 @@ from utils import load_binary_file
 
 nodes = start_cluster(4, 0, 4, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
-TIMEOUT = 150
-
-started = time.time()
-
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
