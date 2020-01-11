@@ -151,7 +151,7 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        debug!(target: "network", "Connected to {:?}", full_peer_info);
+        debug!(target: "network", "Consolidated connection with {:?}", full_peer_info);
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
@@ -294,9 +294,12 @@ impl PeerManagerActor {
     }
 
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        (self.active_peers.len() + self.outgoing_peers.len())
-            < (self.config.peer_max_count as usize)
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
             && !self.config.outbound_disabled
+    }
+
+    fn is_inbound_allowed(&self) -> bool {
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
     }
 
     /// Returns single random peer with the most weight.
@@ -714,7 +717,7 @@ impl PeerManagerActor {
                 .map(|a| a.full_peer_info.clone())
                 .collect::<Vec<_>>(),
             num_active_peers: self.num_active_peers(),
-            peer_max_count: self.config.peer_max_count,
+            peer_max_count: self.config.max_peer,
             most_weight_peers: self.most_weight_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,
@@ -1120,7 +1123,12 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
-        self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        if self.is_inbound_allowed() {
+            self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        } else {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+        }
     }
 }
 
@@ -1189,6 +1197,12 @@ impl Handler<Consolidate> for PeerManagerActor {
                 debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse::Reject;
             }
+        }
+
+        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+            return ConsolidateResponse::Reject;
         }
 
         if msg.other_edge_info.nonce == 0 {

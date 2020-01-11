@@ -621,7 +621,6 @@ impl StreamHandler<Vec<u8>> for Peer {
                     .then(move |res, act, ctx| {
                         match res {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
-                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
