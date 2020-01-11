@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
@@ -38,10 +40,12 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
+)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -73,7 +77,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct ReceiptNonce {
     from: String,
     to: String,
