@@ -119,5 +119,5 @@ with open('/tmp/python-rc.log') as f:
             raise NotImplementedError()
 
 def load_binary_file(filepath):
-    with open(filepath, "rb") as binaryfile :
-        return binaryfile.read()
+    with open(filepath, "rb") as binaryfile:
+        return bytearray(binaryfile.read())
