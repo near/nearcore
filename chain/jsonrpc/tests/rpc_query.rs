@@ -215,6 +215,28 @@ fn test_query_access_key() {
     .unwrap();
 }
 
+/// Connect to json rpc and query account info.
+#[test]
+fn test_key_value_changes() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(false);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(client.block(BlockId::Height(0)).then(move |block_info| {
+            let block_info = block_info.unwrap();
+            let mut client = new_client(&format!("http://{}", addr));
+            client.changes(block_info.header.hash, "".to_string()).then(|key_value_changes| {
+                assert!(key_value_changes.is_err());
+                System::current().stop();
+                future::ready(())
+            })
+        }));
+    })
+    .unwrap();
+}
+
 /// Retrieve client status via JSON RPC.
 #[test]
 fn test_status() {

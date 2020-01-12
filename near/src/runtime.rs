@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -25,8 +25,8 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
+    StateChangeCause, StateChanges, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -34,8 +34,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, KVChangeCause, PartialStorage, Store, StoreUpdate, Trie,
-    TrieUpdate, WrappedTrieChanges,
+    get_access_key_raw, ColState, PartialStorage, Store, StoreUpdate, Trie, TrieUpdate,
+    WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -752,7 +752,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit(KVChangeCause::NonFinalizable);
+                                state_update.commit(StateChangeCause::NonFinalizable);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;
@@ -1071,6 +1071,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(_) => false, // Invalid state_root_node
             }
         }
+    }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        key_prefix: &[u8],
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        let chain_store = ChainStore::new(Arc::clone(&self.store));
+        chain_store.get_key_value_changes(block_hash, key_prefix).map_err(|e| e.into())
     }
 
     fn compare_epoch_id(

@@ -2,50 +2,22 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::{StateChangeCause, StateChanges};
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
 
-/// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(BorshSerialize, BorshDeserialize, Clone)]
-pub enum KVChangeCause {
-    /// A type of update that does not get finalized. Used for verification and execution of
-    /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
-    /// change will lead to panic.
-    NonFinalizable,
-    /// A type of update that is used to mark the initial storage update, e.g. during genesis
-    /// or in tests setup.
-    InitialState,
-    /// Processing of a transaction.
-    TransactionProcessing { hash: CryptoHash },
-    /// Processing of a receipt.
-    ReceiptProcessing { hash: CryptoHash },
-    /// Delaying of the receipt that cannot be executed immediately.
-    DelayingActionReceipt { hash: CryptoHash },
-    /// Delaying multiple receipts because we cannot process them all at once.
-    DelayingMultipleReceipts,
-    /// Application of an action from the receipt.
-    ActionApplication { hash: CryptoHash, action_index: u64 },
-    /// State change that happens when we update validator accounts. Not associated with with any
-    /// specific transaction or receipt.
-    ValidatorAccountsUpdate,
-}
-
 /// key that was updated -> the update.
 pub type TrieUpdates = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
-/// key that was updated -> list of updates with the corresponding indexing event.
-pub type KVChanges = BTreeMap<Vec<u8>, Vec<(KVChangeCause, Option<Vec<u8>>)>>;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
     root: CryptoHash,
-    committed: KVChanges,
+    committed: StateChanges,
     prospective: TrieUpdates,
 }
 
@@ -129,7 +101,7 @@ impl TrieUpdate {
         Ok(res)
     }
 
-    pub fn committed_updates_per_cause(&self) -> &KVChanges {
+    pub fn committed_updates_per_cause(&self) -> &StateChanges {
         &self.committed
     }
 
@@ -165,7 +137,7 @@ impl TrieUpdate {
         Ok(())
     }
 
-    pub fn commit(&mut self, event: KVChangeCause) {
+    pub fn commit(&mut self, event: StateChangeCause) {
         for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
             self.committed.entry(key).or_default().push((event.clone(), val));
         }
@@ -177,12 +149,11 @@ impl TrieUpdate {
 
     pub fn finalize(self) -> Result<TrieChanges, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let root = self.root.clone().clone();
-        let trie = self.trie.clone();
+        let TrieUpdate { trie, root, committed, .. } = self;
         // TODO: Write committed changes to the database.
         trie.update(
             &root,
-            self.committed.iter().map(|(k, changes)| {
+            committed.iter().map(|(k, changes)| {
                 let (_, last_change) = &changes
                     .last()
                     .as_ref()
@@ -390,7 +361,7 @@ mod tests {
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
         trie_update.set(b"xxx".to_vec(), b"puppy".to_vec());
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
@@ -407,7 +378,7 @@ mod tests {
         // Delete non-existing element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.remove(b"dog");
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -416,7 +387,7 @@ mod tests {
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.remove(b"dog");
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -424,13 +395,13 @@ mod tests {
         // Add, apply changes and then delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
         assert_eq!(new_root, CryptoHash::default());
@@ -442,7 +413,7 @@ mod tests {
         let mut trie_update = TrieUpdate::new(trie.clone(), CryptoHash::default());
         trie_update.set(b"dog".to_vec(), b"puppy".to_vec());
         trie_update.set(b"aaa".to_vec(), b"puppy".to_vec());
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         let (store_update, new_root) = trie_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().ok();
 
@@ -466,7 +437,7 @@ mod tests {
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         trie_update.remove(b"dog2");
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();
@@ -474,7 +445,7 @@ mod tests {
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2".to_vec(), b"puppy".to_vec());
-        trie_update.commit(KVChangeCause::TransactionProcessing { hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { hash: CryptoHash::default() });
         trie_update.set(b"dog3".to_vec(), b"puppy".to_vec());
 
         let values: Result<Vec<Vec<u8>>, _> = trie_update.iter(b"dog").unwrap().collect();

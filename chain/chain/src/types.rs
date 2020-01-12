@@ -12,8 +12,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges, StateRoot,
+    StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
@@ -418,6 +418,13 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool;
+
+    /// Get a list of changes in a given block by a given key prefix.
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        key_prefix: &[u8],
+    ) -> Result<StateChanges, Box<dyn std::error::Error>>;
 
     fn compare_epoch_id(
         &self,

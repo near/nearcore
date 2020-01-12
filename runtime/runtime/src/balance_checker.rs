@@ -229,7 +229,7 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_runtime_fees::RuntimeFeesConfig;
     use near_store::test_utils::create_trie;
-    use near_store::{set_account, KVChangeCause, TrieUpdate};
+    use near_store::{set_account, StateChangeCause, TrieUpdate};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;
@@ -296,12 +296,12 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit(KVChangeCause::NonFinalizable);
+        initial_state.commit(StateChangeCause::NonFinalizable);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit(KVChangeCause::NonFinalizable);
+        final_state.commit(StateChangeCause::NonFinalizable);
 
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
@@ -338,7 +338,7 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit(KVChangeCause::NonFinalizable);
+        initial_state.commit(StateChangeCause::NonFinalizable);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(
@@ -348,7 +348,7 @@ mod tests {
             0,
         );
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit(KVChangeCause::NonFinalizable);
+        final_state.commit(StateChangeCause::NonFinalizable);
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let tx = SignedTransaction::send_money(
@@ -406,7 +406,7 @@ mod tests {
 
         set_account(&mut initial_state, &alice_id, &alice);
         set_account(&mut initial_state, &bob_id, &bob);
-        initial_state.commit(KVChangeCause::NonFinalizable);
+        initial_state.commit(StateChangeCause::NonFinalizable);
 
         let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
 

@@ -27,8 +27,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
@@ -667,13 +667,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         match path[0] {
             "account" => {
                 let account_id = path[1].to_string();
-                let account_id2 = account_id.clone();
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(
                         Account {
                             amount: self.state.read().unwrap().get(&state_root).map_or_else(
                                 || 0,
-                                |state| *state.amounts.get(&account_id2).unwrap_or(&0),
+                                |state| *state.amounts.get(&account_id).unwrap_or(&0),
                             ),
                             locked: 0,
                             code_hash: CryptoHash::default(),
@@ -813,6 +812,14 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
         })
+    }
+
+    fn get_key_value_changes(
+        &self,
+        _block_hash: &CryptoHash,
+        _key_prefix: &[u8],
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(

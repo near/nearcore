@@ -16,16 +16,17 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChanges,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
-    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
-    ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain, ColNextBlockHashes,
-    ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
-    ColStateDlInfos, ColTransactionResult, ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
+    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColKeyValueChanges,
+    ColLastApprovalPerAccount, ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain,
+    ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks,
+    ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult, ColTransactions, Store,
+    StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -314,6 +315,12 @@ pub trait ChainStoreAccess {
         &mut self,
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        key_prefix: &[u8],
+    ) -> Result<StateChanges, Error>;
 }
 
 /// All chain-related database operations.
@@ -863,6 +870,24 @@ impl ChainStoreAccess for ChainStore {
         read_with_cache(&*self.store, ColTransactions, &mut self.transactions, tx_hash.as_ref())
             .map_err(|e| e.into())
     }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        key_prefix: &[u8],
+    ) -> Result<StateChanges, Error> {
+        let mut storage_key = Vec::with_capacity(block_hash.as_ref().len() + key_prefix.len());
+        storage_key.extend_from_slice(block_hash.as_ref());
+        storage_key.extend_from_slice(key_prefix);
+        option_to_not_found(
+            self.store.get_ser(ColKeyValueChanges, &storage_key),
+            &format!(
+                "CHANGES IN KEY PREFIX '{}' FOR BLOCK: {}",
+                String::from_utf8_lossy(key_prefix),
+                block_hash
+            ),
+        )
+    }
 }
 
 /// Cache update for ChainStore
@@ -1316,6 +1341,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.get_transaction(tx_hash)
         }
+    }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        key_prefix: &[u8],
+    ) -> Result<StateChanges, Error> {
+        self.chain_store.get_key_value_changes(block_hash, key_prefix)
     }
 }
 

@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
@@ -41,6 +42,35 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
+
+/// A structure used to index state changes due to transaction/receipt processing and other things.
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
+pub enum StateChangeCause {
+    /// A type of update that does not get finalized. Used for verification and execution of
+    /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
+    /// change will lead to panic.
+    NonFinalizable,
+    /// A type of update that is used to mark the initial storage update, e.g. during genesis
+    /// or in tests setup.
+    InitialState,
+    /// Processing of a transaction.
+    TransactionProcessing { hash: CryptoHash },
+    /// Processing of a receipt.
+    ReceiptProcessing { hash: CryptoHash },
+    /// Delaying of the receipt that cannot be executed immediately.
+    DelayingActionReceipt { hash: CryptoHash },
+    /// Delaying multiple receipts because we cannot process them all at once.
+    DelayingMultipleReceipts,
+    /// Application of an action from the receipt.
+    ActionApplication { hash: CryptoHash, action_index: u64 },
+    /// State change that happens when we update validator accounts. Not associated with with any
+    /// specific transaction or receipt.
+    ValidatorAccountsUpdate,
+}
+
+/// key that was updated -> list of updates with the corresponding indexing event.
+pub type StateChanges =
+    std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateRootNode {

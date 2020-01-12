@@ -7,7 +7,7 @@ use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryResponse,
@@ -15,7 +15,7 @@ use near_primitives::views::{
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{GetChunk, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
 use cached::{Cached, SizedCache};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkAdapter, NetworkRequests};
@@ -276,6 +276,18 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Context<Self>) -> Self::Result {
         self.runtime_adapter.get_validator_info(&msg.last_block_hash).map_err(|e| e.to_string())
+    }
+}
+
+/// Returns a list of changes in a store for a given block.
+impl Handler<GetKeyValueChanges> for ViewClientActor {
+    type Result = Result<StateChanges, String>;
+
+    fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
+        self.chain
+            .store()
+            .get_key_value_changes(&msg.block_hash, msg.key_prefix.as_bytes())
+            .map_err(|e| e.to_string())
     }
 }
 

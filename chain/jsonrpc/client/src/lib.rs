@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    QueryResponse, StatusResponse,
+    QueryResponse, StateChangesView, StatusResponse,
 };
 
 use crate::message::{from_slice, Message, RpcError};
@@ -191,6 +191,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
+    pub fn changes(&mut self, block_hash: CryptoHash, key_prefix: String) -> RpcRequest<StateChangesView>;
     pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&mut self, id: Option<BlockId>) -> RpcRequest<GasPriceView>;
 });

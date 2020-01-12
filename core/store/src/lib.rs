@@ -24,9 +24,9 @@ use near_primitives::utils::{
 
 use crate::db::{DBOp, DBTransaction, Database, RocksDB};
 pub use crate::trie::{
-    iterator::TrieIterator, update::KVChangeCause, update::KVChanges,
-    update::PrefixKeyValueChanges, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges, WrappedTrieChanges,
+    iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
+    update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,
+    WrappedTrieChanges,
 };
 
 mod db;
@@ -46,7 +46,7 @@ impl Store {
         self.storage.get(column, key).map_err(|e| e.into())
     }
 
-    pub fn get_ser<T: BorshDeserialize>(
+    pub fn get_ser<T: BorshDeserialize + Clone>(
         &self,
         column: DBCol,
         key: &[u8],
@@ -186,7 +186,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
+pub fn read_with_cache<'a, T: Clone + BorshDeserialize + 'a>(
     storage: &Store,
     col: DBCol,
     cache: &'a mut SizedCache<Vec<u8>, T>,
