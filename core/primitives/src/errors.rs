@@ -97,7 +97,7 @@ pub enum InvalidTxError {
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
     InvalidSignature,
-    /// Account have not enough tokens to cover TX cost
+     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -181,7 +181,7 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// ActionReceipt can't be applied for an account. Account state rent is not payed.
+    /// ActionReceipt can't be completed, because the remaining balance will not be enough to pay rent.
     RentUnpaid {
         /// An account which is required to pay the rent
         account_id: AccountId,
