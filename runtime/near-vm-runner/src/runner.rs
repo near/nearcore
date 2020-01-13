@@ -49,7 +49,7 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
-        // See https://github.com/nearprotocol/nearcore/issues/1940
+        // TODO(#1940): Remove once NaN is standardized by the VM. 
         panic!(
             "Execution of smart contracts is only supported for x86 and x86_64 CPU architectures."
         );
