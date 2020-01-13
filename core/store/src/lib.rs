@@ -76,6 +76,18 @@ impl Store {
         self.storage.iter(column)
     }
 
+    pub fn iter_prefix_ser<'a, T: BorshDeserialize + Clone>(
+        &'a self,
+        column: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = Result<(Vec<u8>, T), io::Error>> + 'a> {
+        Box::new(
+            self.storage
+                .iter_prefix(column, key_prefix)
+                .map(|(key, value)| Ok((key.to_vec(), T::try_from_slice(value.as_ref())?))),
+        )
+    }
+
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
         let mut file = File::create(filename)?;
         for (key, value) in self.storage.iter(column) {

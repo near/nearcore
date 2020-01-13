@@ -164,13 +164,13 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::StateChangeCause;
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
 
     use super::*;
-    use near_store::StateChangeCause;
 
     #[test]
     fn test_view_call() {

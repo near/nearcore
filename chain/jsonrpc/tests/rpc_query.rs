@@ -227,7 +227,8 @@ fn test_key_value_changes() {
         actix::spawn(client.block(BlockId::Height(0)).then(move |block_info| {
             let block_info = block_info.unwrap();
             let mut client = new_client(&format!("http://{}", addr));
-            client.changes(block_info.header.hash, "".to_string()).then(|key_value_changes| {
+            panic!("the API should include the type of queried data (e.g. value change or user account state change)");
+            client.changes(block_info.header.hash, b"test.near".to_vec()).then(|key_value_changes| {
                 assert!(key_value_changes.is_err());
                 System::current().stop();
                 future::ready(())

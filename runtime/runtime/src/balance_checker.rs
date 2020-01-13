@@ -226,10 +226,10 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::MerkleHash;
+    use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
     use near_store::test_utils::create_trie;
-    use near_store::{set_account, StateChangeCause, TrieUpdate};
+    use near_store::{set_account, TrieUpdate};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use assert_matches::assert_matches;

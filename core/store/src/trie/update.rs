@@ -139,6 +139,11 @@ impl TrieUpdate {
 
     pub fn commit(&mut self, event: StateChangeCause) {
         for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter() {
+            eprintln!(
+                "COMMIT [{:?}] = [{:?}]",
+                String::from_utf8_lossy(&key),
+                val.as_ref().map(|x| String::from_utf8_lossy(&x).to_owned())
+            );
             self.committed.entry(key).or_default().push((event.clone(), val));
         }
     }

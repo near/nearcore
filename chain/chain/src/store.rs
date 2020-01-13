@@ -16,7 +16,8 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChanges,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
+    StateChanges,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -879,14 +880,16 @@ impl ChainStoreAccess for ChainStore {
         let mut storage_key = Vec::with_capacity(block_hash.as_ref().len() + key_prefix.len());
         storage_key.extend_from_slice(block_hash.as_ref());
         storage_key.extend_from_slice(key_prefix);
-        option_to_not_found(
-            self.store.get_ser(ColKeyValueChanges, &storage_key),
-            &format!(
-                "CHANGES IN KEY PREFIX '{}' FOR BLOCK: {}",
-                String::from_utf8_lossy(key_prefix),
-                block_hash
-            ),
-        )
+        let mut changes = StateChanges::new();
+        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
+            ColKeyValueChanges,
+            &storage_key,
+        );
+        for change in changes_iter {
+            let (key, value) = change?;
+            changes.insert(key, value);
+        }
+        Ok(changes)
     }
 }
 

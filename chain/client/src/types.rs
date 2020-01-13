@@ -379,7 +379,7 @@ impl Message for GetValidatorInfo {
 
 pub struct GetKeyValueChanges {
     pub block_hash: CryptoHash,
-    pub key_prefix: String,
+    pub key_prefix: Vec<u8>,
 }
 
 impl Message for GetKeyValueChanges {

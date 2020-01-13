@@ -14,11 +14,11 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
+use near_primitives::types::StateChangeCause;
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, StateChangeCause, Trie,
-    TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
 };
 use near_vm_logic::types::Balance;
 use node_runtime::StateRecord;

@@ -309,7 +309,7 @@ impl JsonRpcHandler {
     }
 
     async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_hash, key_prefix) = parse_params::<(CryptoHash, String)>(params)?;
+        let (block_hash, key_prefix) = parse_params::<(CryptoHash, Vec<u8>)>(params)?;
         jsonify(self.view_client_addr.send(GetKeyValueChanges { block_hash, key_prefix }).await)
     }
 

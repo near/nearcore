@@ -1,6 +1,6 @@
 use rocksdb::{
-    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode, Options,
+    ReadOptions, WriteBatch, DB,
 };
 use std::cmp;
 use std::collections::HashMap;
@@ -175,6 +175,11 @@ pub trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
 }
 
@@ -189,6 +194,25 @@ impl Database for RocksDB {
             let iterator = self
                 .db
                 .iterator_cf_opt(cf_handle, &self.read_options, IteratorMode::Start)
+                .unwrap();
+            Box::new(iterator)
+        }
+    }
+
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        unsafe {
+            let cf_handle = &*self.cfs[col as usize];
+            let iterator = self
+                .db
+                .iterator_cf_opt(
+                    cf_handle,
+                    &self.read_options,
+                    IteratorMode::From(key_prefix, Direction::Forward),
+                )
                 .unwrap();
             Box::new(iterator)
         }
@@ -221,6 +245,14 @@ impl Database for TestDB {
             .into_iter()
             .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
         Box::new(iterator)
+    }
+
+    fn iter_prefix<'a>(
+        &'a self,
+        col: DBCol,
+        key_prefix: &'a [u8],
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        Box::new(self.iter(col).filter(move |(key, value)| key.starts_with(key_prefix)))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
