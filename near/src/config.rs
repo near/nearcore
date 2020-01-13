@@ -367,7 +367,7 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                peer_max_count: config.network.max_peers,
+                max_peer: config.network.max_peers,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),

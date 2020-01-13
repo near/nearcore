@@ -39,7 +39,7 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
