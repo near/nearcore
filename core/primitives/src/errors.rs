@@ -112,7 +112,7 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
-    /// Transaction gas or balance cost is too high
+    /// An integer overflow occurred during transaction cost estimation.
     CostOverflow,
     /// Transaction parent block hash doesn't belong to the current chain
     InvalidChain,
@@ -125,7 +125,7 @@ pub enum InvalidTxError {
 )]
 #[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
-    /// Unable to found an access key for account_id identified by a public_key
+    /// The access key identified by the public_key doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
     /// Transaction receiver_id doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
@@ -200,7 +200,7 @@ pub enum ActionErrorKind {
     RentUnpaid {
         /// An account which is required to pay the rent
         account_id: AccountId,
-        /// Required balance to cover the state rent
+        /// Rent due to pay.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -208,7 +208,7 @@ pub enum ActionErrorKind {
     TriesToUnstake {
         account_id: AccountId,
     },
-    /// Account tries to stake but it is already staked.
+    /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -218,6 +218,7 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// An error occurred during a FunctionCall Action.
     FunctionCall(VMError),
 }
 
