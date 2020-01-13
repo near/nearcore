@@ -44,7 +44,7 @@ impl From<InvalidTxError> for TxExecutionError {
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
-    /// An integeroverflow during counting ApplyStats
+    /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.  
     UnexpectedIntegerOverflow,
     /// An error happened during TX execution
     InvalidTxError(InvalidTxError),
