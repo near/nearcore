@@ -133,7 +133,7 @@ pub enum InvalidAccessKeyError {
     MethodNameMismatch { method_name: String },
     /// The used access key requires exactly one FunctionCall action
     ActionError,
-    /// Access Key does not have enough balance for transaction
+    /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
