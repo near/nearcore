@@ -244,7 +244,7 @@ impl EpochManager {
             &prev_validator_kickout,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
-        debug!(
+        info!(
             "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected chunks {:?}",
             all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_chunks
         );
