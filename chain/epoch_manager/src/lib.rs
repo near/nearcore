@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
-use log::{debug, warn};
+use log::{debug, info, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
