@@ -143,6 +143,7 @@ pub enum InvalidAccessKeyError {
     },
 }
 
+/// An error happened during Acton execution
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -170,7 +171,8 @@ pub enum ActionErrorKind {
         account_id: AccountId,
         predecessor_id: AccountId,
     },
-    /// Administrative actions like DeployContract, Stake, AddKey, DeleteKey. can be proceed only if sender=receiver.
+    /// Administrative actions like DeployContract, Stake, AddKey, DeleteKey. can be proceed only if sender=receiver
+    /// or the first TX action is a CreateAccount action
     ActorNoPermission {
         account_id: AccountId,
         actor_id: AccountId,

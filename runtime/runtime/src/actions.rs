@@ -399,13 +399,14 @@ pub(crate) fn check_actor_permissions(
                 }
                 .into());
             }
-            if actor_id != account_id
-                && check_rent(
-                    account_id,
-                    account.as_mut().unwrap(),
-                    config,
-                    apply_state.epoch_length,
-                )
+            if actor_id != account_id {
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
+                }
+                .into());
+            }
+            if check_rent(account_id, account.as_mut().unwrap(), config, apply_state.epoch_length)
                 .is_ok()
             {
                 return Err(ActionErrorKind::DeleteAccountHasRent {
