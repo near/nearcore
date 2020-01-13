@@ -178,7 +178,7 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
-    /// Have to cover rent before delete an account
+    /// Foreign sender (sender=!receiver) can delete an account only if a target account hasn't enough tokens to pay rent
     DeleteAccountHasRent {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
