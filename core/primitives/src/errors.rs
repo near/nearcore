@@ -44,9 +44,10 @@ impl From<InvalidTxError> for TxExecutionError {
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
-    /// An integeroverflow during counting ApplyStats
+    /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.  
     UnexpectedIntegerOverflow,
-    /// An error happened during TX execution
+    /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
+    /// and should be challenged. 
     InvalidTxError(InvalidTxError),
     /// Unexpected error which is typically related to the node storage corruption
     StorageError(StorageError),
@@ -111,7 +112,7 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
-    /// Transaction gas or balance cost is too high
+    /// An integer overflow occurred during transaction cost estimation.
     CostOverflow,
     /// Transaction parent block hash doesn't belong to the current chain
     InvalidChain,
@@ -124,7 +125,7 @@ pub enum InvalidTxError {
 )]
 #[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
-    /// Unable to found an access key for account_id identified by a public_key
+    /// The access key identified by the public_key doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
     /// Transaction receiver_id doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
@@ -132,7 +133,7 @@ pub enum InvalidAccessKeyError {
     MethodNameMismatch { method_name: String },
     /// The used access key requires exactly one FunctionCall action
     ActionError,
-    /// Access Key does not have enough balance for transaction
+    /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
@@ -201,7 +202,7 @@ pub enum ActionErrorKind {
     RentUnpaid {
         /// An account which is required to pay the rent
         account_id: AccountId,
-        /// Required balance to cover the state rent
+        /// Rent due to pay.
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
@@ -209,7 +210,7 @@ pub enum ActionErrorKind {
     TriesToUnstake {
         account_id: AccountId,
     },
-    /// Account tries to stake but it is already staked.
+    /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -219,6 +220,7 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// An error occurred during a FunctionCall Action.
     FunctionCall(VMError),
 }
 
