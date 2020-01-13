@@ -2,7 +2,8 @@ from transaction import sign_payment_tx
 import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
-
+from rc import run
+import os
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -121,3 +122,24 @@ with open('/tmp/python-rc.log') as f:
 def load_binary_file(filepath):
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
+
+def compile_rust_contract(content):
+    test_contract_rs = os.path.join(os.path.dirname(__file__), '../../runtime/near-vm-runner/tests/test-contract-rs')
+    p = run('bash', input=f'''
+mkdir -p /tmp/near
+rm -rf /tmp/near/test-contract-rs
+cp -r {test_contract_rs} /tmp/near/test-contract-rs
+sed 's|\.\./res/|/tmp|' {test_contract_rs}/build.sh > /tmp/near/test-contract-rs/build.sh
+''')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
+    
+    with open('/tmp/near/test-contract-rs/src/lib.rs', 'a') as f:
+        f.write(content)
+
+    p = run('bash', input=f'''
+cd /tmp/near/test-contract-rs
+./build.sh
+''')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
