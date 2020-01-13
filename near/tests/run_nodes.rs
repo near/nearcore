@@ -1,19 +1,19 @@
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::test_utils::heavy_test;
-use near_primitives::types::{BlockIndex, ValidatorId};
+use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use testlib::start_nodes;
 
 fn run_nodes(
-    num_shards: usize,
-    num_nodes: ValidatorId,
-    num_validators: ValidatorId,
-    epoch_length: BlockIndex,
-    num_blocks: BlockIndex,
+    num_shards: NumShards,
+    num_nodes: NumSeats,
+    num_validators: NumSeats,
+    epoch_length: BlockHeightDelta,
+    num_blocks: BlockHeightDelta,
 ) {
     let system = System::new("NEAR");
     let dirs = (0..num_nodes)
@@ -33,10 +33,10 @@ fn run_nodes(
                     {
                         System::current().stop()
                     }
-                    Err(_) => return futures::future::err(()),
+                    Err(_) => return future::ready(()),
                     _ => {}
                 };
-                futures::future::ok(())
+                future::ready(())
             }));
         }),
         100,

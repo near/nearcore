@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use borsh::BorshSerialize;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near::config::FISHERMEN_THRESHOLD;
 use near::{GenesisConfig, NightshadeRuntime};
@@ -173,11 +174,11 @@ fn create_chunk(
         .unwrap();
     if let Some(transactions) = replace_transactions {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts =
-            client.chain.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash);
-        let data_parts =
-            client.chain.runtime_adapter.num_data_parts(&chunk.header.inner.prev_block_hash);
+        let total_parts = client.chain.runtime_adapter.num_total_parts();
+        let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let (tx_root, _) = merklize(&transactions);
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
@@ -186,8 +187,7 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            total_parts,
-            data_parts,
+            &rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
             chunk.header.inner.rent_paid,
@@ -255,14 +255,8 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     env.produce_block(0, 1);
     let (encoded_chunk, _merkle_paths, _receipts, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
-    let chunk = encoded_chunk
-        .decode_chunk(
-            env.clients[0]
-                .chain
-                .runtime_adapter
-                .num_data_parts(&encoded_chunk.header.inner.prev_block_hash),
-        )
-        .unwrap();
+    let chunk =
+        encoded_chunk.decode_chunk(env.clients[0].chain.runtime_adapter.num_data_parts()).unwrap();
 
     let challenge_result = challenge(
         env,
@@ -452,6 +446,10 @@ fn test_verify_chunk_invalid_state_challenge() {
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
+    let total_parts = env.clients[0].runtime_adapter.num_total_parts();
+    let data_parts = env.clients[0].runtime_adapter.num_data_parts();
+    let parity_parts = total_parts - data_parts;
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -471,6 +469,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &signer,
+            &rs,
         )
         .unwrap();
 

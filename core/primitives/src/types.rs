@@ -19,7 +19,7 @@ pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 /// Index of the block.
-pub type BlockIndex = u64;
+pub type BlockHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
@@ -27,13 +27,22 @@ pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
 
+/// Number of blocks in current group.
+pub type NumBlocks = u64;
+/// Number of shards in current group.
+pub type NumShards = u64;
+/// Number of seats of validators (block producer or hidden ones) in current group (settlement).
+pub type NumSeats = u64;
+/// Block height delta that measures the difference between `BlockHeight`s.
+pub type BlockHeightDelta = u64;
+
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
     pub data: Vec<u8>,
@@ -49,7 +58,16 @@ impl StateRootNode {
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 #[derive(
-    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+    Hash,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Default,
+    PartialOrd,
 )]
 pub struct EpochId(pub CryptoHash);
 
@@ -60,7 +78,7 @@ impl AsRef<[u8]> for EpochId {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -77,13 +95,13 @@ impl ValidatorStake {
 }
 
 /// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,

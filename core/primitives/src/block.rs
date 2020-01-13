@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
@@ -8,15 +9,15 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block since the genesis block (height 0).
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     /// Epoch start hash of this block's epoch.
     /// Used for retrieving validator information
     pub epoch_id: EpochId,
@@ -31,7 +32,7 @@ pub struct BlockHeaderInnerLite {
     pub next_bp_hash: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRest {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
@@ -71,7 +72,7 @@ pub struct BlockHeaderInnerRest {
 
 impl BlockHeaderInnerLite {
     pub fn new(
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         prev_state_root: MerkleHash,
@@ -144,7 +145,7 @@ impl BlockHeaderInnerRest {
 }
 
 /// Block approval by other block producers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
     pub parent_hash: CryptoHash,
     pub reference_hash: CryptoHash,
@@ -153,7 +154,7 @@ pub struct Approval {
 }
 
 /// Block approval by other block producers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalMessage {
     pub approval: Approval,
     pub target: AccountId,
@@ -192,7 +193,7 @@ impl ApprovalMessage {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeader {
     pub prev_hash: CryptoHash,
@@ -235,7 +236,7 @@ impl BlockHeader {
     }
 
     pub fn new(
-        height: BlockIndex,
+        height: BlockHeight,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
@@ -358,7 +359,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
@@ -367,10 +368,12 @@ pub struct Block {
 
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
-    num_shards: ShardId,
+    num_shards: NumShards,
     initial_gas_limit: Gas,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    let rs = ReedSolomon::new(1, 2).unwrap();
+
     (0..num_shards)
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
@@ -379,8 +382,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 0,
                 i,
-                3,
-                1,
+                &rs,
                 0,
                 initial_gas_limit,
                 0,
@@ -428,7 +430,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         prev: &BlockHeader,
-        height: BlockIndex,
+        height: BlockHeight,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
@@ -585,7 +587,7 @@ impl Block {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
-    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
+    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockHeight) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
     }
 
@@ -594,9 +596,9 @@ impl Block {
             .0
     }
 
-    pub fn compute_gas_used(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+    pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.height_included == height {
                 acc + chunk.inner.gas_used
             } else {
                 acc
@@ -604,9 +606,9 @@ impl Block {
         })
     }
 
-    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], block_height: BlockIndex) -> Gas {
+    pub fn compute_gas_limit(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
-            if chunk.height_included == block_height {
+            if chunk.height_included == height {
                 acc + chunk.inner.gas_limit
             } else {
                 acc
@@ -668,13 +670,25 @@ impl Block {
 
 /// The weight is defined as the number of unique validators approving this fork.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Eq,
+    Ord,
+    Default,
 )]
 pub struct Weight {
     num: u128,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default,
+)]
 pub struct WeightAndScore {
     pub weight: Weight,
     pub score: Weight,
@@ -736,7 +750,7 @@ impl Ord for WeightAndScore {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
     pub chain_id: String,

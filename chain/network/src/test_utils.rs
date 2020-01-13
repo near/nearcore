@@ -1,18 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 use rand::{thread_rng, RngCore};
-use tokio::timer::Delay;
+use tokio::time::delay_for;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo};
+use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo, ROUTED_MESSAGE_TTL};
 use crate::PeerManagerActor;
 use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_primitives::utils::index_to_bytes;
@@ -40,15 +39,18 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
             ttl_account_id_router: Duration::from_secs(60 * 60),
+            routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
             most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
             push_info_period: Duration::from_millis(100),
+            blacklist: HashMap::new(),
+            outbound_disabled: false,
         }
     }
 }
@@ -79,10 +81,10 @@ impl PeerInfo {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
         System::current().stop();
         panic!("Timeout exceeded.");
-        future::result(Ok(()))
+        future::ready(())
     }));
 }
 

@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 
@@ -5,15 +6,15 @@ use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
+use serde;
 
 use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, ShardId, ValidatorId};
+use crate::types::{AccountId, NumSeats, NumShards};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::cmp::max;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -259,19 +260,15 @@ pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 
-/// Compute number of block producers per shard given total number of block producers and number
-/// of shards.
-pub fn get_num_block_producers_per_shard(
-    num_shards: ShardId,
-    num_block_producers: ValidatorId,
-) -> Vec<ValidatorId> {
+/// Compute number of seats per shard for given total number of seats and number of shards.
+pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
     (0..num_shards)
         .map(|i| {
-            let remainder = num_block_producers % num_shards;
+            let remainder = num_seats % num_shards;
             let num = if i < remainder as u64 {
-                num_block_producers / num_shards + 1
+                num_seats / num_shards + 1
             } else {
-                num_block_producers / num_shards
+                num_seats / num_shards
             };
             max(num, 1)
         })
@@ -281,6 +278,32 @@ pub fn get_num_block_producers_per_shard(
 /// Generate random string of given length
 pub fn generate_random_string(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
+}
+
+pub struct Serializable<'a, T>(&'a T);
+
+impl<'a, T> fmt::Display for Serializable<'a, T>
+where
+    T: serde::Serialize,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", serde_json::to_string(&self.0).unwrap())
+    }
+}
+
+/// Wrap an object that implements Serialize into another object
+/// that implements Display. When used display in this object
+/// it shows its json representation. It is used to display complex
+/// objects using tracing.
+///
+/// ```
+/// tracing::debug!(target: "diagnostic", value=%ser(&object));
+/// ```
+pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
+where
+    T: serde::Serialize,
+{
+    Serializable(object)
 }
 
 #[cfg(test)]
@@ -506,10 +529,10 @@ mod tests {
 
     #[test]
     fn test_num_chunk_producers() {
-        for num_block_producers in 1..50 {
+        for num_seats in 1..50 {
             for num_shards in 1..50 {
-                let assignment = get_num_block_producers_per_shard(num_shards, num_block_producers);
-                assert_eq!(assignment.iter().sum::<u64>(), max(num_block_producers, num_shards));
+                let assignment = get_num_seats_per_shard(num_shards, num_seats);
+                assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
             }
         }
     }

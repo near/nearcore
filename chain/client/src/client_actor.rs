@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{AcceptedBlock, ShardStateSyncResponse};
+use near_chain::types::AcceptedBlock;
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
@@ -21,7 +21,7 @@ use near_network::{
 };
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -50,7 +50,7 @@ pub struct ClientActor {
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
     /// Last height we announced our accounts as validators.
-    last_validator_announce_height: Option<BlockIndex>,
+    last_validator_announce_height: Option<BlockHeight>,
     /// Last time we announced our accounts as validators.
     last_validator_announce_time: Option<Instant>,
     /// Info helper.
@@ -158,7 +158,7 @@ impl Actor for ClientActor {
 impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::BlockHeader(header, peer_id) => {
@@ -229,56 +229,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash, need_header, parts, route_back) => {
-                let mut data = vec![];
-                for part_id in parts.ids.iter() {
-                    match self.client.chain.get_state_response_part(
+                ctx.run_later(Duration::from_millis(0), move |act, _ctx| {
+                    if let Ok(shard_state) = act.client.chain.get_state_response_by_request(
                         shard_id,
-                        *part_id,
-                        parts.num_parts,
                         hash,
+                        need_header,
+                        parts,
                     ) {
-                        Ok(part) => data.push(part),
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
+                        act.network_adapter.do_send(NetworkRequests::StateResponse {
+                            response: StateResponseInfo { shard_id, hash, shard_state },
+                            route_back,
+                        });
                     }
-                }
-                if need_header {
-                    match self.client.chain.get_state_response_header(shard_id, hash) {
-                        Ok(header) => {
-                            return NetworkClientResponses::StateResponse(
-                                StateResponseInfo {
-                                    shard_id,
-                                    hash,
-                                    shard_state: ShardStateSyncResponse {
-                                        header: Some(header),
-                                        part_ids: parts.ids,
-                                        data,
-                                    },
-                                },
-                                route_back,
-                            );
-                        }
-                        Err(e) => {
-                            error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                            return NetworkClientResponses::NoResponse;
-                        }
-                    }
-                } else {
-                    return NetworkClientResponses::StateResponse(
-                        StateResponseInfo {
-                            shard_id,
-                            hash,
-                            shard_state: ShardStateSyncResponse {
-                                header: None,
-                                part_ids: parts.ids,
-                                data,
-                            },
-                        },
-                        route_back,
-                    );
-                }
+                });
+                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
@@ -301,8 +265,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 );
                                 download = Some(shard_download);
                             } else {
-                                // TODO: figure out when this happens, potentially ban peer
-                                error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                                // This may happen because of sending too many StateRequests to different peers.
+                                // For example, we received StateResponse after StateSync completion.
                             }
                         }
                     }
@@ -315,8 +279,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
                         } else {
-                            // TODO: figure out when this happens, potentially ban peer
-                            error!(target: "sync", "State sync for hash {} received shard {} that we're not expecting, potential malicious peer", hash, shard_id);
+                            // This may happen because of sending too many StateRequests to different peers.
+                            // For example, we received StateResponse after StateSync completion.
                         }
                     }
                     // We should not be requesting the same state twice.
@@ -469,7 +433,7 @@ impl Handler<Status> for ClientActor {
         let validators = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
+            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
             .map_err(|err| err.to_string())?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
@@ -576,8 +540,10 @@ impl ClientActor {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if let Ok(validators) =
-            self.client.runtime_adapter.get_epoch_block_producers(&next_epoch_id, &prev_block_hash)
+        if let Ok(validators) = self
+            .client
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&next_epoch_id, &prev_block_hash)
         {
             if validators.iter().any(|(validator_stake, _)| {
                 (validator_stake.account_id == block_producer.account_id)
@@ -587,7 +553,7 @@ impl ClientActor {
                 self.last_validator_announce_time = Some(now);
                 let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
                     account_id: block_producer.account_id.clone(),
                     peer_id: self.node_id.clone(),
                     epoch_id: next_epoch_id,
@@ -601,7 +567,7 @@ impl ClientActor {
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
         // If syncing, don't try to produce blocks.
-        if self.client.sync_status != SyncStatus::NoSync {
+        if self.client.sync_status.is_syncing() {
             return Ok(());
         }
         let head = self.client.chain.head()?;
@@ -682,11 +648,11 @@ impl ClientActor {
         });
     }
 
-    /// Produce block if we are block producer for given `next_height` index.
+    /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(
         &mut self,
-        next_height: BlockIndex,
+        next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<(), Error> {
         match self.client.produce_block(next_height, elapsed_since_last_block) {
@@ -745,7 +711,7 @@ impl ClientActor {
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
@@ -865,7 +831,9 @@ impl ClientActor {
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
-            Ok(false) => self.network_adapter.send(NetworkRequests::BlockRequest { hash, peer_id }),
+            Ok(false) => {
+                self.network_adapter.do_send(NetworkRequests::BlockRequest { hash, peer_id });
+            }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
             }
@@ -1153,7 +1121,7 @@ impl ClientActor {
             let validators = unwrap_or_return!(act
                 .client
                 .runtime_adapter
-                .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash));
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let account_id = act.client.block_producer.as_ref().map(|x| x.account_id.clone());
             let is_validator = if let Some(ref account_id) = account_id {

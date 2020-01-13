@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
@@ -27,8 +29,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
+    StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
@@ -38,10 +40,12 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
+)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -73,7 +77,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct ReceiptNonce {
     from: String,
     to: String,
@@ -168,19 +172,6 @@ impl KeyValueRuntime {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
-    }
-
-    fn get_prev_height(
-        &self,
-        prev_hash: &CryptoHash,
-    ) -> Result<BlockIndex, Box<dyn std::error::Error>> {
-        if prev_hash == &CryptoHash::default() {
-            return Ok(0);
-        }
-        let prev_block_header = self
-            .get_block_header(prev_hash)?
-            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
-        Ok(prev_block_header.inner_lite.height)
     }
 
     fn get_epoch_and_valset(
@@ -300,7 +291,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
@@ -312,7 +303,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
@@ -321,7 +312,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
@@ -347,15 +338,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.num_shards
     }
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
     }
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        // Test changing number of data parts
-        12 + 2 * ((height as usize) % 4)
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -366,8 +360,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx =
-            part_id as usize + self.num_data_parts(parent_hash) + self.num_total_parts(parent_hash);
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].account_id.clone())
     }
 
@@ -428,7 +421,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _state_update: StateRoot,
@@ -439,7 +432,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
@@ -459,8 +452,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
-        _block_index: u64,
-        _last_finalized_height: u64,
+        _height: BlockHeight,
+        _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
@@ -475,7 +468,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -650,7 +643,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _partial_storage: PartialStorage,
         _shard_id: ShardId,
         _state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -667,7 +660,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        block_height: BlockIndex,
+        block_height: BlockHeight,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
         path: Vec<&str>,
@@ -802,7 +795,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.inner_lite.height),
@@ -881,14 +874,14 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
 }
 
 pub fn setup_with_tx_validity_period(
-    validity: BlockIndex,
+    tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity, 10),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
@@ -900,7 +893,7 @@ pub fn setup_with_validators(
     validator_groups: u64,
     num_shards: ShardId,
     epoch_length: u64,
-    validity_period: BlockIndex,
+    tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
     let store = create_test_store();
     let signers = validators
@@ -924,7 +917,7 @@ pub fn setup_with_validators(
             1_000_000_000,
             0,
             0,
-            validity_period,
+            tx_validity_period,
             epoch_length,
         ),
     )
@@ -1056,7 +1049,7 @@ pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemorySigner)
 
 pub fn new_block_no_epoch_switches(
     prev_block: &Block,
-    height: BlockIndex,
+    height: BlockHeight,
     approvals: Vec<&str>,
     signer: &InMemorySigner,
     time: u64,

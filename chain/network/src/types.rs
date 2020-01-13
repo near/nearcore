@@ -3,14 +3,15 @@ use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Addr, Message, Recipient};
+use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
@@ -24,7 +25,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 
@@ -35,6 +36,10 @@ use std::sync::RwLock;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
+/// Number of hops a message is allowed to travel before being dropped.
+/// This is used to avoid infinite loop because of inconsistent view of the network
+/// by different nodes.
+pub const ROUTED_MESSAGE_TTL: u8 = 100;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -168,12 +173,12 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     /// Last known chain weight/score of the peer.
     pub weight_and_score: WeightAndScore,
     /// Shards that the peer is tracking
@@ -200,7 +205,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
@@ -225,7 +230,7 @@ impl Handshake {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct AnnounceAccountRouteHeader {
     pub account_id: AccountId,
     pub peer_id: PeerId,
@@ -233,7 +238,7 @@ struct AnnounceAccountRouteHeader {
 }
 
 /// Account route description
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
@@ -241,7 +246,7 @@ pub struct AnnounceAccountRoute {
 }
 
 /// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
     pub account_id: AccountId,
@@ -272,26 +277,26 @@ impl AnnounceAccount {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch(u32),
     GenesisMismatch(GenesisId),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
 }
 
 // TODO(#1313): Use Box
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
@@ -319,13 +324,13 @@ pub enum RoutedMessageBody {
     Pong(Pong),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -343,6 +348,7 @@ impl AccountOrPeerIdOrHash {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -351,22 +357,26 @@ pub struct RawRoutedMessage {
 impl RawRoutedMessage {
     /// Add signature to the message.
     /// Panics if the target is an AccountId instead of a PeerId.
-    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+    pub fn sign(
+        self,
+        author: PeerId,
+        secret_key: &SecretKey,
+        routed_message_ttl: u8,
+    ) -> RoutedMessage {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, body: self.body }
+        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageNoSignature {
     target: PeerIdOrHash,
     author: PeerId,
     body: RoutedMessageBody,
 }
 
-// TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
 /// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -374,7 +384,7 @@ pub struct RoutedMessageNoSignature {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -384,6 +394,9 @@ pub struct RoutedMessage {
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
+    /// Time to live for this message. After passing through some hop this number should be
+    /// decreased by 1. If this number is 0, drop this message.
+    pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -416,6 +429,12 @@ impl RoutedMessage {
             _ => false,
         }
     }
+
+    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    pub fn decrease_ttl(&mut self) -> bool {
+        self.ttl = self.ttl.saturating_sub(1);
+        self.ttl > 0
+    }
 }
 
 /// Routed Message wrapped with previous sender of the message.
@@ -430,7 +449,7 @@ impl Message for RoutedMessageFrom {
     type Result = bool;
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
@@ -450,7 +469,7 @@ impl SyncData {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -752,6 +771,12 @@ impl PeerMessage {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BlockedPorts {
+    All,
+    Some(HashSet<u16>),
+}
+
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -763,7 +788,7 @@ pub struct NetworkConfig {
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
-    pub peer_max_count: u32,
+    pub max_peer: u32,
     /// Duration of the ban for misbehaving peers.
     pub ban_window: Duration,
     /// Remove expired peers.
@@ -774,6 +799,10 @@ pub struct NetworkConfig {
     pub peer_stats_period: Duration,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
+    /// Number of hops a message is allowed to travel before being dropped.
+    /// This is used to avoid infinite loop because of inconsistent view of the network
+    /// by different nodes.
+    pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
     /// Weight horizon for most weighted peers, measured in stake seconds.
@@ -782,10 +811,46 @@ pub struct NetworkConfig {
     pub most_weighted_peer_horizon: u128,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
+    /// Peers on blacklist by IP:Port.
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: HashMap<IpAddr, BlockedPorts>,
+    /// Flag to disable outbound connections. When this flag is active, nodes will not try to
+    /// establish connection with other nodes, but will accept incoming connection if other requirements
+    /// are satisfied.
+    /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
+    pub outbound_disabled: bool,
+}
+
+/// Used to match a socket addr by IP:Port or only by IP
+#[derive(Clone, Debug)]
+pub enum PatternAddr {
+    Ip(IpAddr),
+    IpPort(SocketAddr),
+}
+
+impl PatternAddr {
+    pub fn contains(&self, addr: &SocketAddr) -> bool {
+        match self {
+            PatternAddr::Ip(pattern) => &addr.ip() == pattern,
+            PatternAddr::IpPort(pattern) => addr == pattern,
+        }
+    }
+}
+
+impl FromStr for PatternAddr {
+    type Err = AddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(pattern) = s.parse::<IpAddr>() {
+            return Ok(PatternAddr::Ip(pattern));
+        }
+
+        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
+    }
 }
 
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -794,7 +859,7 @@ pub enum KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -831,6 +896,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
     pub stream: TcpStream,
@@ -845,12 +911,14 @@ impl InboundTcpConnect {
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
 }
 
 #[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
@@ -883,6 +951,7 @@ pub enum ConsolidateResponse {
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
@@ -916,6 +985,7 @@ impl Message for PeersRequest {
 
 /// Received new peers from another peer.
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
@@ -933,7 +1003,7 @@ where
 }
 
 /// Ban reason.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -949,6 +1019,7 @@ pub enum ReasonForBan {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -985,6 +1056,11 @@ pub enum NetworkRequests {
         need_header: bool,
         parts: StateRequestParts,
         target: AccountOrPeerIdOrHash,
+    },
+    /// Response to state request.
+    StateResponse {
+        route_back: CryptoHash,
+        response: StateResponseInfo,
     },
     /// Ban given peer.
     BanPeer {
@@ -1047,6 +1123,7 @@ pub enum NetworkRequests {
 
 /// Messages from PeerManager to Peer
 #[derive(Message)]
+#[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
@@ -1091,6 +1168,7 @@ pub enum NetworkResponses {
     PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Edge),
+    RouteNotFound,
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -1109,7 +1187,7 @@ impl Message for NetworkRequests {
     type Result = NetworkResponses;
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
@@ -1173,7 +1251,7 @@ pub enum NetworkClientResponses {
     /// Chain information.
     ChainInfo {
         genesis_id: GenesisId,
-        height: BlockIndex,
+        height: BlockHeight,
         weight_and_score: WeightAndScore,
         tracked_shards: Vec<ShardId>,
     },
@@ -1181,8 +1259,6 @@ pub enum NetworkClientResponses {
     Block(Block),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(StateResponseInfo, CryptoHash),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
 }
@@ -1279,7 +1355,7 @@ impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
@@ -1287,12 +1363,18 @@ pub struct PartialEncodedChunkRequestMsg {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct StopSignal {}
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
+
+    fn do_send(&self, msg: NetworkRequests);
 }
 
 pub struct NetworkRecipient {
@@ -1312,7 +1394,20 @@ impl NetworkRecipient {
 }
 
 impl NetworkAdapter for NetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
+    fn send(
+        &self,
+        msg: NetworkRequests,
+    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        self.network_recipient
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("Recipient must be set")
+            .send(msg)
+            .boxed()
+    }
+
+    fn do_send(&self, msg: NetworkRequests) {
         let _ = self
             .network_recipient
             .read()

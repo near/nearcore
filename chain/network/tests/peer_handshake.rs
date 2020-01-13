@@ -4,8 +4,7 @@ use std::sync::Arc;
 use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::System;
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
@@ -29,7 +28,7 @@ fn make_peer_manager(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    config.peer_max_count = peer_max_count;
+    config.max_peer = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
         let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
         match msg {
@@ -68,7 +67,7 @@ fn peer_handshake() {
                     if info.num_active_peers == 1 {
                         System::current().stop();
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }));
             }),
             100,
@@ -104,14 +103,12 @@ fn peers_connect_all() {
                         if info.num_active_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                         {
-                            println!("Peer {}: {}", i, info.num_active_peers);
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
                         }
-                        future::result(Ok(()))
+                        future::ready(())
                     }));
                 }
                 // Stop if all connected to all after exchanging peers.
-                println!("Flags: {}", flags.load(Ordering::Relaxed));
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
                     System::current().stop();
                 }
@@ -131,7 +128,7 @@ fn peer_recover() {
 
     System::run(|| {
         let port0 = open_port();
-        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 0).start());
+        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
         let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
 
         let mut pm2 =
@@ -159,7 +156,7 @@ fn peer_recover() {
                                     flag1.clone().store(true, Ordering::Relaxed);
                                 }
                             }
-                            future::result::<_, ()>(Ok(()))
+                            future::ready(())
                         }));
                     } else {
                         state.store(3, Ordering::Relaxed);
@@ -179,7 +176,7 @@ fn peer_recover() {
                                 System::current().stop();
                             }
                         }
-                        future::result::<_, ()>(Ok(()))
+                        future::ready(())
                     }));
                 }
             }),

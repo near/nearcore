@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
 use near_crypto::Signature;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
@@ -12,11 +11,12 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
     ValidatorStake,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
+use serde::Serialize;
 
 use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::Error;
@@ -24,19 +24,19 @@ use near_pool::types::PoolIterator;
 use near_primitives::errors::InvalidTxError;
 use std::cmp::{max, Ordering};
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -126,7 +126,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         state_root: StateRoot,
@@ -142,7 +142,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        block_index: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         gas_price: Balance,
         gas_limit: Gas,
@@ -187,9 +187,9 @@ pub trait RuntimeAdapter: Send + Sync {
         approvals: &[Approval],
     ) -> Result<bool, Error>;
 
-    /// Epoch block producers (ordered by their order in the proposals) for given shard.
+    /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
@@ -199,14 +199,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error>;
 
     /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error>;
 
@@ -235,9 +235,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize;
+    fn num_total_parts(&self) -> usize;
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize;
+    fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
@@ -284,7 +284,7 @@ pub trait RuntimeAdapter: Send + Sync {
         -> Result<EpochId, Error>;
 
     /// Get epoch start for given block hash.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get inflation for a certain epoch
     fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
@@ -300,8 +300,8 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: CryptoHash,
         current_hash: CryptoHash,
-        block_index: BlockIndex,
-        last_finalized_height: BlockIndex,
+        height: BlockHeight,
+        last_finalized_height: BlockHeight,
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<SlashedValidator>,
         validator_mask: Vec<bool>,
@@ -316,7 +316,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -330,7 +330,7 @@ pub trait RuntimeAdapter: Send + Sync {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
-            block_index,
+            height,
             block_timestamp,
             prev_block_hash,
             block_hash,
@@ -348,7 +348,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -366,7 +366,7 @@ pub trait RuntimeAdapter: Send + Sync {
         partial_storage: PartialStorage,
         shard_id: ShardId,
         state_root: &StateRoot,
-        block_index: BlockIndex,
+        height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -382,7 +382,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn query(
         &self,
         state_root: &StateRoot,
-        height: BlockIndex,
+        block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
@@ -449,7 +449,7 @@ impl dyn RuntimeAdapter {
         prev_epoch: &EpochId,
         prev_hash: &CryptoHash,
     ) -> Result<u128, Error> {
-        let block_producers = self.get_epoch_block_producers(prev_epoch, prev_hash)?;
+        let block_producers = self.get_epoch_block_producers_ordered(prev_epoch, prev_hash)?;
         let mut account_to_stake = HashMap::new();
 
         let mut approved_stake = 0;
@@ -481,24 +481,24 @@ impl dyn RuntimeAdapter {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
 pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
 pub struct LatestKnown {
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     pub seen: u64,
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience and the total weight.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
-    pub height: BlockIndex,
+    pub height: BlockHeight,
     /// Last block pushed to the fork
     pub last_block_hash: CryptoHash,
     /// Previous block
@@ -525,7 +525,7 @@ impl Tip {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
@@ -536,14 +536,14 @@ pub struct ShardStateSyncResponseHeader {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
     pub part_ids: Vec<u64>,
     pub data: Vec<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Default)]
 pub struct StateRequestParts {
     pub ids: Vec<u64>,
     pub num_parts: u64,

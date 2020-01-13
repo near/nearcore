@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12"
-actix = "0.8.1"
-futures = "0.1"
+actix = "0.9.0"
+futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
 rocksdb = "0.13"
 log = "0.4"
@@ -19,6 +19,7 @@ sysinfo = "0.10"
 cached = "0.11.0"
 lazy_static = "1.4"
 borsh = "0.2.10"
+reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
