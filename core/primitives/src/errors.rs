@@ -44,12 +44,13 @@ impl From<InvalidTxError> for TxExecutionError {
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
-    /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.  
+    /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
     UnexpectedIntegerOverflow,
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
-    /// and should be challenged. 
+    /// and should be challenged.
     InvalidTxError(InvalidTxError),
-    /// Unexpected error which is typically related to the node storage corruption
+    /// Unexpected error which is typically related to the node storage corruption.account
+    /// That it's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails
     BalanceMismatch(BalanceMismatchError),
@@ -160,38 +161,20 @@ pub struct ActionError {
 #[rpc_error_variant = "ActionError"]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
-    AccountAlreadyExists {
-        account_id: AccountId,
-    },
+    AccountAlreadyExists { account_id: AccountId },
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
-    AccountDoesNotExist {
-        account_id: AccountId,
-    },
+    AccountDoesNotExist { account_id: AccountId },
     /// A newly created account must be under a namespace of the creator account
-    CreateAccountNotAllowed {
-        account_id: AccountId,
-        predecessor_id: AccountId,
-    },
+    CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
     /// Administrative actions like DeployContract, Stake, AddKey, DeleteKey. can be proceed only if sender=receiver
     /// or the first TX action is a CreateAccount action
-    ActorNoPermission {
-        account_id: AccountId,
-        actor_id: AccountId,
-    },
+    ActorNoPermission { account_id: AccountId, actor_id: AccountId },
     /// Account tries to remove an access key that doesn't exist
-    DeleteKeyDoesNotExist {
-        account_id: AccountId,
-        public_key: PublicKey,
-    },
+    DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
     /// The public key is already used for an existing access key
-    AddKeyAlreadyExists {
-        account_id: AccountId,
-        public_key: PublicKey,
-    },
+    AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
-    DeleteAccountStaking {
-        account_id: AccountId,
-    },
+    DeleteAccountStaking { account_id: AccountId },
     /// Have to cover rent before delete an account
     DeleteAccountHasRent {
         account_id: AccountId,
@@ -207,9 +190,7 @@ pub enum ActionErrorKind {
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
-    TriesToUnstake {
-        account_id: AccountId,
-    },
+    TriesToUnstake { account_id: AccountId },
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
