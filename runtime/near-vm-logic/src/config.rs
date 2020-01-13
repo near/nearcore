@@ -47,7 +47,7 @@ pub struct VMLimitConfig {
 
     /// Maximum number of log entries.
     pub max_number_logs: u64,
-    /// Maximum total length in bytes in all log messages.
+    /// Maximum total length in bytes of all log messages.
     pub max_total_log_length: u64,
 
     /// Max total prepaid gas for all function call actions per receipt.
