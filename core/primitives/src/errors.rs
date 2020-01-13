@@ -52,7 +52,7 @@ pub enum RuntimeError {
     /// Unexpected error which is typically related to the node storage corruption.account
     /// That it's possible the input state is invalid or malicious.
     StorageError(StorageError),
-    /// An error happens if `check_balance` fails
+    /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatch(BalanceMismatchError),
 }
 
