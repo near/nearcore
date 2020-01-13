@@ -7,6 +7,7 @@ pub enum Error {
     InvalidChunkSignature,
     InvalidChunkHeader,
     InvalidChunk,
+    DuplicateChunkHeight,
     UnknownChunk,
     KnownPart,
     ChainError(near_chain::Error),

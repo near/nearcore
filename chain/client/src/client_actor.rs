@@ -84,7 +84,7 @@ impl ClientActor {
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
-        let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
+        let info_helper = InfoHelper::new(telemetry_actor, &config, block_producer.clone());
         let client = Client::new(
             config,
             store,
@@ -165,20 +165,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.receive_header(header, peer_id)
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
-                if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
-                    if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
-                        if block.hash() == header.prev_hash {
-                            if let Err(_) = self.client.chain.save_block(&block) {
-                                error!(target: "client", "Failed to save a block during state sync");
+                let height_exists = self
+                    .client
+                    .chain
+                    .mut_store()
+                    .get_any_block_hash_by_height(block.header.inner_lite.height)
+                    .is_ok();
+                if was_requested || !height_exists {
+                    if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
+                        if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
+                            if block.hash() == header.prev_hash {
+                                if let Err(_) = self.client.chain.save_block(&block) {
+                                    error!(target: "client", "Failed to save a block during state sync");
+                                }
+                                return NetworkClientResponses::NoResponse;
+                            } else if &block.hash() == sync_hash {
+                                self.client.chain.save_orphan(&block);
+                                return NetworkClientResponses::NoResponse;
                             }
-                            return NetworkClientResponses::NoResponse;
-                        } else if &block.hash() == sync_hash {
-                            self.client.chain.save_orphan(&block);
-                            return NetworkClientResponses::NoResponse;
                         }
                     }
+                    self.receive_block(block, peer_id, was_requested)
+                } else {
+                    debug!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                    return NetworkClientResponses::NoResponse;
                 }
-                self.receive_block(block, peer_id, was_requested)
             }
             NetworkClientMessages::BlockRequest(hash) => {
                 if let Ok(block) = self.client.chain.get_block(&hash) {
