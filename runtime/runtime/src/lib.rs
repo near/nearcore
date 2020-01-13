@@ -621,7 +621,6 @@ impl Runtime {
                 {
                     result.merge(ActionResult {
                         result: Err(ActionError {
-                            // TODO: looks like this shouldn't be in a ActionError category (which action where failed?)
                             index: None,
                             kind: ActionErrorKind::RentUnpaid {
                                 account_id: account_id.clone(),

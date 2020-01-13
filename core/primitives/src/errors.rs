@@ -97,7 +97,7 @@ pub enum InvalidTxError {
     InvalidReceiverId { receiver_id: AccountId },
     /// TX signature is not valid
     InvalidSignature,
-     /// Account does not have enough balance to cover TX cost
+    /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -126,13 +126,13 @@ pub enum InvalidTxError {
 )]
 #[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
-    /// The access key identified by the public_key doesn't exist for the account
+    /// The access key identified by the `public_key` doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
-    /// Transaction receiver_id doesn't match the access key receiver_id
+    /// Transaction `receiver_id` doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
     /// Transaction method name isn't allowed by the access key
     MethodNameMismatch { method_name: String },
-    /// The used access key requires exactly one FunctionCall action
+    /// The used access key requires exactly one `FunctionCall` action
     ActionError,
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
@@ -151,7 +151,10 @@ pub enum InvalidAccessKeyError {
 )]
 #[rpc_error_variant = "ActionError"]
 pub struct ActionError {
+    /// Index of the failed action in the transaction.
+    /// Action index is not defined if ActionError.kind is `ActionErrorKind::RentUnpaid`
     pub index: Option<u64>,
+    /// The kind of ActionError happened
     pub kind: ActionErrorKind,
 }
 
@@ -166,8 +169,8 @@ pub enum ActionErrorKind {
     AccountDoesNotExist { account_id: AccountId },
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
-    /// Administrative actions like DeployContract, Stake, AddKey, DeleteKey. can be proceed only if sender=receiver
-    /// or the first TX action is a CreateAccount action
+    /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
+    /// or the first TX action is a `CreateAccount` action
     ActorNoPermission { account_id: AccountId, actor_id: AccountId },
     /// Account tries to remove an access key that doesn't exist
     DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
@@ -201,7 +204,7 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
-    /// An error occurred during a FunctionCall Action.
+    /// An error occurred during a `FunctionCall` Action.
     FunctionCall(VMError),
 }
 
