@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use syn::{
     parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed,
     Lit, Meta, MetaNameValue,
@@ -26,7 +26,7 @@ fn merge(a: &mut Value, b: &Value) {
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 struct Schema {
-    pub schema: HashMap<String, ErrorType>,
+    pub schema: BTreeMap<String, ErrorType>,
 }
 
 impl Drop for Schema {
@@ -57,7 +57,7 @@ struct ErrorType {
     /// Names of subtypes of the error
     pub subtypes: Vec<String>,
     /// An error input name and a type
-    pub props: HashMap<String, String>,
+    pub props: BTreeMap<String, String>,
 }
 
 thread_local!(static SCHEMA: RefCell<Schema> = RefCell::new(Schema::default()));
@@ -75,14 +75,14 @@ fn parse_rpc_error_variant(input: &DeriveInput) -> Option<String> {
 }
 
 fn error_type_name<'a>(
-    schema: &'a mut HashMap<String, ErrorType>,
+    schema: &'a mut BTreeMap<String, ErrorType>,
     name: String,
 ) -> &'a mut ErrorType {
     let error_type = ErrorType { name: name.clone(), ..Default::default() };
     schema.entry(name.clone()).or_insert(error_type)
 }
 
-fn parse_error_type(schema: &mut HashMap<String, ErrorType>, input: &DeriveInput) {
+fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &DeriveInput) {
     let name = parse_rpc_error_variant(input).expect("should have a rpc_error_variant with value");
     match &input.data {
         Data::Enum(DataEnum { ref variants, .. }) => {
