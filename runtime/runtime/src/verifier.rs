@@ -104,6 +104,12 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into());
         }
         if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+            if function_call.deposit > 0 {
+                return Err(InvalidTxError::InvalidAccessKey(
+                    InvalidAccessKeyError::DepositWithFunctionCall,
+                )
+                .into());
+            }
             if transaction.receiver_id != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKey(
                     InvalidAccessKeyError::ReceiverMismatch(
@@ -959,6 +965,49 @@ mod tests {
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
                 InvalidAccessKeyError::MethodNameMismatch("hello".to_string())
+            )),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_deposit_with_function_call() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) = setup_common(
+            TESTING_INIT_BALANCE,
+            0,
+            10_000_000,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::from_actions(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "hello".to_string(),
+                        args: b"abc".to_vec(),
+                        gas: 100,
+                        deposit: 100,
+                    }),],
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+                InvalidAccessKeyError::DepositWithFunctionCall,
             )),
         );
     }

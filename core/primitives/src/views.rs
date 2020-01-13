@@ -737,6 +737,9 @@ impl From<ExecutionError> for ExecutionErrorView {
                         InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
                             "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
                         }
+                        InvalidAccessKeyError::DepositWithFunctionCall => {
+                            "InvalidTxError::InvalidAccessKey::DepositWithFunctionCall".to_string()
+                        }
                     },
                     InvalidTxError::InvalidNonce(_, _) => {
                         "InvalidTxError::InvalidNonce".to_string()

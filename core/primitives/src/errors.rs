@@ -51,6 +51,8 @@ pub enum InvalidAccessKeyError {
     MethodNameMismatch(String),
     ActionError,
     NotEnoughAllowance(AccountId, PublicKey, Balance, Balance),
+    /// Having a deposit with a function call action is not allowed with a function call access key.  
+    DepositWithFunctionCall,
 }
 
 /// Describes the error for validating a list of actions.
@@ -275,6 +277,9 @@ impl Display for InvalidAccessKeyError {
                     "Access Key {:?}:{} does not have enough balance {} for transaction costing {}",
                     account_id, public_key, allowance, cost
                 )
+            }
+            InvalidAccessKeyError::DepositWithFunctionCall => {
+                write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
             }
         }
     }
