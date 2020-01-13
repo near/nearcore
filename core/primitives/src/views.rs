@@ -10,7 +10,7 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::errors::ExecutionError;
+use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
@@ -643,7 +643,7 @@ pub enum FinalExecutionStatus {
     /// The execution has started and still going.
     Started,
     /// The execution has failed with the given error.
-    Failure(ExecutionError),
+    Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
 }
@@ -670,7 +670,7 @@ impl Default for FinalExecutionStatus {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum ServerError {
-    TxExecutionError(ExecutionError),
+    TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
 }
@@ -680,7 +680,7 @@ pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
     /// The execution has failed.
-    Failure(ExecutionError),
+    Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
     /// The final action of the receipt returned a promise or the signed transaction was converted

@@ -16,8 +16,8 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ExecutionError, InvalidAccessKeyError, InvalidTxError,
-    RuntimeError,
+    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
@@ -218,10 +218,10 @@ impl Runtime {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
-            return Err(InvalidTxError::InvalidSigner { signer_id: signer_id.clone() }.into());
+            return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
         }
         if !is_valid_account_id(&transaction.receiver_id) {
-            return Err(InvalidTxError::InvalidReceiver {
+            return Err(InvalidTxError::InvalidReceiverId {
                 receiver_id: transaction.receiver_id.clone(),
             }
             .into());
@@ -758,7 +758,7 @@ impl Runtime {
             ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
-            Err(e) => ExecutionStatus::Failure(ExecutionError::Action(e)),
+            Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
         };
 
         Self::print_log(&result.logs);

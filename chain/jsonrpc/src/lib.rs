@@ -24,7 +24,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, BlockId, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
-use near_primitives::errors::{ExecutionError, InvalidTxError};
+use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
@@ -123,14 +123,14 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
 #[rpc_error_variant = "ServerError"]
 pub enum ServerError {
-    TxExecutionError(ExecutionError),
+    TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
 }
 
 impl From<InvalidTxError> for ServerError {
     fn from(e: InvalidTxError) -> ServerError {
-        ServerError::TxExecutionError(ExecutionError::InvalidTx(e))
+        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
     }
 }
 

@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::ServerError;
-use near_primitives::errors::{ExecutionError, RuntimeError};
+use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
@@ -88,7 +88,7 @@ impl RuntimeUser {
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
-                        ServerError::TxExecutionError(ExecutionError::InvalidTx(e))
+                        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
                     }
                     RuntimeError::BalanceMismatch(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),

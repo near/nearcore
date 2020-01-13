@@ -54,29 +54,23 @@ pub enum CompilationError {
 pub enum PrepareError {
     /// Error happened while serializing the module.
     Serialization,
-
     /// Error happened while deserializing the module.
     Deserialization,
-
     /// Internal memory declaration has been found in the module.
     InternalMemoryDeclared,
-
     /// Gas instrumentation failed.
     ///
     /// This most likely indicates the module isn't valid.
     GasInstrumentation,
-
     /// Stack instrumentation failed.
     ///
     /// This  most likely indicates the module isn't valid.
     StackHeightInstrumentation,
-
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
     /// instantiable and/or unlinkable.
     Instantiate,
-
     /// Error creating memory.
     Memory,
 }
@@ -86,26 +80,47 @@ pub enum PrepareError {
 )]
 #[rpc_error_variant = "HostError"]
 pub enum HostError {
+    /// String encoding is bad UTF-16 sequence
     BadUTF16,
+    /// String encoding is bad UTF-8 sequence
     BadUTF8,
+    /// Exceeded the prepaid gas
     GasExceeded,
+    /// Exceeded the maximum amount of gas allowed to burn per contract
     GasLimitExceeded,
+    /// Exceeded the account balance
     BalanceExceeded,
+    /// Tried to call an empty method name
     EmptyMethodName,
+    /// Smart contract panicked
     GuestPanic { panic_msg: String },
+    /// IntegerOverflow happened during a contract execution
     IntegerOverflow,
+    /// `promise_idx` does not correspond to existing promises
     InvalidPromiseIndex { promise_idx: u64 },
+    /// Actions can only be appended to non-joint promise.
     CannotAppendActionToJointPromise,
+    /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
+    /// Accessed invalid promise result index
     InvalidPromiseResultIndex { result_idx: u64 },
+    /// Accessed invalid register id
     InvalidRegisterId { register_id: u64 },
+    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
     IteratorWasInvalidated { iterator_index: u64 },
+    /// Accessed memory outside the bounds
     MemoryAccessViolation,
+    /// VM Logic returned an invalid receipt index
     InvalidReceiptIndex { receipt_index: u64 },
+    /// Iterator index `iterator_index` does not exist
     InvalidIteratorIndex { iterator_index: u64 },
+    /// VM Logic returned an invalid account id
     InvalidAccountId,
+    /// VM Logic returned an invalid method name
     InvalidMethodName,
+    /// VM Logic provided an invalid public key
     InvalidPublicKey,
+    /// `method_name` is not allowed in view calls
     ProhibitedInView { method_name: String },
 }
 

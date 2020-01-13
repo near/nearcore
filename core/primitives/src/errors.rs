@@ -13,38 +13,44 @@ use near_vm_errors::VMError;
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 #[rpc_error_variant = "TxExecutionError"]
-pub enum ExecutionError {
-    Action(ActionError),
-    InvalidTx(InvalidTxError),
+pub enum TxExecutionError {
+    /// An error happened during Acton execution
+    ActionError(ActionError),
+    /// An error happened during Transaction execution
+    InvalidTxError(InvalidTxError),
 }
 
-impl Display for ExecutionError {
+impl Display for TxExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            ExecutionError::Action(e) => write!(f, "{}", e),
-            ExecutionError::InvalidTx(e) => write!(f, "{}", e),
+            TxExecutionError::ActionError(e) => write!(f, "{}", e),
+            TxExecutionError::InvalidTxError(e) => write!(f, "{}", e),
         }
     }
 }
 
-impl From<ActionError> for ExecutionError {
+impl From<ActionError> for TxExecutionError {
     fn from(error: ActionError) -> Self {
-        ExecutionError::Action(error)
+        TxExecutionError::ActionError(error)
     }
 }
 
-impl From<InvalidTxError> for ExecutionError {
+impl From<InvalidTxError> for TxExecutionError {
     fn from(error: InvalidTxError) -> Self {
-        ExecutionError::InvalidTx(error)
+        TxExecutionError::InvalidTxError(error)
     }
 }
 
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
+    /// An integeroverflow during counting ApplyStats
     UnexpectedIntegerOverflow,
+    /// An error happened during TX execution
     InvalidTxError(InvalidTxError),
+    /// Unexpected error which is typically related to the node storage corruption
     StorageError(StorageError),
+    /// An error happens if `check_balance` fails
     BalanceMismatch(BalanceMismatchError),
 }
 
@@ -71,27 +77,25 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-/// External
+/// An error happened during TX execution
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "InvalidTx"]
+#[rpc_error_variant = "InvalidTxError"]
 pub enum InvalidTxError {
+    /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKey(InvalidAccessKeyError),
-    InvalidSigner {
-        signer_id: AccountId,
-    },
-    SignerDoesNotExist {
-        signer_id: AccountId,
-    },
-    InvalidNonce {
-        tx_nonce: Nonce,
-        ak_nonce: Nonce,
-    },
-    InvalidReceiver {
-        receiver_id: AccountId,
-    },
+    /// TX signer_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    InvalidSignerId { signer_id: AccountId },
+    /// TX signer_id is not found in a storage
+    SignerDoesNotExist { signer_id: AccountId },
+    /// Transaction nonce must be account[access_key].nonce + 1
+    InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
+    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
+    InvalidReceiverId { receiver_id: AccountId },
+    /// TX signature is not valid
     InvalidSignature,
+    /// Account have not enough tokens to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -99,13 +103,19 @@ pub enum InvalidTxError {
         #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
+    /// Signer account rent is unpaid
     RentUnpaid {
+        /// An account which is required to pay the rent
         signer_id: AccountId,
+        /// Required balance to cover the state rent
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
+    /// Transaction gas or balance cost is too high
     CostOverflow,
+    /// Transaction parent block hash doesn't belong to the current chain
     InvalidChain,
+    /// Transaction has expired
     Expired,
 }
 
@@ -114,18 +124,15 @@ pub enum InvalidTxError {
 )]
 #[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
-    AccessKeyNotFound {
-        account_id: AccountId,
-        public_key: PublicKey,
-    },
-    ReceiverMismatch {
-        tx_receiver: AccountId,
-        ak_receiver: AccountId,
-    },
-    MethodNameMismatch {
-        method_name: String,
-    },
+    /// Unable to found an access key for account_id identified by a public_key
+    AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
+    /// Transaction receiver_id doesn't match the access key receiver_id
+    ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
+    /// Transaction method name isn't allowed by the access key
+    MethodNameMismatch { method_name: String },
+    /// The used access key requires exactly one FunctionCall action
     ActionError,
+    /// Access Key does not have enough balance for transaction
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
@@ -139,7 +146,7 @@ pub enum InvalidAccessKeyError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "Action"]
+#[rpc_error_variant = "ActionError"]
 pub struct ActionError {
     pub index: Option<u64>,
     pub kind: ActionErrorKind,
@@ -148,45 +155,59 @@ pub struct ActionError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "Action"]
+#[rpc_error_variant = "ActionError"]
 pub enum ActionErrorKind {
+    /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
     AccountAlreadyExists {
         account_id: AccountId,
     },
+    /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
     AccountDoesNotExist {
         account_id: AccountId,
     },
+    /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed {
         account_id: AccountId,
         predecessor_id: AccountId,
     },
+    /// Administrative actions like DeployContract, Stake, AddKey, DeleteKey. can be proceed only if sender=receiver.
     ActorNoPermission {
         account_id: AccountId,
         actor_id: AccountId,
     },
+    /// Account tries to remove an access key that doesn't exist
     DeleteKeyDoesNotExist {
         account_id: AccountId,
         public_key: PublicKey,
     },
+    /// The public key is already used for an existing access key
     AddKeyAlreadyExists {
         account_id: AccountId,
         public_key: PublicKey,
     },
+    /// Account is staking and can not be deleted
     DeleteAccountStaking {
         account_id: AccountId,
     },
+    /// Have to cover rent before delete an account
     DeleteAccountHasRent {
         account_id: AccountId,
+        #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// ActionReceipt can't be applied for an account. Account state rent is not payed.
     RentUnpaid {
+        /// An account which is required to pay the rent
         account_id: AccountId,
+        /// Required balance to cover the state rent
         #[serde(with = "u128_dec_format")]
         amount: Balance,
     },
+    /// Account is not yet staked, but tries to unstake
     TriesToUnstake {
         account_id: AccountId,
     },
+    /// Account tries to stake but it is already staked.
     TriesToStake {
         account_id: AccountId,
         #[serde(with = "u128_dec_format")]
@@ -208,7 +229,7 @@ impl From<ActionErrorKind> for ActionError {
 impl Display for InvalidTxError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            InvalidTxError::InvalidSigner{signer_id} => {
+            InvalidTxError::InvalidSignerId{signer_id} => {
                 write!(f, "Invalid signer account ID {:?} according to requirements", signer_id)
             }
             InvalidTxError::SignerDoesNotExist{signer_id} => {
@@ -220,7 +241,7 @@ impl Display for InvalidTxError {
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
                 tx_nonce, ak_nonce
             ),
-            InvalidTxError::InvalidReceiver{receiver_id} => {
+            InvalidTxError::InvalidReceiverId{receiver_id} => {
                 write!(f, "Invalid receiver account ID {:?} according to requirements", receiver_id)
             }
             InvalidTxError::InvalidSignature => {
@@ -292,19 +313,32 @@ impl Display for InvalidAccessKeyError {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BalanceMismatchError {
     // Input balances
+    #[serde(with = "u128_dec_format")]
     pub incoming_validator_rewards: Balance,
+    #[serde(with = "u128_dec_format")]
     pub initial_accounts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub incoming_receipts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub processed_delayed_receipts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
+    #[serde(with = "u128_dec_format")]
     pub final_accounts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub outgoing_receipts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub new_delayed_receipts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub final_postponed_receipts_balance: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_rent_paid: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_validator_reward: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_balance_burnt: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_balance_slashed: Balance,
 }
 
@@ -408,6 +442,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::AccountAlreadyExists { account_id } => {
                 write!(f, "Can't create a new account {:?}, because it already exists", account_id)
             }
+
             ActionErrorKind::AccountDoesNotExist { account_id } => write!(
                 f,
                 "Can't complete the action because account {:?} doesn't exist",
