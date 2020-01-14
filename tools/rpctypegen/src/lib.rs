@@ -11,6 +11,7 @@ use syn::{
     Lit, Meta, MetaNameValue,
 };
 
+#[cfg(feature = "dump_errors_schema")]
 fn merge(a: &mut Value, b: &Value) {
     match (a, b) {
         (&mut Value::Object(ref mut a), &Value::Object(ref b)) => {
@@ -29,6 +30,7 @@ struct Schema {
     pub schema: BTreeMap<String, ErrorType>,
 }
 
+#[cfg(feature = "dump_errors_schema")]
 impl Drop for Schema {
     fn drop(&mut self) {
         // std::env::var("CARGO_TARGET_DIR") doesn't exists

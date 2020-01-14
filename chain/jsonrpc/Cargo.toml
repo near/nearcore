@@ -34,3 +34,6 @@ near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-jsonrpc-client = { path = "client" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen" }
+
+[features]
+dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
