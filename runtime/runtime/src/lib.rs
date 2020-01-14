@@ -458,7 +458,7 @@ impl Runtime {
                 action_deploy_contract(
                     &self.config.transaction_costs,
                     state_update,
-                    account,
+                    account.as_mut().expect("account exists, checked above"),
                     &account_id,
                     deploy_contract,
                 )?;
@@ -468,7 +468,7 @@ impl Runtime {
                 action_function_call(
                     state_update,
                     apply_state,
-                    account,
+                    account.as_mut().expect("account exists, checked above"),
                     receipt,
                     action_receipt,
                     promise_results,
@@ -482,18 +482,26 @@ impl Runtime {
             }
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
-                action_transfer(account, transfer);
+                action_transfer(
+                    account.as_mut().expect("account exists, checked above"),
+                    transfer,
+                )?;
             }
             Action::Stake(stake) => {
                 near_metrics::inc_counter(&metrics::ACTION_STAKE_TOTAL);
-                action_stake(account, &mut result, account_id, stake);
+                action_stake(
+                    account.as_mut().expect("account exists, checked above"),
+                    &mut result,
+                    account_id,
+                    stake,
+                );
             }
             Action::AddKey(add_key) => {
                 near_metrics::inc_counter(&metrics::ACTION_ADD_KEY_TOTAL);
                 action_add_key(
                     &self.config.transaction_costs,
                     state_update,
-                    account,
+                    account.as_mut().expect("account exists, checked above"),
                     &mut result,
                     account_id,
                     add_key,
@@ -504,7 +512,7 @@ impl Runtime {
                 action_delete_key(
                     &self.config.transaction_costs,
                     state_update,
-                    account,
+                    account.as_mut().expect("account exists, checked above"),
                     &mut result,
                     account_id,
                     delete_key,
@@ -916,7 +924,6 @@ impl Runtime {
     /// Iterates over the validators in the current shard and updates their accounts to return stake
     /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
     /// shard.
-    // TODO(#1461): Add Safe Math
     fn update_validator_accounts(
         &self,
         state_update: &mut TrieUpdate,
@@ -930,7 +937,7 @@ impl Runtime {
                     account.locked = account
                         .locked
                         .checked_add(*reward)
-                        .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 }
 
                 debug!(target: "runtime",
@@ -949,16 +956,16 @@ impl Runtime {
                 let return_stake = account
                     .locked
                     .checked_sub(max(*max_of_stakes, last_proposal))
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
                 account.locked = account
                     .locked
                     .checked_sub(return_stake)
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 account.amount = account
                     .amount
                     .checked_add(return_stake)
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
 
                 set_account(state_update, account_id, &account);
             } else {
@@ -982,11 +989,11 @@ impl Runtime {
                 stats.total_balance_slashed = stats
                     .total_balance_slashed
                     .checked_add(amount_to_slash)
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 account.locked = account
                     .locked
                     .checked_sub(amount_to_slash)
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 set_account(state_update, &account_id, &account);
             } else {
                 return Err(StorageError::StorageInconsistentState(format!(
@@ -1001,24 +1008,24 @@ impl Runtime {
             // If protocol treasury stakes, then the rewards was already distributed above.
             if !validator_accounts_update.stake_info.contains_key(account_id) {
                 let mut account = get_account(state_update, account_id)?.ok_or_else(|| {
-                    Err(StorageError::StorageInconsistentState(format!(
+                    StorageError::StorageInconsistentState(format!(
                         "Protocol treasury account {} is not found",
                         account_id
-                    )))
+                    ))
                 })?;
                 let treasury_reward = *validator_accounts_update
                     .validator_rewards
                     .get(account_id)
                     .ok_or_else(|| {
-                        Err(StorageError::StorageInconsistentState(format!(
+                        StorageError::StorageInconsistentState(format!(
                             "Validator reward for the protocol treasury account {} is not found",
                             account_id
-                        )))
+                        ))
                     })?;
                 account.amount = account
                     .amount
                     .checked_add(treasury_reward)
-                    .ok_or_else(|| Err(RuntimeError::UnexpectedIntegerOverflow))?;
+                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
                 set_account(state_update, account_id, &account);
             }
         }
@@ -1121,6 +1128,7 @@ impl Runtime {
                 ))
             })?;
             state_update.remove(&key);
+            // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             delayed_receipts_changed = true;
@@ -1136,7 +1144,13 @@ impl Runtime {
                     key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
                     receipt,
                 );
-                delayed_receipts_indices.next_available_index += 1;
+                delayed_receipts_indices.next_available_index =
+                    delayed_receipts_indices.next_available_index.checked_add(1).ok_or_else(|| {
+                        StorageError::StorageInconsistentState(
+                            "Next available index for delayed receipt exceeded the integer limit"
+                                .to_string(),
+                        )
+                    });
                 delayed_receipts_changed = true;
             }
         }
@@ -1172,7 +1186,8 @@ impl Runtime {
         })
     }
 
-    // TODO(#1461): Add safe math
+    /// It's okay to use unsafe math here, because this method should only be called on the trusted
+    /// state records (e.g. at launch from genesis)
     pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
         let config = &self.config.transaction_costs.storage_usage_config;
