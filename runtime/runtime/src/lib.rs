@@ -1144,13 +1144,15 @@ impl Runtime {
                     key_for_delayed_receipt(delayed_receipts_indices.next_available_index),
                     receipt,
                 );
-                delayed_receipts_indices.next_available_index =
-                    delayed_receipts_indices.next_available_index.checked_add(1).ok_or_else(|| {
+                delayed_receipts_indices.next_available_index = delayed_receipts_indices
+                    .next_available_index
+                    .checked_add(1)
+                    .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "Next available index for delayed receipt exceeded the integer limit"
                                 .to_string(),
                         )
-                    });
+                    })?;
                 delayed_receipts_changed = true;
             }
         }
