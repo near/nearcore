@@ -349,6 +349,11 @@ impl Peer {
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
+                    Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
+                        let body = RoutedMessageBody::StateResponse(state_response);
+                        act.peer_manager_addr
+                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                    }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         act.send_message(PeerMessage::Block(block))
                     }
