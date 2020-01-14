@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::challenge::SlashedValidator;
@@ -35,11 +37,11 @@ pub struct EpochConfig {
     pub fishermen_threshold: Balance,
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 /// Information per epoch.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -66,7 +68,7 @@ pub struct EpochInfo {
 }
 
 /// Information per each block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 pub struct BlockInfo {
     pub height: BlockHeight,
     pub last_finalized_height: BlockHeight,
@@ -236,7 +238,7 @@ pub struct EpochSummary {
 }
 
 /// State that a slashed validator can be in.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,

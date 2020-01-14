@@ -5,41 +5,42 @@ use std::path::Path;
 
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
-use log::{info, LevelFilter};
+use log::info;
 
 use git_version::git_version;
 use near::config::init_testnet_configs;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 fn init_logging(verbose: Option<&str>) {
-    let mut builder = env_logger::Builder::new();
+    let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
+
     if let Some(module) = verbose {
-        builder
-            .filter_module("tokio_reactor", LevelFilter::Info)
-            .filter_module("cranelift_codegen", LevelFilter::Warn)
-            .filter_module("cranelift_wasm", LevelFilter::Warn)
-            .filter_module("h2", LevelFilter::Warn)
-            .filter_module("trust_dns_resolver", LevelFilter::Warn)
-            .filter_module("trust_dns_proto", LevelFilter::Warn)
-            .filter(Some("near"), LevelFilter::Info)
-            .filter(Some("info"), LevelFilter::Info);
+        env_filter = env_filter
+            .add_directive("cranelift_codegen=warn".parse().unwrap())
+            .add_directive("cranelift_codegen=warn".parse().unwrap())
+            .add_directive("h2=warn".parse().unwrap())
+            .add_directive("trust_dns_resolver=warn".parse().unwrap())
+            .add_directive("trust_dns_proto=warn".parse().unwrap());
+
         if module.is_empty() {
-            builder.filter(None, LevelFilter::Debug);
+            env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
         } else {
-            builder.filter_module(&module, LevelFilter::Debug);
+            env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
         }
     } else {
-        builder
-            .filter_module("tokio_reactor", LevelFilter::Info)
-            .filter(Some("near"), LevelFilter::Info)
-            .filter(Some("info"), LevelFilter::Info)
-            .filter(None, LevelFilter::Warn);
+        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
-    if env::var("RUST_LOG").is_ok() {
-        builder.parse_filters(&env::var("RUST_LOG").unwrap());
+
+    if let Ok(rust_log) = env::var("RUST_LOG") {
+        if let Ok(directive) = rust_log.parse() {
+            env_filter = env_filter.add_directive(directive);
+        }
     }
-    builder.init();
+
+    tracing_subscriber::fmt::Subscriber::builder().with_env_filter(env_filter).init();
 }
 
 fn main() {

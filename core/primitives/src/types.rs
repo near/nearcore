@@ -72,7 +72,7 @@ pub enum StateChangeCause {
 pub type StateChanges =
     std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
     pub data: Vec<u8>,
@@ -88,7 +88,16 @@ impl StateRootNode {
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 #[derive(
-    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+    Hash,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Default,
+    PartialOrd,
 )]
 pub struct EpochId(pub CryptoHash);
 
@@ -99,7 +108,7 @@ impl AsRef<[u8]> for EpochId {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -116,13 +125,13 @@ impl ValidatorStake {
 }
 
 /// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,

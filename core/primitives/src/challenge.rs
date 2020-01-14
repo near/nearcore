@@ -10,11 +10,11 @@ use crate::types::AccountId;
 /// Serialized TrieNodeWithSize
 pub type StateItem = Vec<u8>;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialState(pub Vec<StateItem>);
 
 /// Double signed block.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,
     pub right_block_header: Vec<u8>,
@@ -27,7 +27,7 @@ impl std::fmt::Display for BlockDoubleSign {
 }
 
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
     /// Encoded block header that contains invalid chunk.
     pub block_header: Vec<u8>,
@@ -41,14 +41,14 @@ pub struct ChunkProofs {
 /// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
 /// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
 /// decoded.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
     Encoded(EncodedShardChunk),
     Decoded(ShardChunk),
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkState {
     /// Encoded prev block header.
     pub prev_block_header: Vec<u8>,
@@ -66,14 +66,14 @@ pub struct ChunkState {
     pub partial_state: PartialState,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub enum ChallengeBody {
     BlockDoubleSign(BlockDoubleSign),
     ChunkProofs(ChunkProofs),
     ChunkState(ChunkState),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 #[borsh_init(init)]
 pub struct Challenge {
     pub body: ChallengeBody,
