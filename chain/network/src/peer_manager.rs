@@ -279,7 +279,7 @@ impl PeerManagerActor {
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
-                            error!(target: "network", "Peer stream error: {:?}", e);
+                            warn!(target: "network", "Peer stream error: {:?}", e);
                             future::ready(false)
                         }
                     })
