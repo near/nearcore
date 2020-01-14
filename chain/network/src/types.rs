@@ -738,8 +738,6 @@ impl PeerMessage {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::BlockRequest(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
             PeerMessage::Routed(r) => match r.body {
@@ -747,7 +745,6 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::StateRequest(_, _, _, _)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -763,11 +760,12 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::ReceiptOutComeResponse(_) => true,
+                | RoutedMessageBody::ReceiptOutComeResponse(_)
+                | RoutedMessageBody::StateRequest(_, _, _, _) => true,
                 _ => false,
             },
-            PeerMessage::Block(_) => true,
             PeerMessage::BlockHeadersRequest(_) => true,
+            PeerMessage::BlockRequest(_) => true,
             _ => false,
         }
     }
