@@ -585,19 +585,38 @@ impl ShardsManager {
             }
         };
 
-        let chunk_requested =
-            self.requested_partial_encoded_chunks.contains_key(&header.chunk_hash());
-        if !chunk_requested
-            && !self.encoded_chunks.height_within_horizon(header.inner.height_created)
-        {
-            return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
-        }
-
         if header.chunk_hash() != chunk_hash
             || header.inner.shard_id != partial_encoded_chunk.shard_id
         {
             return Err(Error::InvalidChunkHeader);
         }
+
+        let chunk_requested =
+            self.requested_partial_encoded_chunks.contains_key(&header.chunk_hash());
+        if !chunk_requested {
+            if !self.encoded_chunks.height_within_horizon(header.inner.height_created) {
+                return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
+            }
+            // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
+            if chain_store
+                .get_any_chunk_hash_by_height_shard(
+                    header.inner.height_created,
+                    header.inner.shard_id,
+                )
+                .is_ok()
+            {
+                debug!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}", chunk_hash, header.inner.height_created, header.inner.shard_id);
+                return Err(Error::DuplicateChunkHeight.into());
+            }
+        }
+
+        let mut store_update = chain_store.store_update();
+        store_update.save_chunk_hash(
+            header.inner.height_created,
+            header.inner.shard_id,
+            chunk_hash.clone(),
+        );
+        store_update.commit()?;
 
         let prev_block_hash = header.inner.prev_block_hash;
 
