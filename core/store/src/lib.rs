@@ -46,7 +46,7 @@ impl Store {
         self.storage.get(column, key).map_err(|e| e.into())
     }
 
-    pub fn get_ser<T: BorshDeserialize + Clone>(
+    pub fn get_ser<T: BorshDeserialize>(
         &self,
         column: DBCol,
         key: &[u8],
@@ -76,7 +76,7 @@ impl Store {
         self.storage.iter(column)
     }
 
-    pub fn iter_prefix_ser<'a, T: BorshDeserialize + Clone>(
+    pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
         column: DBCol,
         key_prefix: &'a [u8],
