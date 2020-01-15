@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
 use near_network::types::AccountOrPeerIdOrHash;
@@ -250,7 +250,7 @@ pub struct ShardSyncDownload {
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, strum::AsStaticStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
     AwaitingPeers,
@@ -267,6 +267,11 @@ pub enum SyncStatus {
 }
 
 impl SyncStatus {
+    /// Get a string representation of the status variant
+    pub fn as_variant_name(&self) -> &'static str {
+        strum::AsStaticRef::as_static(self)
+    }
+
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
         match self {
