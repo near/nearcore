@@ -258,6 +258,14 @@ pub unsafe fn panic_with_message() {
 }
 
 #[no_mangle]
+pub unsafe fn panic_after_logging() {
+    let data = b"hello";
+    log_utf8(data.len() as u64, data.as_ptr() as _);
+    let data = b"WAT?";
+    panic_utf8(data.len() as u64, data.as_ptr() as _);
+}
+
+#[no_mangle]
 pub unsafe fn run_test() {
     let value: [u8; 4] = 10i32.to_le_bytes();
     value_return(value.len() as u64, value.as_ptr() as _);
