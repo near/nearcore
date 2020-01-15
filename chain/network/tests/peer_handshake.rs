@@ -42,7 +42,7 @@ fn make_peer_manager(
                     tracked_shards: vec![],
                 }))
             }
-            _ => Box::new(Some(NetworkClientResponses::NoResponse)),
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
         }
     }))
     .start();
