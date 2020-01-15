@@ -525,7 +525,7 @@ impl Client {
             let time_passed = start_time.elapsed();
             writeln!(
                 (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                "{} produce_trunk height {} shard {} txs {} receipts {} producer {} chunk_hash {} time_passed {:?}",
+                "{} produce_chunk height {} shard {} txs {} receipts {} producer {} chunk_hash {} time_passed {:?}",
                 Utc::now().to_rfc3339(),
                 next_height,
                 shard_id,
@@ -672,6 +672,16 @@ impl Client {
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
+                #[cfg(feature = "produce_time")]
+                {
+                    writeln!(
+                        (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
+                        "{} has_all_parts && has_all_receipts {}",
+                        Utc::now().to_rfc3339(),
+                        prev_block_hash,
+                    )
+                    .unwrap();
+                }
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
@@ -857,6 +867,16 @@ impl Client {
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |accepted_block| {
+            #[cfg(feature = "produce_time")]
+            {
+                writeln!(
+                    (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
+                    "{} full chunks {}",
+                    Utc::now().to_rfc3339(),
+                    accepted_block.hash,
+                )
+                .unwrap();
+            }
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
