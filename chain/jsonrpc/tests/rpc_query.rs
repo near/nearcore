@@ -125,10 +125,13 @@ fn test_chunk_invalid_shard_id() {
 
         let mut client = new_client(&format!("http://{}", addr.clone()));
         actix::spawn(client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 100)).then(|res| {
-            if res.is_err() {
-                System::current().stop();
-            } else {
-                panic!("should result in an error")
+            match res {
+                Ok(_) => panic!("should result in an error"),
+                Err(e) => {
+                    let s = serde_json::to_string(&e.data.unwrap()).unwrap();
+                    assert!(s.starts_with("\"Shard id 100 does not exist"));
+                    System::current().stop();
+                }
             }
             future::ready(())
         }));
