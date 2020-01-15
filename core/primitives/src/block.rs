@@ -608,10 +608,8 @@ impl Block {
     }
 
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
-        let mut arr =
-            challenges.iter().map(|challenges| challenges.hash).collect::<Vec<CryptoHash>>();
-        arr.sort();
-        merklize(&arr).0
+        merklize(&challenges.iter().map(|challenges| challenges.hash).collect::<Vec<CryptoHash>>())
+            .0
     }
 
     pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
