@@ -60,7 +60,7 @@ pub fn setup_network_node(
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
         let client_actor = ClientActor::new(
-            client_config,
+            client_config.clone(),
             store.clone(),
             chain_genesis.clone(),
             runtime.clone(),
@@ -76,6 +76,7 @@ pub fn setup_network_node(
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
+            client_config,
         )
         .unwrap()
         .start();

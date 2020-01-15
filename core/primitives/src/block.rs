@@ -42,6 +42,8 @@ pub struct BlockHeaderInnerRest {
     pub chunk_tx_root: MerkleHash,
     /// Number of chunks included into the block.
     pub chunks_included: u64,
+    /// Root hash of the challenges in the given block.
+    pub challenges_root: MerkleHash,
     /// Total weight.
     pub total_weight: Weight,
     /// Score.
@@ -102,6 +104,7 @@ impl BlockHeaderInnerRest {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         total_weight: Weight,
         score: Weight,
         validator_proposals: Vec<ValidatorStake>,
@@ -120,6 +123,7 @@ impl BlockHeaderInnerRest {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             total_weight,
             score,
             validator_proposals,
@@ -245,6 +249,7 @@ impl BlockHeader {
         outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         total_weight: Weight,
         score: Weight,
         validator_proposals: Vec<ValidatorStake>,
@@ -276,6 +281,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             total_weight,
             score,
             validator_proposals,
@@ -299,6 +305,7 @@ impl BlockHeader {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
@@ -318,6 +325,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             0.into(),
             0.into(),
             vec![],
@@ -410,6 +418,7 @@ impl Block {
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
+        let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
@@ -417,13 +426,14 @@ impl Block {
                 Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
+                Block::compute_challenges_root(&challenges),
                 timestamp,
                 initial_gas_price,
                 initial_total_supply,
                 next_bp_hash,
             ),
             chunks,
-            challenges: vec![],
+            challenges,
         }
     }
 
@@ -499,6 +509,7 @@ impl Block {
                 Block::compute_outcome_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
+                Block::compute_challenges_root(&challenges),
                 total_weight,
                 score,
                 validator_proposals,
@@ -596,6 +607,10 @@ impl Block {
             .0
     }
 
+    pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
+        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
+    }
+
     pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
             if chunk.height_included == height {
@@ -661,6 +676,12 @@ impl Block {
         let chunks_included_root =
             Block::compute_chunks_included(&self.chunks, self.header.inner_lite.height);
         if self.header.inner_rest.chunks_included != chunks_included_root {
+            return false;
+        }
+
+        // Check that challenges root stored in the header matches the challenges root of the challenges
+        let challenges_root = Block::compute_challenges_root(&self.challenges);
+        if self.header.inner_rest.challenges_root != challenges_root {
             return false;
         }
 

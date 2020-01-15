@@ -81,6 +81,7 @@ pub fn start_with_config(
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
+        config.client_config.clone(),
     )
     .unwrap()
     .start();
