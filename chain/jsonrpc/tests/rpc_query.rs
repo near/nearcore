@@ -67,7 +67,7 @@ fn test_block_by_hash() {
     .unwrap();
 }
 
-/// Retrieve blocks via json rpc
+/// Retrieve chunk via json rpc
 #[test]
 fn test_chunk_by_hash() {
     init_test_logger();
@@ -111,6 +111,27 @@ fn test_chunk_by_hash() {
                 },
             ),
         );
+    })
+    .unwrap();
+}
+
+/// Retrieve chunk via json rpc
+#[test]
+fn test_chunk_invalid_shard_id() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(true);
+
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 100)).then(|res| {
+            if res.is_err() {
+                System::current().stop();
+            } else {
+                panic!("should result in an error")
+            }
+            future::ready(())
+        }));
     })
     .unwrap();
 }
