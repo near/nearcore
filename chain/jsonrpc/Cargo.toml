@@ -6,13 +6,13 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12"
-actix = "0.8.1"
-actix-web = "1.0.0-rc"
-actix-cors = "0.1"
+actix = "0.9.0"
+actix-web = "2.0.0"
+actix-cors = "0.2.0"
+tokio = { version = "0.2", features = ["full"] }
 base64 = "0.11"
 bytes = "0.5"
-futures = "0.1"
-futures03 = { package = "futures", version = "0.3", features = ["compat"] }
+futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
 lazy_static = "1.4"
 log = "0.4"
@@ -24,7 +24,6 @@ uuid = { version = "~0.8", features = ["v4"] }
 
 borsh = "0.2.10"
 
-async-utils = { path = "../../async-utils" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
