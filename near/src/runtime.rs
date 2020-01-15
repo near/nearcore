@@ -1076,10 +1076,11 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
+        account_id: &AccountId,
         key_prefix: &[u8],
     ) -> Result<StateChanges, Box<dyn std::error::Error>> {
         let chain_store = ChainStore::new(Arc::clone(&self.store));
-        chain_store.get_key_value_changes(block_hash, key_prefix).map_err(|e| e.into())
+        chain_store.get_key_value_changes(block_hash, account_id, key_prefix).map_err(|e| e.into())
     }
 
     fn compare_epoch_id(

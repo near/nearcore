@@ -821,6 +821,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_key_value_changes(
         &self,
         _block_hash: &CryptoHash,
+        _account_id: &AccountId,
         _key_prefix: &[u8],
     ) -> Result<StateChanges, Box<dyn std::error::Error>> {
         Ok(Default::default())

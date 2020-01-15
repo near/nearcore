@@ -335,6 +335,7 @@ pub trait ChainStoreAccess {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
+        account_id: &AccountId,
         key_prefix: &[u8],
     ) -> Result<StateChanges, Error>;
 }
@@ -909,10 +910,15 @@ impl ChainStoreAccess for ChainStore {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
+        account_id: &AccountId,
         key_prefix: &[u8],
     ) -> Result<StateChanges, Error> {
-        let mut storage_key = Vec::with_capacity(block_hash.as_ref().len() + key_prefix.len());
+        let common_key_prefix_len = block_hash.as_ref().len() + 1 + account_id.len() + 1;
+        let mut storage_key = Vec::with_capacity(common_key_prefix_len + key_prefix.len());
         storage_key.extend_from_slice(block_hash.as_ref());
+        storage_key.extend_from_slice(b"\0");
+        storage_key.extend_from_slice(account_id.as_bytes());
+        storage_key.extend_from_slice(b",");
         storage_key.extend_from_slice(key_prefix);
         let mut changes = StateChanges::new();
         let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
@@ -921,7 +927,7 @@ impl ChainStoreAccess for ChainStore {
         );
         for change in changes_iter {
             let (key, value) = change?;
-            changes.insert(key, value);
+            changes.insert(key[common_key_prefix_len..].to_owned(), value);
         }
         Ok(changes)
     }
@@ -1399,9 +1405,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
+        account_id: &AccountId,
         key_prefix: &[u8],
     ) -> Result<StateChanges, Error> {
-        self.chain_store.get_key_value_changes(block_hash, key_prefix)
+        self.chain_store.get_key_value_changes(block_hash, account_id, key_prefix)
     }
 }
 

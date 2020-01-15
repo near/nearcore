@@ -423,6 +423,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
+        account_id: &AccountId,
         key_prefix: &[u8],
     ) -> Result<StateChanges, Box<dyn std::error::Error>>;
 

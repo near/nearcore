@@ -286,7 +286,7 @@ impl Handler<GetKeyValueChanges> for ViewClientActor {
     fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
         self.chain
             .store()
-            .get_key_value_changes(&msg.block_hash, &msg.key_prefix)
+            .get_key_value_changes(&msg.block_hash, &msg.account_id, &msg.key_prefix)
             .map_err(|e| e.to_string())
     }
 }

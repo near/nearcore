@@ -206,16 +206,23 @@ impl Database for RocksDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        // NOTE: There is no Clone implementation for ReadOptions, so we cannot really reuse
+        // `self.read_options` here.
+        let mut read_options = rocksdb_read_options();
+        read_options.set_prefix_same_as_start(true);
         unsafe {
             let cf_handle = &*self.cfs[col as usize];
+            // This implementation is copied from RocksDB implementation of `prefix_iterator_cf` since
+            // there is no `prefix_iterator_cf_opt` method.
             let iterator = self
                 .db
                 .iterator_cf_opt(
                     cf_handle,
-                    &self.read_options,
+                    &read_options,
                     IteratorMode::From(key_prefix, Direction::Forward),
                 )
-                .unwrap();
+                .unwrap()
+                .take_while(move |(key, _value)| key.starts_with(key_prefix));
             Box::new(iterator)
         }
     }

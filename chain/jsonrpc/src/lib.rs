@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use futures::Future;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use futures::{FutureExt, TryFutureExt};
 use message::Message;
@@ -309,8 +309,39 @@ impl JsonRpcHandler {
     }
 
     async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_hash, key_prefix) = parse_params::<(CryptoHash, Vec<u8>)>(params)?;
-        jsonify(self.view_client_addr.send(GetKeyValueChanges { block_hash, key_prefix }).await)
+        let (block_hash, account_id, key_prefix) =
+            parse_params::<(CryptoHash, AccountId, Vec<u8>)>(params)?;
+        let block_hash_copy = block_hash.clone();
+        let account_id_copy = account_id.clone();
+        let key_prefix_copy = key_prefix.clone();
+        jsonify(
+            self.view_client_addr
+                .send(GetKeyValueChanges { block_hash, account_id, key_prefix })
+                .await
+                .map(|v| {
+                    v.map(|changes| {
+                        json!({
+                            "block_hash": block_hash_copy,
+                            "account_id": account_id_copy,
+                            "key_prefix": key_prefix_copy,
+                            "changes_by_key": changes
+                            .into_iter()
+                            .map(|(key, changes)| {
+                                json!({
+                                    "key": key,
+                                    "changes": changes.into_iter().map(|(cause, value)| {
+                                        json!({
+                                            "cause": cause,
+                                            "value": value
+                                        })
+                                    }).collect::<Vec<_>>()
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                        })
+                    })
+                }),
+        )
     }
 
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
