@@ -640,4 +640,64 @@ mod tests {
         })
         .unwrap();
     }
+
+    #[test]
+    #[ignore]
+    fn test_all_chunks_accepted_10() {
+        test_all_chunks_accepted_common(10, 1000)
+    }
+
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_all_chunks_accepted_1000() {
+        test_all_chunks_accepted_common(1000, 1000)
+    }
+
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_all_chunks_accepted_1000_slow() {
+        test_all_chunks_accepted_common(1000, 3000)
+    }
+
+    fn test_all_chunks_accepted_common(last_height: BlockHeight, block_prod_time: u64) {
+        let validator_groups = 1;
+        init_integration_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+
+            let _connectors1 = connectors.clone();
+
+            let (_, conn) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                block_prod_time,
+                false,
+                false,
+                5,
+                Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+                    if let NetworkRequests::Block { block } = msg {
+                        // There is no chunks at height 1
+                        if block.header.inner_lite.height > 1 {
+                            assert_eq!(4, block.header.inner_rest.chunks_included);
+                            println!("BLOCK {:?}", block,);
+                            if block.header.inner_lite.height == last_height {
+                                System::current().stop();
+                            }
+                        }
+                    }
+                    (NetworkResponses::NoResponse, true)
+                })),
+            );
+            *connectors.write().unwrap() = conn;
+            let max_wait_ms = block_prod_time * last_height / 10 * 11 + 10000;
+
+            near_network::test_utils::wait_or_panic(max_wait_ms);
+        })
+        .unwrap();
+    }
 }

@@ -48,6 +48,9 @@ expensive near-client catching_up tests::test_catchup_random_single_part_sync_se
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_height_6
 expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
+expensive near-client catching_up tests::test_all_chunks_accepted_10
+expensive near-client catching_up tests::test_all_chunks_accepted_1000
+expensive near-client catching_up tests::test_all_chunks_accepted_1000_slow
 
 expensive nearcore test_catchup test_catchup
 
