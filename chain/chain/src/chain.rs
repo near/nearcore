@@ -746,7 +746,7 @@ impl Chain {
     }
 
     /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
+    pub fn find_common_header(&mut self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(&hash).map(|h| h.clone()) {
                 if let Ok(header_at_height) = self.get_header_by_height(header.inner_lite.height) {
