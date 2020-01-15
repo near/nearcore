@@ -26,7 +26,11 @@ tx2 = sign_function_call_tx(nodes[0].signer_key, 'log_something', [], 1000000000
 res = nodes[1].send_tx_and_wait(tx2, 10)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
-compile_rust_contract('''#[no_mangle]
+compile_rust_contract('''
+extern "C" {
+    fn log_utf8(len: u64, ptr: u64);
+}
+#[no_mangle]
 pub unsafe fn log_world() {
     let data = b"world";
     log_utf8(data.len() as u64, data.as_ptr() as _);
@@ -36,7 +40,7 @@ pub unsafe fn log_world() {
 status3 = nodes[2].get_status()
 hash_3 = status3['sync_info']['latest_block_hash']
 hash_3 = base58.b58decode(hash_3.encode('utf8'))
-tx3 = sign_deploy_contract_tx(nodes[2].signer_key, load_binary_file('/tmp/test_contract_rs.wasm'), 10, hash_3)
+tx3 = sign_deploy_contract_tx(nodes[2].signer_key, load_binary_file('/tmp/near/empty-contract-rs/target/release/empty_contract_rs.wasm'), 10, hash_3)
 res = nodes[3].send_tx(tx3)
 
 time.sleep(3)
@@ -46,4 +50,5 @@ hash_4 = status4['sync_info']['latest_block_hash']
 hash_4 = base58.b58decode(hash_4.encode('utf8'))
 tx4 = sign_function_call_tx(nodes[2].signer_key, 'log_world', [], 100000000000, 100000000000, 20, hash_4)
 res = nodes[3].send_tx_and_wait(tx4, 10)
+print(res)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'world'

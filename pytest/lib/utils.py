@@ -127,18 +127,18 @@ def compile_rust_contract(content):
     test_contract_rs = os.path.join(os.path.dirname(__file__), '../../runtime/near-vm-runner/tests/test-contract-rs')
     p = run('bash', input=f'''
 mkdir -p /tmp/near
-rm -rf /tmp/near/test-contract-rs
-cp -r {test_contract_rs} /tmp/near/test-contract-rs
-sed 's|\.\./res/|/tmp|' {test_contract_rs}/build.sh > /tmp/near/test-contract-rs/build.sh
+rm -rf /tmp/near/empty-contract-rs
+cd /tmp/near
+git clone https://github.com/nearprotocol/empty-contract-rs
 ''')
     if p.returncode != 0:
         raise Exception(p.stderr)
     
-    with open('/tmp/near/test-contract-rs/src/lib.rs', 'a') as f:
+    with open('/tmp/near/empty-contract-rs/src/lib.rs', 'a') as f:
         f.write(content)
 
     p = run('bash', input=f'''
-cd /tmp/near/test-contract-rs
+cd /tmp/near/empty-contract-rs
 ./build.sh
 ''')
     if p.returncode != 0:
