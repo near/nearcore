@@ -8,10 +8,8 @@ use futures::{future, FutureExt};
 
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
-use near_network::types::{NetworkViewClientResponses, StopSignal};
-use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkConfig, PeerManagerActor,
-};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, StopSignal};
+use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
 use near_primitives::block::WeightAndScore;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
@@ -29,23 +27,23 @@ fn make_peer_manager(
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_peer = peer_max_count;
-    let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
-        let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
+    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+    .start();
+    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
         match msg {
-            NetworkClientMessages::GetChainInfo => {
-                Box::new(Some(NetworkClientResponses::ChainInfo {
+            NetworkViewClientMessages::GetChainInfo => {
+                Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: Default::default(),
                     height: 1,
                     weight_and_score: WeightAndScore::from_ints(1, 0),
                     tracked_shards: vec![],
                 }))
             }
-            _ => Box::new(Some(NetworkClientResponses::NoResponse)),
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
         }
-    }))
-    .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(move |_msg, _ctx| {
-        Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
     PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
