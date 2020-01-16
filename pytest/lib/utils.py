@@ -124,12 +124,11 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 def compile_rust_contract(content):
-    test_contract_rs = os.path.join(os.path.dirname(__file__), '../../runtime/near-vm-runner/tests/test-contract-rs')
+    test_contract_rs = os.path.join(os.path.dirname(__file__), '../empty-contract-rs')
     p = run('bash', input=f'''
 mkdir -p /tmp/near
 rm -rf /tmp/near/empty-contract-rs
-cd /tmp/near
-git clone https://github.com/nearprotocol/empty-contract-rs
+cp -r {test_contract_rs} /tmp/near
 ''')
     if p.returncode != 0:
         raise Exception(p.stderr)
