@@ -19,6 +19,7 @@ use near_vm_logic::VMLimitConfig;
 
 /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
 /// and balances, and updates the state for the used account and access keys.
+///
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,

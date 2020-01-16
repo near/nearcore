@@ -228,14 +228,14 @@ impl std::fmt::Display for HostError {
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
-            NumberOfLogsExceeded{  limit} => write!(f, "The number of logs will exceed the limit {}", limit),
-            KeyLengthExceeded{ length, limit } => write!(f, "The length of a storage key {} exceeds the limit {}", length, limit),
-            ValueLengthExceeded{ length, limit } => write!(f, "The length of a storage value {} exceeds the limit {}", length, limit),
+            NumberOfLogsExceeded { limit } => write!(f, "The number of logs will exceed the limit {}", limit),
+            KeyLengthExceeded { length, limit } => write!(f, "The length of a storage key {} exceeds the limit {}", length, limit),
+            ValueLengthExceeded { length, limit } => write!(f, "The length of a storage value {} exceeds the limit {}", length, limit),
             TotalLogLengthExceeded{ length, limit } => write!(f, "The length of a log message {} exceeds the limit {}", length, limit),
             NumberPromisesExceeded { number_of_promises, limit } => write!(f, "The number of promises within a FunctionCall {} exceeds the limit {}", number_of_promises, limit),
             NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
             ReturnedValueLengthExceeded{ length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
-            ContractSizeExceeded  {size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
+            ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
         }
     }
 }

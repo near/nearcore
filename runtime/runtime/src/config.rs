@@ -42,13 +42,14 @@ impl RuntimeConfig {
     }
 }
 
-/// Describes transaction costs for a given transaction.
+/// Describes the cost of converting this transaction into a receipt.
 pub struct TransactionCost {
     /// Total amount of gas burnt for converting this transaction into a receipt.
     pub gas_burnt: Gas,
-    /// Total amount of gas used for converting this transaction into a receipt.
+    /// Total amount of gas used for converting this transaction into a receipt. It includes gas
+    /// that is not yet spent, e.g. prepaid gas for function calls and future execution fees.
     pub gas_used: Gas,
-    /// Total costs in tokens for this transaction.
+    /// Total costs in tokens for this transaction (including all deposits).
     pub total_cost: Balance,
 }
 

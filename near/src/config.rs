@@ -422,11 +422,12 @@ pub const CONFIG_VERSION: u32 = 1;
 /// Runtime configuration, defining genesis block.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GenesisConfig {
-    /// Protocol version that this genesis works with.
-    pub protocol_version: u32,
-    /// This is a version of a genesis config structure.
+    /// This is a version of a genesis config structure this version of binary works with.
+    /// If the binary tries to load a JSON config with a different version it will panic.
     /// It's not a major protocol version, but used for automatic config migrations using scripts.
     pub config_version: u32,
+    /// Protocol version that this genesis works with.
+    pub protocol_version: u32,
     /// Official time of blockchain start.
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
