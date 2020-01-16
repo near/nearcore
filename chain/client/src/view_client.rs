@@ -312,16 +312,26 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
             GetChunk::BlockHash(block_hash, shard_id) => {
                 self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
-                    self.chain
-                        .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
-                        .map(Clone::clone)
+                    let chunk_hash = block
+                        .chunks
+                        .get(shard_id as usize)
+                        .ok_or_else(|| {
+                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
+                        })?
+                        .chunk_hash();
+                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
             }
             GetChunk::Height(height, shard_id) => {
                 self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
-                    self.chain
-                        .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
-                        .map(Clone::clone)
+                    let chunk_hash = block
+                        .chunks
+                        .get(shard_id as usize)
+                        .ok_or_else(|| {
+                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
+                        })?
+                        .chunk_hash();
+                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
             }
         }

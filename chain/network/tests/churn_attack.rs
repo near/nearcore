@@ -1,6 +1,6 @@
 use actix::System;
 
-use crate::runner::{Action, Runner};
+pub use runner::{Action, Runner};
 
 mod runner;
 
