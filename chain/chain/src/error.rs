@@ -6,6 +6,7 @@ use failure::{Backtrace, Context, Fail};
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::types::ShardId;
 
 #[derive(Debug)]
 pub struct Error {
@@ -130,6 +131,9 @@ pub enum ErrorKind {
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Invalid shard id
+    #[fail(display = "Shard id {} does not exist", _0)]
+    InvalidShardId(ShardId),
     /// Someone is not a validator. Usually happens in signature verification
     #[fail(display = "Not A Validator")]
     NotAValidator,
@@ -233,6 +237,7 @@ impl Error {
             | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
             | ErrorKind::InvalidRent
+            | ErrorKind::InvalidShardId(_)
             | ErrorKind::NotAValidator => true,
         }
     }
