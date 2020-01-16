@@ -30,15 +30,14 @@ use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
     FullPeerInfo, InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages,
-    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
-    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    SendMessage, StopSignal, SyncData, Unregister,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList,
+    PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
+    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use crate::NetworkClientResponses;
 use futures::task::Poll;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -275,7 +274,15 @@ impl PeerManagerActor {
 
             // TODO: check if peer is banned or known based on IP address and port.
             Peer::add_stream(
-                FramedRead::new(read, Codec::new()).map(|x| x.expect("Decoder error")),
+                FramedRead::new(read, Codec::new())
+                    .take_while(|x| match x {
+                        Ok(_) => future::ready(true),
+                        Err(e) => {
+                            warn!(target: "network", "Peer stream error: {:?}", e);
+                            future::ready(false)
+                        }
+                    })
+                    .map(Result::unwrap),
                 ctx,
             );
             Peer::new(
@@ -979,17 +986,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     .collect();
 
                 // Ask client to validate accounts before accepting them.
-                self.client_addr
-                    .send(NetworkClientMessages::AnnounceAccount(new_accounts))
+                self.view_client_addr
+                    .send(NetworkViewClientMessages::AnnounceAccount(new_accounts))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
-                        Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                        Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
                             if let Some(active_peer) = act.active_peers.get(&peer_id) {
                                 active_peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
                             }
                         }
-                        Ok(NetworkClientResponses::AnnounceAccount(accounts)) => {
+                        Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
                             // Filter known edges.
                             let me = act.peer_id.clone();
 
