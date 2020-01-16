@@ -42,7 +42,8 @@ const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
 const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
-const NUM_PARTS_IN_SEAL: u64 = 3;
+const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
+const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -156,24 +157,17 @@ pub struct SealsManager {
     me: Option<AccountId>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 
-    num_parts_in_seal: u64,
-
     seals: HashMap<ChunkHash, Seal>,
     dont_include_chunks_from: HashSet<AccountId>,
 }
 
 impl SealsManager {
-    fn new(
-        me: Option<AccountId>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        num_parts_in_seal: u64,
-    ) -> Self {
+    fn new(me: Option<AccountId>, runtime_adapter: Arc<dyn RuntimeAdapter>) -> Self {
         Self {
             me,
             runtime_adapter,
             seals: HashMap::new(),
             dont_include_chunks_from: HashSet::new(),
-            num_parts_in_seal,
         }
     }
 
@@ -202,7 +196,7 @@ impl SealsManager {
             let chosen = candidates
                 .choose_multiple(
                     &mut rand::thread_rng(),
-                    cmp::min(self.num_parts_in_seal as usize, candidates.len()),
+                    cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
                 )
                 .cloned()
                 .collect::<HashSet<_>>();
@@ -218,7 +212,7 @@ impl SealsManager {
     fn track_seals(&mut self) {
         let now = Utc::now();
         for (chunk_hash, seal) in self.seals.iter_mut() {
-            if !seal.part_ords.is_empty()
+            if seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL
                 && (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS
             {
                 warn!(target: "client", "Resented by {:?} for chunk grieving for chunk {:?}, I'm {:?}", seal.chunk_producer, chunk_hash, self.me);
@@ -265,7 +259,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS),
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
-            seals_mgr: SealsManager::new(me, runtime_adapter, NUM_PARTS_IN_SEAL),
+            seals_mgr: SealsManager::new(me, runtime_adapter),
         }
     }
 
