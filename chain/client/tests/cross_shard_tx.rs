@@ -2,8 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
@@ -59,7 +58,7 @@ fn test_keyvalue_runtime_balances() {
                                 System::current().stop();
                             }
                         }
-                        future::result(Ok(()))
+                        future::ready(())
                     }),
             );
         }
@@ -76,8 +75,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use actix::{Addr, MailboxError, System};
-    use futures::future;
-    use futures::future::Future;
+    use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
@@ -146,7 +144,7 @@ mod tests {
                             assert!(false)
                         }
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }),
         );
     }
@@ -204,7 +202,7 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
                 return;
@@ -295,7 +293,7 @@ mod tests {
                                         num_iters,
                                         block_hash,
                                     );
-                                    future::result(Ok(()))
+                                    future::ready(())
                                 }),
                         );
                     }
@@ -341,7 +339,7 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
             }
@@ -448,7 +446,7 @@ mod tests {
                                 num_iters,
                                 block_hash,
                             );
-                            future::result(Ok(()))
+                            future::ready(())
                         }),
                 );
             }

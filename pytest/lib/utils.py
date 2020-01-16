@@ -73,21 +73,47 @@ with open('/tmp/python-rc.log') as f:
             # the above method should works for other cloud, if it has node.machine but untested
             raise NotImplementedError()
 
-    def check(self, s):
+    # Check whether there is at least on occurrence of pattern in new logs
+    def check(self, pattern):
         if type(self.node) is LocalNode:
             with open(self.fname) as f:
                 f.seek(self.offset)
-                ret = s in f.read()
+                ret = pattern in f.read()
                 self.offset = f.tell()
             return ret
         elif type(self.node) is GCloudNode:
-            ret, offset = int(node.machine.run("python3", input=f'''
+            ret, offset = node.machine.run("python3", input=f'''
+pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
     print(s in f.read())
     print(f.tell())
-''')).stdout.strip().split('\n')
-            offset = int(self.offset)
+''').stdout.strip().split('\n')
+            self.offset = int(offset)
+            return ret == "True"
+        else:
+            raise NotImplementedError()
+
+    def reset(self):
+        self.offset = 0
+
+    # Count number of occurrences of pattern in new logs
+    def count(self, pattern):
+        if type(self.node) is LocalNode:
+            with open(self.fname) as f:
+                f.seek(self.offset)
+                ret = f.read().count(pattern)
+                self.offset = f.tell()
+            return ret
+        elif type(self.node) == GCloudNode:
+            ret, offset = node.machine.run("python3", input=f'''
+with open('/tmp/python-rc.log') as f:
+    f.seek({self.offset})
+    print(f.read().count({pattern})
+    print(f.tell())
+''').stdout.strip().split('\n')
+            ret = int(ret)
+            self.offset = int(offset)
             return ret
         else:
             raise NotImplementedError()

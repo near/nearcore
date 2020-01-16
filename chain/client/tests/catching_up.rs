@@ -2,8 +2,7 @@
 mod tests {
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
-    use futures::future;
-    use futures::future::Future;
+    use futures::{future, FutureExt};
     use near_chain::test_utils::account_id_to_shard_id;
     use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
@@ -17,7 +16,7 @@ mod tests {
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::BlockIndex;
+    use near_primitives::types::BlockHeight;
     use near_primitives::views::QueryResponseKind::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
@@ -125,7 +124,7 @@ mod tests {
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
             let phase = Arc::new(RwLock::new(ReceiptsSyncPhases::WaitingForFirstBlock));
-            let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
+            let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockHeight>::new()));
             let seen_hashes_with_state = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let connectors1 = connectors.clone();
@@ -303,7 +302,7 @@ mod tests {
                                                             );
                                                         }
                                                     }
-                                                    future::result(Ok(()))
+                                                    future::ready(())
                                                 }),
                                         );
                                     }
@@ -497,7 +496,7 @@ mod tests {
                                                                 );
                                                             }
                                                         }
-                                                        future::result(Ok(()))
+                                                        future::ready(())
                                                     }),
                                             );
                                         }

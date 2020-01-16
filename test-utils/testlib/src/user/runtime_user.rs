@@ -7,7 +7,7 @@ use near_primitives::errors::RuntimeError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView,
     ExecutionStatusView, ViewStateResult,
@@ -27,7 +27,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
-    pub epoch_length: BlockIndex,
+    pub epoch_length: BlockHeightDelta,
 }
 
 impl MockClient {
@@ -45,6 +45,7 @@ pub struct RuntimeUser {
     pub transaction_results: RefCell<HashMap<CryptoHash, ExecutionOutcomeView>>,
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
+    pub transactions: RefCell<HashSet<SignedTransaction>>,
 }
 
 impl RuntimeUser {
@@ -56,6 +57,7 @@ impl RuntimeUser {
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
+            transactions: RefCell::new(Default::default()),
         }
     }
 
@@ -66,6 +68,9 @@ impl RuntimeUser {
         transactions: Vec<SignedTransaction>,
     ) -> Result<(), String> {
         let mut receipts = prev_receipts;
+        for transaction in transactions.iter() {
+            self.transactions.borrow_mut().insert(transaction.clone());
+        }
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
@@ -123,8 +128,12 @@ impl RuntimeUser {
     ) -> Vec<ExecutionOutcomeWithIdView> {
         let outcome = self.get_transaction_result(hash);
         let receipt_ids = outcome.receipt_ids.clone();
-        let mut transactions =
-            vec![ExecutionOutcomeWithIdView { id: *hash, outcome, proof: vec![] }];
+        let mut transactions = vec![ExecutionOutcomeWithIdView {
+            id: *hash,
+            outcome,
+            proof: vec![],
+            block_hash: Default::default(),
+        }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
@@ -162,7 +171,13 @@ impl RuntimeUser {
             })
             .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
-        FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts }
+        let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
+        FinalExecutionOutcomeView {
+            status,
+            transaction,
+            transaction_outcome: outcomes.pop().unwrap(),
+            receipts_outcome: receipts,
+        }
     }
 }
 
@@ -200,8 +215,8 @@ impl User for RuntimeUser {
         Ok(())
     }
 
-    fn get_best_block_index(&self) -> Option<u64> {
-        unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
+    fn get_best_height(&self) -> Option<u64> {
+        unimplemented!("get_best_height should not be implemented for RuntimeUser");
     }
 
     // This function is needed to sign transactions
@@ -209,7 +224,7 @@ impl User for RuntimeUser {
         Some(CryptoHash::default())
     }
 
-    fn get_block(&self, _index: u64) -> Option<BlockView> {
+    fn get_block(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 

@@ -4,8 +4,7 @@ use std::sync::Arc;
 use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::System;
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
@@ -68,7 +67,7 @@ fn peer_handshake() {
                     if info.num_active_peers == 1 {
                         System::current().stop();
                     }
-                    future::result(Ok(()))
+                    future::ready(())
                 }));
             }),
             100,
@@ -107,7 +106,7 @@ fn peers_connect_all() {
                             println!("Peer {}: {}", i, info.num_active_peers);
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
                         }
-                        future::result(Ok(()))
+                        future::ready(())
                     }));
                 }
                 // Stop if all connected to all after exchanging peers.
@@ -159,7 +158,7 @@ fn peer_recover() {
                                     flag1.clone().store(true, Ordering::Relaxed);
                                 }
                             }
-                            future::result::<_, ()>(Ok(()))
+                            future::ready(())
                         }));
                     } else {
                         state.store(3, Ordering::Relaxed);
@@ -179,7 +178,7 @@ fn peer_recover() {
                                 System::current().stop();
                             }
                         }
-                        future::result::<_, ()>(Ok(()))
+                        future::ready(())
                     }));
                 }
             }),
