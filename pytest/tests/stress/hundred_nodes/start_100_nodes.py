@@ -2,9 +2,10 @@
 # cargo build -p near --release
 # cargo build -p genesis-csv-to-json --release
 # cargo build -p keypair-generator
-# 
+#
 # And a suitable gcloud image, see below image_name
 
+from cluster import apply_config_changes, apply_genesis_changes
 from rc import run, gcloud, pmap
 import json
 import datetime
@@ -15,7 +16,6 @@ from tqdm import tqdm
 import sys
 
 sys.path.append('lib')
-from cluster import apply_config_changes, apply_genesis_changes
 
 # Go to gcloud, create a powerful instance (recommend 32vcpu), install dep,
 # install rust, compile all release binaries so that start_stakewars doesn't
@@ -27,7 +27,7 @@ from cluster import apply_config_changes, apply_genesis_changes
 # it works with your gcloud credentials
 
 # After you're done, fill image_name here
-image_name = 'near-block-prod-100-20200109-bo'
+image_name = 'near-block-prod-100-20200116-bo'
 
 machine_name_prefix = 'pytest-node-'
 
@@ -48,7 +48,7 @@ client_config_changes = {
             "nanos": 0,
         },
         "max_block_wait_delay": {
-            "secs": 6 * block_production_time,            
+            "secs": 6 * block_production_time,
             "nanos": 0,
         },
     }
@@ -56,17 +56,17 @@ client_config_changes = {
 
 # default is 50; 7,7,6,6,6,6,6,6
 genesis_config_changes = [
-  ["num_block_producer_seats", 100],
-  ["num_block_producer_seats_per_shard", [
-    13,
-    13,
-    13,
-    13,
-    12,
-    12,
-    12,
-    12
-  ]],
+    ["num_block_producer_seats", 100],
+    ["num_block_producer_seats_per_shard", [
+        13,
+        13,
+        13,
+        13,
+        12,
+        12,
+        12,
+        12
+    ]],
 ]
 
 num_machines = 100
@@ -137,6 +137,8 @@ zones = [
 ]
 
 pbar = tqdm(total=num_machines, desc=' create machines')
+
+
 def create_machine(i):
     m = gcloud.create(name=machine_name_prefix+str(i),
                       machine_type='n1-standard-2',
@@ -148,6 +150,7 @@ def create_machine(i):
                       min_cpu_platform='Intel Skylake')
     pbar.update(1)
     return m
+
 
 machines = pmap(create_machine, range(num_machines))
 pbar.close()
@@ -206,7 +209,7 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
 
 # Generate config and genesis locally, apply changes to config/genesis locally
 for i in range(num_machines):
-    p=run('bash', input=f'''
+    p = run('bash', input=f'''
 cp /tmp/near/accounts.csv /tmp/near/node{i}
 cd ..
 target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id pytest
@@ -216,6 +219,8 @@ target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id pytest
 
 pbar = tqdm(total=num_machines, desc=' upload nodedir')
 # Upload json and accounts.csv
+
+
 def upload_genesis_files(i):
     # stop if already start
     machines[i].run('tmux send-keys -t python-rc C-c')
@@ -223,17 +228,22 @@ def upload_genesis_files(i):
     machines[i].kill_detach_tmux()
     machines[i].run('rm -rf ~/.near')
     # upload keys, config, genesis
-    machines[i].upload(f'/tmp/near/node{i}', f'/home/{machines[i].username}/.near')
+    machines[i].upload(f'/tmp/near/node{i}',
+                       f'/home/{machines[i].username}/.near')
     pbar.update(1)
+
 
 pmap(upload_genesis_files, range(num_machines))
 pbar.close()
 
 pbar = tqdm(total=num_machines, desc=' start near')
+
+
 def start_nearcore(m):
     m.run_detach_tmux(
         'cd nearcore && target/release/near run')
     pbar.update(1)
+
 
 pmap(start_nearcore, machines)
 pbar.close()

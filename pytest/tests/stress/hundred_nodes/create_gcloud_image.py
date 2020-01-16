@@ -11,7 +11,10 @@ try:
 except:
     branch = run(
         'git rev-parse --symbolic-full-name --abbrev-ref HEAD').stdout.strip()
-    image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{os.getlogin()}'
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = 'bo'
+    image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{username}'
 
 machine_name = f'{image_name}-image-builder'
 
