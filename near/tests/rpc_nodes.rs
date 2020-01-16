@@ -55,7 +55,7 @@ fn test_tx_propagation() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| panic!(err.to_string()))
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -129,7 +129,7 @@ fn test_tx_propagation_through_rpc() {
                         actix::spawn(
                             client
                                 .broadcast_tx_commit(to_base64(&bytes))
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| panic!(err.to_string()))
                                 .map_ok(move |result| {
                                     if result.status
                                         == FinalExecutionStatus::SuccessValue("".to_string())

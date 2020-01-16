@@ -15,12 +15,17 @@ use near_primitives::views::{
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{GetChunk, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{sync, ClientConfig, GetChunk, GetNextLightClientBlock, GetValidatorInfo};
 use cached::{Cached, SizedCache};
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+use near_network::types::{
+    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
+    StateResponseInfo,
+};
 use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
+use std::cmp::Ordering;
 use std::hash::Hash;
 use std::time::{Duration, Instant};
 
@@ -34,6 +39,7 @@ pub struct ViewClientActor {
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
+    pub config: ClientConfig,
     /// Transaction query that needs to be forwarded to other shards
     pub tx_status_requests: SizedCache<CryptoHash, Instant>,
     /// Transaction status response
@@ -52,6 +58,7 @@ impl ViewClientActor {
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn NetworkAdapter>,
+        config: ClientConfig,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
@@ -59,6 +66,7 @@ impl ViewClientActor {
             chain,
             runtime_adapter,
             network_adapter,
+            config,
             tx_status_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             tx_status_response: SizedCache::with_size(QUERY_REQUEST_LIMIT),
             query_requests: SizedCache::with_size(QUERY_REQUEST_LIMIT),
@@ -204,6 +212,47 @@ impl ViewClientActor {
 
         Ok(None)
     }
+
+    fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+    ) -> Result<Vec<BlockHeader>, near_chain::Error> {
+        let header = match self.chain.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let max_height = self.chain.header_head()?.height;
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.inner_lite.height + 1..=max_height {
+            if let Ok(header) = self.chain.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
+    }
+
+    fn check_signature_account_announce(
+        &self,
+        announce_account: &AnnounceAccount,
+    ) -> Result<bool, Error> {
+        let announce_hash = announce_account.hash();
+        let head = self.chain.head()?;
+
+        self.runtime_adapter
+            .verify_validator_signature(
+                &announce_account.epoch_id,
+                &head.last_block_hash,
+                &announce_account.account_id,
+                announce_hash.as_ref(),
+                &announce_account.signature,
+            )
+            .map_err(|e| e.into())
+    }
 }
 
 impl Actor for ViewClientActor {
@@ -245,16 +294,26 @@ impl Handler<GetChunk> for ViewClientActor {
             GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
             GetChunk::BlockHash(block_hash, shard_id) => {
                 self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
-                    self.chain
-                        .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
-                        .map(Clone::clone)
+                    let chunk_hash = block
+                        .chunks
+                        .get(shard_id as usize)
+                        .ok_or_else(|| {
+                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
+                        })?
+                        .chunk_hash();
+                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
             }
             GetChunk::Height(height, shard_id) => {
                 self.chain.get_block_by_height(height).map(Clone::clone).and_then(|block| {
-                    self.chain
-                        .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
-                        .map(Clone::clone)
+                    let chunk_hash = block
+                        .chunks
+                        .get(shard_id as usize)
+                        .ok_or_else(|| {
+                            near_chain::Error::from(ErrorKind::InvalidShardId(shard_id))
+                        })?
+                        .chunk_hash();
+                    self.chain.get_chunk(&chunk_hash).map(Clone::clone)
                 })
             }
         }
@@ -402,6 +461,83 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     }
                 }
                 NetworkViewClientResponses::NoResponse
+            }
+            NetworkViewClientMessages::BlockRequest(hash) => {
+                if let Ok(block) = self.chain.get_block(&hash) {
+                    NetworkViewClientResponses::Block(block.clone())
+                } else {
+                    NetworkViewClientResponses::NoResponse
+                }
+            }
+            NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
+                if let Ok(headers) = self.retrieve_headers(hashes) {
+                    NetworkViewClientResponses::BlockHeaders(headers)
+                } else {
+                    NetworkViewClientResponses::NoResponse
+                }
+            }
+            NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
+                Ok(head) => NetworkViewClientResponses::ChainInfo {
+                    genesis_id: GenesisId {
+                        chain_id: self.config.chain_id.clone(),
+                        hash: self.chain.genesis().hash(),
+                    },
+                    height: head.height,
+                    weight_and_score: head.weight_and_score,
+                    tracked_shards: self.config.tracked_shards.clone(),
+                },
+                Err(err) => {
+                    error!(target: "view_client", "{}", err);
+                    NetworkViewClientResponses::NoResponse
+                }
+            },
+            NetworkViewClientMessages::StateRequest { shard_id, sync_hash, need_header, parts } => {
+                if let Ok(shard_state) = self.chain.get_state_response_by_request(
+                    shard_id,
+                    sync_hash,
+                    need_header,
+                    parts,
+                ) {
+                    NetworkViewClientResponses::StateResponse(StateResponseInfo {
+                        shard_id,
+                        sync_hash,
+                        shard_state,
+                    })
+                } else {
+                    NetworkViewClientResponses::NoResponse
+                }
+            }
+            NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
+                let mut filtered_announce_accounts = Vec::new();
+
+                for (announce_account, last_epoch) in announce_accounts.into_iter() {
+                    if let Some(last_epoch) = last_epoch {
+                        match self
+                            .runtime_adapter
+                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                        {
+                            Ok(Ordering::Less) => {}
+                            _ => continue,
+                        }
+                    }
+
+                    match self.check_signature_account_announce(&announce_account) {
+                        Ok(true) => {
+                            filtered_announce_accounts.push(announce_account);
+                        }
+                        Ok(false) => {
+                            return NetworkViewClientResponses::Ban {
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            };
+                        }
+                        // Filter this account
+                        Err(e) => {
+                            warn!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                        }
+                    }
+                }
+
+                NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
         }
     }
