@@ -363,7 +363,7 @@ impl Runtime {
                 Ok(verification_result) => {
                     near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
                     state_update.commit(StateChangeCause::TransactionProcessing {
-                        hash: signed_transaction.get_hash(),
+                        tx_hash: signed_transaction.get_hash(),
                     });
                     let transaction = &signed_transaction.transaction;
                     let receipt = Receipt {
@@ -565,7 +565,8 @@ impl Runtime {
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
-        state_update.commit(StateChangeCause::ReceiptProcessing { hash: receipt.get_hash() });
+        state_update
+            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
 
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
@@ -641,8 +642,9 @@ impl Runtime {
         match &result.result {
             Ok(_) => {
                 stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
-                state_update
-                    .commit(StateChangeCause::TransactionProcessing { hash: receipt.get_hash() });
+                state_update.commit(StateChangeCause::ReceiptProcessing {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
             Err(_) => {
                 state_update.rollback();
@@ -665,7 +667,9 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
+                state_update.commit(StateChangeCause::ReceiptProcessing {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
         }
 
@@ -913,7 +917,8 @@ impl Runtime {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_update.commit(StateChangeCause::DelayingActionReceipt { hash: receipt.get_hash() });
+        state_update
+            .commit(StateChangeCause::PostponedActionReceipt { receipt_hash: receipt.get_hash() });
         Ok(None)
     }
 
@@ -1110,7 +1115,7 @@ impl Runtime {
             &stats,
         )?;
 
-        state_update.commit(StateChangeCause::DelayingMultipleReceipts);
+        state_update.commit(StateChangeCause::PostponedMultipleReceipts);
         // TODO: Avoid cloning.
         let key_value_changes = state_update.committed_updates_per_cause().clone();
 

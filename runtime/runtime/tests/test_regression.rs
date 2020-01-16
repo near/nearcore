@@ -175,7 +175,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
-        state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
+        state_update.commit(StateChangeCause::InitialState);
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update
             .finalize()

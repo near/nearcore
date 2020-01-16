@@ -54,15 +54,13 @@ pub enum StateChangeCause {
     /// or in tests setup.
     InitialState,
     /// Processing of a transaction.
-    TransactionProcessing { hash: CryptoHash },
+    TransactionProcessing { tx_hash: CryptoHash },
     /// Processing of a receipt.
-    ReceiptProcessing { hash: CryptoHash },
+    ReceiptProcessing { receipt_hash: CryptoHash },
     /// Delaying of the receipt that cannot be executed immediately.
-    DelayingActionReceipt { hash: CryptoHash },
+    PostponedActionReceipt { receipt_hash: CryptoHash },
     /// Delaying multiple receipts because we cannot process them all at once.
-    DelayingMultipleReceipts,
-    /// Application of an action from the receipt.
-    ActionApplication { hash: CryptoHash, action_index: u64 },
+    PostponedMultipleReceipts,
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
