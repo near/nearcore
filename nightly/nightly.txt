@@ -23,6 +23,7 @@ pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
+pytest --timeout=240 sanity/rpc_key_value_changes.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
@@ -102,4 +103,3 @@ expensive nearcore test_simple test::test_7_10_multiple_nodes
 
 expensive nearcore test_rejoin test::test_4_20_kill1
 expensive nearcore test_rejoin test::test_4_20_kill2
-
