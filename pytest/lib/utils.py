@@ -3,7 +3,9 @@ import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
 import sys
-
+from rc import run
+import os
+import tempfile
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -158,3 +160,26 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
             block_height = block['header']['height']
             if block_height == 0:
                 break
+
+def load_binary_file(filepath):
+    with open(filepath, "rb") as binaryfile:
+        return bytearray(binaryfile.read())
+
+def compile_rust_contract(content):
+    empty_contract_rs = os.path.join(os.path.dirname(__file__), '../empty-contract-rs')
+    run('mkdir -p /tmp/near')
+    tmp_contract = tempfile.TemporaryDirectory(dir='/tmp/near').name
+    p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
+    
+    with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
+        f.write(content)
+
+    p = run('bash', input=f'''
+cd {tmp_contract}
+./build.sh
+''')
+    if p.returncode != 0:
+        raise Exception(p.stderr)
+    return f'{tmp_contract}/target/release/empty_contract_rs.wasm'

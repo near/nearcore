@@ -263,6 +263,7 @@ pub struct BlockHeaderView {
     pub chunk_tx_root: CryptoHash,
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
+    pub challenges_root: CryptoHash,
     pub timestamp: u64,
     #[serde(with = "u128_dec_format")]
     pub total_weight: u128,
@@ -299,6 +300,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: header.inner_rest.chunk_headers_root,
             chunk_tx_root: header.inner_rest.chunk_tx_root,
             chunks_included: header.inner_rest.chunks_included,
+            challenges_root: header.inner_rest.challenges_root,
             outcome_root: header.inner_lite.outcome_root,
             timestamp: header.inner_lite.timestamp,
             total_weight: header.inner_rest.total_weight.to_num(),
@@ -347,6 +349,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
+                challenges_root: view.challenges_root,
                 total_weight: view.total_weight.into(),
                 score: view.score.into(),
                 validator_proposals: view
