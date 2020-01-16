@@ -9,7 +9,7 @@ use futures::Future;
 
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::client::{JsonRpcClient, new_client};
+use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};

@@ -298,9 +298,8 @@ impl Handler<GetBlock> for ViewClientActor {
                     &block.header.inner_lite.epoch_id,
                     block.header.inner_lite.height,
                 )
-                .map(|author| (author, block))
+                .map(|author| BlockView::from_author_block(author, block))
         })
-        .map(|(author, block)| BlockView::from_author_block(author, block))
         .map_err(|err| err.to_string())
     }
 }
@@ -338,9 +337,8 @@ impl Handler<GetChunk> for ViewClientActor {
                     chunk.header.inner.height_created,
                     chunk.header.inner.shard_id,
                 )
-                .map(|author| (author, chunk))
+                .map(|author| ChunkView::from_author_chunk(author, chunk))
         })
-        .map(|(author, chunk)| ChunkView::from_author_chunk(author, chunk))
         .map_err(|err| err.to_string())
     }
 }

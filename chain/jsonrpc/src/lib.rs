@@ -6,27 +6,27 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::{Cors, CorsFactory};
-use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
+use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
-use futures::{FutureExt, TryFutureExt};
 use futures::Future;
+use futures::{FutureExt, TryFutureExt};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::{delay_for, timeout};
 
-use message::{Request, RpcError};
 use message::Message;
+use message::{Request, RpcError};
 use near_client::{
     ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
     GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{ChunkId, message};
+use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{BaseEncode, from_base, from_base64};
+use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
