@@ -4,6 +4,7 @@ from retry import retry
 from cluster import LocalNode, GCloudNode
 from rc import run
 import os
+import tempfile
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -124,21 +125,20 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 def compile_rust_contract(content):
-    test_contract_rs = os.path.join(os.path.dirname(__file__), '../empty-contract-rs')
-    p = run('bash', input=f'''
-mkdir -p /tmp/near
-rm -rf /tmp/near/empty-contract-rs
-cp -r {test_contract_rs} /tmp/near
-''')
+    empty_contract_rs = os.path.join(os.path.dirname(__file__), '../empty-contract-rs')
+    run('mkdir -p /tmp/near')
+    tmp_contract = tempfile.TemporaryDirectory(dir='/tmp/near').name
+    p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
     if p.returncode != 0:
         raise Exception(p.stderr)
     
-    with open('/tmp/near/empty-contract-rs/src/lib.rs', 'a') as f:
+    with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
         f.write(content)
 
     p = run('bash', input=f'''
-cd /tmp/near/empty-contract-rs
+cd {tmp_contract}
 ./build.sh
 ''')
     if p.returncode != 0:
         raise Exception(p.stderr)
+    return f'{tmp_contract}/target/release/empty_contract_rs.wasm'

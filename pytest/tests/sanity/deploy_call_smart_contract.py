@@ -26,23 +26,24 @@ tx2 = sign_function_call_tx(nodes[0].signer_key, 'log_something', [], 1000000000
 res = nodes[1].send_tx_and_wait(tx2, 10)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
-compile_rust_contract('''
-extern "C" {
-    fn log_utf8(len: u64, ptr: u64);
-}
-#[no_mangle]
-pub unsafe fn log_world() {
-    let data = b"world";
-    log_utf8(data.len() as u64, data.as_ptr() as _);
+wasm_file = compile_rust_contract('''
+#[near_bindgen]
+#[derive(Default, BorshDeserialize, BorshSerialize)]
+pub struct StatusMessage {}
+
+#[near_bindgen]
+impl StatusMessage {
+  pub fn log_world(&self) {
+    env::log(b"world");
+  }
 }
 ''')
 
 status3 = nodes[2].get_status()
 hash_3 = status3['sync_info']['latest_block_hash']
 hash_3 = base58.b58decode(hash_3.encode('utf8'))
-tx3 = sign_deploy_contract_tx(nodes[2].signer_key, load_binary_file('/tmp/near/empty-contract-rs/target/release/empty_contract_rs.wasm'), 10, hash_3)
+tx3 = sign_deploy_contract_tx(nodes[2].signer_key, load_binary_file(wasm_file), 10, hash_3)
 res = nodes[3].send_tx(tx3)
-
 time.sleep(3)
 
 status4 = nodes[3].get_status()
