@@ -29,15 +29,18 @@ res = nodes[1].send_tx_and_wait(tx2, 10)
 #assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 # send method=changes params:=[block_hash, account_id, key_prefix_as_array_of_bytes]
+# e.g. method=changes params:=["8jT2x22z757m378fsKQe2JHin1k56k1jM1sQoqeqyABx", "test0", [109, 121, 107, 101, 121]]
 # expect:
 # {
 #    "id": "dontcare",
 #    "jsonrpc": "2.0",
 #    "result": {
-#        "account_id": "test0",
 #        "block_hash": "8jT2x22z757m378fsKQe2JHin1k56k1jM1sQoqeqyABx",
+#        "account_id": "test0",
+#        "key_prefix": [ 109, 121, 107, 101, 121 ],  # it is b"mykey"
 #        "changes_by_key": [
 #            {
+#                "key": [ 109, 121, 107, 101, 121 ],  # it is b"mykey"
 #                "changes": [
 #                    {
 #                        "cause": {
@@ -45,32 +48,10 @@ res = nodes[1].send_tx_and_wait(tx2, 10)
 #                                "hash": "CWdLzVZGAHNNJi9RstMEidZhPhKJbiszSqSy5M3yph6J"
 #                            }
 #                        },
-#                        "value": [
-#                            109,
-#                            121,
-#                            118,
-#                            97,
-#                            108,
-#                            117,
-#                            101
-#                        ]
+#                        "value": [ 109, 121, 118, 97, 108, 117, 101 ]  # it is b"myvalue"
 #                    }
-#                ],
-#                "key": [
-#                    109,
-#                    121,
-#                    107,
-#                    101,
-#                    121
 #                ]
 #            }
-#        ],
-#        "key_prefix": [
-#            109,
-#            121,
-#            107,
-#            101,
-#            121
 #        ]
 #    }
 #}
