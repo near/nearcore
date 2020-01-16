@@ -744,14 +744,13 @@ impl ShardsManager {
                 return Err(Error::ChainError(ErrorKind::InvalidChunkHeight.into()));
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id)
-            if chain_store
-                .get_any_chunk_hash_by_height_shard(
-                    header.inner.height_created,
-                    header.inner.shard_id,
-                )
-                .is_ok()
-            {
-                debug!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}", chunk_hash, header.inner.height_created, header.inner.shard_id);
+            if let Ok(hash) = chain_store.get_any_chunk_hash_by_height_shard(
+                header.inner.height_created,
+                header.inner.shard_id,
+            ) {
+                if *hash != chunk_hash {
+                    warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.inner.height_created, header.inner.shard_id, hash);
+                }
                 return Err(Error::DuplicateChunkHeight.into());
             }
         }

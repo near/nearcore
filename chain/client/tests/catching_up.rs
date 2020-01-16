@@ -17,7 +17,7 @@ mod tests {
     use near_primitives::sharding::ChunkHash;
     use near_primitives::test_utils::{init_integration_logger, init_test_logger};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::BlockHeight;
+    use near_primitives::types::{BlockHeight, BlockHeightDelta};
     use near_primitives::views::QueryResponseKind::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
@@ -785,6 +785,146 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
             let max_wait_ms = 240000;
+
+            near_network::test_utils::wait_or_panic(max_wait_ms);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_all_chunks_accepted_10() {
+        test_all_chunks_accepted_common(10, 1000, 5)
+    }
+
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_all_chunks_accepted_1000() {
+        test_all_chunks_accepted_common(1000, 1000, 5)
+    }
+
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_all_chunks_accepted_1000_slow() {
+        test_all_chunks_accepted_common(1000, 3000, 5)
+    }
+
+    #[test]
+    #[cfg(feature = "expensive_tests")]
+    fn test_all_chunks_accepted_1000_rare_epoch_changing() {
+        test_all_chunks_accepted_common(1000, 3000, 100)
+    }
+
+    fn test_all_chunks_accepted_common(
+        last_height: BlockHeight,
+        block_prod_time: u64,
+        epoch_length: BlockHeightDelta,
+    ) {
+        let validator_groups = 1;
+        init_integration_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+
+            let _connectors1 = connectors.clone();
+            let seen_chunk_same_sender =
+                Arc::new(RwLock::new(HashSet::<(String, u64, u64)>::new()));
+            let requested = Arc::new(RwLock::new(HashSet::<(String, Vec<u64>, ChunkHash)>::new()));
+            let responded =
+                Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
+
+            let (_, conn) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                block_prod_time,
+                false,
+                false,
+                epoch_length,
+                Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
+                    let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
+                    let mut requested = requested.write().unwrap();
+                    let mut responded = responded.write().unwrap();
+                    if let NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                    } = msg
+                    {
+                        let header = partial_encoded_chunk.header.as_ref().unwrap();
+                        println!(
+                            "S {:?} R {:?} H {:?} PEC {:?}",
+                            sender_account_id,
+                            account_id,
+                            header.inner.height_created,
+                            partial_encoded_chunk
+                        );
+                        if seen_chunk_same_sender.contains(&(
+                            account_id.clone(),
+                            header.inner.height_created,
+                            header.inner.shard_id,
+                        )) {
+                            println!("=== SAME CHUNK AGAIN!");
+                            assert!(false);
+                        };
+                        seen_chunk_same_sender.insert((
+                            account_id.clone(),
+                            header.inner.height_created,
+                            header.inner.shard_id,
+                        ));
+                    }
+                    if let NetworkRequests::PartialEncodedChunkRequest { account_id, request } = msg
+                    {
+                        println!("S {:?} R {:?} PEQ {:?}", sender_account_id, account_id, request);
+                        if requested.contains(&(
+                            sender_account_id.clone(),
+                            request.part_ords.clone(),
+                            request.chunk_hash.clone(),
+                        )) {
+                            println!("== SAME REQUEST AGAIN!");
+                        };
+                        requested.insert((
+                            sender_account_id.clone(),
+                            request.part_ords.clone(),
+                            request.chunk_hash.clone(),
+                        ));
+                    }
+                    if let NetworkRequests::PartialEncodedChunkResponse {
+                        route_back,
+                        partial_encoded_chunk,
+                    } = msg
+                    {
+                        println!("S {:?} PER {:?}", sender_account_id, partial_encoded_chunk);
+                        if responded.contains(&(
+                            route_back.clone(),
+                            partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
+                            partial_encoded_chunk.chunk_hash.clone(),
+                        )) {
+                            println!("== SAME RESPONSE AGAIN!");
+                        };
+                        responded.insert((
+                            route_back.clone(),
+                            partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
+                            partial_encoded_chunk.chunk_hash.clone(),
+                        ));
+                    }
+                    if let NetworkRequests::Block { block } = msg {
+                        // There is no chunks at height 1
+                        if block.header.inner_lite.height > 1 {
+                            println!("BLOCK {:?}", block,);
+                            assert_eq!(4, block.header.inner_rest.chunks_included);
+                            if block.header.inner_lite.height == last_height {
+                                System::current().stop();
+                            }
+                        }
+                    }
+                    (NetworkResponses::NoResponse, true)
+                })),
+            );
+            *connectors.write().unwrap() = conn;
+            let max_wait_ms = block_prod_time * last_height / 10 * 11 + 10000;
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
         })

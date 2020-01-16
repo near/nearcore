@@ -145,13 +145,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.receive_header(header, peer_id)
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
-                let height_exists = self
+                let heights = self
                     .client
                     .chain
                     .mut_store()
-                    .get_any_block_hash_by_height(block.header.inner_lite.height)
-                    .is_ok();
-                if was_requested || !height_exists {
+                    .get_any_block_hash_by_height(block.header.inner_lite.height);
+                if was_requested || !heights.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash {
@@ -167,7 +166,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     self.receive_block(block, peer_id, was_requested)
                 } else {
-                    debug!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                    match self
+                        .client
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&block.header.prev_hash)
+                    {
+                        Ok(epoch_id) => {
+                            if Some(&block.header.hash) != heights.unwrap().get(&epoch_id) {
+                                warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                            }
+                        }
+                        _ => {}
+                    }
                     return NetworkClientResponses::NoResponse;
                 }
             }
