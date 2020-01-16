@@ -1,8 +1,8 @@
 use actix::System;
 
-use crate::runner::{Action, Runner};
+pub use runner::{Action, Runner};
 
-pub mod runner;
+mod runner;
 
 #[test]
 fn simple() {
