@@ -1,7 +1,7 @@
 import sys
 import os
 import datetime
-from rc import gcloud
+from rc import gcloud, run
 
 additional_flags = '-Z package-features --features near-client/produce_time'
 
@@ -9,8 +9,9 @@ try:
     image_name = sys.argv[1]
     branch = sys.argv[2]
 except:
-    branch = 'staging'
-    image_name = f'near-staging-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{os.getlogin()}'
+    branch = run(
+        'git rev-parse --symbolic-full-name --abbrev-ref HEAD').stdout.strip()
+    image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{os.getlogin()}'
 
 machine_name = f'{image_name}-image-builder'
 

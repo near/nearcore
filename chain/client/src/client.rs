@@ -672,16 +672,6 @@ impl Client {
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
-                #[cfg(feature = "produce_time")]
-                {
-                    writeln!(
-                        (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                        "{} has_all_parts && has_all_receipts {}",
-                        Utc::now().to_rfc3339(),
-                        prev_block_hash,
-                    )
-                    .unwrap();
-                }
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
             ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
@@ -869,13 +859,10 @@ impl Client {
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |accepted_block| {
             #[cfg(feature = "produce_time")]
             {
-                writeln!(
-                    (*PRODUCE_TIME_RECORD_FILE).lock().unwrap(),
-                    "{} full chunks {}",
-                    Utc::now().to_rfc3339(),
+                info!(
+                    "block {} has full chunks",
                     accepted_block.hash,
                 )
-                .unwrap();
             }
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);

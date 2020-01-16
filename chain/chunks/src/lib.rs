@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use log::{debug, error};
+use log::{debug, error, info};
 use rand::seq::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -743,6 +743,16 @@ impl ShardsManager {
 
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
+            #[cfg(feature = "produce_time")]
+            {
+                info!(
+                    "has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {} shard_id {}",
+                    prev_block_hash,
+                    chunk_hash,
+                    header.inner.shard_id,
+                )
+                .unwrap();
+            }
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
