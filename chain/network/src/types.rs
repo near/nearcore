@@ -738,8 +738,6 @@ impl PeerMessage {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::BlockRequest(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
             PeerMessage::Routed(r) => match r.body {
@@ -747,7 +745,6 @@ impl PeerMessage {
                 | RoutedMessageBody::ForwardTx(_)
                 | RoutedMessageBody::PartialEncodedChunk(_)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::StateRequest(_, _, _, _)
                 | RoutedMessageBody::StateResponse(_) => true,
                 _ => false,
             },
@@ -763,9 +760,12 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::ReceiptOutComeResponse(_) => true,
+                | RoutedMessageBody::ReceiptOutComeResponse(_)
+                | RoutedMessageBody::StateRequest(_, _, _, _) => true,
                 _ => false,
             },
+            PeerMessage::BlockHeadersRequest(_) => true,
+            PeerMessage::BlockRequest(_) => true,
             _ => false,
         }
     }
@@ -1190,7 +1190,7 @@ impl Message for NetworkRequests {
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
-    pub hash: CryptoHash,
+    pub sync_hash: CryptoHash,
     pub shard_state: ShardStateSyncResponse,
 }
 
@@ -1206,22 +1206,10 @@ pub enum NetworkClientMessages {
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
     BlockHeaders(Vec<BlockHeader>, PeerId),
-    /// Get Chain information from Client.
-    GetChainInfo,
     /// Block approval.
     BlockApproval(Approval, PeerId),
-    /// Request headers.
-    BlockHeadersRequest(Vec<CryptoHash>),
-    /// Request a block.
-    BlockRequest(CryptoHash),
-    /// State request.
-    StateRequest(ShardId, CryptoHash, bool, StateRequestParts, CryptoHash),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Account announcements that needs to be validated before being processed.
-    /// They are paired with last epoch id known to this announcement, in order to accept only
-    /// newer announcements.
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -1248,19 +1236,6 @@ pub enum NetworkClientResponses {
     RequestRouted,
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
-    /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        weight_and_score: WeightAndScore,
-        tracked_shards: Vec<ShardId>,
-    },
-    /// Block response.
-    Block(Block),
-    /// Headers response.
-    BlockHeaders(Vec<BlockHeader>),
-    /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -1292,6 +1267,23 @@ pub enum NetworkViewClientMessages {
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Request a block.
+    BlockRequest(CryptoHash),
+    /// Request headers.
+    BlockHeadersRequest(Vec<CryptoHash>),
+    /// State request.
+    StateRequest {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        need_header: bool,
+        parts: StateRequestParts,
+    },
+    /// Get Chain information from Client.
+    GetChainInfo,
+    /// Account announcements that needs to be validated before being processed.
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
 pub enum NetworkViewClientResponses {
@@ -1301,6 +1293,23 @@ pub enum NetworkViewClientResponses {
     QueryResponse { response: Result<QueryResponse, String>, id: String },
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Block response.
+    Block(Block),
+    /// Headers response.
+    BlockHeaders(Vec<BlockHeader>),
+    /// Chain information.
+    ChainInfo {
+        genesis_id: GenesisId,
+        height: BlockHeight,
+        weight_and_score: WeightAndScore,
+        tracked_shards: Vec<ShardId>,
+    },
+    /// Response to state request.
+    StateResponse(StateResponseInfo),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
+    /// Ban peer for malicious behaviour.
+    Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,
 }
