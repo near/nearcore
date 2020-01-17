@@ -639,7 +639,14 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        info!(target: "client", "%%% {:?} Received block {} <- {} at {} from {}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
+        info!(
+            "%%% {:?} Received block {} <- {} at {} from {}",
+            self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+            hash,
+            block.header.prev_hash,
+            block.header.inner_lite.height,
+            peer_id
+        );
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };

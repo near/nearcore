@@ -11,7 +11,7 @@ from utils import chain_query
 def print_chain_data(block, file=sys.stdout):
     chunks = []
     for c in block['chunks']:
-        chunks.append(f'{c["chunk_hash"]} {c["shard_id"]}')
+        chunks.append(f'{c["chunk_hash"]} {c["shard_id"]} {c["height_created"]} {c["height_included"]}')
     print(block['header']['height'], block['header']['hash'], ','.join(chunks), file=file)
 
 subprocess.run('mkdir -p /tmp/100_node/', shell=True)
@@ -26,5 +26,5 @@ def query_node(i):
 
 # pmap(query_node, range(100))
 
-node = RpcNode('localhost', 3030)
-chain_query(node, print_chain_data, block_hash='7VrBwaRFjSnpjW77AGKhRpe4MarVfccYLXnwFtmUkEqx')
+node = GCloudNode('pytest-node-0')
+chain_query(node, print_chain_data, block_hash='9rnC5G6qDpXgT4gTG4znowmdSUavC1etuV99F18ByxxK')

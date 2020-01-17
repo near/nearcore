@@ -484,7 +484,6 @@ impl Client {
         )?;
 
         info!(
-            target: "client",
             "%%% Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
             next_height,
             shard_id,
@@ -813,10 +812,19 @@ impl Client {
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
-        self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |accepted_block| {
-            info!(target: "client", "%%% Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
-            accepted_blocks.write().unwrap().push(accepted_block);
-        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
+        self.chain.check_blocks_with_missing_chunks(
+            &me,
+            last_accepted_block_hash,
+            |accepted_block| {
+                info!(
+                    "%%% Block {} was missing chunks but now is ready to be processed",
+                    accepted_block.hash
+                );
+                accepted_blocks.write().unwrap().push(accepted_block);
+            },
+            |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
+            |challenge| challenges.write().unwrap().push(challenge),
+        );
         self.send_challenges(challenges);
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
