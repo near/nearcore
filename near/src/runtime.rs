@@ -752,7 +752,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit(StateChangeCause::NonFinalizable);
+                                state_update.commit(StateChangeCause::NotWritableToDisk);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;

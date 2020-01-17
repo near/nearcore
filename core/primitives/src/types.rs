@@ -49,7 +49,7 @@ pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
     /// change will lead to panic.
-    NonFinalizable,
+    NotWritableToDisk,
     /// A type of update that is used to mark the initial storage update, e.g. during genesis
     /// or in tests setup.
     InitialState,

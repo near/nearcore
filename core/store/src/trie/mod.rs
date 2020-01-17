@@ -11,7 +11,7 @@ use cached::Cached;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{StateChanges, StateRoot, StateRootNode};
+use near_primitives::types::{StateChangeCause, StateChanges, StateRoot, StateRootNode};
 
 use crate::db::DBCol::ColKeyValueChanges;
 use crate::trie::insert_delete::NodesStorage;
@@ -556,6 +556,16 @@ impl WrappedTrieChanges {
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(self.trie.clone());
         for (key, changes) in &self.kv_changes {
+            assert!(
+                changes.iter().any(|(change_cause, _)| {
+                    if let StateChangeCause::NotWritableToDisk = change_cause {
+                        true
+                    } else {
+                        false
+                    }
+                }),
+                "NotWritableToDisk changes must never be finalized."
+            );
             let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
             storage_key.extend_from_slice(self.block_hash.as_ref());
             storage_key.extend_from_slice(key);
