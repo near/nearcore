@@ -23,7 +23,7 @@ pub struct EncodedChunksCache {
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
-    block_hash_to_chunk_headers: SizedCache<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
+    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -153,9 +153,9 @@ impl EncodedChunksCache {
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
                 .cache_remove(&header.inner.prev_block_hash)
-                .unwrap_or_else(|| vec![]);
+                .unwrap_or_else(|| HashMap::new());
             let prev_block_hash = header.inner.prev_block_hash;
-            block_hash_to_chunk_headers.push((shard_id, header));
+            block_hash_to_chunk_headers.insert(shard_id, header);
             self.block_hash_to_chunk_headers
                 .cache_set(prev_block_hash, block_hash_to_chunk_headers);
         }
@@ -164,8 +164,10 @@ impl EncodedChunksCache {
     pub fn get_chunk_headers_for_block(
         &mut self,
         prev_block_hash: &CryptoHash,
-    ) -> Vec<(ShardId, ShardChunkHeader)> {
-        self.block_hash_to_chunk_headers.cache_remove(prev_block_hash).unwrap_or_else(|| vec![])
+    ) -> HashMap<ShardId, ShardChunkHeader> {
+        self.block_hash_to_chunk_headers
+            .cache_remove(prev_block_hash)
+            .unwrap_or_else(|| HashMap::new())
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
