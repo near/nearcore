@@ -21,14 +21,13 @@ use near_network::test_utils::open_port;
 use near_network::types::{PROTOCOL_VERSION, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
 use near_network::NetworkConfig;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{
     AccountId, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
-use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
@@ -652,7 +651,7 @@ fn state_records_account_with_key(
     vec![
         StateRecord::Account {
             account_id: account_id.to_string(),
-            account: AccountView {
+            account: Account {
                 amount,
                 locked: staked,
                 code_hash,

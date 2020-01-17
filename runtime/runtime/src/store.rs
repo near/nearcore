@@ -1,14 +1,15 @@
 use near_crypto::PublicKey;
+use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::option_base64_format;
 use near_primitives::types::AccountId;
-use near_primitives::views::{AccessKeyView, AccountView, ReceiptView};
+use near_primitives::views::{AccessKeyView, ReceiptView};
 
 /// Record in the state storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum StateRecord {
     /// Account information.
-    Account { account_id: AccountId, account: AccountView },
+    Account { account_id: AccountId, account: Account },
     /// Data records inside the contract, encoded in base64.
     Data { key: String, value: String },
     /// Contract code encoded in base64.

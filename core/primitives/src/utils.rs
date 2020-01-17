@@ -297,7 +297,7 @@ where
 /// objects using tracing.
 ///
 /// ```
-/// tracing::debug!(target: "diagnostic", value=%ser(&object));
+/// // tracing::debug!(target: "diagnostic", value=%ser(&object));
 /// ```
 pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
 where

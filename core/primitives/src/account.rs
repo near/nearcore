@@ -1,18 +1,22 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::serialize::u128_dec_format;
+
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     /// The amount locked due to staking
+    #[serde(with = "u128_dec_format")]
     pub locked: Balance,
     /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
-    /// Storage used by the given account.
+    /// Storage used by the given account (in bytes).
     pub storage_usage: StorageUsage,
     /// Last height at which the storage was paid for.
     pub storage_paid_at: BlockHeight,
@@ -22,6 +26,43 @@ impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockHeight) -> Self {
         Account { amount, locked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
+}
+
+/// Calculates the storage rent for the given account
+pub fn calculate_rent(
+    account_id: &AccountId,
+    account: &Account,
+    // TODO #1903 block_height: BlockHeight,
+    block_index: BlockHeight,
+    account_length_baseline_cost_per_block: Balance,
+    storage_cost_byte_per_block: Balance,
+) -> Balance {
+    let charge = u128::from(block_index - account.storage_paid_at)
+        * cost_per_block(
+            account_id,
+            account,
+            account_length_baseline_cost_per_block,
+            storage_cost_byte_per_block,
+        );
+    let actual_charge = std::cmp::min(account.amount, charge);
+    actual_charge
+}
+
+pub fn cost_per_block(
+    account_id: &AccountId,
+    account: &Account,
+    account_length_baseline_cost_per_block: Balance,
+    storage_cost_byte_per_block: Balance,
+) -> Balance {
+    let account_length_cost_per_block = if account_id.len() > 10 {
+        0
+    } else {
+        account_length_baseline_cost_per_block / 3_u128.pow(account_id.len() as u32 - 2)
+    };
+
+    let storage_cost_per_block = u128::from(account.storage_usage) * storage_cost_byte_per_block;
+
+    account_length_cost_per_block + storage_cost_per_block
 }
 
 /// Access key provides limited access to an account. Each access key belongs to some account and

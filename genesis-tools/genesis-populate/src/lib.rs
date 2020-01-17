@@ -13,13 +13,12 @@ use tempdir::TempDir;
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
-use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
@@ -252,7 +251,7 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let account = AccountView {
+        let account = Account {
             amount: testing_init_balance,
             locked: testing_init_stake,
             code_hash: self.additional_accounts_code_hash.clone(),

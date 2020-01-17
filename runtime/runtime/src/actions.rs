@@ -3,7 +3,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use log::debug;
 
-use near_primitives::account::Account;
+use near_primitives::account::{calculate_rent, cost_per_block, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
@@ -33,24 +33,6 @@ use near_vm_runner::VMError;
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: u64 = 3;
 
-fn cost_per_block(
-    account_id: &AccountId,
-    account: &Account,
-    runtime_config: &RuntimeConfig,
-) -> Balance {
-    let account_length_cost_per_block = if account_id.len() > 10 {
-        0
-    } else {
-        runtime_config.account_length_baseline_cost_per_block
-            / 3_u128.pow(account_id.len() as u32 - 2)
-    };
-
-    let storage_cost_per_block = u128::from(total_account_storage(account_id, account))
-        * runtime_config.storage_cost_byte_per_block;
-
-    account_length_cost_per_block + storage_cost_per_block
-}
-
 /// Returns Ok if the account has enough balance to pay storage rent for at least required number of blocks.
 /// Otherwise returns the amount required.
 /// Validators must have at least enough for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
@@ -66,8 +48,13 @@ pub(crate) fn check_rent(
     } else {
         runtime_config.poke_threshold
     };
-    let buffer_amount =
-        u128::from(buffer_length) * cost_per_block(account_id, account, runtime_config);
+    let buffer_amount = u128::from(buffer_length)
+        * cost_per_block(
+            account_id,
+            account,
+            runtime_config.account_length_baseline_cost_per_block,
+            runtime_config.storage_cost_byte_per_block,
+        );
     if account.amount >= buffer_amount {
         Ok(())
     } else {
@@ -83,12 +70,16 @@ pub(crate) fn apply_rent(
     block_index: BlockHeight,
     runtime_config: &RuntimeConfig,
 ) -> Balance {
-    let charge = u128::from(block_index - account.storage_paid_at)
-        * cost_per_block(account_id, account, runtime_config);
-    let actual_charge = std::cmp::min(account.amount, charge);
-    account.amount -= actual_charge;
+    let rent = calculate_rent(
+        account_id,
+        account,
+        block_index,
+        runtime_config.account_length_baseline_cost_per_block,
+        runtime_config.storage_cost_byte_per_block,
+    );
+    account.amount -= rent;
     account.storage_paid_at = block_index;
-    actual_charge
+    rent
 }
 
 pub(crate) fn get_code_with_cache(

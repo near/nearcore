@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 
-use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::account::{
+    calculate_rent, AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
+};
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
@@ -32,23 +34,48 @@ use crate::types::{
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
+    /// A spendable balance (before state rent charge)
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
+    /// An actual balance in storage
+    #[serde(with = "u128_dec_format")]
+    pub actual_amount: Balance,
+    /// The amount locked due to staking
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
+    /// Hash of the code stored in the storage for this account.
     pub code_hash: CryptoHash,
+    /// Storage used by the given account (in bytes).
     pub storage_usage: StorageUsage,
+    /// Last height at which the storage was paid for.
     pub storage_paid_at: BlockHeight,
 }
 
-impl From<Account> for AccountView {
-    fn from(account: Account) -> Self {
+impl AccountView {
+    /// Calculates spendable amount and transforms into the AccountView
+    pub fn from_account(
+        account_id: &AccountId,
+        account: &Account,
+        block_height: BlockHeight,
+        account_length_baseline_cost_per_block: Balance,
+        storage_cost_byte_per_block: Balance,
+    ) -> AccountView {
+        let actual_amount = account.amount;
+        let amount = actual_amount
+            - calculate_rent(
+                account_id,
+                account,
+                block_height,
+                account_length_baseline_cost_per_block,
+                storage_cost_byte_per_block,
+            );
         AccountView {
-            amount: account.amount,
-            locked: account.locked,
+            amount,
+            actual_amount,
             code_hash: account.code_hash,
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
+            locked: account.locked,
         }
     }
 }
@@ -56,7 +83,7 @@ impl From<Account> for AccountView {
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         Self {
-            amount: view.amount,
+            amount: view.actual_amount,
             locked: view.locked,
             code_hash: view.code_hash,
             storage_usage: view.storage_usage,

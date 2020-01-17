@@ -12,7 +12,7 @@ pub type MerkleHash = CryptoHash;
 pub type ValidatorId = u64;
 /// Mask which validators participated in multi sign.
 pub type ValidatorMask = Vec<bool>;
-/// StorageUsage is used to count the amount of storage used by a contract.
+/// StorageUsage is used to count the amount of storage used by a contract (in bytes).
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
 pub type StorageUsageChange = i64;

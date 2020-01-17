@@ -33,7 +33,8 @@ use near_primitives::types::{
     StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
+    AccessKeyInfoView, AccessKeyList, AccountView, EpochValidatorInfo, QueryResponse,
+    QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -670,20 +671,21 @@ impl RuntimeAdapter for KeyValueRuntime {
             "account" => {
                 let account_id = path[1].to_string();
                 let account_id2 = account_id.clone();
+                let amount = self
+                    .state
+                    .read()
+                    .unwrap()
+                    .get(&state_root)
+                    .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0));
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewAccount(
-                        Account {
-                            amount: self.state.read().unwrap().get(&state_root).map_or_else(
-                                || 0,
-                                |state| *state.amounts.get(&account_id2).unwrap_or(&0),
-                            ),
-                            locked: 0,
-                            code_hash: CryptoHash::default(),
-                            storage_usage: 0,
-                            storage_paid_at: 0,
-                        }
-                        .into(),
-                    ),
+                    kind: QueryResponseKind::ViewAccount(AccountView {
+                        amount,
+                        actual_amount: amount,
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                        storage_paid_at: 0,
+                    }),
                     block_height,
                 })
             }

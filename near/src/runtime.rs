@@ -29,6 +29,7 @@ use near_primitives::types::{
     StateRootNode, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::views::AccountView;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -898,13 +899,25 @@ impl RuntimeAdapter for NightshadeRuntime {
             return Err("Path must contain at least single token".into());
         }
         match path_parts[0] {
-            "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
-                Ok(r) => Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewAccount(r.into()),
-                    block_height,
-                }),
-                Err(e) => Err(e),
-            },
+            "account" => {
+                let account_id = AccountId::from(path_parts[1]);
+                match self.view_account(*state_root, &account_id) {
+                    Ok(account) => {
+                        let runtime_config = &self.genesis_config.runtime_config;
+                        Ok(QueryResponse {
+                            kind: QueryResponseKind::ViewAccount(AccountView::from_account(
+                                &account_id,
+                                &account,
+                                block_height,
+                                runtime_config.account_length_baseline_cost_per_block,
+                                runtime_config.storage_cost_byte_per_block,
+                            )),
+                            block_height,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             "call" => {
                 let mut logs = vec![];
                 match self.call_function(
@@ -1393,10 +1406,16 @@ mod test {
 
         pub fn view_account(&self, account_id: &str) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
-            self.runtime
-                .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
-                .unwrap()
-                .into()
+            AccountView::from_account(
+                &account_id.to_string(),
+                &self
+                    .runtime
+                    .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
+                    .unwrap(),
+                0,
+                0,
+                0,
+            )
         }
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward

@@ -7,14 +7,13 @@ use runtime_group_tools::StandaloneRuntime;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
-use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
@@ -100,7 +99,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         for account_index in chunk {
             let account_id = get_account_id(*account_index);
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-            let account = AccountView {
+            let account = Account {
                 amount: TESTING_INIT_BALANCE,
                 locked: TESTING_INIT_STAKE,
                 code_hash: code_hash.clone().into(),

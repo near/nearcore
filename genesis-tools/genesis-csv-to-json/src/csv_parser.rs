@@ -4,13 +4,14 @@ use csv::ReaderBuilder;
 use near::config::AccountInfo;
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
+use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
-use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
+use near_primitives::views::{AccessKeyPermissionView, AccessKeyView};
 use node_runtime::StateRecord;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -196,7 +197,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: AccountView {
+        account: Account {
             amount: row.amount,
             locked: row.validator_stake,
             code_hash: smart_contract_hash.into(),
