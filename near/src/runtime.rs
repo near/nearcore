@@ -26,7 +26,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
-    StateChangeCause, StateChanges, StateRoot, StateRootNode, ValidatorStake,
+    StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -1076,11 +1076,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
-        account_id: &AccountId,
-        key_prefix: &[u8],
+        state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Box<dyn std::error::Error>> {
         let chain_store = ChainStore::new(Arc::clone(&self.store));
-        chain_store.get_key_value_changes(block_hash, account_id, key_prefix).map_err(|e| e.into())
+        chain_store.get_key_value_changes(block_hash, state_changes_request).map_err(|e| e.into())
     }
 
     fn compare_epoch_id(

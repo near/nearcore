@@ -261,7 +261,7 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        Box::new(self.iter(col).filter(move |(key, value)| key.starts_with(key_prefix)))
+        Box::new(self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {

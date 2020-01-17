@@ -39,16 +39,14 @@ tx2 = sign_function_call_tx(
 res = nodes[1].send_tx_and_wait(tx2, 10)
 assert res['result']['receipts_outcome'][0]['outcome']['status'] == {'SuccessValue': ''}, "Expected successful execution, but the output was: %s" % res
 
-# send method=changes params:=[block_hash, account_id, key_prefix_as_array_of_bytes]
-# e.g. method=changes params:=["8jT2x22z757m378fsKQe2JHin1k56k1jM1sQoqeqyABx", "test0", [109, 121, 107, 101, 121]]
+# send method=changes params:=[block_hash, {"changes_type": "data_changes", "account_id": account_id, "key_prefix": key_prefix_as_array_of_bytes}]
+# e.g. method=changes params:=["8jT2x22z757m378fsKQe2JHin1k56k1jM1sQoqeqyABx", {"changes_type": "data_changes", "account_id": "test0", "key_prefix": [109, 121, 107, 101, 121]}]
 # expect:
 # {
 #    "id": "dontcare",
 #    "jsonrpc": "2.0",
 #    "result": {
 #        "block_hash": "8jT2x22z757m378fsKQe2JHin1k56k1jM1sQoqeqyABx",
-#        "account_id": "test0",
-#        "key_prefix": [ 109, 121, 107, 101, 121 ],  # it is b"mykey"
 #        "changes_by_key": [
 #            {
 #                "key": [ 109, 121, 107, 101, 121 ],  # it is b"mykey"
@@ -70,16 +68,33 @@ assert res['result']['receipts_outcome'][0]['outcome']['status'] == {'SuccessVal
 tx_block_hash = res['result']['transaction_outcome']['block_hash']
 tx_account_id = nodes[0].signer_key.account_id
 
-changes = nodes[0].get_changes(tx_block_hash, tx_account_id, list(b"mykey"))
+changes = nodes[0].get_changes(
+    tx_block_hash,
+    {
+        "changes_type": "data_changes",
+        "account_id": tx_account_id,
+        "key_prefix": list(b"mykey")
+    }
+)
 changes_by_key = changes['result']['changes_by_key']
 assert len(changes_by_key) == 1
 changes_by_mykey = changes_by_key[0]
 assert set(changes_by_mykey) >= {'key', 'changes'}
-assert changes_by_mykey['key'] == [109, 121, 107, 101, 121]
+assert changes_by_mykey['key'] == [109, 121, 107, 101, 121], \
+    "changed key is expected to be 'mykey' as an array of bytes, but %r found" \
+    % changes_by_mykey['key']
 value_changes = changes_by_mykey['changes']
 assert len(value_changes) == 1
 assert set(value_changes[0]['cause']) == {'ReceiptProcessing'}
-assert value_changes[0]['value'] == [109, 121, 118, 97, 108, 117, 101]
+assert value_changes[0]['value'] == [109, 121, 118, 97, 108, 117, 101], \
+    "changed value is expected to be 'myvalue' as an array of bytes, but %r found" % value_changes
 for node in nodes[1:]:
-    changes_from_another_node = node.get_changes(tx_block_hash, tx_account_id, list(b"mykey"))
+    changes_from_another_node = node.get_changes(
+        tx_block_hash,
+        {
+            "changes_type": "data_changes",
+            "account_id": tx_account_id,
+            "key_prefix": list(b"mykey")
+        }
+    )
     assert not deepdiff.DeepDiff(changes_from_another_node, changes), "query same changes gives different result"

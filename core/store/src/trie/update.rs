@@ -150,7 +150,6 @@ impl TrieUpdate {
     pub fn finalize(self) -> Result<TrieChanges, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let TrieUpdate { trie, root, committed, .. } = self;
-        // TODO: Write committed changes to the database.
         trie.update(
             &root,
             committed.iter().map(|(k, changes)| {

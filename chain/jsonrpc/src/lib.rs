@@ -27,7 +27,7 @@ use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, StateChangesRequest};
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
 use tokio::time::{delay_for, timeout};
 
@@ -309,21 +309,17 @@ impl JsonRpcHandler {
     }
 
     async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_hash, account_id, key_prefix) =
-            parse_params::<(CryptoHash, AccountId, Vec<u8>)>(params)?;
+        let (block_hash, state_changes_request) =
+            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
         let block_hash_copy = block_hash.clone();
-        let account_id_copy = account_id.clone();
-        let key_prefix_copy = key_prefix.clone();
         jsonify(
             self.view_client_addr
-                .send(GetKeyValueChanges { block_hash, account_id, key_prefix })
+                .send(GetKeyValueChanges { block_hash, state_changes_request })
                 .await
                 .map(|v| {
                     v.map(|changes| {
                         json!({
                             "block_hash": block_hash_copy,
-                            "account_id": account_id_copy,
-                            "key_prefix": key_prefix_copy,
                             "changes_by_key": changes
                             .into_iter()
                             .map(|(key, changes)| {

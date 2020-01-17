@@ -918,7 +918,7 @@ impl Runtime {
         };
         // We didn't trigger execution, so we need to commit the state.
         state_update
-            .commit(StateChangeCause::PostponedActionReceipt { receipt_hash: receipt.get_hash() });
+            .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
         Ok(None)
     }
 
@@ -1115,7 +1115,7 @@ impl Runtime {
             &stats,
         )?;
 
-        state_update.commit(StateChangeCause::PostponedMultipleReceipts);
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         // TODO: Avoid cloning.
         let key_value_changes = state_update.committed_updates_per_cause().clone();
 

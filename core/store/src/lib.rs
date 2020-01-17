@@ -198,7 +198,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Clone + BorshDeserialize + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
     col: DBCol,
     cache: &'a mut SizedCache<Vec<u8>, T>,

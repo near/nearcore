@@ -19,7 +19,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
-    StateChanges,
+    StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -335,8 +335,7 @@ pub trait ChainStoreAccess {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
-        account_id: &AccountId,
-        key_prefix: &[u8],
+        state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error>;
 }
 
@@ -910,16 +909,43 @@ impl ChainStoreAccess for ChainStore {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
-        account_id: &AccountId,
-        key_prefix: &[u8],
+        state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        let common_key_prefix_len = block_hash.as_ref().len() + 1 + account_id.len() + 1;
-        let mut storage_key = Vec::with_capacity(common_key_prefix_len + key_prefix.len());
-        storage_key.extend_from_slice(block_hash.as_ref());
-        storage_key.extend_from_slice(b"\0");
-        storage_key.extend_from_slice(account_id.as_bytes());
-        storage_key.extend_from_slice(b",");
-        storage_key.extend_from_slice(key_prefix);
+        use near_primitives::utils;
+        let mut storage_key = block_hash.as_ref().to_vec();
+        storage_key.extend(match state_changes_request {
+            StateChangesRequest::AccountChanges { account_id } => {
+                utils::key_for_account(account_id)
+            }
+            StateChangesRequest::DataChanges { account_id, key_prefix } => {
+                utils::key_for_data(account_id, key_prefix)
+            }
+            StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
+                utils::key_for_access_key(account_id, access_key_pk)
+            }
+            StateChangesRequest::AllAccessKeyChanges { account_id } => {
+                utils::key_for_all_access_keys(account_id)
+            }
+            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
+            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
+                utils::key_for_postponed_receipt_id(account_id, data_id)
+            }
+            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
+                utils::key_for_all_postponed_receipts(account_id)
+            }
+        });
+        let common_key_prefix_len = block_hash.as_ref().len()
+            + match state_changes_request {
+                StateChangesRequest::AccountChanges { .. }
+                | StateChangesRequest::SingleAccessKeyChanges { .. }
+                | StateChangesRequest::AllAccessKeyChanges { .. }
+                | StateChangesRequest::CodeChanges { .. }
+                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
+                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
+                StateChangesRequest::DataChanges { account_id, .. } => {
+                    utils::key_for_data(account_id, b"").len()
+                }
+            };
         let mut changes = StateChanges::new();
         let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
             ColKeyValueChanges,
@@ -1405,10 +1431,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_key_value_changes(
         &self,
         block_hash: &CryptoHash,
-        account_id: &AccountId,
-        key_prefix: &[u8],
+        state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        self.chain_store.get_key_value_changes(block_hash, account_id, key_prefix)
+        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
     }
 }
 

@@ -30,7 +30,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateRoot, StateRootNode, ValidatorStake,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
@@ -821,8 +821,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_key_value_changes(
         &self,
         _block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _key_prefix: &[u8],
+        _state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Box<dyn std::error::Error>> {
         Ok(Default::default())
     }

@@ -57,10 +57,14 @@ pub enum StateChangeCause {
     TransactionProcessing { tx_hash: CryptoHash },
     /// Processing of a receipt.
     ReceiptProcessing { receipt_hash: CryptoHash },
-    /// Delaying of the receipt that cannot be executed immediately.
-    PostponedActionReceipt { receipt_hash: CryptoHash },
-    /// Delaying multiple receipts because we cannot process them all at once.
-    PostponedMultipleReceipts,
+    /// The given receipt was postponed. This is either a data receipt or an action receipt.
+    /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
+    /// or other data dependencies are not satisfied.
+    /// An `ActionReceipt` can be postponed if not all data dependencies are received.
+    PostponedReceipt { receipt_hash: CryptoHash },
+    /// Updated delayed receipts queue in the state.
+    /// We either processed previously delayed receipts or added more receipts to the delayed queue.
+    UpdatedDelayedReceipts,
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
@@ -69,6 +73,18 @@ pub enum StateChangeCause {
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type StateChanges =
     std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
+
+#[derive(Deserialize)]
+#[serde(tag = "changes_type", rename_all = "snake_case")]
+pub enum StateChangesRequest {
+    AccountChanges { account_id: AccountId },
+    DataChanges { account_id: AccountId, key_prefix: Vec<u8> },
+    SingleAccessKeyChanges { account_id: AccountId, access_key_pk: PublicKey },
+    AllAccessKeyChanges { account_id: AccountId },
+    CodeChanges { account_id: AccountId },
+    SinglePostponedReceiptChanges { account_id: AccountId, data_id: CryptoHash },
+    AllPostponedReceiptChanges { account_id: AccountId },
+}
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {

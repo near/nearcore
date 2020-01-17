@@ -14,7 +14,8 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId, StateChanges, Version,
+    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId, StateChanges,
+    StateChangesRequest, Version,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -384,8 +385,7 @@ impl Message for GetValidatorInfo {
 
 pub struct GetKeyValueChanges {
     pub block_hash: CryptoHash,
-    pub account_id: AccountId,
-    pub key_prefix: Vec<u8>,
+    pub state_changes_request: StateChangesRequest,
 }
 
 impl Message for GetKeyValueChanges {
