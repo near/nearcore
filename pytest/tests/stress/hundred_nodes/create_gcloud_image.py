@@ -3,7 +3,7 @@ import os
 import datetime
 from rc import gcloud, run
 
-additional_flags = '-Z package-features --features near-client/produce_time'
+additional_flags = ''
 
 try:
     image_name = sys.argv[1]

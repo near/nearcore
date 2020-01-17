@@ -38,4 +38,3 @@ near = { path = "../../near" }
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
-produce_time = []

@@ -27,4 +27,4 @@ def query_node(i):
 # pmap(query_node, range(100))
 
 node = RpcNode('localhost', 3030)
-chain_query(node, print_chain_data, max_blocks=800)
+chain_query(node, print_chain_data, block_hash='7VrBwaRFjSnpjW77AGKhRpe4MarVfccYLXnwFtmUkEqx')
