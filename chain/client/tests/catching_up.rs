@@ -853,19 +853,12 @@ mod tests {
                     } = msg
                     {
                         let header = partial_encoded_chunk.header.as_ref().unwrap();
-                        /*println!(
-                            "S {:?} R {:?} H {:?} PEC {:?}",
-                            sender_account_id,
-                            account_id,
-                            header.inner.height_created,
-                            partial_encoded_chunk
-                        );*/
                         if seen_chunk_same_sender.contains(&(
                             account_id.clone(),
                             header.inner.height_created,
                             header.inner.shard_id,
                         )) {
-                            //println!("=== SAME CHUNK AGAIN!");
+                            println!("=== SAME CHUNK AGAIN!");
                             assert!(false);
                         };
                         seen_chunk_same_sender.insert((
@@ -877,13 +870,12 @@ mod tests {
                     if let NetworkRequests::PartialEncodedChunkRequest { account_id: _, request } =
                         msg
                     {
-                        //println!("S {:?} R {:?} PEQ {:?}", sender_account_id, account_id, request);
                         if requested.contains(&(
                             sender_account_id.clone(),
                             request.part_ords.clone(),
                             request.chunk_hash.clone(),
                         )) {
-                            //println!("== SAME REQUEST AGAIN!");
+                            // do nothing
                         };
                         requested.insert((
                             sender_account_id.clone(),
@@ -896,13 +888,12 @@ mod tests {
                         partial_encoded_chunk,
                     } = msg
                     {
-                        //println!("S {:?} PER {:?}", sender_account_id, partial_encoded_chunk);
                         if responded.contains(&(
                             route_back.clone(),
                             partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
                             partial_encoded_chunk.chunk_hash.clone(),
                         )) {
-                            //println!("== SAME RESPONSE AGAIN!");
+                            // do nothing
                         };
                         responded.insert((
                             route_back.clone(),

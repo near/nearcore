@@ -237,15 +237,6 @@ impl Client {
             return Ok(None);
         }
 
-        // Process stored partial encoded chunks
-        // At this point, the previous epoch hash must be available
-        let mut partial_encoded_chunks =
-            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
-        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
-            // Not include chunks if we can't process them for any reason
-            let _ = self.process_partial_encoded_chunk(partial_encoded_chunk);
-        }
-
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
@@ -620,6 +611,7 @@ impl Client {
                 _ => {}
             }
         }
+
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
@@ -689,6 +681,15 @@ impl Client {
                 return;
             }
         };
+
+        // Process stored partial encoded chunks
+        let next_height = block.header.inner_lite.height + 1;
+        let mut partial_encoded_chunks =
+            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
+            // We will request chunks later if cannot process them here
+            let _ = self.process_partial_encoded_chunk(partial_encoded_chunk);
+        }
 
         // If we produced the block, then it should have already been broadcasted.
         // If received the block from another node then broadcast "header first" to minimise network traffic.

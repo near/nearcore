@@ -806,12 +806,14 @@ impl ShardsManager {
 
         // 7. Checking epoch_id validity
         let prev_block_hash = header.inner.prev_block_hash;
-        if self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_err() {
-            // It may happen because PartialChunkEncodedMessage appeared before Block announcement.
-            // We keep the chunk until Block is received.
-            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-        }
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
+            Ok(epoch_id) => epoch_id,
+            Err(_) => {
+                // It may happen because PartialChunkEncodedMessage appeared before Block announcement.
+                // We keep the chunk until Block is received.
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+            }
+        };
 
         // 8. Checking part_ords' validity
         let num_total_parts = self.runtime_adapter.num_total_parts();
