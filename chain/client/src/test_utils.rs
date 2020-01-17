@@ -481,13 +481,35 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    connectors1.read().unwrap()[i].1.do_send(
-                                        NetworkViewClientMessages::StateRequest {
-                                            shard_id: *shard_id,
-                                            sync_hash: *sync_hash,
-                                            need_header: *need_header,
-                                            parts: parts.clone(),
-                                        },
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::StateRequest {
+                                                shard_id: *shard_id,
+                                                sync_hash: *sync_hash,
+                                                need_header: *need_header,
+                                                parts: parts.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::StateResponse(
+                                                        response,
+                                                    ) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                response,
+                                                            ),
+                                                        );
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
                                     );
                                 }
                             }
