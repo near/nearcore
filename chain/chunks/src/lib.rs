@@ -33,6 +33,7 @@ use near_primitives::types::{
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use near_primitives::block::BlockHeader;
 
 mod chunk_cache;
 mod types;
@@ -61,6 +62,7 @@ pub enum ProcessPartialEncodedChunkResult {
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
     NeedMorePartsOrReceipts(ShardChunkHeader),
+    NeedBlock,
 }
 
 #[derive(Clone, Debug)]
@@ -234,6 +236,7 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
+    stored_partial_encoded_chunks: HashMap<BlockHeight, HashMap<ShardId, PartialEncodedChunk>>,
 
     seals_mgr: SealsManager,
 }
@@ -256,6 +259,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS),
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
+            stored_partial_encoded_chunks: HashMap::new(),
             seals_mgr: SealsManager::new(me, runtime_adapter),
         }
     }
@@ -486,6 +490,60 @@ impl ShardsManager {
             }
         }
         Ok(())
+    }
+
+    pub fn store_partial_encoded_chunk(
+        &mut self,
+        known_header: &BlockHeader,
+        partial_encoded_chunk: PartialEncodedChunk,
+    ) {
+        // Remove old partial_encoded_chunks
+        let encoded_chunks = &self.encoded_chunks;
+        self.stored_partial_encoded_chunks
+            .retain(|&height, _| encoded_chunks.height_within_front_horizon(height));
+
+        let header = partial_encoded_chunk
+            .clone()
+            .header
+            .expect("PartialEncodedChunkMessage always have header");
+        let height = header.inner.height_created;
+        let shard_id = header.inner.shard_id;
+        if self.encoded_chunks.height_within_front_horizon(height) {
+            let runtime_adapter = &self.runtime_adapter;
+            let heights =
+                self.stored_partial_encoded_chunks.entry(height).or_insert(HashMap::new());
+            heights
+                .entry(shard_id)
+                .and_modify(|stored_chunk| {
+                    let epoch_id = runtime_adapter
+                        .get_epoch_id_from_prev_block(&known_header.prev_hash)
+                        .expect("epoch_id for known header must exist");
+                    let block_producer = runtime_adapter
+                        .get_block_producer(&epoch_id, height)
+                        .expect("height is within front horizon");
+                    if runtime_adapter
+                        .verify_validator_signature(
+                            &epoch_id,
+                            &known_header.prev_hash,
+                            &block_producer,
+                            header.hash.as_ref(),
+                            &header.signature,
+                        )
+                        .unwrap_or(false)
+                    {
+                        // We prove that this one is valid for `epoch_id`
+                        *stored_chunk = partial_encoded_chunk.clone();
+                    }
+                })
+                .or_insert(partial_encoded_chunk.clone());
+        }
+    }
+
+    pub fn get_stored_partial_encoded_chunks(
+        &self,
+        height: BlockHeight,
+    ) -> HashMap<ShardId, PartialEncodedChunk> {
+        self.stored_partial_encoded_chunks.get(&height).unwrap_or(&HashMap::new()).clone()
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
@@ -748,6 +806,11 @@ impl ShardsManager {
 
         // 7. Checking epoch_id validity
         let prev_block_hash = header.inner.prev_block_hash;
+        if self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_err() {
+            // It may happen because PartialChunkEncodedMessage appeared before Block announcement.
+            // We keep the chunk until Block is received.
+            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+        }
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         // 8. Checking part_ords' validity

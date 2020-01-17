@@ -237,6 +237,15 @@ impl Client {
             return Ok(None);
         }
 
+        // Process stored partial encoded chunks
+        // At this point, the previous epoch hash must be available
+        let mut partial_encoded_chunks =
+            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
+            // Not include chunks if we can't process them for any reason
+            let _ = self.process_partial_encoded_chunk(partial_encoded_chunk);
+        }
+
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
@@ -635,6 +644,11 @@ impl Client {
             }
             ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
                 self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                Ok(vec![])
+            }
+            ProcessPartialEncodedChunkResult::NeedBlock => {
+                self.shards_mgr
+                    .store_partial_encoded_chunk(self.chain.head_header()?, partial_encoded_chunk);
                 Ok(vec![])
             }
         }

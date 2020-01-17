@@ -85,14 +85,16 @@ impl EncodedChunksCache {
         })
     }
 
+    pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
+        height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
+    }
+
+    pub fn height_within_rear_horizon(&self, height: BlockHeight) -> bool {
+        height + HEIGHT_HORIZON >= self.largest_seen_height
+    }
+
     pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
-        if height + HEIGHT_HORIZON < self.largest_seen_height {
-            false
-        } else if height > self.largest_seen_height + MAX_HEIGHTS_AHEAD {
-            false
-        } else {
-            true
-        }
+        self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
     pub fn merge_in_partial_encoded_chunk(
