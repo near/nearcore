@@ -688,7 +688,10 @@ impl Client {
             self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
         for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
             // We will request chunks later if cannot process them here
-            let _ = self.process_partial_encoded_chunk(partial_encoded_chunk);
+            let accepted_blocks = self.process_partial_encoded_chunk(partial_encoded_chunk);
+            if accepted_blocks.is_ok() {
+                debug_assert!(accepted_blocks.unwrap().len() == 0);
+            }
         }
 
         // If we produced the block, then it should have already been broadcasted.

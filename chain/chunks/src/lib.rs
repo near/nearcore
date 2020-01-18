@@ -65,7 +65,6 @@ pub enum ProcessPartialEncodedChunkResult {
     NeedMorePartsOrReceipts(ShardChunkHeader),
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// Without the block we cannot restore the epoch and save encoded chunk data.
-    ///     We just
     NeedBlock,
 }
 

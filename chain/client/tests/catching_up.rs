@@ -826,6 +826,7 @@ mod tests {
                 Arc::new(RwLock::new(vec![]));
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
+            let verbose = false;
 
             let _connectors1 = connectors.clone();
             let seen_chunk_same_sender =
@@ -875,7 +876,9 @@ mod tests {
                             request.part_ords.clone(),
                             request.chunk_hash.clone(),
                         )) {
-                            // do nothing
+                            if verbose {
+                                println!("=== SAME REQUEST AGAIN!");
+                            }
                         };
                         requested.insert((
                             sender_account_id.clone(),
@@ -893,7 +896,9 @@ mod tests {
                             partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
                             partial_encoded_chunk.chunk_hash.clone(),
                         )) {
-                            // do nothing
+                            if verbose {
+                                println!("=== SAME RESPONSE AGAIN!");
+                            }
                         };
                         responded.insert((
                             route_back.clone(),
