@@ -30,6 +30,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
+use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
@@ -62,6 +63,9 @@ pub enum ProcessPartialEncodedChunkResult {
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
     NeedMorePartsOrReceipts(ShardChunkHeader),
+    /// PartialEncodedChunkMessage is received earlier than Block for the same height.
+    /// Without the block we cannot restore the epoch and save encoded chunk data.
+    ///     We just
     NeedBlock,
 }
 
@@ -502,10 +506,7 @@ impl ShardsManager {
         self.stored_partial_encoded_chunks
             .retain(|&height, _| encoded_chunks.height_within_front_horizon(height));
 
-        let header = partial_encoded_chunk
-            .clone()
-            .header
-            .expect("PartialEncodedChunkMessage always have header");
+        let header = unwrap_option_or_return!(partial_encoded_chunk.clone().header);
         let height = header.inner.height_created;
         let shard_id = header.inner.shard_id;
         if self.encoded_chunks.height_within_front_horizon(height) {
@@ -515,12 +516,11 @@ impl ShardsManager {
             heights
                 .entry(shard_id)
                 .and_modify(|stored_chunk| {
-                    let epoch_id = runtime_adapter
-                        .get_epoch_id_from_prev_block(&known_header.prev_hash)
-                        .expect("epoch_id for known header must exist");
-                    let block_producer = runtime_adapter
-                        .get_block_producer(&epoch_id, height)
-                        .expect("height is within front horizon");
+                    let epoch_id = unwrap_or_return!(
+                        runtime_adapter.get_epoch_id_from_prev_block(&known_header.prev_hash)
+                    );
+                    let block_producer =
+                        unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
                     if runtime_adapter
                         .verify_validator_signature(
                             &epoch_id,
@@ -531,10 +531,13 @@ impl ShardsManager {
                         )
                         .unwrap_or(false)
                     {
-                        // We prove that this one is valid for `epoch_id`
+                        // We prove that this one is valid for `epoch_id`.
+                        // We won't store it by design if epoch is changed.
                         *stored_chunk = partial_encoded_chunk.clone();
                     }
                 })
+                // This is the first partial encoded chunk received for current height / shard_id.
+                // Store it because there are no other candidates.
                 .or_insert(partial_encoded_chunk.clone());
         }
     }

@@ -86,11 +86,11 @@ impl EncodedChunksCache {
     }
 
     pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
-        height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
+        height >= self.largest_seen_height && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
     }
 
     pub fn height_within_rear_horizon(&self, height: BlockHeight) -> bool {
-        height + HEIGHT_HORIZON >= self.largest_seen_height
+        height + HEIGHT_HORIZON >= self.largest_seen_height && height <= self.largest_seen_height
     }
 
     pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
