@@ -6,6 +6,7 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
 use near_primitives::views::{
@@ -525,7 +526,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             },
             NetworkViewClientMessages::StateRequest { shard_id, sync_hash, need_header, parts } => {
-                if let Ok(shard_state) = self.chain.get_state_response_by_request(
+                if let Ok(state_response) = self.chain.get_state_response_by_request(
                     shard_id,
                     sync_hash,
                     need_header,
@@ -534,10 +535,20 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::StateResponse(StateResponseInfo {
                         shard_id,
                         sync_hash,
-                        shard_state,
+                        state_response,
                     })
                 } else {
-                    NetworkViewClientResponses::NoResponse
+                    // We couldn't build state response for any reason.
+                    // Send empty StateResponse to help requesting node unstuck.
+                    NetworkViewClientResponses::StateResponse(StateResponseInfo {
+                        shard_id,
+                        sync_hash,
+                        state_response: ShardStateSyncResponse {
+                            header: None,
+                            part_ids: vec![],
+                            data: vec![],
+                        },
+                    })
                 }
             }
             NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {

@@ -204,7 +204,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
                 sync_hash: hash,
-                shard_state,
+                state_response,
             }) => {
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -246,7 +246,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = &shard_state.header {
+                            if let Some(header) = &state_response.header {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(
                                         shard_id,
@@ -257,16 +257,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                             shard_sync_download.downloads[0].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
                                             shard_sync_download.downloads[0].error = true;
                                         }
                                     }
+                                }
+                            } else {
+                                // No header found.
+                                // It may happen because requested node couldn't build state response.
+                                if !shard_sync_download.downloads[0].done {
+                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                                    shard_sync_download.downloads[0].error = true;
                                 }
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
                             let num_parts = shard_sync_download.downloads.len();
-                            for (i, part_id) in shard_state.part_ids.iter().enumerate() {
+                            for (i, part_id) in state_response.part_ids.iter().enumerate() {
                                 let part_id = *part_id as usize;
                                 if part_id >= num_parts {
                                     // This may happen only if we somehow have accepted wrong header
@@ -278,13 +285,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                         hash,
                                         part_id as u64,
                                         num_parts as u64,
-                                        &shard_state.data[i],
+                                        &state_response.data[i],
                                     ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
                                             shard_sync_download.downloads[part_id].error = true;
                                         }
                                     }

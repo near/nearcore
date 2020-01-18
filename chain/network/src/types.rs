@@ -1198,7 +1198,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub shard_state: ShardStateSyncResponse,
+    pub state_response: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]
