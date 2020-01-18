@@ -82,8 +82,8 @@ impl PeerInfo {
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
     actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
-        System::current().stop();
         panic!("Timeout exceeded.");
+        System::current().stop();
         future::ready(())
     }));
 }
