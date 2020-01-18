@@ -2994,6 +2994,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "restaked"
+version = "0.1.0"
+dependencies = [
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near 0.4.11",
+ "near-crypto 0.1.0",
+ "near-jsonrpc-client 0.1.0",
+ "near-primitives 0.1.0",
+ "testlib 0.1.0",
+]
+
+[[package]]
 name = "ring"
 version = "0.16.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
