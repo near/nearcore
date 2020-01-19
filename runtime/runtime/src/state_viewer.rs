@@ -142,6 +142,9 @@ impl TrieViewer {
         let time_str = format!("{:.*}ms", 2, time_ms);
 
         if let Some(err) = err {
+            if let Some(outcome) = outcome {
+                logs.extend(outcome.logs);
+            }
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
             Err(message.into())
@@ -249,5 +252,23 @@ mod tests {
             result.values,
             [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
         )
+    }
+
+    #[test]
+    fn test_log_when_panic() {
+        let (viewer, root) = get_test_trie_viewer();
+
+        let mut logs = vec![];
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &alice_account(),
+            "panic_after_logging",
+            &[],
+            &mut logs,
+        );
+
+        assert_eq!(logs, vec!["hello".to_string()]);
     }
 }

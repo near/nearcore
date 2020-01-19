@@ -394,10 +394,7 @@ impl ShardsManager {
     }
 
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) {
-        self.tx_pools
-            .entry(shard_id)
-            .or_insert_with(TransactionPool::default)
-            .insert_transaction(tx);
+        self.tx_pools.entry(shard_id).or_insert_with(TransactionPool::new).insert_transaction(tx);
     }
 
     pub fn remove_transactions(
@@ -417,7 +414,7 @@ impl ShardsManager {
     ) {
         self.tx_pools
             .entry(shard_id)
-            .or_insert_with(TransactionPool::default)
+            .or_insert_with(TransactionPool::new)
             .reintroduce_transactions(transactions.clone());
     }
 

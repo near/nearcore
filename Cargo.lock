@@ -2177,6 +2177,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
+ "borsh 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2990,6 +2991,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "quick-error 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "restaked"
+version = "0.1.0"
+dependencies = [
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near 0.4.11",
+ "near-crypto 0.1.0",
+ "near-jsonrpc-client 0.1.0",
+ "near-primitives 0.1.0",
+ "testlib 0.1.0",
 ]
 
 [[package]]
