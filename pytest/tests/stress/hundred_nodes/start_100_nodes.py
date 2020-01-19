@@ -22,7 +22,7 @@ except:
 try:
     machine_name_prefix = sys.argv[2]
 except:
-    machine_name_prefix = 'pytest-node-{username}-'
+    machine_name_prefix = f'pytest-node-{username}-'
 
 genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
