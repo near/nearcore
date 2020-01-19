@@ -818,7 +818,7 @@ impl Client {
                 // Executing process_partial_encoded_chunk can unlock some blocks.
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
-                for accepted_block in accepted_blocks.into_iter() {
+                for accepted_block in accepted_blocks {
                     self.on_block_accepted(
                         accepted_block.hash,
                         accepted_block.status,
