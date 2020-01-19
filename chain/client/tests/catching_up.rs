@@ -871,40 +871,40 @@ mod tests {
                     if let NetworkRequests::PartialEncodedChunkRequest { account_id: _, request } =
                         msg
                     {
-                        if requested.contains(&(
-                            sender_account_id.clone(),
-                            request.part_ords.clone(),
-                            request.chunk_hash.clone(),
-                        )) {
-                            if verbose {
+                        if verbose {
+                            if requested.contains(&(
+                                sender_account_id.clone(),
+                                request.part_ords.clone(),
+                                request.chunk_hash.clone(),
+                            )) {
                                 println!("=== SAME REQUEST AGAIN!");
-                            }
-                        };
-                        requested.insert((
-                            sender_account_id.clone(),
-                            request.part_ords.clone(),
-                            request.chunk_hash.clone(),
-                        ));
+                            };
+                            requested.insert((
+                                sender_account_id.clone(),
+                                request.part_ords.clone(),
+                                request.chunk_hash.clone(),
+                            ));
+                        }
                     }
                     if let NetworkRequests::PartialEncodedChunkResponse {
                         route_back,
                         partial_encoded_chunk,
                     } = msg
                     {
-                        if responded.contains(&(
-                            route_back.clone(),
-                            partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
-                            partial_encoded_chunk.chunk_hash.clone(),
-                        )) {
-                            if verbose {
+                        if verbose {
+                            if responded.contains(&(
+                                route_back.clone(),
+                                partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
+                                partial_encoded_chunk.chunk_hash.clone(),
+                            )) {
                                 println!("=== SAME RESPONSE AGAIN!");
                             }
-                        };
-                        responded.insert((
-                            route_back.clone(),
-                            partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
-                            partial_encoded_chunk.chunk_hash.clone(),
-                        ));
+                            responded.insert((
+                                route_back.clone(),
+                                partial_encoded_chunk.parts.iter().map(|x| x.part_ord).collect(),
+                                partial_encoded_chunk.chunk_hash.clone(),
+                            ));
+                        }
                     }
                     if let NetworkRequests::Block { block } = msg {
                         // There is no chunks at height 1
