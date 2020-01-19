@@ -6,6 +6,8 @@ import sys
 from rc import run
 import os
 import tempfile
+from pprint import pprint
+
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -121,7 +123,6 @@ with open('/tmp/python-rc.log') as f:
         else:
             raise NotImplementedError()
 
-from pprint import pprint
 
 
 def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):

@@ -27,9 +27,20 @@ from cluster import apply_config_changes, apply_genesis_changes
 # it works with your gcloud credentials
 
 # After you're done, fill image_name here
-image_name = 'near-block-prod-100-20200116-bo'
+try:
+    image_name = sys.argv[1]
+except:
+    branch = run(
+        'git rev-parse --symbolic-full-name --abbrev-ref HEAD').stdout.strip()
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = 'bo'
+    image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{username}'
 
-machine_name_prefix = 'pytest-node-'
+try:
+    machine_name_prefix = sys.argv[2]
+except:
+    machine_name_prefix = 'pytest-node-'
 
 genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
