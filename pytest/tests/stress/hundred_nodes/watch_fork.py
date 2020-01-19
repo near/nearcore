@@ -4,6 +4,7 @@ import sys
 sys.path.append('lib')
 
 from cluster import GCloudNode, RpcNode
+from utils import user_name
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 
@@ -13,7 +14,7 @@ while True:
     futures = {}
     with ThreadPoolExecutor(max_workers=20) as pool:
         for i in range(100):
-            node = GCloudNode(f'pytest-node-{i}')
+            node = GCloudNode(f'pytest-node-{user_name()}-{i}')
             futures[pool.submit(lambda: node.validators())] = i
      
     for f in as_completed(futures):
