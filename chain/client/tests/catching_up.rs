@@ -922,7 +922,7 @@ mod tests {
                 })),
             );
             *connectors.write().unwrap() = conn;
-            let max_wait_ms = block_prod_time * last_height / 10 * 11 + 10000;
+            let max_wait_ms = block_prod_time * last_height / 10 * 13 + 10000;
 
             near_network::test_utils::wait_or_panic(max_wait_ms);
         })
