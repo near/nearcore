@@ -11,7 +11,7 @@ sys.path.append('lib')
 from utils import user_name
 
 machines = gcloud.list()
-to_delete_prefix = sys.argv[1] if len(sys.argv) >= 2 else "pytest-node-{user_name()}"
+to_delete_prefix = sys.argv[1] if len(sys.argv) >= 2 else f"pytest-node-{user_name()}"
 to_delete = list(filter(lambda m: m.name.startswith(to_delete_prefix), machines))
 
 if to_delete:
