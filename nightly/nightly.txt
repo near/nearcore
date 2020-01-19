@@ -23,6 +23,7 @@ pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
+pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_key_value_changes.py
 
 # python stress tests

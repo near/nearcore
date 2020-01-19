@@ -115,10 +115,11 @@ class BaseNode(object):
 
         return list(reversed(heights))
 
+    def get_validators(self):
+        return self.json_rpc('validators', [None])
+
     def get_account(self, acc):
         print(f'get account {acc}')
-        # if acc == 'test2':
-        #     input('pause')
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
     def get_block(self, block_hash):
@@ -425,7 +426,7 @@ def load_config():
         try:
             with open(config_file) as f:
                 config = json.load(f)
-                print(f"Load config from {config_file}, config {config}")
+                    print(f"Load config from {config_file}, config {config}")
         except:
             print(f"Failed to load config file, use default config {config}")
     else:

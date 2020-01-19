@@ -1,10 +1,15 @@
+use std::cmp::{max, Ordering};
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
+
 use near_crypto::Signature;
+use near_pool::types::PoolIterator;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -12,17 +17,13 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
-use serde::Serialize;
 
 use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::errors::InvalidTxError;
-use std::cmp::{max, Ordering};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -225,12 +226,12 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Number of missed blocks for given block producer.
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<u64, Error>;
+    ) -> Result<ValidatorStats, Error>;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -463,8 +464,8 @@ impl dyn RuntimeAdapter {
         let mut total_stake = 0;
 
         for bp in block_producers {
-            account_to_stake.insert(bp.0.account_id, bp.0.amount);
-            total_stake += bp.0.amount;
+            account_to_stake.insert(bp.0.account_id, bp.0.stake);
+            total_stake += bp.0.stake;
         }
 
         for approval in approvals {
@@ -562,11 +563,12 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::genesis_chunks;
-
-    use super::*;
-    use crate::Chain;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+
+    use crate::Chain;
+
+    use super::*;
 
     #[test]
     fn test_block_produce() {

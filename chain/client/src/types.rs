@@ -9,13 +9,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
-use near_network::types::AccountOrPeerIdOrHash;
+use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId, StateChanges,
-    StateChangesRequest, Version,
+    AccountId, BlockHeight, BlockHeightDelta, MaybeBlockId, NumBlocks, NumSeats, ShardId,
+    StateChanges, StateChangesRequest, Version,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -344,10 +344,8 @@ impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
 }
 
-pub enum GetGasPrice {
-    Height(BlockHeight),
-    Hash(CryptoHash),
-    None,
+pub struct GetGasPrice {
+    pub block_id: MaybeBlockId,
 }
 
 impl Message for GetGasPrice {
@@ -362,7 +360,7 @@ pub struct NetworkInfoResponse {
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
-    pub known_producers: Vec<AccountId>,
+    pub known_producers: Vec<KnownProducer>,
 }
 
 /// Status of given transaction including all the subsequent receipts.
@@ -376,7 +374,7 @@ impl Message for TxStatus {
 }
 
 pub struct GetValidatorInfo {
-    pub last_block_hash: CryptoHash,
+    pub block_id: MaybeBlockId,
 }
 
 impl Message for GetValidatorInfo {
