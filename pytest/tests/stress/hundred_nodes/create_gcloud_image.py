@@ -3,6 +3,10 @@ import os
 import datetime
 from rc import gcloud, run
 
+import sys
+sys.path.append('lib')
+from utils import user_name
+
 additional_flags = ''
 
 try:
@@ -11,9 +15,7 @@ try:
 except:
     branch = run(
         'git rev-parse --symbolic-full-name --abbrev-ref HEAD').stdout.strip()
-    username = os.getlogin()
-    if username == 'root':  # digitalocean
-        username = 'bo'
+    username = user_name()
     image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{username}'
 
 machine_name = f'{image_name}-image-builder'

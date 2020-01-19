@@ -3,7 +3,7 @@ import random, base58
 from retry import retry
 from cluster import LocalNode, GCloudNode
 import sys
-from rc import run
+from rc import run, gcloud
 import os
 import tempfile
 from pprint import pprint
@@ -184,3 +184,10 @@ cd {tmp_contract}
     if p.returncode != 0:
         raise Exception(p.stderr)
     return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+
+
+def user_name():
+    username = os.getlogin()
+    if username == 'root':  # digitalocean
+        username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
+    return username

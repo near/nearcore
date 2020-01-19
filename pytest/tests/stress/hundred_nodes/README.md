@@ -3,8 +3,13 @@
 ## Prerequisites
 - have a gcloud cli installed, logined, default project set.
 (If you can `gcloud compute instances list` and your account can create gcloud instances then it's good)
-
 - python3, virtualenv, pip3
+- Locally compile these packages (used for create config, keys and genesis)
+```
+cargo build -p near --release
+cargo build -p genesis-csv-to-json --release
+cargo build -p keypair-generator --release
+```
 
 ## Steps
 1. install python dependencies:
@@ -25,7 +30,7 @@ python tests/stress/hundred_nodes/create_gcloud_image image_name branch 'additio
 
 3. Start hundred nodes
 ```
-# will use the near-<branch>-YYYYMMDD-<username> image, instance name will be pytest-node-0 to pytest-node-99
+# will use the near-<branch>-YYYYMMDD-<username> image, instance name will be pytest-node-<username>-0 to 99
 python tests/stress/hundred_nodes/hundred_nodes/start_100_nodes.py
 # If you have a different image name, or want different instance name
 ... start_100_nodes.py image_name instance_name_prefix
@@ -41,7 +46,7 @@ tmux a
 ## Clean up
 
 - Logs are stored in each instance in `/tmp/python-rc.log`. You can collect them all by `tests/stress/hundred_nodes/collect_logs.py
-- Delete all instances quickly with `tests/delete_remote_nodes.py`
+- Delete all instances quickly with `tests/delete_remote_nodes.py [prefix]`
 
 ## Some notes
 If you have volatile or slow ssh access to gcloud instances, these scripts can fail at any step. I recommend create an instance on digitalocean, mosh to digitalocean instance (mosh is reliable), running all pytest script there (access gcloud from digital ocean is fast). In the reliable office network or mosh-digitalocean over an unreliable network, scripts never failed.

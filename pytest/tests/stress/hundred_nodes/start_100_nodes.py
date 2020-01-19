@@ -1,10 +1,3 @@
-# Prerequisite
-# cargo build -p near --release
-# cargo build -p genesis-csv-to-json --release
-# cargo build -p keypair-generator
-# 
-# And a suitable gcloud image, see below image_name
-
 from rc import run, gcloud, pmap
 import json
 import datetime
@@ -16,31 +9,20 @@ import sys
 
 sys.path.append('lib')
 from cluster import apply_config_changes, apply_genesis_changes
+from utils import user_name
 
-# Go to gcloud, create a powerful instance (recommend 32vcpu), install dep,
-# install rust, compile all release binaries so that start_stakewars doesn't
-# need compilation. Stop instance. Create a gcloud image with this instance.
-# Delete instance. We'll create 100 instance with this image.
-
-# Alternatively, use create_gcloud_image.py to do the above step automatically.
-# Note, coz rust installation is per user, you have to create your own image so
-# it works with your gcloud credentials
-
-# After you're done, fill image_name here
 try:
     image_name = sys.argv[1]
 except:
     branch = run(
         'git rev-parse --symbolic-full-name --abbrev-ref HEAD').stdout.strip()
-    username = os.getlogin()
-    if username == 'root':  # digitalocean
-        username = 'bo'
+    username = user_name()
     image_name = f'near-{branch}-{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}-{username}'
 
 try:
     machine_name_prefix = sys.argv[2]
 except:
-    machine_name_prefix = 'pytest-node-'
+    machine_name_prefix = 'pytest-node-{username}-'
 
 genesis_time = (datetime.datetime.utcnow() -
                 datetime.timedelta(hours=2)).isoformat() + 'Z'
