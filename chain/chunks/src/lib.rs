@@ -723,7 +723,7 @@ impl ShardsManager {
                 self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
                 self.requested_partial_encoded_chunks.remove(&chunk_hash);
                 info!(
-                    "%%% not care shard has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
+                    "%%% not care shard, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
                     prev_block_hash,
                     chunk_hash,
                     partial_encoded_chunk.shard_id,
@@ -750,7 +750,7 @@ impl ShardsManager {
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
             info!(
-                "%%% care shard has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
+                "%%% care shard, can reconstruct, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
                 prev_block_hash,
                 chunk_hash,
                 partial_encoded_chunk.shard_id,
@@ -758,6 +758,15 @@ impl ShardsManager {
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
+        if have_all_parts && have_all_receipts {
+            // cares_about_shard && !can_reconstruct
+            info!(
+                "%%% care shard, cannot reconstruct, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
+                prev_block_hash,
+                chunk_hash,
+                partial_encoded_chunk.shard_id,
+            );
+        }
         Ok(ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(header))
     }
 
