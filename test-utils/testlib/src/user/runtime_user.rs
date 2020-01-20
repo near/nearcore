@@ -90,7 +90,7 @@ impl RuntimeUser {
                     RuntimeError::InvalidTxError(e) => {
                         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
                     }
-                    RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                    RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                     RuntimeError::UnexpectedIntegerOverflow => {
                         panic!("UnexpectedIntegerOverflow error")

@@ -44,13 +44,13 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
         use wasmer_runtime::error::ResolveError as WasmerResolveError;
         match self {
             WasmerResolveError::Signature { .. } => VMError::FunctionExecError(
-                FunctionExecError::ResolveError(MethodResolveError::MethodInvalidSignature),
+                FunctionExecError::MethodResolveError(MethodResolveError::MethodInvalidSignature),
             ),
             WasmerResolveError::ExportNotFound { .. } => VMError::FunctionExecError(
-                FunctionExecError::ResolveError(MethodResolveError::MethodNotFound),
+                FunctionExecError::MethodResolveError(MethodResolveError::MethodNotFound),
             ),
             WasmerResolveError::ExportWrongType { .. } => VMError::FunctionExecError(
-                FunctionExecError::ResolveError(MethodResolveError::MethodNotFound),
+                FunctionExecError::MethodResolveError(MethodResolveError::MethodNotFound),
             ),
         }
     }

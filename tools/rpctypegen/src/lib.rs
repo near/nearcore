@@ -3,12 +3,12 @@ extern crate proc_macro2;
 
 use proc_macro::TokenStream;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "dump_errors_schema")]
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use syn::{
     parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed,
-    Lit, Meta, MetaNameValue,
 };
 
 #[cfg(feature = "dump_errors_schema")]
@@ -64,16 +64,10 @@ struct ErrorType {
 
 thread_local!(static SCHEMA: RefCell<Schema> = RefCell::new(Schema::default()));
 
-fn parse_rpc_error_variant(input: &DeriveInput) -> Option<String> {
-    input.attrs.iter().find_map(|attr| {
-        if !attr.path.is_ident("rpc_error_variant") {
-            return None;
-        }
-        match attr.parse_meta().unwrap() {
-            Meta::NameValue(MetaNameValue { lit: Lit::Str(lit), .. }) => Some(lit.value()),
-            _ => None,
-        }
-    })
+fn parse_rpc_error_variant(input: &DeriveInput) -> String {
+    let type_name = input.ident.to_string();
+    let type_kind: Vec<&str> = type_name.split("Kind").collect();
+    type_kind[0].to_string()
 }
 
 fn error_type_name<'a>(
@@ -85,7 +79,7 @@ fn error_type_name<'a>(
 }
 
 fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &DeriveInput) {
-    let name = parse_rpc_error_variant(input).expect("should have a rpc_error_variant with value");
+    let name = parse_rpc_error_variant(input);
     match &input.data {
         Data::Enum(DataEnum { ref variants, .. }) => {
             // TODO: check for uniqueness
@@ -156,7 +150,7 @@ fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &DeriveInpu
     }
 }
 
-#[proc_macro_derive(RpcError, attributes(rpc_error_variant))]
+#[proc_macro_derive(RpcError)]
 pub fn rpc_error(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 

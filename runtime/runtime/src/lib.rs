@@ -245,7 +245,7 @@ impl Runtime {
             match get_access_key(state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
-                    return Err(InvalidTxError::InvalidAccessKey(
+                    return Err(InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::AccessKeyNotFound {
                             account_id: signer_id.clone(),
                             public_key: transaction.public_key.clone(),
@@ -289,12 +289,14 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance {
-                        account_id: signer_id.clone(),
-                        public_key: transaction.public_key.clone(),
-                        allowance: *allowance,
-                        cost: total_cost,
-                    })
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::NotEnoughAllowance {
+                            account_id: signer_id.clone(),
+                            public_key: transaction.public_key.clone(),
+                            allowance: *allowance,
+                            cost: total_cost,
+                        },
+                    )
                 })?;
             }
         }
@@ -308,13 +310,14 @@ impl Runtime {
             access_key.permission
         {
             if transaction.actions.len() != 1 {
-                return Err(
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
-                );
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::ActionError,
+                )
+                .into());
             }
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(InvalidTxError::InvalidAccessKey(
+                    return Err(InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::ReceiverMismatch {
                             tx_receiver: transaction.receiver_id.clone(),
                             ak_receiver: function_call_permission.receiver_id.clone(),
@@ -328,7 +331,7 @@ impl Runtime {
                         .iter()
                         .all(|method_name| &function_call.method_name != method_name)
                 {
-                    return Err(InvalidTxError::InvalidAccessKey(
+                    return Err(InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::MethodNameMismatch {
                             method_name: function_call.method_name.clone(),
                         },
@@ -336,9 +339,10 @@ impl Runtime {
                     .into());
                 }
             } else {
-                return Err(
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
-                );
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::ActionError,
+                )
+                .into());
             }
         };
 

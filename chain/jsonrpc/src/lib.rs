@@ -121,7 +121,6 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 
 /// A general Server Error
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
-#[rpc_error_variant = "ServerError"]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,

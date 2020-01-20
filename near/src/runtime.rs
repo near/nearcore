@@ -304,7 +304,7 @@ impl NightshadeRuntime {
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO: process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")

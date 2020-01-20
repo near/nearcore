@@ -47,7 +47,7 @@ fn test_check_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
         tx_result,
-        InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::AccessKeyNotFound {
+        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
             account_id: "bob.near".to_string(),
             public_key: signer.public_key.clone()
         })

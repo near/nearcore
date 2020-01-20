@@ -12,7 +12,6 @@ use near_vm_errors::VMError;
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "TxExecutionError"]
 pub enum TxExecutionError {
     /// An error happened during Acton execution
     ActionError(ActionError),
@@ -53,7 +52,7 @@ pub enum RuntimeError {
     /// That it's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
-    BalanceMismatch(BalanceMismatchError),
+    BalanceMismatchError(BalanceMismatchError),
 }
 
 /// Internal
@@ -83,10 +82,9 @@ impl std::error::Error for StorageError {}
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "InvalidTxError"]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
-    InvalidAccessKey(InvalidAccessKeyError),
+    InvalidAccessKeyError(InvalidAccessKeyError),
     /// TX signer_id is not in a valid format or not satisfy requirements see `near_core::primitives::utils::is_valid_account_id`
     InvalidSignerId { signer_id: AccountId },
     /// TX signer_id is not found in a storage
@@ -124,7 +122,6 @@ pub enum InvalidTxError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "InvalidAccessKey"]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
@@ -149,7 +146,6 @@ pub enum InvalidAccessKeyError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "ActionError"]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
     /// Action index is not defined if ActionError.kind is `ActionErrorKind::RentUnpaid`
@@ -161,7 +157,6 @@ pub struct ActionError {
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "ActionError"]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
     AccountAlreadyExists { account_id: AccountId },
@@ -223,7 +218,7 @@ impl Display for InvalidTxError {
             InvalidTxError::SignerDoesNotExist{signer_id} => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
-            InvalidTxError::InvalidAccessKey(access_key_error) => access_key_error.fmt(f),
+            InvalidTxError::InvalidAccessKeyError(access_key_error) => access_key_error.fmt(f),
             InvalidTxError::InvalidNonce{tx_nonce, ak_nonce} => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
@@ -258,7 +253,7 @@ impl Display for InvalidTxError {
 
 impl From<InvalidAccessKeyError> for InvalidTxError {
     fn from(error: InvalidAccessKeyError) -> Self {
-        InvalidTxError::InvalidAccessKey(error)
+        InvalidTxError::InvalidAccessKeyError(error)
     }
 }
 
@@ -298,7 +293,9 @@ impl Display for InvalidAccessKeyError {
 }
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+)]
 pub struct BalanceMismatchError {
     // Input balances
     #[serde(with = "u128_dec_format")]
@@ -385,7 +382,7 @@ impl Display for BalanceMismatchError {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct IntegerOverflowError;
 
 impl From<IntegerOverflowError> for InvalidTxError {
@@ -408,7 +405,7 @@ impl From<StorageError> for RuntimeError {
 
 impl From<BalanceMismatchError> for RuntimeError {
     fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatch(e)
+        RuntimeError::BalanceMismatchError(e)
     }
 }
 

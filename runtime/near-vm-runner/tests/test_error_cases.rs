@@ -47,7 +47,7 @@ fn test_infinite_initializer_export_not_found() {
         make_simple_contract_call(&infinite_initializer_contract(), b"hello2"),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )
@@ -80,7 +80,7 @@ fn test_export_not_found() {
         make_simple_contract_call(&simple_contract(), b"hello2"),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )
@@ -93,7 +93,7 @@ fn test_empty_method() {
         make_simple_contract_call(&simple_contract(), b""),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodEmptyName
             )))
         )
@@ -106,7 +106,7 @@ fn test_invalid_utf8() {
         make_simple_contract_call(&simple_contract(), &[255u8]),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodUTF8Error
             )))
         )
@@ -182,7 +182,7 @@ fn test_wrong_signature_contract() {
         make_simple_contract_call(&wrong_signature_contract(), b"hello"),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature
             )))
         )
@@ -206,7 +206,7 @@ fn test_export_wrong_type() {
         make_simple_contract_call(&export_wrong_type(), b"hello"),
         (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodNotFound
             )))
         )

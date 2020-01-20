@@ -16,12 +16,12 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
-            Err(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Err(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             )))
         }
     } else {
-        Err(VMError::FunctionExecError(FunctionExecError::ResolveError(
+        Err(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
             MethodResolveError::MethodNotFound,
         )))
     }
@@ -57,7 +57,7 @@ pub fn run<'a>(
     if method_name.is_empty() {
         return (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
         );
@@ -83,7 +83,7 @@ pub fn run<'a>(
         Err(_) => {
             return (
                 None,
-                Some(VMError::FunctionExecError(FunctionExecError::ResolveError(
+                Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                     MethodResolveError::MethodUTF8Error,
                 ))),
             )

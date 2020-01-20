@@ -123,7 +123,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
             ActionError {
                 index: Some(0),
                 kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::ResolveError(MethodResolveError::MethodNotFound)
+                    FunctionExecError::MethodResolveError(MethodResolveError::MethodNotFound)
                 ))
             }
             .into()
@@ -147,7 +147,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
             ActionError {
                 index: Some(0),
                 kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::ResolveError(MethodResolveError::MethodEmptyName)
+                    FunctionExecError::MethodResolveError(MethodResolveError::MethodEmptyName)
                 ))
             }
             .into()
@@ -171,7 +171,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
             ActionError {
                 index: Some(0),
                 kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::ResolveError(MethodResolveError::MethodEmptyName)
+                    FunctionExecError::MethodResolveError(MethodResolveError::MethodEmptyName)
                 ))
             }
             .into()
@@ -884,7 +884,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     assert_eq!(
         transaction_result,
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::MethodNameMismatch {
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch {
                 method_name: "run_test".to_string()
             })
         ))
@@ -919,7 +919,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     assert_eq!(
         transaction_result,
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ReceiverMismatch {
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
                 tx_receiver: eve_dot_alice_account(),
                 ak_receiver: bob_account()
             })
@@ -947,7 +947,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
     assert_eq!(
         transaction_result,
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError)
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ActionError)
         ))
     );
 }

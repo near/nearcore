@@ -6,7 +6,6 @@ use std::fmt;
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "FunctionCall"]
 pub enum VMError {
     FunctionExecError(FunctionExecError),
     // TODO: serialize/deserialize?
@@ -16,11 +15,10 @@ pub enum VMError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "FunctionExecError"]
 pub enum FunctionExecError {
     CompilationError(CompilationError),
     LinkError { msg: String },
-    ResolveError(MethodResolveError),
+    MethodResolveError(MethodResolveError),
     WasmTrap { msg: String },
     HostError(HostError),
 }
@@ -28,7 +26,6 @@ pub enum FunctionExecError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "ResolveError"]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodUTF8Error,
@@ -39,7 +36,6 @@ pub enum MethodResolveError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "CompilationError"]
 pub enum CompilationError {
     CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
@@ -49,7 +45,6 @@ pub enum CompilationError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "PrepareError"]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -78,7 +73,6 @@ pub enum PrepareError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-#[rpc_error_variant = "HostError"]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
     BadUTF16,
@@ -166,7 +160,7 @@ impl fmt::Display for FunctionExecError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             FunctionExecError::CompilationError(e) => e.fmt(f),
-            FunctionExecError::ResolveError(e) => e.fmt(f),
+            FunctionExecError::MethodResolveError(e) => e.fmt(f),
             FunctionExecError::HostError(e) => e.fmt(f),
             FunctionExecError::LinkError { msg } => write!(f, "{}", msg),
             FunctionExecError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
@@ -240,7 +234,7 @@ mod tests {
     fn test_display() {
         // TODO: proper printing
         assert_eq!(
-            VMError::FunctionExecError(FunctionExecError::ResolveError(
+            VMError::FunctionExecError(FunctionExecError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature
             ))
             .to_string(),
