@@ -4,7 +4,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
     pub amount: Balance,
@@ -29,7 +29,7 @@ impl Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct AccessKey {
     /// The nonce for this access key.
     /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
@@ -48,7 +48,7 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
 
@@ -61,7 +61,7 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
     /// transaction fees. When this access key is used, both account balance and the allowance is

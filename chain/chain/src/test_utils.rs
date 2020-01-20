@@ -6,12 +6,8 @@ use std::sync::{Arc, RwLock};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
+use serde::Serialize;
 
-use crate::chain::WEIGHT_MULTIPLIER;
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
-use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -28,7 +24,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
@@ -38,10 +34,18 @@ use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
+use crate::chain::{Chain, ChainGenesis, WEIGHT_MULTIPLIER};
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::ApplyTransactionResult;
+use crate::{BlockHeader, RuntimeAdapter};
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
+)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -73,7 +77,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct ReceiptNonce {
     from: String,
     to: String,
@@ -136,7 +140,7 @@ impl KeyValueRuntime {
                             account_id: account_id.clone(),
                             public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
                                 .public_key(),
-                            amount: 1_000_000,
+                            stake: 1_000_000,
                         })
                         .collect()
                 })
@@ -321,13 +325,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
-    ) -> Result<u64, Error> {
-        Ok(0)
+    ) -> Result<ValidatorStats, Error> {
+        Ok(ValidatorStats { produced: 0, expected: 0 })
     }
 
     fn num_shards(&self) -> ShardId {

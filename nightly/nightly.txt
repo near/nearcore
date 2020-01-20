@@ -23,6 +23,7 @@ pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
+pytest --timeout=240 sanity/restaked.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
@@ -33,6 +34,10 @@ pytest stress/network_stress.py
 
 # python adversarial tests
 pytest adversarial/wrong_sync_info.py
+pytest adversarial/malicious_chain.py
+pytest adversarial/malicious_chain.py valid_blocks_only
+pytest adversarial/start_from_genesis.py
+pytest adversarial/start_from_genesis.py overtake
 
 # catchup tests
 expensive near-client catching_up tests::test_catchup_receipts_sync_third_epoch

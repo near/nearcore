@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
@@ -13,7 +14,7 @@ use crate::types::{
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockHeight,
@@ -31,7 +32,7 @@ pub struct BlockHeaderInnerLite {
     pub next_bp_hash: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRest {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
@@ -41,6 +42,8 @@ pub struct BlockHeaderInnerRest {
     pub chunk_tx_root: MerkleHash,
     /// Number of chunks included into the block.
     pub chunks_included: u64,
+    /// Root hash of the challenges in the given block.
+    pub challenges_root: MerkleHash,
     /// Total weight.
     pub total_weight: Weight,
     /// Score.
@@ -101,6 +104,7 @@ impl BlockHeaderInnerRest {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         total_weight: Weight,
         score: Weight,
         validator_proposals: Vec<ValidatorStake>,
@@ -119,6 +123,7 @@ impl BlockHeaderInnerRest {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             total_weight,
             score,
             validator_proposals,
@@ -144,7 +149,7 @@ impl BlockHeaderInnerRest {
 }
 
 /// Block approval by other block producers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
     pub parent_hash: CryptoHash,
     pub reference_hash: CryptoHash,
@@ -153,7 +158,7 @@ pub struct Approval {
 }
 
 /// Block approval by other block producers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalMessage {
     pub approval: Approval,
     pub target: AccountId,
@@ -192,7 +197,7 @@ impl ApprovalMessage {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeader {
     pub prev_hash: CryptoHash,
@@ -244,6 +249,7 @@ impl BlockHeader {
         outcome_root: MerkleHash,
         timestamp: u64,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         total_weight: Weight,
         score: Weight,
         validator_proposals: Vec<ValidatorStake>,
@@ -275,6 +281,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             total_weight,
             score,
             validator_proposals,
@@ -298,6 +305,7 @@ impl BlockHeader {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
+        challenges_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
@@ -317,6 +325,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             chunks_included,
+            challenges_root,
             0.into(),
             0.into(),
             vec![],
@@ -358,7 +367,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
@@ -371,6 +380,8 @@ pub fn genesis_chunks(
     initial_gas_limit: Gas,
 ) -> Vec<ShardChunk> {
     assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    let rs = ReedSolomon::new(1, 2).unwrap();
+
     (0..num_shards)
         .map(|i| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
@@ -379,8 +390,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 0,
                 i,
-                3,
-                1,
+                &rs,
                 0,
                 initial_gas_limit,
                 0,
@@ -408,6 +418,7 @@ impl Block {
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
+        let challenges = vec![];
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
@@ -415,13 +426,14 @@ impl Block {
                 Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
+                Block::compute_challenges_root(&challenges),
                 timestamp,
                 initial_gas_price,
                 initial_total_supply,
                 next_bp_hash,
             ),
             chunks,
-            challenges: vec![],
+            challenges,
         }
     }
 
@@ -497,6 +509,7 @@ impl Block {
                 Block::compute_outcome_root(&chunks),
                 time,
                 Block::compute_chunks_included(&chunks, height),
+                Block::compute_challenges_root(&challenges),
                 total_weight,
                 score,
                 validator_proposals,
@@ -594,6 +607,10 @@ impl Block {
             .0
     }
 
+    pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
+        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
+    }
+
     pub fn compute_gas_used(chunks: &[ShardChunkHeader], height: BlockHeight) -> Gas {
         chunks.iter().fold(0, |acc, chunk| {
             if chunk.height_included == height {
@@ -662,19 +679,37 @@ impl Block {
             return false;
         }
 
+        // Check that challenges root stored in the header matches the challenges root of the challenges
+        let challenges_root = Block::compute_challenges_root(&self.challenges);
+        if self.header.inner_rest.challenges_root != challenges_root {
+            return false;
+        }
+
         true
     }
 }
 
 /// The weight is defined as the number of unique validators approving this fork.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Eq,
+    Ord,
+    Default,
 )]
 pub struct Weight {
     num: u128,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default,
+)]
 pub struct WeightAndScore {
     pub weight: Weight,
     pub score: Weight,
@@ -736,7 +771,7 @@ impl Ord for WeightAndScore {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
     pub chain_id: String,

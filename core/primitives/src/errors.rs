@@ -4,7 +4,7 @@ use near_crypto::PublicKey;
 use std::fmt::Display;
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -27,7 +27,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// External
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidTxError {
     InvalidSigner(AccountId),
     SignerDoesNotExist(AccountId),
@@ -42,7 +42,7 @@ pub enum InvalidTxError {
     Expired,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidAccessKeyError {
     AccessKeyNotFound(AccountId, PublicKey),
     ReceiverMismatch(AccountId, AccountId),
@@ -51,7 +51,7 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance(AccountId, PublicKey, Balance, Balance),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionError {
     AccountAlreadyExists(AccountId),
     AccountDoesNotExist(String, AccountId),
@@ -148,7 +148,7 @@ impl Display for InvalidAccessKeyError {
 }
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BalanceMismatchError {
     // Input balances
     pub incoming_validator_rewards: Balance,
@@ -222,7 +222,7 @@ impl Display for BalanceMismatchError {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct IntegerOverflowError;
 
 /// Error returned from `Runtime::apply`
@@ -322,7 +322,7 @@ impl Display for ActionError {
 }
 
 /// Error returned in the ExecutionOutcome in case of failure.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     Action(ActionError),
     InvalidTx(InvalidTxError),

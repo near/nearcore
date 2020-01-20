@@ -263,6 +263,7 @@ pub struct BlockHeaderView {
     pub chunk_tx_root: CryptoHash,
     pub outcome_root: CryptoHash,
     pub chunks_included: u64,
+    pub challenges_root: CryptoHash,
     pub timestamp: u64,
     #[serde(with = "u128_dec_format")]
     pub total_weight: u128,
@@ -299,6 +300,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: header.inner_rest.chunk_headers_root,
             chunk_tx_root: header.inner_rest.chunk_tx_root,
             chunks_included: header.inner_rest.chunks_included,
+            challenges_root: header.inner_rest.challenges_root,
             outcome_root: header.inner_lite.outcome_root,
             timestamp: header.inner_lite.timestamp,
             total_weight: header.inner_rest.total_weight.to_num(),
@@ -347,6 +349,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunk_headers_root: view.chunk_headers_root,
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
+                challenges_root: view.challenges_root,
                 total_weight: view.total_weight.into(),
                 score: view.score.into(),
                 validator_proposals: view
@@ -478,13 +481,15 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockView {
+    pub author: AccountId,
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
 }
 
-impl From<Block> for BlockView {
-    fn from(block: Block) -> Self {
+impl BlockView {
+    pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
+            author,
             header: block.header.into(),
             chunks: block.chunks.into_iter().map(Into::into).collect(),
         }
@@ -493,14 +498,16 @@ impl From<Block> for BlockView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkView {
+    pub author: AccountId,
     pub header: ChunkHeaderView,
     pub transactions: Vec<SignedTransactionView>,
     pub receipts: Vec<ReceiptView>,
 }
 
-impl From<ShardChunk> for ChunkView {
-    fn from(chunk: ShardChunk) -> Self {
+impl ChunkView {
+    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
         Self {
+            author,
             header: chunk.header.into(),
             transactions: chunk.transactions.into_iter().map(Into::into).collect(),
             receipts: chunk.receipts.into_iter().map(Into::into).collect(),
@@ -885,18 +892,18 @@ pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
-    pub amount: Balance,
+    pub stake: Balance,
 }
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self { account_id: stake.account_id, public_key: stake.public_key, amount: stake.amount }
+        Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self { account_id: view.account_id, public_key: view.public_key, amount: view.amount }
+        Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
     }
 }
 
@@ -1014,7 +1021,7 @@ pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
-    pub next_validators: Vec<ValidatorStakeView>,
+    pub next_validators: Vec<NextEpochValidatorInfo>,
     /// Fishermen for the current epoch
     pub current_fishermen: Vec<ValidatorStakeView>,
     /// Fishermen for the next epoch
@@ -1026,10 +1033,22 @@ pub struct EpochValidatorInfo {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
+    pub public_key: PublicKey,
     pub is_slashed: bool,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub num_missing_blocks: NumBlocks,
+    pub shards: Vec<ShardId>,
+    pub num_produced_blocks: NumBlocks,
+    pub num_expected_blocks: NumBlocks,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NextEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub shards: Vec<ShardId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]

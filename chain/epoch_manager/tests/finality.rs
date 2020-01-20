@@ -182,7 +182,7 @@ mod tests {
             .zip(light_client_block_view.qc_approvals.iter().zip(stakes.iter()))
         {
             if let Some(qv_approval) = qv_approval {
-                qv_stake += stake.amount;
+                qv_stake += stake.stake;
 
                 // each qv_approval must have the new_block or a block in the progeny of the new_block as parent block
                 // and the new_block or a block in its ancestry as the reference block. qv_blocks has all the blocks
@@ -198,7 +198,7 @@ mod tests {
             }
 
             if let Some(qc_approval) = qc_approval {
-                qc_stake += stake.amount;
+                qc_stake += stake.stake;
                 if !qc_blocks.contains(&qc_approval.parent_hash) {
                     assert!(false);
                 }
@@ -212,7 +212,7 @@ mod tests {
                 }
             }
 
-            total_stake += stake.amount;
+            total_stake += stake.stake;
         }
 
         let threshold = total_stake * 2 / 3;

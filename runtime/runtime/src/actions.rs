@@ -224,7 +224,7 @@ pub(crate) fn action_stake(
         result.validator_proposals.push(ValidatorStake {
             account_id: account_id.clone(),
             public_key: stake.public_key.clone(),
-            amount: stake.stake,
+            stake: stake.stake,
         });
         if stake.stake > account.locked {
             account.amount -= increment;

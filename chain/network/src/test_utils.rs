@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, AsyncContext, Context, Handler, Message, System};
+use actix::{Actor, AsyncContext, Context, Handler, Message};
 use futures::{future, FutureExt};
 use rand::{thread_rng, RngCore};
 use tokio::time::delay_for;
@@ -39,7 +39,7 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
@@ -82,7 +82,6 @@ impl PeerInfo {
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
     actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
-        System::current().stop();
         panic!("Timeout exceeded.");
         future::ready(())
     }));
