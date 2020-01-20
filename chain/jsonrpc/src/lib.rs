@@ -1,6 +1,7 @@
 extern crate prometheus;
 
 use std::convert::TryFrom;
+use std::fmt::Display;
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
@@ -118,6 +119,16 @@ pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
+}
+
+impl Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
+            ServerError::Timeout => write!(f, "ServerError: Timeout"),
+            ServerError::Closed => write!(f, "ServerError: Closed"),
+        }
+    }
 }
 
 impl From<InvalidTxError> for ServerError {
