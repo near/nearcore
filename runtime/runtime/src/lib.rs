@@ -565,8 +565,9 @@ impl Runtime {
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
-        state_update
-            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+        state_update.commit(StateChangeCause::ActionReceiptProcessingStarted {
+            receipt_hash: receipt.get_hash(),
+        });
 
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;

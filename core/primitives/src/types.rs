@@ -56,6 +56,9 @@ pub enum StateChangeCause {
     InitialState,
     /// Processing of a transaction.
     TransactionProcessing { tx_hash: CryptoHash },
+    /// Before the receipt is going to be processed, inputs get drained from the state, which
+    /// causes state modification.
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
     /// Processing of a receipt.
     ReceiptProcessing { receipt_hash: CryptoHash },
     /// The given receipt was postponed. This is either a data receipt or an action receipt.

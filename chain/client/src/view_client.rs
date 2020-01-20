@@ -7,7 +7,7 @@ use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
-use near_primitives::types::{AccountId, StateChanges, BlockId, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryResponse,
