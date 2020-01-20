@@ -5,21 +5,20 @@ use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
-
 use futures::Future;
+
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc::ServerError;
-use near_jsonrpc_client::BlockId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionOutcomeView, FinalExecutionOutcomeView,
-    QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -55,6 +54,11 @@ impl RpcUser {
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         let data = to_base(data);
         self.actix(move |client| client.write().unwrap().query(path, data))
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
+        self.actix(move |client| client.write().unwrap().validators(block_id))
             .map_err(|err| err.to_string())
     }
 }

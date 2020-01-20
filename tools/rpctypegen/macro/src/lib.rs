@@ -3,7 +3,6 @@ extern crate proc_macro2;
 
 use near_rpc_error_core::{parse_error_type, ErrorType};
 use proc_macro::TokenStream;
-#[cfg(feature = "dump_errors_schema")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "dump_errors_schema")]
 use serde_json::Value;

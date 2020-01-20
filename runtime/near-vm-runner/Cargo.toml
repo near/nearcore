@@ -34,6 +34,8 @@ default = []
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
 
+no_cache = []
+
 [[bench]]
 name = "bench"
 harness = false

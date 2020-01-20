@@ -32,10 +32,10 @@ members = [
     "near/",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
-    "tools/rpctypegen/tests",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
+    "tools/restaked"
 ]
 
 [dev-dependencies]
