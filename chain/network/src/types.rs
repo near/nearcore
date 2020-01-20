@@ -1380,7 +1380,19 @@ pub struct PartialEncodedChunkRequestMsg {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct StopSignal {}
+pub struct StopSignal {
+    pub should_panic: bool,
+}
+
+impl StopSignal {
+    pub fn new() -> Self {
+        Self { should_panic: false }
+    }
+
+    pub fn should_panic() -> Self {
+        Self { should_panic: true }
+    }
+}
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.

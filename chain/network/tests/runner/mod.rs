@@ -237,7 +237,7 @@ impl StateMachine {
                             info.pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(StopSignal {})
+                                .send(StopSignal::new())
                                 .map_err(|_| ())
                                 .and_then(move |_| {
                                     flag.store(true, Ordering::Relaxed);

@@ -1364,8 +1364,13 @@ impl Handler<PeerRequest> for PeerManagerActor {
 impl Handler<StopSignal> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
         debug!(target: "network", "Receive Stop Signal. Me: {:?}", self.peer_id);
-        ctx.stop();
+
+        if msg.should_panic {
+            panic!("Node crashed");
+        } else {
+            ctx.stop();
+        }
     }
 }

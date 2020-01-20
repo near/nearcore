@@ -38,6 +38,15 @@ pub fn init_test_logger() {
     init_stop_on_panic();
 }
 
+pub fn init_test_logger_allow_panic() {
+    let _ = env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
+        .try_init();
+}
+
 pub fn init_test_module_logger(module: &str) {
     let _ = env_logger::Builder::new()
         .filter_module("tokio_reactor", LevelFilter::Info)
