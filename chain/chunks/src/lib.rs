@@ -643,7 +643,9 @@ impl ShardsManager {
                     return Ok(ProcessPartialEncodedChunkResult::Known);
                 }
             }
-        };
+        } else {
+            info!("%%% Chunk received {:?}", chunk_hash);
+        }
 
         if !self.runtime_adapter.verify_chunk_header_signature(&header)? {
             byzantine_assert!(false);
@@ -1045,10 +1047,18 @@ impl ShardsManager {
             );
 
             if Some(&to_whom) != self.me.as_ref() {
+                let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
+                let shard_id = partial_encoded_chunk.shard_id.clone();
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkMessage {
                     account_id: to_whom.clone(),
                     partial_encoded_chunk,
                 });
+                info!(
+                    "%%% chunk sent {:?} in shard {} to {}",
+                    chunk_hash,
+                    shard_id,
+                    to_whom.clone()
+                );
             }
         }
 
