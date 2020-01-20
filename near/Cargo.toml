@@ -40,6 +40,3 @@ near-epoch-manager = { path = "../chain/epoch_manager" }
 [dev-dependencies]
 tempdir = "0.3"
 testlib = { path = "../test-utils/testlib" }
-
-[features]
-dump_errors_schema = ["near-primitives/dump_errors_schema", "near-jsonrpc/dump_errors_schema", "node-runtime/dump_errors_schema"]
