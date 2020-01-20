@@ -557,7 +557,7 @@ impl WrappedTrieChanges {
         store_update.trie = Some(self.trie.clone());
         for (key, changes) in &self.kv_changes {
             assert!(
-                changes.iter().any(|(change_cause, _)| {
+                !changes.iter().any(|(change_cause, _)| {
                     if let StateChangeCause::NotWritableToDisk = change_cause {
                         true
                     } else {
