@@ -223,52 +223,62 @@ mod tests {
         );
         let expected: BTreeMap<String, ErrorType> = serde_json::from_str(
             r#"
-        {
-            "AccountAlreadyExists": {
-              "name": "AccountAlreadyExists",
-              "subtypes": [],
-              "props": {
-                "account_id": ""
-              }
-            },
-            "ActionError": {
-              "name": "ActionError",
-              "subtypes": [
-                "AccountAlreadyExists"
-              ],
-              "props": {
-                "index": ""
-              }
-            },
-            "InvalidSignerId": {
-              "name": "InvalidSignerId",
-              "subtypes": [],
-              "props": {
-                "signer_id": ""
-              }
-            },
-            "InvalidTxError": {
-              "name": "InvalidTxError",
-              "subtypes": [
-                "InvalidAccessKeyError",
-                "InvalidSignerId"
-              ],
-              "props": {}
-            },
-            InvalidAccessKeyError: {
-              "name": "InvalidAccessKeyError",
-              "subtypes": [],
-              "props: {}
-            }
-            "TxExecutionError": {
-              "name": "TxExecutionError",
-              "subtypes": [
-                "ActionError",
-                "InvalidTxError"
-              ],
-              "props": {}
-            }
-          }"#,
+            {
+                "AccessKeyNotFound": {
+                  "name": "AccessKeyNotFound",
+                  "subtypes": [],
+                  "props": {
+                    "account_id": "",
+                    "public_key": ""
+                  }
+                },
+                "AccountAlreadyExists": {
+                  "name": "AccountAlreadyExists",
+                  "subtypes": [],
+                  "props": {
+                    "account_id": ""
+                  }
+                },
+                "ActionError": {
+                  "name": "ActionError",
+                  "subtypes": [
+                    "AccountAlreadyExists"
+                  ],
+                  "props": {
+                    "index": ""
+                  }
+                },
+                "InvalidAccessKeyError": {
+                  "name": "InvalidAccessKeyError",
+                  "subtypes": [
+                    "AccessKeyNotFound"
+                  ],
+                  "props": {}
+                },
+                "InvalidSignerId": {
+                  "name": "InvalidSignerId",
+                  "subtypes": [],
+                  "props": {
+                    "signer_id": ""
+                  }
+                },
+                "InvalidTxError": {
+                  "name": "InvalidTxError",
+                  "subtypes": [
+                    "InvalidAccessKeyError",
+                    "InvalidSignerId"
+                  ],
+                  "props": {}
+                },
+                "TxExecutionError": {
+                  "name": "TxExecutionError",
+                  "subtypes": [
+                    "ActionError",
+                    "InvalidTxError"
+                  ],
+                  "props": {}
+                }
+              }"#,
         )
         .unwrap();
         assert_eq!(
