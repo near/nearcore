@@ -668,7 +668,7 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit(StateChangeCause::ReceiptProcessing {
+                state_update.commit(StateChangeCause::ActionReceiptGasReward {
                     receipt_hash: receipt.get_hash(),
                 });
             }
