@@ -9,27 +9,27 @@ use actix_cors::{Cors, CorsFactory};
 use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::BorshDeserialize;
 use futures::Future;
+use futures::{FutureExt, TryFutureExt};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use tokio::time::{delay_for, timeout};
 
-use futures::{FutureExt, TryFutureExt};
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
-    GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
+    GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::{message, BlockId, ChunkId};
+use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
 use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
-use tokio::time::{delay_for, timeout};
 
 mod metrics;
 pub mod test_utils;
@@ -111,13 +111,6 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
-fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
-    let (encoded,) = parse_params::<(String,)>(params)?;
-    from_base_or_parse_err(encoded).and_then(|bytes| {
-        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
-    })
-}
-
 fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
     ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
 }
@@ -157,6 +150,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
+            "changes" => self.changes(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
@@ -307,6 +301,38 @@ impl JsonRpcHandler {
         )
     }
 
+    async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (block_hash, state_changes_request) =
+            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
+        let block_hash_copy = block_hash.clone();
+        jsonify(
+            self.view_client_addr
+                .send(GetKeyValueChanges { block_hash, state_changes_request })
+                .await
+                .map(|v| {
+                    v.map(|changes| {
+                        json!({
+                            "block_hash": block_hash_copy,
+                            "changes_by_key": changes
+                            .into_iter()
+                            .map(|(key, changes)| {
+                                json!({
+                                    "key": key,
+                                    "changes": changes.into_iter().map(|(cause, value)| {
+                                        json!({
+                                            "cause": cause,
+                                            "value": value
+                                        })
+                                    }).collect::<Vec<_>>()
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                        })
+                    })
+                }),
+        )
+    }
+
     async fn next_light_client_block(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (last_block_hash,) = parse_params::<(CryptoHash,)>(params)?;
         jsonify(self.view_client_addr.send(GetNextLightClientBlock { last_block_hash }).await)
@@ -317,13 +343,8 @@ impl JsonRpcHandler {
     }
 
     async fn gas_price(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (block_id,) = parse_params::<(Option<BlockId>,)>(params)?;
-        let gas_price_request = match block_id {
-            None => GetGasPrice::None,
-            Some(BlockId::Height(height)) => GetGasPrice::Height(height),
-            Some(BlockId::Hash(hash)) => GetGasPrice::Hash(hash),
-        };
-        jsonify(self.view_client_addr.send(gas_price_request).await)
+        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
+        jsonify(self.view_client_addr.send(GetGasPrice { block_id }).await)
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
@@ -336,8 +357,8 @@ impl JsonRpcHandler {
     }
 
     async fn validators(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let block_hash = parse_hash(params)?;
-        jsonify(self.view_client_addr.send(GetValidatorInfo { last_block_hash: block_hash }).await)
+        let (block_id,) = parse_params::<(MaybeBlockId,)>(params)?;
+        jsonify(self.view_client_addr.send(GetValidatorInfo { block_id }).await)
     }
 }
 

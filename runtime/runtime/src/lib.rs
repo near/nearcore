@@ -23,7 +23,8 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
+    StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -114,7 +115,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: PrefixKeyValueChanges,
+    pub key_value_changes: StateChanges,
     pub stats: ApplyStats,
 }
 
@@ -234,7 +235,9 @@ impl Runtime {
         ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
-                state_update.commit();
+                state_update.commit(StateChangeCause::TransactionProcessing {
+                    tx_hash: signed_transaction.get_hash(),
+                });
                 let transaction = &signed_transaction.transaction;
                 let receipt = Receipt {
                     predecessor_id: transaction.signer_id.clone(),
@@ -275,7 +278,6 @@ impl Runtime {
                 return Err(e);
             }
         };
-        Self::print_log(&outcome.logs);
         Ok(ExecutionOutcomeWithId { id: signed_transaction.get_hash(), outcome })
     }
 
@@ -435,7 +437,9 @@ impl Runtime {
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
-        state_update.commit();
+        state_update.commit(StateChangeCause::ActionReceiptProcessingStarted {
+            receipt_hash: receipt.get_hash(),
+        });
 
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
@@ -519,7 +523,9 @@ impl Runtime {
         match &result.result {
             Ok(_) => {
                 stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
-                state_update.commit();
+                state_update.commit(StateChangeCause::ReceiptProcessing {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
             Err(_) => {
                 state_update.rollback();
@@ -542,7 +548,9 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit();
+                state_update.commit(StateChangeCause::ActionReceiptGasReward {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
         }
 
@@ -790,7 +798,8 @@ impl Runtime {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_update.commit();
+        state_update
+            .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
         Ok(None)
     }
 
@@ -853,7 +862,7 @@ impl Runtime {
                 set_account(state_update, account_id, &account);
             }
         }
-        state_update.commit();
+        state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
 
         Ok(())
     }
@@ -987,8 +996,9 @@ impl Runtime {
             &stats,
         )?;
 
-        state_update.commit();
-        let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        // TODO: Avoid cloning.
+        let key_value_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1142,6 +1152,7 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
@@ -1183,6 +1194,7 @@ mod tests {
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -1209,6 +1221,7 @@ mod tests {
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
+        initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
