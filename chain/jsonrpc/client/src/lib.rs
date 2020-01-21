@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     QueryResponse, StatusResponse,
@@ -15,13 +15,6 @@ use near_primitives::views::{
 use crate::message::{from_slice, Message, RpcError};
 
 pub mod message;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BlockId {
-    Height(BlockHeight),
-    Hash(CryptoHash),
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -49,7 +42,7 @@ where
         .post(server_addr)
         .header("Content-Type", "application/json")
         .send_json(&request)
-        .map_err(|_| RpcError::invalid_request())
+        .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
         .and_then(|mut response| {
             response.body().map(|body| match body {
                 Ok(bytes) => from_slice(&bytes).map_err(|err| {
@@ -191,8 +184,8 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
-    pub fn gas_price(&mut self, id: Option<BlockId>) -> RpcRequest<GasPriceView>;
+    pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
+    pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
 
 fn create_client() -> Client {

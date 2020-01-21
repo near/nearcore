@@ -611,6 +611,7 @@ impl Client {
                 _ => {}
             }
         }
+
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
@@ -633,8 +634,13 @@ impl Client {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
-            ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
                 self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                Ok(vec![])
+            }
+            ProcessPartialEncodedChunkResult::NeedBlock => {
+                self.shards_mgr
+                    .store_partial_encoded_chunk(self.chain.head_header()?, partial_encoded_chunk);
                 Ok(vec![])
             }
         }
@@ -799,6 +805,25 @@ impl Client {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Process stored partial encoded chunks
+        let next_height = block.header.inner_lite.height + 1;
+        let mut partial_encoded_chunks =
+            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
+            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(partial_encoded_chunk) {
+                // Executing process_partial_encoded_chunk can unlock some blocks.
+                // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
+                // for which we track shards will be unblocked here.
+                for accepted_block in accepted_blocks {
+                    self.on_block_accepted(
+                        accepted_block.hash,
+                        accepted_block.status,
+                        accepted_block.provenance,
+                    );
                 }
             }
         }

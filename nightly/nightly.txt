@@ -23,6 +23,7 @@ pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/rpc_query.py
 pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/validator_switch.py
+pytest --timeout=240 sanity/restaked.py
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
@@ -48,6 +49,9 @@ expensive near-client catching_up tests::test_catchup_random_single_part_sync_se
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_non_zero_amounts
 expensive near-client catching_up tests::test_catchup_random_single_part_sync_height_6
 expensive near-client catching_up tests::test_catchup_sanity_blocks_produced
+expensive near-client catching_up tests::test_all_chunks_accepted_1000
+expensive near-client catching_up tests::test_all_chunks_accepted_1000_slow
+expensive near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
 
 expensive nearcore test_catchup test_catchup
 
