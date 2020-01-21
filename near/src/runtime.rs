@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -25,8 +25,9 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
-    StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
+    StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
+    ValidatorStats,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -208,6 +209,7 @@ impl NightshadeRuntime {
         state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
+        block_hash: &CryptoHash,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
@@ -324,7 +326,12 @@ impl NightshadeRuntime {
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
+            trie_changes: WrappedTrieChanges::new(
+                self.trie.clone(),
+                apply_result.trie_changes,
+                apply_result.key_value_changes,
+                block_hash.clone(),
+            ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
             receipt_result,
@@ -746,7 +753,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit();
+                                state_update.commit(StateChangeCause::NotWritableToDisk);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;
@@ -814,7 +821,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -833,6 +840,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -860,7 +868,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -874,6 +882,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -1065,6 +1074,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        let chain_store = ChainStore::new(Arc::clone(&self.store));
+        chain_store.get_key_value_changes(block_hash, state_changes_request).map_err(|e| e.into())
+    }
+
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1124,7 +1142,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
-        match state_update.iter(&prefix) {
+        let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let key = key?;
@@ -1137,7 +1155,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
             Err(e) => Err(e.into()),
-        }
+        };
+        access_keys
     }
 
     fn view_state(
@@ -1235,6 +1254,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
+            result.trie_changes.key_value_changes_into(&mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }

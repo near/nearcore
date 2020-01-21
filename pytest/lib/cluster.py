@@ -125,6 +125,10 @@ class BaseNode(object):
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
 
+    def get_changes(self, block_hash, state_changes_request):
+        return self.json_rpc('changes', [block_hash, state_changes_request])
+
+
 class LocalNode(BaseNode):
     def __init__(self, port, rpc_port, near_root, node_dir, blacklist):
         super(LocalNode, self).__init__()
