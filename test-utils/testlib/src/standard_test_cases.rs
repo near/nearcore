@@ -947,7 +947,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
     assert_eq!(
         transaction_result,
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ActionError)
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
         ))
     );
 }

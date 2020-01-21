@@ -129,8 +129,8 @@ pub enum InvalidAccessKeyError {
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
     /// Transaction method name isn't allowed by the access key
     MethodNameMismatch { method_name: String },
-    /// The used access key requires exactly one `FunctionCall` action
-    ActionError,
+    /// Transaction requires a full access token
+    RequiresFullAccess,
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
@@ -275,9 +275,12 @@ impl Display for InvalidAccessKeyError {
                 "Transaction method name {:?} isn't allowed by the access key",
                 method_name
             ),
-            InvalidAccessKeyError::ActionError => {
-                write!(f, "The used access key requires exactly one FunctionCall action")
-            }
+            InvalidAccessKeyError::RequiresFullAccess => write!(
+                f,
+                "The transaction contains more then one action, but it was signed \
+                 with an access key which allows transaction to apply only one specific action. \
+                 To apply more then one actions TX must be signed with a full access key"
+            ),
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
                 public_key,

@@ -311,7 +311,7 @@ impl Runtime {
         {
             if transaction.actions.len() != 1 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::ActionError,
+                    InvalidAccessKeyError::RequiresFullAccess,
                 )
                 .into());
             }
@@ -340,7 +340,7 @@ impl Runtime {
                 }
             } else {
                 return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::ActionError,
+                    InvalidAccessKeyError::RequiresFullAccess,
                 )
                 .into());
             }

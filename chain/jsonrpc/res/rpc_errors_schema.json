@@ -406,7 +406,7 @@
         "AccessKeyNotFound",
         "ReceiverMismatch",
         "MethodNameMismatch",
-        "ActionError",
+        "RequiresFullAccess",
         "NotEnoughAllowance"
       ],
       "props": {}
@@ -550,6 +550,11 @@
     },
     "Timeout": {
       "name": "Timeout",
+      "subtypes": [],
+      "props": {}
+    },
+    "RequiresFullAccess": {
+      "name": "RequiresFullAccess",
       "subtypes": [],
       "props": {}
     }
