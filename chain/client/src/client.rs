@@ -633,7 +633,7 @@ impl Client {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
-            ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
                 self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
                 Ok(vec![])
             }
