@@ -30,9 +30,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
+use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use near_primitives::block::BlockHeader;
 
 mod chunk_cache;
 mod types;
@@ -61,6 +63,9 @@ pub enum ProcessPartialEncodedChunkResult {
     /// The Header is the header of the current chunk, which is unknown to the caller, to request
     ///     parts / receipts for
     NeedMorePartsOrReceipts(ShardChunkHeader),
+    /// PartialEncodedChunkMessage is received earlier than Block for the same height.
+    /// Without the block we cannot restore the epoch and save encoded chunk data.
+    NeedBlock,
 }
 
 #[derive(Clone, Debug)]
@@ -234,6 +239,7 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
+    stored_partial_encoded_chunks: HashMap<BlockHeight, HashMap<ShardId, PartialEncodedChunk>>,
 
     seals_mgr: SealsManager,
 }
@@ -256,6 +262,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS),
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
+            stored_partial_encoded_chunks: HashMap::new(),
             seals_mgr: SealsManager::new(me, runtime_adapter),
         }
     }
@@ -488,6 +495,59 @@ impl ShardsManager {
         Ok(())
     }
 
+    pub fn store_partial_encoded_chunk(
+        &mut self,
+        known_header: &BlockHeader,
+        partial_encoded_chunk: PartialEncodedChunk,
+    ) {
+        // Remove old partial_encoded_chunks
+        let encoded_chunks = &self.encoded_chunks;
+        self.stored_partial_encoded_chunks
+            .retain(|&height, _| encoded_chunks.height_within_front_horizon(height));
+
+        let header = unwrap_option_or_return!(partial_encoded_chunk.clone().header);
+        let height = header.inner.height_created;
+        let shard_id = header.inner.shard_id;
+        if self.encoded_chunks.height_within_front_horizon(height) {
+            let runtime_adapter = &self.runtime_adapter;
+            let heights =
+                self.stored_partial_encoded_chunks.entry(height).or_insert(HashMap::new());
+            heights
+                .entry(shard_id)
+                .and_modify(|stored_chunk| {
+                    let epoch_id = unwrap_or_return!(
+                        runtime_adapter.get_epoch_id_from_prev_block(&known_header.prev_hash)
+                    );
+                    let block_producer =
+                        unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
+                    if runtime_adapter
+                        .verify_validator_signature(
+                            &epoch_id,
+                            &known_header.prev_hash,
+                            &block_producer,
+                            header.hash.as_ref(),
+                            &header.signature,
+                        )
+                        .unwrap_or(false)
+                    {
+                        // We prove that this one is valid for `epoch_id`.
+                        // We won't store it by design if epoch is changed.
+                        *stored_chunk = partial_encoded_chunk.clone();
+                    }
+                })
+                // This is the first partial encoded chunk received for current height / shard_id.
+                // Store it because there are no other candidates.
+                .or_insert(partial_encoded_chunk.clone());
+        }
+    }
+
+    pub fn get_stored_partial_encoded_chunks(
+        &self,
+        height: BlockHeight,
+    ) -> HashMap<ShardId, PartialEncodedChunk> {
+        self.stored_partial_encoded_chunks.get(&height).unwrap_or(&HashMap::new()).clone()
+    }
+
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
         self.encoded_chunks.num_chunks_for_block(prev_block_hash)
     }
@@ -495,7 +555,7 @@ impl ShardsManager {
     pub fn prepare_chunks(
         &mut self,
         prev_block_hash: &CryptoHash,
-    ) -> Vec<(ShardId, ShardChunkHeader)> {
+    ) -> HashMap<ShardId, ShardChunkHeader> {
         self.encoded_chunks.get_chunk_headers_for_block(&prev_block_hash)
     }
 
@@ -748,7 +808,14 @@ impl ShardsManager {
 
         // 7. Checking epoch_id validity
         let prev_block_hash = header.inner.prev_block_hash;
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_id = match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
+            Ok(epoch_id) => epoch_id,
+            Err(_) => {
+                // It may happen because PartialChunkEncodedMessage appeared before Block announcement.
+                // We keep the chunk until Block is received.
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+            }
+        };
 
         // 8. Checking part_ords' validity
         let num_total_parts = self.runtime_adapter.num_total_parts();
