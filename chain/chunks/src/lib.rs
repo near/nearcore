@@ -137,18 +137,15 @@ pub struct Seal {
 
 impl Seal {
     fn process(&mut self, chunk_entry: &EncodedChunksCacheEntry) -> bool {
-        let mut part_ords_to_remove = HashSet::new();
         let mut res = true;
-        for part_ord in self.part_ords.iter() {
+        self.part_ords.retain(|part_ord| {
             if !chunk_entry.parts.contains_key(&part_ord) {
                 res = false;
+                true
             } else {
-                part_ords_to_remove.insert(part_ord.clone());
+                false
             }
-        }
-        for part_ord in part_ords_to_remove.drain() {
-            self.part_ords.remove(&part_ord);
-        }
+        });
         res
     }
 }
@@ -215,7 +212,7 @@ impl SealsManager {
             if seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL
                 && (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS
             {
-                warn!(target: "client", "Resented by {:?} for chunk grieving for chunk {:?}, I'm {:?}", seal.chunk_producer, chunk_hash, self.me);
+                warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, self.me);
                 self.dont_include_chunks_from.insert(seal.chunk_producer.clone());
                 seal.part_ords.clear();
             }
