@@ -1,5 +1,5 @@
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, Nonce};
+use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -117,6 +117,8 @@ pub enum InvalidTxError {
     InvalidChain,
     /// Transaction has expired
     Expired,
+    /// An error occurred while validating actions of a Transaction.
+    ActionsValidation(ActionsValidationError),
 }
 
 #[derive(
@@ -140,6 +142,133 @@ pub enum InvalidAccessKeyError {
         #[serde(with = "u128_dec_format")]
         cost: Balance,
     },
+    /// Having a deposit with a function call action is not allowed with a function call access key.
+    DepositWithFunctionCall,
+}
+
+/// Describes the error for validating a list of actions.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ActionsValidationError {
+    /// The total prepaid gas (for all given actions) exceeded the limit.
+    TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
+    /// The number of actions exceeded the given limit.
+    TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 },
+    /// The total number of bytes of the method names exceeded the limit in a Add Key action.
+    AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 },
+    /// The length of some method name exceeded the limit in a Add Key action.
+    AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
+    /// Integer overflow during a compute.
+    IntegerOverflow,
+    /// Invalid account ID.
+    InvalidAccountId { account_id: AccountId },
+    /// The size of the contract code exceeded the limit in a DeployContract action.
+    ContractSizeExceeded { size: u64, limit: u64 },
+    /// The length of the method name exceeded the limit in a Function Call action.
+    FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
+    /// The length of the arguments exceeded the limit in a Function Call action.
+    FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
+}
+
+/// Describes the error for validating a receipt.
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptValidationError {
+    /// The `predecessor_id` of a Receipt is not valid.
+    InvalidPredecessorId { account_id: AccountId },
+    /// The `receiver_id` of a Receipt is not valid.
+    InvalidReceiverId { account_id: AccountId },
+    /// The `signer_id` of an ActionReceipt is not valid.
+    InvalidSignerId { account_id: AccountId },
+    /// The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.
+    InvalidDataReceiverId { account_id: AccountId },
+    /// The length of the returned data exceeded the limit in a DataReceipt.
+    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    /// The number of input data dependencies exceeds the limit in an ActionReceipt.
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    /// An error occurred while validating actions of an ActionReceipt.
+    ActionsValidation(ActionsValidationError),
+}
+
+impl Display for ReceiptValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ReceiptValidationError::InvalidPredecessorId { account_id } => {
+                write!(f, "The predecessor_id `{}` of a Receipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidReceiverId { account_id } => {
+                write!(f, "The receiver_id `{}` of a Receipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidSignerId { account_id } => {
+                write!(f, "The signer_id `{}` of an ActionReceipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidDataReceiverId { account_id } => write!(
+                f,
+                "The receiver_id `{}` of a DataReceiver within an ActionReceipt is not valid.",
+                account_id
+            ),
+            ReceiptValidationError::ReturnedValueLengthExceeded { length, limit } => write!(
+                f,
+                "The length of the returned data {} exceeded the limit {} in a DataReceipt",
+                length, limit
+            ),
+            ReceiptValidationError::NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(
+                f,
+                "The number of input data dependencies {} exceeded the limit {} in an ActionReceipt",
+                number_of_input_data_dependencies, limit
+            ),
+            ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl Display for ActionsValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
+                write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
+            }
+            ActionsValidationError::TotalNumberOfActionsExceeded {total_number_of_actions, limit } => {
+                write!(
+                    f,
+                    "The total number of actions {} exceeds the limit {}",
+                    total_number_of_actions, limit
+                )
+            }
+            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes, limit } => write!(
+                f,
+                "The total number of bytes in allowed method names {} exceeds the maximum allowed number {} in a AddKey action",
+                total_number_of_bytes, limit
+            ),
+            ActionsValidationError::AddKeyMethodNameLengthExceeded { length, limit } => write!(
+                f,
+                "The length of some method name {} exceeds the maximum allowed length {} in a AddKey action",
+                length, limit
+            ),
+            ActionsValidationError::IntegerOverflow => write!(
+                f,
+                "Integer overflow during a compute",
+            ),
+            ActionsValidationError::InvalidAccountId { account_id } => write!(
+                f,
+                "Invalid account ID `{}`",
+                account_id
+            ),
+            ActionsValidationError::ContractSizeExceeded { size, limit } => write!(
+                f,
+                "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
+                size, limit
+            ),
+            ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => write!(
+                f,
+                "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
+                length, limit
+            ),
+            ActionsValidationError::FunctionCallArgumentsLengthExceeded { length, limit } => write!(
+                f,
+                "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
+                length, limit
+            ),
+        }
+    }
 }
 
 /// An error happened during Acton execution
@@ -201,6 +330,9 @@ pub enum ActionErrorKind {
     },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCall(VMError),
+    /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
+    /// receipt validation.
+    NewReceiptValidationError(ReceiptValidationError),
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -212,30 +344,30 @@ impl From<ActionErrorKind> for ActionError {
 impl Display for InvalidTxError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            InvalidTxError::InvalidSignerId{signer_id} => {
+            InvalidTxError::InvalidSignerId { signer_id } => {
                 write!(f, "Invalid signer account ID {:?} according to requirements", signer_id)
             }
-            InvalidTxError::SignerDoesNotExist{signer_id} => {
+            InvalidTxError::SignerDoesNotExist { signer_id } => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
             InvalidTxError::InvalidAccessKeyError(access_key_error) => access_key_error.fmt(f),
-            InvalidTxError::InvalidNonce{tx_nonce, ak_nonce} => write!(
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
                 tx_nonce, ak_nonce
             ),
-            InvalidTxError::InvalidReceiverId{receiver_id} => {
+            InvalidTxError::InvalidReceiverId { receiver_id } => {
                 write!(f, "Invalid receiver account ID {:?} according to requirements", receiver_id)
             }
             InvalidTxError::InvalidSignature => {
                 write!(f, "Transaction is not signed with the given public key")
             }
-            InvalidTxError::NotEnoughBalance{signer_id, balance, cost} => write!(
+            InvalidTxError::NotEnoughBalance { signer_id, balance, cost } => write!(
                 f,
                 "Sender {:?} does not have enough balance {} for operation costing {}",
                 signer_id, balance, cost
             ),
-            InvalidTxError::RentUnpaid{ signer_id, amount} => {
+            InvalidTxError::RentUnpaid { signer_id, amount } => {
                 write!(f, "Failed to execute, because the account {:?} wouldn't have enough to pay required rent {}", signer_id, amount)
             }
             InvalidTxError::CostOverflow => {
@@ -246,6 +378,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::Expired => {
                 write!(f, "Transaction has expired")
+            }
+            InvalidTxError::ActionsValidation(error) => {
+                write!(f, "Transaction actions validation error: {}", error)
             }
         }
     }
@@ -291,6 +426,9 @@ impl Display for InvalidAccessKeyError {
                 "Access Key {:?}:{} does not have enough balance {} for transaction costing {}",
                 account_id, public_key, allowance, cost
             ),
+            InvalidAccessKeyError::DepositWithFunctionCall => {
+                write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
+            }
         }
     }
 }
@@ -478,6 +616,9 @@ impl Display for ActionErrorKind {
                 account_id, balance
             ),
             ActionErrorKind::FunctionCall(s) => write!(f, "{}", s),
+            ActionErrorKind::NewReceiptValidationError(e) => {
+                write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
+            }
         }
     }
 }
