@@ -19,7 +19,6 @@ use near_vm_logic::VMLimitConfig;
 
 /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
 /// and balances, and updates the state for the used account and access keys.
-///
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
@@ -29,10 +28,13 @@ pub fn verify_and_charge_transaction(
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
     if !is_valid_account_id(&signer_id) {
-        return Err(InvalidTxError::InvalidSigner(signer_id.clone()).into());
+        return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
     }
     if !is_valid_account_id(&transaction.receiver_id) {
-        return Err(InvalidTxError::InvalidReceiver(transaction.receiver_id.clone()).into());
+        return Err(InvalidTxError::InvalidReceiverId {
+            receiver_id: transaction.receiver_id.clone(),
+        }
+        .into());
     }
 
     if !signed_transaction
@@ -48,24 +50,28 @@ pub fn verify_and_charge_transaction(
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
         None => {
-            return Err(InvalidTxError::SignerDoesNotExist(signer_id.clone()).into());
+            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
     let mut access_key = match get_access_key(state_update, &signer_id, &transaction.public_key)? {
         Some(access_key) => access_key,
         None => {
-            return Err(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::AccessKeyNotFound(
-                    signer_id.clone(),
-                    transaction.public_key.clone(),
-                ),
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: transaction.public_key.clone(),
+                },
             )
             .into());
         }
     };
 
     if transaction.nonce <= access_key.nonce {
-        return Err(InvalidTxError::InvalidNonce(transaction.nonce, access_key.nonce).into());
+        return Err(InvalidTxError::InvalidNonce {
+            tx_nonce: transaction.nonce,
+            ak_nonce: access_key.nonce,
+        }
+        .into());
     }
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
@@ -77,46 +83,52 @@ pub fn verify_and_charge_transaction(
         tx_cost(&config.transaction_costs, &transaction, apply_state.gas_price, sender_is_receiver)
             .map_err(|_| InvalidTxError::CostOverflow)?;
 
-    signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
-    })?;
+    signer.amount =
+        signer.amount.checked_sub(total_cost).ok_or_else(|| InvalidTxError::NotEnoughBalance {
+            signer_id: signer_id.clone(),
+            balance: signer.amount,
+            cost: total_cost,
+        })?;
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
     {
         if let Some(ref mut allowance) = function_call_permission.allowance {
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance(
-                    signer_id.clone(),
-                    transaction.public_key.clone(),
-                    *allowance,
-                    total_cost,
-                ))
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                    account_id: signer_id.clone(),
+                    public_key: transaction.public_key.clone(),
+                    allowance: *allowance,
+                    cost: total_cost,
+                })
             })?;
         }
     }
 
     if let Err(amount) = check_rent(&signer_id, &signer, &config, apply_state.epoch_length) {
-        return Err(InvalidTxError::RentUnpaid(signer_id.clone(), amount).into());
+        return Err(InvalidTxError::RentUnpaid { signer_id: signer_id.clone(), amount }.into());
     }
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if transaction.actions.len() != 1 {
-            return Err(InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into());
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
         }
         if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
             if function_call.deposit > 0 {
-                return Err(InvalidTxError::InvalidAccessKey(
+                return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
             }
             if transaction.receiver_id != function_call_permission.receiver_id {
-                return Err(InvalidTxError::InvalidAccessKey(
-                    InvalidAccessKeyError::ReceiverMismatch(
-                        transaction.receiver_id.clone(),
-                        function_call_permission.receiver_id.clone(),
-                    ),
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch {
+                        tx_receiver: transaction.receiver_id.clone(),
+                        ak_receiver: function_call_permission.receiver_id.clone(),
+                    },
                 )
                 .into());
             }
@@ -126,13 +138,18 @@ pub fn verify_and_charge_transaction(
                     .iter()
                     .all(|method_name| &function_call.method_name != method_name)
             {
-                return Err(InvalidTxError::InvalidAccessKey(
-                    InvalidAccessKeyError::MethodNameMismatch(function_call.method_name.clone()),
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch {
+                        method_name: function_call.method_name.clone(),
+                    },
                 )
                 .into());
             }
         } else {
-            return Err(InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into());
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
         }
     };
 
@@ -358,7 +375,7 @@ mod tests {
     use near_primitives::transaction::{
         CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
-    use near_primitives::types::{Balance, Gas, MerkleHash};
+    use near_primitives::types::{Balance, Gas, MerkleHash, StateChangeCause};
     use near_store::test_utils::create_trie;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -389,6 +406,7 @@ mod tests {
         if let Some(access_key) = access_key {
             set_access_key(&mut initial_state, &account_id, &signer.public_key(), &access_key);
         }
+        initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();
@@ -480,7 +498,9 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidSigner(invalid_account_id))
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidSignerId {
+                signer_id: invalid_account_id
+            })
         );
     }
 
@@ -506,7 +526,9 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidReceiver(invalid_account_id))
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidReceiverId {
+                receiver_id: invalid_account_id
+            })
         );
     }
 
@@ -554,8 +576,11 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::AccessKeyNotFound(alice_account(), bad_signer.public_key())
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: alice_account(),
+                    public_key: bad_signer.public_key()
+                }
             ))
         );
     }
@@ -618,7 +643,9 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::SignerDoesNotExist(bob_account())),
+            RuntimeError::InvalidTxError(InvalidTxError::SignerDoesNotExist {
+                signer_id: bob_account()
+            }),
         );
     }
 
@@ -647,7 +674,7 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidNonce(1, 2)),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 }),
         );
     }
 
@@ -696,15 +723,15 @@ mod tests {
             ),
         )
         .expect_err("expected an error");
-        if let RuntimeError::InvalidTxError(InvalidTxError::NotEnoughBalance(
-            account_id,
-            actual_balance,
-            required_balance,
-        )) = err
+        if let RuntimeError::InvalidTxError(InvalidTxError::NotEnoughBalance {
+            signer_id,
+            balance,
+            cost,
+        }) = err
         {
-            assert_eq!(account_id, alice_account());
-            assert_eq!(actual_balance, TESTING_INIT_BALANCE);
-            assert!(required_balance > actual_balance);
+            assert_eq!(signer_id, alice_account());
+            assert_eq!(balance, TESTING_INIT_BALANCE);
+            assert!(cost > balance);
         } else {
             panic!("Incorrect error");
         }
@@ -746,19 +773,14 @@ mod tests {
             ),
         )
         .expect_err("expected an error");
-        if let RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-            InvalidAccessKeyError::NotEnoughAllowance(
-                account_id,
-                public_key,
-                actual_allowance,
-                required_balance,
-            ),
+        if let RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::NotEnoughAllowance { account_id, public_key, allowance, cost },
         )) = err
         {
             assert_eq!(account_id, alice_account());
             assert_eq!(public_key, signer.public_key());
-            assert_eq!(actual_allowance, 100);
-            assert!(required_balance > actual_allowance);
+            assert_eq!(allowance, 100);
+            assert!(cost > allowance);
         } else {
             panic!("Incorrect error");
         }
@@ -791,10 +813,10 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::RentUnpaid(
-                alice_account(),
-                config.poke_threshold as u128
-            ))
+            RuntimeError::InvalidTxError(InvalidTxError::RentUnpaid {
+                signer_id: alice_account(),
+                amount: config.poke_threshold as u128
+            })
         );
     }
 
@@ -838,8 +860,8 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::ActionError
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess
             )),
         );
 
@@ -858,8 +880,8 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::ActionError
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess
             )),
         );
 
@@ -878,8 +900,8 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::ActionError
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess
             )),
         );
     }
@@ -921,8 +943,11 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::ReceiverMismatch(eve_dot_alice_account(), bob_account())
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: eve_dot_alice_account(),
+                    ak_receiver: bob_account()
+                }
             )),
         );
     }
@@ -964,8 +989,8 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
-                InvalidAccessKeyError::MethodNameMismatch("hello".to_string())
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch { method_name: "hello".to_string() }
             )),
         );
     }
@@ -1007,7 +1032,7 @@ mod tests {
                 ),
             )
             .expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKey(
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::DepositWithFunctionCall,
             )),
         );

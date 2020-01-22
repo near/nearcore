@@ -10,14 +10,15 @@ use futures::{Future, TryFutureExt};
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
+use near_jsonrpc::ServerError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionErrorView,
-    ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -66,18 +67,23 @@ impl User for RpcUser {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let _ = self
             .actix(move |mut client| client.broadcast_tx_async(to_base64(&bytes)))
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| {
+                serde_json::from_value::<ServerError>(
+                    err.data.expect("server error must carry data"),
+                )
+                .expect("deserialize server error must be ok")
+            })?;
         Ok(())
     }
 
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let result = self.actix(move |mut client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
@@ -87,16 +93,11 @@ impl User for RpcUser {
         }
         match result {
             Ok(outcome) => Ok(outcome),
-            Err(err) => {
-                match serde_json::from_value::<ExecutionErrorView>(err.clone().data.unwrap()) {
-                    Ok(error_view) => Err(error_view.error_message),
-                    Err(_) => Err(serde_json::to_string(&err).unwrap()),
-                }
-            }
+            Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
 
-    fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
+    fn add_receipt(&self, _receipt: Receipt) -> Result<(), ServerError> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
     }

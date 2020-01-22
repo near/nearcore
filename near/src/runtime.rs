@@ -308,7 +308,7 @@ impl NightshadeRuntime {
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO: process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
@@ -318,7 +318,7 @@ impl NightshadeRuntime {
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
-        for receipt in apply_result.new_receipts {
+        for receipt in apply_result.outgoing_receipts {
             receipt_result
                 .entry(self.account_id_to_shard_id(&receipt.receiver_id))
                 .or_insert_with(|| vec![])
