@@ -29,7 +29,7 @@ cached_key! {
 
 #[cfg(feature = "no_cache")]
 pub(crate) fn compile_module(
-    code_hash: Vec<u8>,
+    _code_hash: Vec<u8>,
     code: &[u8],
     config: &VMConfig,
 ) -> Result<wasmer_runtime::Module, VMError> {
