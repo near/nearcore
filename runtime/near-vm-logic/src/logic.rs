@@ -62,17 +62,12 @@ pub struct VMLogic<'a> {
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
 /// calls. A single promise can be created with zero or several dependencies on other promises.
-/// * If promise was created from a receipt (using `promise_create` or `promise_then`) then
-///   `promise_to_receipt` is `Receipt`;
-/// * If promise was created by merging several promises (using `promise_and`) then
-///   `promise_to_receipt` is `NotReceipt` but has receipts of all promises it depends on.
+/// * If a promise was created from a receipt (using `promise_create` or `promise_then`) it's a
+///   `Receipt`;
+/// * If a promise was created by merging several promises (using `promise_and`) then
+///   it's a `NotReceipt`, but has receipts of all promises it depends on.
 #[derive(Debug)]
-struct Promise {
-    promise_to_receipt: PromiseToReceipts,
-}
-
-#[derive(Debug)]
-enum PromiseToReceipts {
+enum Promise {
     Receipt(ReceiptIndex),
     NotReceipt(Vec<ReceiptIndex>),
 }
@@ -834,19 +829,17 @@ impl<'a> VMLogic<'a> {
                 .promises
                 .get(*promise_idx as usize)
                 .ok_or(HostError::InvalidPromiseIndex(*promise_idx))?;
-            match &promise.promise_to_receipt {
-                PromiseToReceipts::Receipt(receipt_idx) => {
+            match &promise {
+                Promise::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
                 }
-                PromiseToReceipts::NotReceipt(receipt_indices) => {
+                Promise::NotReceipt(receipt_indices) => {
                     receipt_dependencies.extend(receipt_indices.clone());
                 }
             }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises.push(Promise {
-            promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
-        });
+        self.promises.push(Promise::NotReceipt(receipt_dependencies));
         Ok(new_promise_idx)
     }
 
@@ -883,8 +876,7 @@ impl<'a> VMLogic<'a> {
         self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         let promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        self.promises.push(Promise::Receipt(new_receipt_idx));
         Ok(promise_idx)
     }
 
@@ -923,9 +915,9 @@ impl<'a> VMLogic<'a> {
             .promises
             .get(promise_idx as usize)
             .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
-        let receipt_dependencies = match &promise.promise_to_receipt {
-            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
-            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
+        let receipt_dependencies = match &promise {
+            Promise::Receipt(receipt_idx) => vec![*receipt_idx],
+            Promise::NotReceipt(receipt_indices) => receipt_indices.clone(),
         };
 
         let sir = account_id == self.context.current_account_id;
@@ -943,8 +935,7 @@ impl<'a> VMLogic<'a> {
         let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id.clone())?;
         self.receipt_to_account.insert(new_receipt_idx, account_id);
         let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        self.promises.push(Promise::Receipt(new_receipt_idx));
         Ok(new_promise_idx)
     }
 
@@ -959,9 +950,9 @@ impl<'a> VMLogic<'a> {
             .promises
             .get(promise_idx as usize)
             .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
-        let receipt_idx = match &promise.promise_to_receipt {
-            PromiseToReceipts::Receipt(receipt_idx) => Ok(*receipt_idx),
-            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
+        let receipt_idx = match &promise {
+            Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
+            Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
         }?;
 
         let account_id = self
@@ -1485,13 +1476,12 @@ impl<'a> VMLogic<'a> {
             .promises
             .get(promise_idx as usize)
             .ok_or(HostError::InvalidPromiseIndex(promise_idx))?
-            .promise_to_receipt
         {
-            PromiseToReceipts::Receipt(receipt_idx) => {
-                self.return_data = ReturnData::ReceiptIndex(receipt_idx);
+            Promise::Receipt(receipt_idx) => {
+                self.return_data = ReturnData::ReceiptIndex(*receipt_idx);
                 Ok(())
             }
-            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise.into()),
+            Promise::NotReceipt(_) => Err(HostError::CannotReturnJointPromise.into()),
         }
     }
 
