@@ -1,5 +1,5 @@
 use crate::utils::{make_simple_contract_call, wat2wasm_no_validate};
-use near_vm_errors::{CompilationError, FunctionCallError, PrepareError};
+use near_vm_errors::{CompilationError, FunctionExecError, PrepareError};
 use near_vm_runner::VMError;
 
 mod utils;
@@ -22,7 +22,7 @@ fn test_initializer_wrong_signature_contract() {
         make_simple_contract_call(&initializer_wrong_signature_contract(), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )
@@ -45,7 +45,7 @@ fn test_function_not_defined_contract() {
         make_simple_contract_call(&function_not_defined_contract(), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )
@@ -69,7 +69,7 @@ fn test_function_type_not_defined_contract_1() {
         make_simple_contract_call(&function_type_not_defined_contract(1), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )
@@ -83,7 +83,7 @@ fn test_function_type_not_defined_contract_2() {
         make_simple_contract_call(&function_type_not_defined_contract(0), b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )
@@ -96,7 +96,7 @@ fn test_garbage_contract() {
         make_simple_contract_call(&[], b"hello"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )
@@ -121,7 +121,7 @@ fn test_evil_function_index() {
         make_simple_contract_call(&evil_function_index(), b"abort_with_zero"),
         (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+            Some(VMError::FunctionExecError(FunctionExecError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization)
             )))
         )

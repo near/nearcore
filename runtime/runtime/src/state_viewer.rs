@@ -142,6 +142,9 @@ impl TrieViewer {
         let time_str = format!("{:.*}ms", 2, time_ms);
 
         if let Some(err) = err {
+            if let Some(outcome) = outcome {
+                logs.extend(outcome.logs);
+            }
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
             Err(message.into())
@@ -164,6 +167,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::StateChangeCause;
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -232,6 +236,7 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
+        state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
@@ -249,5 +254,23 @@ mod tests {
             result.values,
             [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
         )
+    }
+
+    #[test]
+    fn test_log_when_panic() {
+        let (viewer, root) = get_test_trie_viewer();
+
+        let mut logs = vec![];
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &alice_account(),
+            "panic_after_logging",
+            &[],
+            &mut logs,
+        );
+
+        assert_eq!(logs, vec!["hello".to_string()]);
     }
 }

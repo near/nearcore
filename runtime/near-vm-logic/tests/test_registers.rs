@@ -26,7 +26,7 @@ fn test_non_existent_register() {
     let buffer = [0u8; 3];
     assert_eq!(
         logic.read_register(0, buffer.as_ptr() as u64),
-        Err(HostError::InvalidRegisterId(0).into())
+        Err(HostError::InvalidRegisterId { register_id: 0 }.into())
     );
 }
 

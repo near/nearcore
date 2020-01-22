@@ -10,7 +10,7 @@ use near_crypto::{PublicKey, Signature};
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Approval, Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::errors::{ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError};
+use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
@@ -25,8 +25,8 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StorageUsage, ValidatorStake, Version,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateRoot, StorageUsage, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -481,13 +481,15 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockView {
+    pub author: AccountId,
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
 }
 
-impl From<Block> for BlockView {
-    fn from(block: Block) -> Self {
+impl BlockView {
+    pub fn from_author_block(author: AccountId, block: Block) -> Self {
         BlockView {
+            author,
             header: block.header.into(),
             chunks: block.chunks.into_iter().map(Into::into).collect(),
         }
@@ -496,14 +498,16 @@ impl From<Block> for BlockView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkView {
+    pub author: AccountId,
     pub header: ChunkHeaderView,
     pub transactions: Vec<SignedTransactionView>,
     pub receipts: Vec<ReceiptView>,
 }
 
-impl From<ShardChunk> for ChunkView {
-    fn from(chunk: ShardChunk) -> Self {
+impl ChunkView {
+    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
         Self {
+            author,
             header: chunk.header.into(),
             transactions: chunk.transactions.into_iter().map(Into::into).collect(),
             receipts: chunk.receipts.into_iter().map(Into::into).collect(),
@@ -646,7 +650,7 @@ pub enum FinalExecutionStatus {
     /// The execution has started and still going.
     Started,
     /// The execution has failed with the given error.
-    Failure(ExecutionErrorView),
+    Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
 }
@@ -672,104 +676,10 @@ impl Default for FinalExecutionStatus {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct ExecutionErrorView {
-    pub error_message: String,
-    pub error_type: String,
-}
-
-impl From<ExecutionError> for ExecutionErrorView {
-    fn from(error: ExecutionError) -> Self {
-        ExecutionErrorView {
-            error_message: format!("{}", error),
-            error_type: match &error {
-                ExecutionError::Action(e) => match e {
-                    ActionError::AccountAlreadyExists(_) => {
-                        "ActionError::AccountAlreadyExists".to_string()
-                    }
-                    ActionError::AccountDoesNotExist(_, _) => {
-                        "ActionError::AccountDoesNotExist".to_string()
-                    }
-                    ActionError::CreateAccountNotAllowed(_, _) => {
-                        "ActionError::CreateAccountNotAllowed".to_string()
-                    }
-                    ActionError::ActorNoPermission(_, _, _) => {
-                        "ActionError::ActorNoPermission".to_string()
-                    }
-                    ActionError::DeleteKeyDoesNotExist(_) => {
-                        "ActionError::DeleteKeyDoesNotExist".to_string()
-                    }
-                    ActionError::AddKeyAlreadyExists(_) => {
-                        "ActionError::AddKeyAlreadyExists".to_string()
-                    }
-                    ActionError::DeleteAccountStaking(_) => {
-                        "ActionError::DeleteAccountStaking".to_string()
-                    }
-                    ActionError::DeleteAccountHasRent(_, _) => {
-                        "ActionError::DeleteAccountHasRent".to_string()
-                    }
-                    ActionError::RentUnpaid(_, _) => "ActionError::RentUnpaid".to_string(),
-                    ActionError::TriesToUnstake(_) => "ActionError::TriesToUnstake".to_string(),
-                    ActionError::TriesToStake(_, _, _, _) => {
-                        "ActionError::TriesToStake".to_string()
-                    }
-                    ActionError::FunctionCallError(_) => {
-                        "ActionError::FunctionCallError".to_string()
-                    }
-                },
-                ExecutionError::InvalidTx(e) => match e {
-                    InvalidTxError::InvalidSigner(_) => "InvalidTxError::InvalidSigner".to_string(),
-                    InvalidTxError::SignerDoesNotExist(_) => {
-                        "InvalidTxError::SignerDoesNotExist".to_string()
-                    }
-                    InvalidTxError::InvalidAccessKey(e) => match e {
-                        InvalidAccessKeyError::AccessKeyNotFound(_, _) => {
-                            "InvalidTxError::InvalidAccessKey::AccessKeyNotFound".to_string()
-                        }
-                        InvalidAccessKeyError::ReceiverMismatch(_, _) => {
-                            "InvalidTxError::InvalidAccessKey::ReceiverMismatch".to_string()
-                        }
-                        InvalidAccessKeyError::MethodNameMismatch(_) => {
-                            "InvalidTxError::InvalidAccessKey::MethodNameMismatch".to_string()
-                        }
-                        InvalidAccessKeyError::ActionError => {
-                            "InvalidTxError::InvalidAccessKey::ActionError".to_string()
-                        }
-                        InvalidAccessKeyError::NotEnoughAllowance(_, _, _, _) => {
-                            "InvalidTxError::InvalidAccessKey::NotEnoughAllowance".to_string()
-                        }
-                    },
-                    InvalidTxError::InvalidNonce(_, _) => {
-                        "InvalidTxError::InvalidNonce".to_string()
-                    }
-                    InvalidTxError::InvalidReceiver(_) => {
-                        "InvalidTxError::InvalidReceiver".to_string()
-                    }
-                    InvalidTxError::InvalidSignature => {
-                        "InvalidTxError::InvalidSignature".to_string()
-                    }
-                    InvalidTxError::NotEnoughBalance(_, _, _) => {
-                        "InvalidTxError::NotEnoughBalance".to_string()
-                    }
-                    InvalidTxError::RentUnpaid(_, _) => "InvalidTxError::RentUnpaid".to_string(),
-                    InvalidTxError::CostOverflow => "InvalidTxError::CostOverflow".to_string(),
-                    InvalidTxError::InvalidChain => "InvalidTxError::InvalidChain".to_string(),
-                    InvalidTxError::Expired => "InvalidTxError::Expired".to_string(),
-                },
-            },
-        }
-    }
-}
-
-impl From<ActionError> for ExecutionErrorView {
-    fn from(error: ActionError) -> Self {
-        ExecutionError::Action(error).into()
-    }
-}
-
-impl From<InvalidTxError> for ExecutionErrorView {
-    fn from(error: InvalidTxError) -> Self {
-        ExecutionError::InvalidTx(error).into()
-    }
+pub enum ServerError {
+    TxExecutionError(TxExecutionError),
+    Timeout,
+    Closed,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -777,7 +687,7 @@ pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
     /// The execution has failed.
-    Failure(ExecutionErrorView),
+    Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
     SuccessValue(String),
     /// The final action of the receipt returned a promise or the signed transaction was converted
@@ -805,7 +715,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     fn from(outcome: ExecutionStatus) -> Self {
         match outcome {
             ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
-            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e.into()),
+            ExecutionStatus::Failure(e) => ExecutionStatusView::Failure(e),
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 ExecutionStatusView::SuccessReceiptId(receipt_id)
@@ -883,23 +793,28 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+pub struct StateChangesView {
+    pub changes: StateChanges,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
-    pub amount: Balance,
+    pub stake: Balance,
 }
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self { account_id: stake.account_id, public_key: stake.public_key, amount: stake.amount }
+        Self { account_id: stake.account_id, public_key: stake.public_key, stake: stake.stake }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self { account_id: view.account_id, public_key: view.public_key, amount: view.amount }
+        Self { account_id: view.account_id, public_key: view.public_key, stake: view.stake }
     }
 }
 
@@ -1017,7 +932,7 @@ pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
     /// Validators for the next epoch
-    pub next_validators: Vec<ValidatorStakeView>,
+    pub next_validators: Vec<NextEpochValidatorInfo>,
     /// Fishermen for the current epoch
     pub current_fishermen: Vec<ValidatorStakeView>,
     /// Fishermen for the next epoch
@@ -1029,10 +944,22 @@ pub struct EpochValidatorInfo {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
+    pub public_key: PublicKey,
     pub is_slashed: bool,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub num_missing_blocks: NumBlocks,
+    pub shards: Vec<ShardId>,
+    pub num_produced_blocks: NumBlocks,
+    pub num_expected_blocks: NumBlocks,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NextEpochValidatorInfo {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+    #[serde(with = "u128_dec_format")]
+    pub stake: Balance,
+    pub shards: Vec<ShardId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]

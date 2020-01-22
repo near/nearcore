@@ -16,7 +16,8 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{
-    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
@@ -25,7 +26,8 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
+    StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -35,8 +37,8 @@ use near_primitives::utils::{
 };
 use near_store::{
     get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
-    set_account, set_code, set_receipt, set_received_data, PrefixKeyValueChanges, StorageError,
-    StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_account, set_code, set_receipt, set_received_data, StorageError, StoreUpdate, Trie,
+    TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -60,6 +62,8 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod store;
+
+const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -113,7 +117,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub key_value_changes: PrefixKeyValueChanges,
+    pub key_value_changes: StateChanges,
     pub stats: ApplyStats,
 }
 
@@ -217,10 +221,13 @@ impl Runtime {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
-            return Err(InvalidTxError::InvalidSigner(signer_id.clone()).into());
+            return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
         }
         if !is_valid_account_id(&transaction.receiver_id) {
-            return Err(InvalidTxError::InvalidReceiver(transaction.receiver_id.clone()).into());
+            return Err(InvalidTxError::InvalidReceiverId {
+                receiver_id: transaction.receiver_id.clone(),
+            }
+            .into());
         }
 
         if !signed_transaction
@@ -232,25 +239,31 @@ impl Runtime {
         let mut signer = match get_account(state_update, signer_id)? {
             Some(signer) => signer,
             None => {
-                return Err(InvalidTxError::SignerDoesNotExist(signer_id.clone()).into());
+                return Err(
+                    InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into()
+                );
             }
         };
         let mut access_key =
             match get_access_key(state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
-                    return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::AccessKeyNotFound(
-                            signer_id.clone(),
-                            transaction.public_key.clone(),
-                        ),
+                    return Err(InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: signer_id.clone(),
+                            public_key: transaction.public_key.clone(),
+                        },
                     )
                     .into());
                 }
             };
 
         if transaction.nonce <= access_key.nonce {
-            return Err(InvalidTxError::InvalidNonce(transaction.nonce, access_key.nonce).into());
+            return Err(InvalidTxError::InvalidNonce {
+                tx_nonce: transaction.nonce,
+                ak_nonce: access_key.nonce,
+            }
+            .into());
         }
 
         let sender_is_receiver = &transaction.receiver_id == signer_id;
@@ -267,7 +280,11 @@ impl Runtime {
         .map_err(|_| InvalidTxError::CostOverflow)?;
 
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
-            InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
+            InvalidTxError::NotEnoughBalance {
+                signer_id: signer_id.clone(),
+                balance: signer.amount,
+                cost: total_cost,
+            }
         })?;
 
         if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
@@ -275,36 +292,39 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::NotEnoughAllowance(
-                        signer_id.clone(),
-                        transaction.public_key.clone(),
-                        *allowance,
-                        total_cost,
-                    ))
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::NotEnoughAllowance {
+                            account_id: signer_id.clone(),
+                            public_key: transaction.public_key.clone(),
+                            allowance: *allowance,
+                            cost: total_cost,
+                        },
+                    )
                 })?;
             }
         }
 
         if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
         {
-            return Err(InvalidTxError::RentUnpaid(signer_id.clone(), amount).into());
+            return Err(InvalidTxError::RentUnpaid { signer_id: signer_id.clone(), amount }.into());
         }
 
         if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
             access_key.permission
         {
             if transaction.actions.len() != 1 {
-                return Err(
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
-                );
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::RequiresFullAccess,
+                )
+                .into());
             }
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::ReceiverMismatch(
-                            transaction.receiver_id.clone(),
-                            function_call_permission.receiver_id.clone(),
-                        ),
+                    return Err(InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::ReceiverMismatch {
+                            tx_receiver: transaction.receiver_id.clone(),
+                            ak_receiver: function_call_permission.receiver_id.clone(),
+                        },
                     )
                     .into());
                 }
@@ -314,17 +334,18 @@ impl Runtime {
                         .iter()
                         .all(|method_name| &function_call.method_name != method_name)
                 {
-                    return Err(InvalidTxError::InvalidAccessKey(
-                        InvalidAccessKeyError::MethodNameMismatch(
-                            function_call.method_name.clone(),
-                        ),
+                    return Err(InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::MethodNameMismatch {
+                            method_name: function_call.method_name.clone(),
+                        },
                     )
                     .into());
                 }
             } else {
-                return Err(
-                    InvalidTxError::InvalidAccessKey(InvalidAccessKeyError::ActionError).into()
-                );
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::RequiresFullAccess,
+                )
+                .into());
             }
         };
 
@@ -361,7 +382,9 @@ impl Runtime {
             {
                 Ok(verification_result) => {
                     near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
-                    state_update.commit();
+                    state_update.commit(StateChangeCause::TransactionProcessing {
+                        tx_hash: signed_transaction.get_hash(),
+                    });
                     let transaction = &signed_transaction.transaction;
                     let receipt = Receipt {
                         predecessor_id: transaction.signer_id.clone(),
@@ -458,7 +481,7 @@ impl Runtime {
                 action_deploy_contract(
                     &self.config.transaction_costs,
                     state_update,
-                    account.as_mut().expect("account exists, checked above"),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
                     deploy_contract,
                 )?;
@@ -468,7 +491,7 @@ impl Runtime {
                 action_function_call(
                     state_update,
                     apply_state,
-                    account.as_mut().expect("account exists, checked above"),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     receipt,
                     action_receipt,
                     promise_results,
@@ -482,15 +505,12 @@ impl Runtime {
             }
             Action::Transfer(transfer) => {
                 near_metrics::inc_counter(&metrics::ACTION_TRANSFER_TOTAL);
-                action_transfer(
-                    account.as_mut().expect("account exists, checked above"),
-                    transfer,
-                )?;
+                action_transfer(account.as_mut().expect(EXPECT_ACCOUNT_EXISTS), transfer)?;
             }
             Action::Stake(stake) => {
                 near_metrics::inc_counter(&metrics::ACTION_STAKE_TOTAL);
                 action_stake(
-                    account.as_mut().expect("account exists, checked above"),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
                     stake,
@@ -501,7 +521,7 @@ impl Runtime {
                 action_add_key(
                     &self.config.transaction_costs,
                     state_update,
-                    account.as_mut().expect("account exists, checked above"),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
                     add_key,
@@ -512,7 +532,7 @@ impl Runtime {
                 action_delete_key(
                     &self.config.transaction_costs,
                     state_update,
-                    account.as_mut().expect("account exists, checked above"),
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
                     delete_key,
@@ -570,7 +590,9 @@ impl Runtime {
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
-        state_update.commit();
+        state_update.commit(StateChangeCause::ActionReceiptProcessingStarted {
+            receipt_hash: receipt.get_hash(),
+        });
 
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
@@ -601,7 +623,8 @@ impl Runtime {
                 is_last_action,
             )?)?;
             // TODO storage error
-            if result.result.is_err() {
+            if let Err(ref mut res) = result.result {
+                res.index = Some(action_index as u64);
                 break;
             }
         }
@@ -613,7 +636,13 @@ impl Runtime {
                     check_rent(account_id, account, &self.config, apply_state.epoch_length)
                 {
                     result.merge(ActionResult {
-                        result: Err(ActionError::RentUnpaid(account_id.clone(), amount)),
+                        result: Err(ActionError {
+                            index: None,
+                            kind: ActionErrorKind::RentUnpaid {
+                                account_id: account_id.clone(),
+                                amount,
+                            },
+                        }),
                         ..Default::default()
                     })?;
                 } else {
@@ -646,7 +675,9 @@ impl Runtime {
         match &result.result {
             Ok(_) => {
                 stats.total_rent_paid = safe_add_balance(stats.total_rent_paid, rent_paid)?;
-                state_update.commit();
+                state_update.commit(StateChangeCause::ReceiptProcessing {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
             Err(_) => {
                 state_update.rollback();
@@ -669,7 +700,9 @@ impl Runtime {
                 validator_reward -= receiver_reward;
                 account.amount = safe_add_balance(account.amount, receiver_reward)?;
                 set_account(state_update, account_id, account);
-                state_update.commit();
+                state_update.commit(StateChangeCause::ActionReceiptGasReward {
+                    receipt_hash: receipt.get_hash(),
+                });
             }
         }
 
@@ -744,7 +777,7 @@ impl Runtime {
             ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
-            Err(e) => ExecutionStatus::Failure(ExecutionError::Action(e)),
+            Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
         };
 
         Self::print_log(&result.logs);
@@ -917,7 +950,8 @@ impl Runtime {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
-        state_update.commit();
+        state_update
+            .commit(StateChangeCause::PostponedReceipt { receipt_hash: receipt.get_hash() });
         Ok(None)
     }
 
@@ -1029,7 +1063,7 @@ impl Runtime {
                 set_account(state_update, account_id, &account);
             }
         }
-        state_update.commit();
+        state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
 
         Ok(())
     }
@@ -1172,8 +1206,9 @@ impl Runtime {
             &stats,
         )?;
 
-        state_update.commit();
-        let key_value_changes = state_update.get_prefix_changes(subscribed_prefixes)?;
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        // TODO: Avoid cloning.
+        let key_value_changes = state_update.committed_updates_per_cause().clone();
 
         let trie_changes = state_update.finalize()?;
         let state_root = trie_changes.new_root;
@@ -1328,6 +1363,7 @@ impl Runtime {
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, state_root) = state_update
             .finalize()
             .expect("Genesis state update failed")
@@ -1369,6 +1405,7 @@ mod tests {
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
+        state_update.commit(StateChangeCause::InitialState);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
@@ -1395,6 +1432,7 @@ mod tests {
         let mut initial_account = Account::new(initial_balance, hash(&[]), 0);
         initial_account.locked = initial_locked;
         set_account(&mut initial_state, &account_id, &initial_account);
+        initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap();
         let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
         store_update.commit().unwrap();

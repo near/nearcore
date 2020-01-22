@@ -1,33 +1,57 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use crate::types::{AccountPK, PoolIterator, TransactionGroup};
-use near_primitives::hash::CryptoHash;
+use crate::types::{PoolIterator, PoolKey, TransactionGroup};
+use borsh::BorshSerialize;
+use near_crypto::PublicKey;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
+use rand::RngCore;
+use std::ops::Bound;
 
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
-#[derive(Default)]
 pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
-    pub transactions: HashMap<AccountPK, Vec<SignedTransaction>>,
+    pub transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     pub unique_transactions: HashSet<CryptoHash>,
+    /// A uniquely generated key seed to randomize PoolKey order.
+    key_seed: Vec<u8>,
+    /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
+    last_used_key: PoolKey,
 }
 
 impl TransactionPool {
+    pub fn new() -> Self {
+        Self {
+            key_seed: rand::thread_rng().next_u64().to_le_bytes().to_vec(),
+            transactions: BTreeMap::new(),
+            unique_transactions: HashSet::new(),
+            last_used_key: CryptoHash::default(),
+        }
+    }
+
+    fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
+        let mut v = public_key.try_to_vec().unwrap();
+        v.extend_from_slice(&self.key_seed);
+        v.extend_from_slice(account_id.as_bytes());
+        hash(&v)
+    }
+
     /// Insert a signed transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) {
         if self.unique_transactions.contains(&signed_transaction.get_hash()) {
             return;
         }
         self.unique_transactions.insert(signed_transaction.get_hash());
-        let signer_id = signed_transaction.transaction.signer_id.clone();
-        let signer_public_key = signed_transaction.transaction.public_key.clone();
+        let signer_id = &signed_transaction.transaction.signer_id;
+        let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
-            .entry((signer_id, signer_public_key))
+            .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
     }
@@ -48,13 +72,12 @@ impl TransactionPool {
                 let signer_id = &tx.transaction.signer_id;
                 let signer_public_key = &tx.transaction.public_key;
                 grouped_transactions
-                    .entry((signer_id, signer_public_key))
+                    .entry(self.key(signer_id, signer_public_key))
                     .or_insert_with(HashSet::new)
                     .insert(tx.get_hash());
             }
         }
         for (key, hashes) in grouped_transactions {
-            let key = (key.0.clone(), key.1.clone());
             let mut remove_entry = false;
             if let Some(v) = self.transactions.get_mut(&key) {
                 v.retain(|tx| !hashes.contains(&tx.get_hash()));
@@ -105,6 +128,7 @@ impl<'a> PoolIteratorWrapper<'a> {
 /// The iterator works with the following algorithm:
 /// On next(), the iterator tries to get a transaction group from the pool, sorts transactions in
 /// it, and add it to the back of the sorted groups queue.
+/// Remembers the last used key, so it can continue from the next key.
 ///
 /// If the pool is empty, the iterator gets the group from the front of the sorted groups queue.
 ///
@@ -120,32 +144,42 @@ impl<'a> PoolIteratorWrapper<'a> {
 /// And all non-empty group from the sorted groups queue are inserted back into the pool.
 impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
-        let key = self.pool.transactions.keys().next().cloned();
-        match key {
-            Some(key) => {
-                let mut transactions =
-                    self.pool.transactions.remove(&key.clone()).expect("just checked existence");
-                transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
-                self.sorted_groups.push_back(TransactionGroup {
-                    key,
-                    transactions,
-                    removed_transaction_hashes: vec![],
+        if !self.pool.transactions.is_empty() {
+            let key = *self
+                .pool
+                .transactions
+                .range((Bound::Excluded(self.pool.last_used_key), Bound::Unbounded))
+                .next()
+                .map(|(k, _v)| k)
+                .unwrap_or_else(|| {
+                    self.pool
+                        .transactions
+                        .keys()
+                        .next()
+                        .expect("we've just checked that the map is not empty")
                 });
-                Some(self.sorted_groups.back_mut().expect("just pushed"))
-            }
-            None => {
-                while let Some(sorted_group) = self.sorted_groups.pop_front() {
-                    if sorted_group.transactions.is_empty() {
-                        for hash in sorted_group.removed_transaction_hashes {
-                            self.pool.unique_transactions.remove(&hash);
-                        }
-                    } else {
-                        self.sorted_groups.push_back(sorted_group);
-                        return Some(self.sorted_groups.back_mut().expect("just pushed"));
+            self.pool.last_used_key = key;
+            let mut transactions =
+                self.pool.transactions.remove(&key).expect("just checked existence");
+            transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
+            self.sorted_groups.push_back(TransactionGroup {
+                key,
+                transactions,
+                removed_transaction_hashes: vec![],
+            });
+            Some(self.sorted_groups.back_mut().expect("just pushed"))
+        } else {
+            while let Some(sorted_group) = self.sorted_groups.pop_front() {
+                if sorted_group.transactions.is_empty() {
+                    for hash in sorted_group.removed_transaction_hashes {
+                        self.pool.unique_transactions.remove(&hash);
                     }
+                } else {
+                    self.sorted_groups.push_back(sorted_group);
+                    return Some(self.sorted_groups.back_mut().expect("just pushed"));
                 }
-                None
             }
+            None
         }
     }
 }
@@ -205,7 +239,7 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::default();
+        let mut pool = TransactionPool::new();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
@@ -316,7 +350,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::default();
+        let mut pool = TransactionPool::new();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
@@ -378,5 +412,42 @@ mod tests {
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
         assert_eq!(txs.len(), 10);
+    }
+
+    /// Test pool iterator remembers the last key.
+    #[test]
+    fn test_pool_iterator_remembers_the_last_key() {
+        let transactions = (1..=10)
+            .map(|i| {
+                let signer_seed = format!("user_{}", i);
+                let signer = Arc::new(InMemorySigner::from_seed(
+                    &signer_seed,
+                    KeyType::ED25519,
+                    &signer_seed,
+                ));
+                SignedTransaction::send_money(
+                    i,
+                    signer_seed.to_string(),
+                    "bob.near".to_string(),
+                    &*signer,
+                    i as Balance,
+                    CryptoHash::default(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let (mut nonces, mut pool) = process_txs_to_nonces(transactions.clone(), 5);
+        assert_eq!(nonces.len(), 5);
+        assert_eq!(pool.len(), 5);
+
+        for tx in transactions {
+            pool.insert_transaction(tx);
+        }
+        assert_eq!(pool.len(), 10);
+        let txs = prepare_transactions(&mut pool, 5);
+        assert_eq!(txs.len(), 5);
+        nonces.sort();
+        let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
+        new_nonces.sort();
+        assert_ne!(nonces, new_nonces);
     }
 }

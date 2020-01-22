@@ -166,7 +166,9 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<Option<(Vec<u8>, Box<dyn ValuePtr + 'b>)>> {
         let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
+            None => {
+                return Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into())
+            }
         };
         match result {
             None => {
@@ -199,7 +201,7 @@ impl<'a> External for RuntimeExt<'a> {
                 .get_mut(receipt_index as usize)
                 .ok_or_else(|| {
                     HostErrorOrStorageError::HostError(
-                        HostError::InvalidReceiptIndex(receipt_index).into(),
+                        HostError::InvalidReceiptIndex { receipt_index }.into(),
                     )
                 })?
                 .1

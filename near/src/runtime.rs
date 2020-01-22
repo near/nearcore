@@ -11,7 +11,7 @@ use borsh::BorshDeserialize;
 use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -25,8 +25,9 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
+    StateChangeCause, StateChanges, StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
+    ValidatorStats,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -113,7 +114,7 @@ impl NightshadeRuntime {
                             .clone()
                             .try_into()
                             .expect("Failed to deserialize validator public key"),
-                        amount: account_info.amount,
+                        stake: account_info.amount,
                     })
                     .collect(),
             )
@@ -208,6 +209,7 @@ impl NightshadeRuntime {
         state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
+        block_hash: &CryptoHash,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         receipts: &[Receipt],
@@ -251,7 +253,7 @@ impl NightshadeRuntime {
                     .iter()
                     .filter(|v| self.account_id_to_shard_id(&v.account_id) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
-                        acc.insert(v.account_id.clone(), v.amount);
+                        acc.insert(v.account_id.clone(), v.stake);
                         acc
                     });
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
@@ -304,7 +306,7 @@ impl NightshadeRuntime {
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
-                RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO: process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
@@ -324,7 +326,12 @@ impl NightshadeRuntime {
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
-            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
+            trie_changes: WrappedTrieChanges::new(
+                self.trie.clone(),
+                apply_result.trie_changes,
+                apply_result.key_value_changes,
+                block_hash.clone(),
+            ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
             receipt_result,
@@ -533,15 +540,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
     }
 
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<u64, Error> {
+    ) -> Result<ValidatorStats, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager
-            .get_num_missing_blocks(epoch_id, last_known_block_hash, account_id)
+            .get_num_validator_blocks(epoch_id, last_known_block_hash, account_id)
             .map_err(Error::from)
     }
 
@@ -746,7 +753,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx,
                         ) {
                             Ok(verification_result) => {
-                                state_update.commit();
+                                state_update.commit(StateChangeCause::NotWritableToDisk);
                                 transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
                                 break;
@@ -814,7 +821,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -833,6 +840,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -860,7 +868,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         last_validator_proposals: &[ValidatorStake],
@@ -874,6 +882,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             *state_root,
             shard_id,
             height,
+            block_hash,
             block_timestamp,
             prev_block_hash,
             receipts,
@@ -1065,6 +1074,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        let chain_store = ChainStore::new(Arc::clone(&self.store));
+        chain_store.get_key_value_changes(block_hash, state_changes_request).map_err(|e| e.into())
+    }
+
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1124,7 +1142,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
-        match state_update.iter(&prefix) {
+        let access_keys = match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let key = key?;
@@ -1137,7 +1155,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
             Err(e) => Err(e.into()),
-        }
+        };
+        access_keys
     }
 
     fn view_state(
@@ -1173,31 +1192,29 @@ mod test {
         StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
-    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
+    use near_primitives::views::{
+        AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+    };
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
     use node_runtime::ApplyState;
 
     use crate::config::{FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(
         nonce: Nonce,
         signer: &dyn Signer,
         sender: &BlockProducer,
-        amount: Balance,
+        stake: Balance,
     ) -> SignedTransaction {
         SignedTransaction::from_actions(
             nonce,
             sender.account_id.clone(),
             sender.account_id.clone(),
             &*signer,
-            vec![Action::Stake(StakeAction {
-                stake: amount,
-                public_key: sender.signer.public_key(),
-            })],
+            vec![Action::Stake(StakeAction { stake, public_key: sender.signer.public_key() })],
             // runtime does not validate block history
             CryptoHash::default(),
         )
@@ -1237,6 +1254,7 @@ mod test {
                 .unwrap();
             let mut store_update = self.store.store_update();
             result.trie_changes.insertions_into(&mut store_update).unwrap();
+            result.trie_changes.key_value_changes_into(&mut store_update).unwrap();
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.receipt_result)
         }
@@ -1802,7 +1820,7 @@ mod test {
             let proposals = if i == 1 {
                 vec![ValidatorStake {
                     account_id: block_producers[0].account_id.clone(),
-                    amount: TESTING_INIT_STAKE + 1,
+                    stake: TESTING_INIT_STAKE + 1,
                     public_key: block_producers[0].signer.public_key(),
                 }]
             } else {
@@ -1933,37 +1951,52 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let current_validators = env
-            .runtime
-            .epoch_manager
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .get_epoch_info_from_hash(&env.head.last_block_hash)
-            .unwrap()
-            .validators
-            .clone();
-        let current_epoch_validator_info = current_validators
-            .clone()
-            .into_iter()
-            .map(|v| CurrentEpochValidatorInfo {
-                account_id: v.account_id,
+        let mut current_epoch_validator_info = vec![
+            CurrentEpochValidatorInfo {
+                account_id: "test1".to_string(),
+                public_key: block_producers[0].signer.public_key(),
                 is_slashed: false,
-                stake: v.amount,
-                num_missing_blocks: 0,
-            })
-            .collect::<Vec<_>>();
+                stake: TESTING_INIT_STAKE,
+                shards: vec![0],
+                num_produced_blocks: 1,
+                num_expected_blocks: 1,
+            },
+            CurrentEpochValidatorInfo {
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].signer.public_key(),
+                is_slashed: false,
+                stake: TESTING_INIT_STAKE,
+                shards: vec![0],
+                num_produced_blocks: 1,
+                num_expected_blocks: 1,
+            },
+        ];
+        let next_epoch_validator_info = vec![
+            NextEpochValidatorInfo {
+                account_id: "test1".to_string(),
+                public_key: block_producers[0].signer.public_key(),
+                stake: TESTING_INIT_STAKE,
+                shards: vec![0],
+            },
+            NextEpochValidatorInfo {
+                account_id: "test2".to_string(),
+                public_key: block_producers[1].signer.public_key(),
+                stake: TESTING_INIT_STAKE,
+                shards: vec![0],
+            },
+        ];
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
         assert_eq!(
             response,
             EpochValidatorInfo {
                 current_validators: current_epoch_validator_info.clone(),
-                next_validators: current_validators.clone().into_iter().map(Into::into).collect(),
+                next_validators: next_epoch_validator_info.clone(),
                 current_fishermen: vec![],
                 next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake {
                     account_id: "test1".to_string(),
                     public_key: block_producers[0].signer.public_key(),
-                    amount: 0
+                    stake: 0
                 }
                 .into()]
             }
@@ -1971,13 +2004,16 @@ mod test {
         env.step_default(vec![]);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();
 
+        current_epoch_validator_info[1].num_produced_blocks = 0;
+        current_epoch_validator_info[1].num_expected_blocks = 0;
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
-            vec![ValidatorStake {
+            vec![NextEpochValidatorInfo {
                 account_id: "test2".to_string(),
                 public_key: block_producers[1].signer.public_key(),
-                amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
+                stake: TESTING_INIT_STAKE + per_epoch_per_validator_reward,
+                shards: vec![0],
             }
             .into()]
         );

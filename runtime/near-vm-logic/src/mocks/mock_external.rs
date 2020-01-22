@@ -123,13 +123,13 @@ impl External for MockedExternal {
                 }
                 None => Ok(None),
             },
-            None => Err(HostError::InvalidIteratorIndex(iterator_idx).into()),
+            None => Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into()),
         }
     }
 
     fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<()> {
         if self.iterators.remove(&iterator_idx).is_none() {
-            Err(HostError::InvalidIteratorIndex(iterator_idx).into())
+            Err(HostError::InvalidIteratorIndex { iterator_index: iterator_idx }.into())
         } else {
             Ok(())
         }
@@ -137,7 +137,7 @@ impl External for MockedExternal {
 
     fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
         if let Some(index) = receipt_indices.iter().find(|&&el| el >= self.receipts.len() as u64) {
-            return Err(HostError::InvalidReceiptIndex(*index).into());
+            return Err(HostError::InvalidReceiptIndex { receipt_index: *index }.into());
         }
         let res = self.receipts.len() as u64;
         self.receipts.push(Receipt { receipt_indices, receiver_id, actions: vec![] });

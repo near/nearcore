@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
-use near_primitives::errors::RuntimeError;
+use near_jsonrpc::ServerError;
+use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
@@ -66,7 +67,7 @@ impl RuntimeUser {
         apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
         for transaction in transactions.iter() {
             self.transactions.borrow_mut().insert(transaction.clone());
@@ -86,8 +87,10 @@ impl RuntimeUser {
                     &HashSet::new(),
                 )
                 .map_err(|e| match e {
-                    RuntimeError::InvalidTxError(e) => format!("{}", e),
-                    RuntimeError::BalanceMismatch(e) => panic!("{}", e),
+                    RuntimeError::InvalidTxError(e) => {
+                        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
+                    }
+                    RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                     RuntimeError::UnexpectedIntegerOverflow => {
                         panic!("UnexpectedIntegerOverflow error")
@@ -197,7 +200,7 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
@@ -205,12 +208,12 @@ impl User for RuntimeUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])?;
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError> {
         self.apply_all(self.apply_state(), vec![receipt], vec![])?;
         Ok(())
     }
