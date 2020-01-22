@@ -28,7 +28,7 @@ impl Account {
     }
 }
 
-/// Calculates the storage rent for the given account
+/// Calculates the storage and the name rent for the given account
 pub fn calculate_rent(
     account_id: &AccountId,
     account: &Account,
