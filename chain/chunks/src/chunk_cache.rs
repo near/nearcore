@@ -5,11 +5,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 
-const HEIGHT_HORIZON: u64 = 1024;
-const MAX_HEIGHTS_AHEAD: u64 = 5;
-const CHUNK_HEADER_HEIGHT_HORIZON: u64 = 10;
+const HEIGHT_HORIZON: BlockHeightDelta = 1024;
+const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
+const CHUNK_HEADER_HEIGHT_HORIZON: BlockHeightDelta = 10;
 const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 pub struct EncodedChunksCacheEntry {
@@ -19,10 +19,10 @@ pub struct EncodedChunksCacheEntry {
 }
 
 pub struct EncodedChunksCache {
-    largest_seen_height: BlockIndex,
+    largest_seen_height: BlockHeight,
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
-    height_map: HashMap<BlockIndex, HashSet<ChunkHash>>,
+    height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
     block_hash_to_chunk_headers: SizedCache<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
 }
 
@@ -85,7 +85,7 @@ impl EncodedChunksCache {
         })
     }
 
-    pub fn height_within_horizon(&self, height: BlockIndex) -> bool {
+    pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
         if height + HEIGHT_HORIZON < self.largest_seen_height {
             false
         } else if height > self.largest_seen_height + MAX_HEIGHTS_AHEAD {
@@ -125,7 +125,7 @@ impl EncodedChunksCache {
 
     pub fn update_largest_seen_height<T>(
         &mut self,
-        new_height: BlockIndex,
+        new_height: BlockHeight,
         requested_chunks: &HashMap<ChunkHash, T>,
     ) {
         let old_largest_seen_height = self.largest_seen_height;

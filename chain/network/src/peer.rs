@@ -9,8 +9,6 @@ use actix::{
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use log::{debug, error, info, warn};
-use tokio::io::WriteHalf;
-use tokio::net::TcpStream;
 
 use near_metrics;
 use near_primitives::block::GenesisId;
@@ -31,6 +29,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+
+type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -134,7 +134,7 @@ pub struct Peer {
     /// Peer status.
     pub peer_status: PeerStatus,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+    framed: FramedWrite<WriteHalf, Codec>,
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
@@ -159,7 +159,7 @@ impl Peer {
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
-        framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+        framed: FramedWrite<WriteHalf, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -213,13 +213,13 @@ impl Peer {
             move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo { genesis_id, .. }) => {
                     act.genesis_id = genesis_id;
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }
                 Err(err) => {
                     error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
+                    actix::fut::ready(())
                 }
-                _ => actix::fut::err(()),
+                _ => actix::fut::ready(()),
             },
         ));
     }
@@ -242,13 +242,13 @@ impl Peer {
                         act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }
                 Err(err) => {
                     error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::err(())
+                    actix::fut::ready(())
                 }
-                _ => actix::fut::err(()),
+                _ => actix::fut::ready(()),
             })
             .spawn(ctx);
     }
@@ -334,11 +334,11 @@ impl Peer {
                             "Received error sending message to view client: {} for {}",
                             err, act.peer_info
                         );
-                        return actix::fut::err(());
+                        return actix::fut::ready(());
                     }
                     _ => {}
                 };
-                actix::fut::ok(())
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -467,11 +467,11 @@ impl Peer {
                             "Received error sending message to client: {} for {}",
                             err, act.peer_info
                         );
-                        return actix::fut::err(());
+                        return actix::fut::ready(());
                     }
                     _ => {}
                 };
-                actix::fut::ok(())
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -516,7 +516,7 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<Vec<u8>, io::Error> for Peer {
+impl StreamHandler<Vec<u8>> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as i64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
@@ -628,17 +628,17 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                                     act.edge_info = edge_info;
                                     act.send_handshake(ctx);
                                 }
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             },
                             Ok(ConsolidateResponse::InvalidNonce(edge)) => {
                                 debug!(target: "network", "{:?}: Received invalid nonce from peer {:?} sending evidence.", act.node_info.id.clone(), act.peer_addr);
                                 act.send_message(PeerMessage::LastEdge(edge));
-                                actix::fut::ok(())
+                                actix::fut::ready(())
                             }
                             _ => {
                                 info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
                                 ctx.stop();
-                                actix::fut::err(())
+                                actix::fut::ready(())
                             }
                         }
                     })
@@ -670,7 +670,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             }
                             _ => {}
                         }
-                        actix::fut::ok(())
+                        actix::fut::ready(())
                     })
                     .spawn(ctx);
             }
@@ -688,7 +688,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
                         act.send_message(PeerMessage::PeersResponse(peers.peers));
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 }).spawn(ctx);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
@@ -709,7 +709,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         }
                         _ => {}
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
@@ -723,7 +723,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         }
                         _ => {}
                     }
-                    actix::fut::ok(())
+                    actix::fut::ready(())
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::Sync(sync_data)) => {
@@ -747,7 +747,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                             if res.unwrap_or(false) {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
-                            actix::fut::ok(())
+                            actix::fut::ready(())
                         })
                         .spawn(ctx);
                 }

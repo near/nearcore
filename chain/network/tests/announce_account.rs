@@ -5,7 +5,7 @@ use std::time::Instant;
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
-use futures::{future, Future};
+use futures::{future, FutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
@@ -157,7 +157,7 @@ fn check_account_id_propagation(
                                     System::current().stop();
                                 }
                             }
-                            future::result(Ok(()))
+                            future::ready(())
                         }));
                     }
                 }
@@ -400,13 +400,13 @@ fn test_infinite_loop() {
                                 state1.store(1, Ordering::SeqCst);
                             }
                         }
-                        future::ok(())
+                        future::ready(())
                     }));
                 } else if state_value == 1 {
                     actix::spawn(pm1.clone().send(request1.clone()).then(move |res| {
                         assert!(res.is_ok());
                         state1.store(2, Ordering::SeqCst);
-                        future::ok(())
+                        future::ready(())
                     }));
                 } else if state_value == 2 {
                     if counter1.load(Ordering::SeqCst) == 1 && counter2.load(Ordering::SeqCst) == 1
@@ -416,11 +416,11 @@ fn test_infinite_loop() {
                 } else if state_value == 3 {
                     actix::spawn(pm1.clone().send(request1.clone()).then(move |res| {
                         assert!(res.is_ok());
-                        future::ok(())
+                        future::ready(())
                     }));
                     actix::spawn(pm2.clone().send(request2.clone()).then(move |res| {
                         assert!(res.is_ok());
-                        future::ok(())
+                        future::ready(())
                     }));
                     state.store(4, Ordering::SeqCst);
                 } else if state_value == 4 {
