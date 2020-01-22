@@ -25,8 +25,8 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StorageUsage, ValidatorStake, Version,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateRoot, StorageUsage, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -791,6 +791,11 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             )
             .finish()
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+pub struct StateChangesView {
+    pub changes: StateChanges,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]

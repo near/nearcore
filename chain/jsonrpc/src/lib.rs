@@ -13,14 +13,14 @@ use futures::Future;
 use futures::{FutureExt, TryFutureExt};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::time::{delay_for, timeout};
 
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
-    GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
+    GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, ChunkId};
@@ -30,7 +30,7 @@ use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
 use near_primitives::views::FinalExecutionStatus;
 
 mod metrics;
@@ -184,6 +184,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
+            "changes" => self.changes(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
@@ -328,6 +329,38 @@ impl JsonRpcHandler {
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })
                 .await,
+        )
+    }
+
+    async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (block_hash, state_changes_request) =
+            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
+        let block_hash_copy = block_hash.clone();
+        jsonify(
+            self.view_client_addr
+                .send(GetKeyValueChanges { block_hash, state_changes_request })
+                .await
+                .map(|v| {
+                    v.map(|changes| {
+                        json!({
+                            "block_hash": block_hash_copy,
+                            "changes_by_key": changes
+                            .into_iter()
+                            .map(|(key, changes)| {
+                                json!({
+                                    "key": key,
+                                    "changes": changes.into_iter().map(|(cause, value)| {
+                                        json!({
+                                            "cause": cause,
+                                            "value": value
+                                        })
+                                    }).collect::<Vec<_>>()
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                        })
+                    })
+                }),
         )
     }
 
