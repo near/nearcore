@@ -5,6 +5,7 @@ from cluster import LocalNode, GCloudNode
 from rc import run
 import os
 import tempfile
+import json
 class TxContext:
     def __init__(self, act_to_val, nodes):
         self.next_nonce = 2
@@ -61,7 +62,7 @@ class LogTracker:
     def __init__(self, node):
         self.node = node
         if type(node) is LocalNode:
-            self.fname = node.stderr_name
+            self.fname = node.stdout_name
             with open(self.fname) as f:
                 f.seek(0, 2)
                 self.offset = f.tell()
@@ -120,6 +121,20 @@ with open('/tmp/python-rc.log') as f:
         else:
             raise NotImplementedError()
 
+    def getline(self, pattern):
+        if type(self.node) is LocalNode:
+            with open(self.fname) as f:
+                f.seek(self.offset)
+                while True:
+                    line = f.readline()
+                    if line == "":
+                        raise Exception("LogTracker.getline pattern not found")
+                    self.offset = f.tell()
+                    if pattern in line:
+                        return line
+        else:
+            raise NotImplementedError()
+
 def load_binary_file(filepath):
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
@@ -142,3 +157,7 @@ cd {tmp_contract}
     if p.returncode != 0:
         raise Exception(p.stderr)
     return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+
+def contract_fn_args(**kwargs):
+    return json.dumps(kwargs).encode()
+

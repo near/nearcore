@@ -162,6 +162,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr):
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
+        env["RUST_LOG"] = "view_client=debug"
 
         self.stdout_name = os.path.join(self.node_dir, 'stdout')
         self.stderr_name = os.path.join(self.node_dir, 'stderr')
@@ -255,7 +256,7 @@ chmod +x near
         return (self.ip, self.rpc_port)
 
     def start(self, boot_key, boot_node_addr):
-        self.machine.run_detach_tmux("RUST_BACKTRACE=1 "+" ".join(self._get_command_line('.', '.near', boot_key, boot_node_addr)).replace("--verbose", '--verbose ""'))
+        self.machine.run_detach_tmux('RUST_BACKTRACE=1 RUST_LOG="view_client=debug"'+" ".join(self._get_command_line('.', '.near', boot_key, boot_node_addr)).replace("--verbose", '--verbose ""'))
         self.wait_for_rpc(timeout=30)
 
     def kill(self):

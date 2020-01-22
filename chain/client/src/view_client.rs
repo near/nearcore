@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
-use log::{error, warn};
+use log::{debug, error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
@@ -110,7 +110,7 @@ impl ViewClientActor {
         }
         let account_id = AccountId::from(path_parts[1].clone());
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-
+        debug!(target: "view_client", "account {} in shard {}", account_id, shard_id);
         // If we have state for the shard that we query return query result directly.
         // Otherwise route query to peers.
         match self.chain.get_chunk_extra(&header.hash, shard_id) {
