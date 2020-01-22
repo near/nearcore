@@ -26,9 +26,9 @@ pub(crate) fn check_balance(
     initial_state: &TrieUpdate,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
-    prev_receipts: &[Receipt],
+    incoming_receipts: &[Receipt],
     transactions: &[SignedTransaction],
-    new_receipts: &[Receipt],
+    outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
@@ -65,7 +65,7 @@ pub(crate) fn check_balance(
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter()
         .map(|tx| tx.transaction.signer_id.clone())
-        .chain(prev_receipts.iter().map(|r| r.receiver_id.clone()))
+        .chain(incoming_receipts.iter().map(|r| r.receiver_id.clone()))
         .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id.clone()))
         .collect();
     let incoming_validator_rewards =
@@ -127,15 +127,15 @@ pub(crate) fn check_balance(
             .into_iter()
             .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
     };
-    let incoming_receipts_balance = receipts_cost(prev_receipts)?;
-    let outgoing_receipts_balance = receipts_cost(new_receipts)?;
+    let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
+    let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
     // execution.
-    let all_potential_postponed_receipt_ids = prev_receipts
+    let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())
         .map(|receipt| {

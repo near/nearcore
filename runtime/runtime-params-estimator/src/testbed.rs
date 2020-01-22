@@ -103,7 +103,7 @@ impl RuntimeTestbed {
                 }
             }
         }
-        self.prev_receipts = apply_result.new_receipts;
+        self.prev_receipts = apply_result.outgoing_receipts;
         total_burnt_gas
     }
 

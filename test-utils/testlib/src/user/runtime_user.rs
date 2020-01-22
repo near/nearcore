@@ -103,13 +103,13 @@ impl RuntimeUser {
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.state_root;
-            if apply_result.new_receipts.is_empty() {
+            if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());
             }
-            for receipt in apply_result.new_receipts.iter() {
+            for receipt in apply_result.outgoing_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
             }
-            receipts = apply_result.new_receipts;
+            receipts = apply_result.outgoing_receipts;
             txs = vec![];
         }
     }

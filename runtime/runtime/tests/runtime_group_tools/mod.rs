@@ -84,7 +84,7 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
 
-        (apply_result.new_receipts, apply_result.outcomes)
+        (apply_result.outgoing_receipts, apply_result.outcomes)
     }
 }
 
