@@ -99,7 +99,7 @@ pub(crate) fn get_code_with_cache(
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
     let code_hash = account.code_hash;
     let code = || get_code(state_update, account_id);
-    crate::cache::get_code_with_cache(code_hash, code)
+    crate::cache::get_code(code_hash, code)
 }
 
 pub(crate) fn action_function_call(
@@ -224,7 +224,7 @@ pub(crate) fn action_stake(
         result.validator_proposals.push(ValidatorStake {
             account_id: account_id.clone(),
             public_key: stake.public_key.clone(),
-            amount: stake.stake,
+            stake: stake.stake,
         });
         if stake.stake > account.locked {
             account.amount -= increment;

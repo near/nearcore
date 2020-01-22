@@ -226,7 +226,7 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::MerkleHash;
+    use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
     use near_store::test_utils::create_trie;
     use near_store::{set_account, TrieUpdate};
@@ -236,9 +236,6 @@ mod tests {
 
     /// Initial balance used in tests.
     pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
-
-    /// Validator's stake used in tests.
-    pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
     /// One NEAR, divisible by 10^24.
     pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
@@ -296,12 +293,12 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit();
+        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
@@ -338,7 +335,7 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(
@@ -348,7 +345,7 @@ mod tests {
             0,
         );
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit();
+        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let tx = SignedTransaction::send_money(
@@ -406,7 +403,7 @@ mod tests {
 
         set_account(&mut initial_state, &alice_id, &alice);
         set_account(&mut initial_state, &bob_id, &bob);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
 

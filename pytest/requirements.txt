@@ -8,3 +8,4 @@ base58
 google-api-python-client
 six
 python-rc==0.1.6
+deepdiff

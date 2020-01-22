@@ -8,9 +8,10 @@ use near_client::{GetBlock, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeout;
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::BlockId;
 use near_primitives::views::{FinalExecutionStatus, QueryResponseKind};
 use testlib::{genesis_block, start_nodes};
 
@@ -55,7 +56,7 @@ fn test_tx_propagation() {
                         actix::spawn(
                             client
                                 .broadcast_tx_async(to_base64(&bytes))
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| panic!(err.to_string()))
                                 .map_ok(move |result| {
                                     assert_eq!(String::from(&tx_hash_clone), result)
                                 })
@@ -129,7 +130,7 @@ fn test_tx_propagation_through_rpc() {
                         actix::spawn(
                             client
                                 .broadcast_tx_commit(to_base64(&bytes))
-                                .map_err(|err| panic!(err))
+                                .map_err(|err| panic!(err.to_string()))
                                 .map_ok(move |result| {
                                     if result.status
                                         == FinalExecutionStatus::SuccessValue("".to_string())
@@ -406,7 +407,7 @@ fn test_get_validator_info_rpc() {
                         let block_hash = res.header.hash;
                         actix::spawn(
                             client
-                                .validators(to_base(&block_hash))
+                                .validators(Some(BlockId::Hash(block_hash)))
                                 .map_err(|err| {
                                     panic!(format!("error: {:?}", err));
                                 })

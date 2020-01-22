@@ -8,10 +8,10 @@ use futures::{future, FutureExt};
 
 use near_client::ClientActor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
-use near_network::types::{AnnounceAccount, NetworkViewClientResponses, PeerId, SyncData};
-use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor,
+use near_network::types::{
+    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, PeerId, SyncData,
 };
+use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::{GenesisId, WeightAndScore};
 use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
@@ -30,31 +30,31 @@ pub fn make_peer_manager(
     config.max_peer = peer_max_count;
     let counter = Arc::new(AtomicUsize::new(0));
     let counter1 = counter.clone();
-    let client_addr = ClientMock::mock(Box::new(move |msg, _ctx| {
-        let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
+    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+    .start();
+    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
         match msg {
-            NetworkClientMessages::AnnounceAccount(accounts) => {
+            NetworkViewClientMessages::AnnounceAccount(accounts) => {
                 if !accounts.is_empty() {
                     counter1.fetch_add(1, Ordering::SeqCst);
                 }
-                Box::new(Some(NetworkClientResponses::AnnounceAccount(
+                Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
                     accounts.clone().into_iter().map(|obj| obj.0).collect(),
                 )))
             }
-            NetworkClientMessages::GetChainInfo => {
-                Box::new(Some(NetworkClientResponses::ChainInfo {
+            NetworkViewClientMessages::GetChainInfo => {
+                Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
                     height: 1,
                     weight_and_score: WeightAndScore::from_ints(0, 0),
                     tracked_shards: vec![],
                 }))
             }
-            _ => Box::new(Some(NetworkClientResponses::NoResponse)),
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
         }
-    }))
-    .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(move |_msg, _ctx| {
-        Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
     let peer_id = config.public_key.clone().into();

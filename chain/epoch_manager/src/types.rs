@@ -1,16 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
-use serde::Serialize;
-
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
-    ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
+    NumShards, ValidatorId, ValidatorStake, ValidatorStats,
 };
 
 pub type RngSeed = [u8; 32];
@@ -85,7 +84,7 @@ pub struct BlockInfo {
     /// Total supply at this block.
     pub total_supply: Balance,
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
+    pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
 }
@@ -131,28 +130,28 @@ impl BlockInfo {
     pub fn update_block_tracker(
         &mut self,
         epoch_info: &EpochInfo,
-        prev_height: BlockHeight,
-        mut prev_block_tracker: HashMap<ValidatorId, (NumBlocks, NumBlocks)>,
+        prev_block_height: BlockHeight,
+        mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
     ) {
         let block_producer_id = epoch_info.block_producers_settlement
             [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
-            .and_modify(|(produced, expected)| {
-                *produced += 1;
-                *expected += 1;
+            .and_modify(|validator_stats| {
+                validator_stats.produced += 1;
+                validator_stats.expected += 1;
             })
-            .or_insert((1, 1));
+            .or_insert(ValidatorStats { produced: 1, expected: 1 });
         // Iterate over all skipped blocks and increase the number of expected blocks.
-        for height in prev_height + 1..self.height {
+        for height in prev_block_height + 1..self.height {
             let block_producer_id = epoch_info.block_producers_settlement
                 [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
             prev_block_tracker
                 .entry(block_producer_id)
-                .and_modify(|(_produced, expected)| {
-                    *expected += 1;
+                .and_modify(|validator_stats| {
+                    validator_stats.expected += 1;
                 })
-                .or_insert((0, 1));
+                .or_insert(ValidatorStats { produced: 0, expected: 1 });
         }
         self.block_tracker = prev_block_tracker;
     }
@@ -232,7 +231,7 @@ pub struct EpochSummary {
     pub last_block_hash: CryptoHash,
     pub all_proposals: Vec<ValidatorStake>,
     pub validator_kickout: HashSet<AccountId>,
-    pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
+    pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     pub total_storage_rent: Balance,
     pub total_validator_reward: Balance,
 }
