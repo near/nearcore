@@ -129,7 +129,7 @@ pub enum InvalidAccessKeyError {
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
     /// Transaction method name isn't allowed by the access key
     MethodNameMismatch { method_name: String },
-    /// Transaction requires a full access token
+    /// Transaction requires a full permission access key.
     RequiresFullAccess,
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
