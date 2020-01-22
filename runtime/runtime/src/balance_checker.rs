@@ -278,7 +278,7 @@ mod tests {
             &ApplyStats::default(),
         )
         .unwrap_err();
-        assert_matches!(err, RuntimeError::BalanceMismatch(_));
+        assert_matches!(err, RuntimeError::BalanceMismatchError(_));
     }
 
     #[test]
