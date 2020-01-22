@@ -40,7 +40,8 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let runtime_config = random_config();
+        let mut runtime_config = random_config();
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());

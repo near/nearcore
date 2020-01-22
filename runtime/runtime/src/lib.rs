@@ -13,12 +13,9 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, RuntimeError,
-    TxExecutionError,
-};
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
@@ -31,14 +28,13 @@ use near_primitives::types::{
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_delayed_receipt,
-    key_for_pending_data_count, key_for_postponed_receipt, key_for_postponed_receipt_id,
-    key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, key_for_delayed_receipt, key_for_pending_data_count,
+    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
+    ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
-    get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
-    set_account, set_code, set_receipt, set_received_data, StorageError, StoreUpdate, Trie,
-    TrieChanges, TrieUpdate,
+    get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
+    set_receipt, set_received_data, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -49,9 +45,11 @@ use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
-    total_prepaid_gas, tx_cost, RuntimeConfig,
+    total_prepaid_gas, RuntimeConfig,
 };
 pub use crate::store::StateRecord;
+use crate::verifier::validate_receipt;
+pub use crate::verifier::verify_and_charge_transaction;
 
 mod actions;
 pub mod adapter;
@@ -62,6 +60,7 @@ pub mod ext;
 mod metrics;
 pub mod state_viewer;
 mod store;
+mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -188,7 +187,7 @@ impl Default for ActionResult {
 }
 
 pub struct Runtime {
-    config: RuntimeConfig,
+    pub config: RuntimeConfig,
 }
 
 impl Runtime {
@@ -210,155 +209,9 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
-    /// and balances, and updates the state for the used account and access keys.
-    pub fn verify_and_charge_transaction(
-        &self,
-        state_update: &mut TrieUpdate,
-        apply_state: &ApplyState,
-        signed_transaction: &SignedTransaction,
-    ) -> Result<VerificationResult, RuntimeError> {
-        let transaction = &signed_transaction.transaction;
-        let signer_id = &transaction.signer_id;
-        if !is_valid_account_id(&signer_id) {
-            return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
-        }
-        if !is_valid_account_id(&transaction.receiver_id) {
-            return Err(InvalidTxError::InvalidReceiverId {
-                receiver_id: transaction.receiver_id.clone(),
-            }
-            .into());
-        }
-
-        if !signed_transaction
-            .signature
-            .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
-        {
-            return Err(InvalidTxError::InvalidSignature.into());
-        }
-        let mut signer = match get_account(state_update, signer_id)? {
-            Some(signer) => signer,
-            None => {
-                return Err(
-                    InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into()
-                );
-            }
-        };
-        let mut access_key =
-            match get_access_key(state_update, &signer_id, &transaction.public_key)? {
-                Some(access_key) => access_key,
-                None => {
-                    return Err(InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::AccessKeyNotFound {
-                            account_id: signer_id.clone(),
-                            public_key: transaction.public_key.clone(),
-                        },
-                    )
-                    .into());
-                }
-            };
-
-        if transaction.nonce <= access_key.nonce {
-            return Err(InvalidTxError::InvalidNonce {
-                tx_nonce: transaction.nonce,
-                ak_nonce: access_key.nonce,
-            }
-            .into());
-        }
-
-        let sender_is_receiver = &transaction.receiver_id == signer_id;
-
-        let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
-        access_key.nonce = transaction.nonce;
-
-        let (gas_burnt, gas_used, total_cost) = tx_cost(
-            &self.config.transaction_costs,
-            &transaction,
-            apply_state.gas_price,
-            sender_is_receiver,
-        )
-        .map_err(|_| InvalidTxError::CostOverflow)?;
-
-        signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
-            InvalidTxError::NotEnoughBalance {
-                signer_id: signer_id.clone(),
-                balance: signer.amount,
-                cost: total_cost,
-            }
-        })?;
-
-        if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
-            access_key.permission
-        {
-            if let Some(ref mut allowance) = function_call_permission.allowance {
-                *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::NotEnoughAllowance {
-                            account_id: signer_id.clone(),
-                            public_key: transaction.public_key.clone(),
-                            allowance: *allowance,
-                            cost: total_cost,
-                        },
-                    )
-                })?;
-            }
-        }
-
-        if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
-        {
-            return Err(InvalidTxError::RentUnpaid { signer_id: signer_id.clone(), amount }.into());
-        }
-
-        if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
-            access_key.permission
-        {
-            if transaction.actions.len() != 1 {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::RequiresFullAccess,
-                )
-                .into());
-            }
-            if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
-                if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::ReceiverMismatch {
-                            tx_receiver: transaction.receiver_id.clone(),
-                            ak_receiver: function_call_permission.receiver_id.clone(),
-                        },
-                    )
-                    .into());
-                }
-                if !function_call_permission.method_names.is_empty()
-                    && function_call_permission
-                        .method_names
-                        .iter()
-                        .all(|method_name| &function_call.method_name != method_name)
-                {
-                    return Err(InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::MethodNameMismatch {
-                            method_name: function_call.method_name.clone(),
-                        },
-                    )
-                    .into());
-                }
-            } else {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::RequiresFullAccess,
-                )
-                .into());
-            }
-        };
-
-        set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
-        set_account(state_update, &signer_id, &signer);
-
-        let validator_reward = safe_gas_to_balance(apply_state.gas_price, gas_burnt)
-            .map_err(|_| InvalidTxError::CostOverflow)?;
-
-        Ok(VerificationResult { gas_burnt, gas_used, rent_paid, validator_reward })
-    }
-
-    /// Takes one signed transaction, verifies it and converts it to a receipt.
+    /// Takes one signed transaction, verifies it and converts it to a receipt. Add this receipt
+    /// either to the new local receipts if the signer is the same as receiver or to the new
+    /// outgoing receipts.
     /// When transaction is converted to a receipt, the account is charged for the full value of
     /// the generated receipt. Also the account is charged with the rent for storage and short name.
     /// In case of successful verification (expected for valid chunks), returns the receipt and
@@ -373,7 +226,12 @@ impl Runtime {
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
-        match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction) {
+        match verify_and_charge_transaction(
+            &self.config,
+            state_update,
+            apply_state,
+            signed_transaction,
+        ) {
             Ok(verification_result) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL);
                 state_update.commit(StateChangeCause::TransactionProcessing {
@@ -384,7 +242,6 @@ impl Runtime {
                     predecessor_id: transaction.signer_id.clone(),
                     receiver_id: transaction.receiver_id.clone(),
                     receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
-
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
                         signer_public_key: transaction.public_key.clone(),
@@ -414,7 +271,7 @@ impl Runtime {
             Err(e) => {
                 near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_FAILED_TOTAL);
                 state_update.rollback();
-                Err(e)
+                return Err(e);
             }
         }
     }
@@ -597,7 +454,7 @@ impl Runtime {
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let is_last_action = action_index + 1 == action_receipt.actions.len();
-            result.merge(self.apply_action(
+            let mut new_result = self.apply_action(
                 action,
                 state_update,
                 apply_state,
@@ -611,7 +468,15 @@ impl Runtime {
                     u64::max_value() - action_index as u64,
                 ),
                 is_last_action,
-            )?)?;
+            )?;
+            if new_result.result.is_ok() {
+                if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
+                    validate_receipt(&self.config.wasm_config.limit_config, receipt)
+                }) {
+                    new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
+                }
+            }
+            result.merge(new_result)?;
             // TODO storage error
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
@@ -1339,7 +1204,7 @@ impl Runtime {
                 _ => panic!("Expected action receipt"),
             };
             // Logic similar to `apply_receipt`
-            let mut pending_data_count = 0;
+            let mut pending_data_count: u32 = 0;
             for data_id in &action_receipt.input_data_ids {
                 if get_received_data(&state_update, account_id, data_id)
                     .expect("Genesis storage error")

@@ -55,7 +55,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "insert_strings",
                 input_data.to_vec(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -76,7 +76,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "delete_strings",
                 input_data.to_vec(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -100,7 +100,7 @@ fn test_evil_deep_recursion() {
                 "test_contract".to_string(),
                 "recurse",
                 n_bytes.clone(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -128,7 +128,7 @@ fn test_evil_abort() {
             "test_contract".to_string(),
             "abort_with_zero",
             vec![],
-            10u64.pow(18),
+            10u64.pow(16),
             0,
         )
         .unwrap();

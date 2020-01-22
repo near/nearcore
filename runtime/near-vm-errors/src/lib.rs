@@ -116,6 +116,22 @@ pub enum HostError {
     InvalidPublicKey,
     /// `method_name` is not allowed in view calls
     ProhibitedInView { method_name: String },
+    /// The total number of logs will exceed the limit.
+    NumberOfLogsExceeded { limit: u64 },
+    /// The storage key length exceeded the limit.
+    KeyLengthExceeded { length: u64, limit: u64 },
+    /// The storage value length exceeded the limit.
+    ValueLengthExceeded { length: u64, limit: u64 },
+    /// The total log length exceeded the limit.
+    TotalLogLengthExceeded { length: u64, limit: u64 },
+    /// The maximum number of promises within a FunctionCall exceeded the limit.
+    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    /// The maximum number of input data dependencies exceeded the limit.
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    /// The returned value length exceeded the limit.
+    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    /// The contract size for DeployContract action exceeded the limit.
+    ContractSizeExceeded { size: u64, limit: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -207,21 +223,29 @@ impl std::fmt::Display for HostError {
             GasLimitExceeded => write!(f, "Exceeded the maximum amount of gas allowed to burn per contract."),
             BalanceExceeded => write!(f, "Exceeded the account balance."),
             EmptyMethodName => write!(f, "Tried to call an empty method name."),
-            GuestPanic{ panic_msg } => write!(f, "Smart contract panicked: {}", panic_msg),
+            GuestPanic { panic_msg } => write!(f, "Smart contract panicked: {}", panic_msg),
             IntegerOverflow => write!(f, "Integer overflow."),
-            InvalidIteratorIndex{iterator_index} => write!(f, "Iterator index {:?} does not exist", iterator_index),
-            InvalidPromiseIndex{promise_idx} => write!(f, "{:?} does not correspond to existing promises", promise_idx),
+            InvalidIteratorIndex { iterator_index } => write!(f, "Iterator index {:?} does not exist", iterator_index),
+            InvalidPromiseIndex { promise_idx } => write!(f, "{:?} does not correspond to existing promises", promise_idx),
             CannotAppendActionToJointPromise => write!(f, "Actions can only be appended to non-joint promise."),
             CannotReturnJointPromise => write!(f, "Returning joint promise is currently prohibited."),
-            InvalidPromiseResultIndex{result_idx} => write!(f, "Accessed invalid promise result index: {:?}", result_idx),
-            InvalidRegisterId{register_id} => write!(f, "Accessed invalid register id: {:?}", register_id),
-            IteratorWasInvalidated{iterator_index} => write!(f, "Iterator {:?} was invalidated after its creation by performing a mutable operation on trie", iterator_index),
+            InvalidPromiseResultIndex { result_idx } => write!(f, "Accessed invalid promise result index: {:?}", result_idx),
+            InvalidRegisterId { register_id } => write!(f, "Accessed invalid register id: {:?}", register_id),
+            IteratorWasInvalidated { iterator_index } => write!(f, "Iterator {:?} was invalidated after its creation by performing a mutable operation on trie", iterator_index),
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
-            InvalidReceiptIndex{receipt_index} => write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index),
+            InvalidReceiptIndex { receipt_index } => write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index),
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
-            ProhibitedInView{method_name} => write!(f, "{} is not allowed in view calls", method_name),
+            ProhibitedInView { method_name } => write!(f, "{} is not allowed in view calls", method_name),
+            NumberOfLogsExceeded { limit } => write!(f, "The number of logs will exceed the limit {}", limit),
+            KeyLengthExceeded { length, limit } => write!(f, "The length of a storage key {} exceeds the limit {}", length, limit),
+            ValueLengthExceeded { length, limit } => write!(f, "The length of a storage value {} exceeds the limit {}", length, limit),
+            TotalLogLengthExceeded{ length, limit } => write!(f, "The length of a log message {} exceeds the limit {}", length, limit),
+            NumberPromisesExceeded { number_of_promises, limit } => write!(f, "The number of promises within a FunctionCall {} exceeds the limit {}", number_of_promises, limit),
+            NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
+            ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
+            ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
         }
     }
 }
