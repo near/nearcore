@@ -203,7 +203,7 @@ impl<'a> VMLogic<'a> {
             self.gas_counter.pay_per_byte(read_register_byte, data.len() as _)?;
             Ok(data.clone())
         } else {
-            Err(HostError::InvalidRegisterId(register_id).into())
+            Err(HostError::InvalidRegisterId { register_id }.into())
         }
     }
 
@@ -424,7 +424,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
 
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("signer_account_id".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "signer_account_id".to_string(),
+            }
+            .into());
         }
         self.internal_write_register(
             register_id,
@@ -448,7 +451,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
 
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "signer_account_pk".to_string(),
+            }
+            .into());
         }
         self.internal_write_register(register_id, self.context.signer_account_pk.clone())
     }
@@ -469,7 +475,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
 
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "predecessor_account_id".to_string(),
+            }
+            .into());
         }
         self.internal_write_register(
             register_id,
@@ -565,7 +574,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
 
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("attached_deposit".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "attached_deposit".to_string(),
+            }
+            .into());
         }
         self.memory_set_u128(balance_ptr, self.context.attached_deposit)
     }
@@ -582,7 +594,9 @@ impl<'a> VMLogic<'a> {
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()).into());
+            return Err(
+                HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into()
+            );
         }
         Ok(self.context.prepaid_gas)
     }
@@ -599,7 +613,7 @@ impl<'a> VMLogic<'a> {
     pub fn used_gas(&mut self) -> Result<Gas> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
+            return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
         }
         Ok(self.gas_counter.used_gas())
     }
@@ -811,7 +825,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<PromiseIndex> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
+            return Err(
+                HostError::ProhibitedInView { method_name: "promise_and".to_string() }.into()
+            );
         }
         self.gas_counter.pay_base(promise_and_base)?;
         self.gas_counter.pay_per_byte(
@@ -828,7 +844,7 @@ impl<'a> VMLogic<'a> {
             let promise = self
                 .promises
                 .get(*promise_idx as usize)
-                .ok_or(HostError::InvalidPromiseIndex(*promise_idx))?;
+                .ok_or(HostError::InvalidPromiseIndex { promise_idx: *promise_idx })?;
             match &promise {
                 Promise::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
@@ -867,7 +883,10 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_create".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_create".to_string(),
+            }
+            .into());
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
@@ -907,14 +926,17 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_then".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_then".to_string(),
+            }
+            .into());
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         // Update the DAG and return new promise idx.
         let promise = self
             .promises
             .get(promise_idx as usize)
-            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
         let receipt_dependencies = match &promise {
             Promise::Receipt(receipt_idx) => vec![*receipt_idx],
             Promise::NotReceipt(receipt_indices) => receipt_indices.clone(),
@@ -949,7 +971,7 @@ impl<'a> VMLogic<'a> {
         let promise = self
             .promises
             .get(promise_idx as usize)
-            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?;
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
         let receipt_idx = match &promise {
             Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
             Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
@@ -980,9 +1002,9 @@ impl<'a> VMLogic<'a> {
     pub fn promise_batch_action_create_account(&mut self, promise_idx: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_create_account".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_create_account".to_string(),
+            }
             .into());
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -1018,9 +1040,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_deploy_contract".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_deploy_contract".to_string(),
+            }
             .into());
         }
         let code = self.get_vec_from_memory_or_register(code_ptr, code_len)?;
@@ -1070,9 +1092,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_function_call".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_function_call".to_string(),
+            }
             .into());
         }
         let amount = self.memory_get_u128(amount_ptr)?;
@@ -1124,9 +1146,10 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(
-                HostError::ProhibitedInView("promise_batch_action_transfer".to_string()).into()
-            );
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_transfer".to_string(),
+            }
+            .into());
         }
         let amount = self.memory_get_u128(amount_ptr)?;
 
@@ -1167,9 +1190,10 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(
-                HostError::ProhibitedInView("promise_batch_action_stake".to_string()).into()
-            );
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_stake".to_string(),
+            }
+            .into());
         }
         let amount = self.memory_get_u128(amount_ptr)?;
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
@@ -1211,9 +1235,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_add_key_with_full_access".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_add_key_with_full_access".to_string(),
+            }
             .into());
         }
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
@@ -1262,9 +1286,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_add_key_with_function_call".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_add_key_with_function_call".to_string(),
+            }
             .into());
         }
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
@@ -1336,9 +1360,10 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(
-                HostError::ProhibitedInView("promise_batch_action_delete_key".to_string()).into()
-            );
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_delete_key".to_string(),
+            }
+            .into());
         }
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
 
@@ -1375,9 +1400,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView(
-                "promise_batch_action_delete_account".to_string(),
-            )
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_delete_account".to_string(),
+            }
             .into());
         }
         let beneficiary_id =
@@ -1409,7 +1434,10 @@ impl<'a> VMLogic<'a> {
     pub fn promise_results_count(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_results_count".to_string()).into());
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_results_count".to_string(),
+            }
+            .into());
         }
         Ok(self.promise_results.len() as _)
     }
@@ -1439,12 +1467,14 @@ impl<'a> VMLogic<'a> {
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_result".to_string()).into());
+            return Err(
+                HostError::ProhibitedInView { method_name: "promise_result".to_string() }.into()
+            );
         }
         match self
             .promise_results
             .get(result_idx as usize)
-            .ok_or(HostError::InvalidPromiseResultIndex(result_idx))?
+            .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
@@ -1470,12 +1500,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(promise_return)?;
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_return".to_string()).into());
+            return Err(
+                HostError::ProhibitedInView { method_name: "promise_return".to_string() }.into()
+            );
         }
         match self
             .promises
             .get(promise_idx as usize)
-            .ok_or(HostError::InvalidPromiseIndex(promise_idx))?
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?
         {
             Promise::Receipt(receipt_idx) => {
                 self.return_data = ReturnData::ReceiptIndex(*receipt_idx);
@@ -1537,7 +1569,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn panic(&mut self) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        Err(HostError::GuestPanic("explicit guest panic".to_string()).into())
+        Err(HostError::GuestPanic { panic_msg: "explicit guest panic".to_string() }.into())
     }
 
     /// Guest panics with the UTF-8 encoded string.
@@ -1553,7 +1585,7 @@ impl<'a> VMLogic<'a> {
     /// `base + cost of reading and decoding a utf8 string`
     pub fn panic_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        Err(HostError::GuestPanic(self.get_utf8_string(len, ptr)?).into())
+        Err(HostError::GuestPanic { panic_msg: self.get_utf8_string(len, ptr)? }.into())
     }
 
     /// Logs the UTF-8 encoded string.
@@ -1623,7 +1655,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
         self.logs.push(format!("ABORT: {}", message));
 
-        Err(HostError::GuestPanic(message).into())
+        Err(HostError::GuestPanic { panic_msg: message }.into())
     }
 
     // ###############
@@ -1937,9 +1969,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_iter_next_base)?;
         if self.invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated(iterator_id).into());
+            return Err(HostError::IteratorWasInvalidated { iterator_index: iterator_id }.into());
         } else if !self.valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex(iterator_id).into());
+            return Err(HostError::InvalidIteratorIndex { iterator_index: iterator_id }.into());
         }
 
         let nodes_before = self.ext.get_touched_nodes_count();

@@ -30,6 +30,8 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "near/",
+    "tools/rpctypegen/core",
+    "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
