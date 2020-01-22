@@ -69,6 +69,7 @@ if __name__ == "__main__":
                 binary_full_name = f[0]
                 result = f[1]
                 binary = os.path.basename(binary_full_name)
+                show_test_result(binary, result)
                 print(f'========= test binary {binary} failed, exit code {result[0]}')
             exit(1)
     else:
