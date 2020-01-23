@@ -133,4 +133,13 @@ mod tests {
             assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
         }
     }
+
+    #[test]
+    fn test_elements_order() {
+        let items = vec![1, 2];
+        let (root, _) = merklize(&items);
+        let items2 = vec![2, 1];
+        let (root2, _) = merklize(&items2);
+        assert_ne!(root, root2);
+    }
 }

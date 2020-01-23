@@ -21,6 +21,8 @@ serde_json = "1.0"
 lazy_static = "1.4"
 dirs = "2.0.2"
 borsh = "0.2.10"
+tracing = "0.1"
+tracing-subscriber = "0.1.6"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }

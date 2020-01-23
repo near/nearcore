@@ -26,9 +26,9 @@ pub(crate) fn check_balance(
     initial_state: &TrieUpdate,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
-    prev_receipts: &[Receipt],
+    incoming_receipts: &[Receipt],
     transactions: &[SignedTransaction],
-    new_receipts: &[Receipt],
+    outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
 ) -> Result<(), RuntimeError> {
     // Delayed receipts
@@ -65,7 +65,7 @@ pub(crate) fn check_balance(
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter()
         .map(|tx| tx.transaction.signer_id.clone())
-        .chain(prev_receipts.iter().map(|r| r.receiver_id.clone()))
+        .chain(incoming_receipts.iter().map(|r| r.receiver_id.clone()))
         .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id.clone()))
         .collect();
     let incoming_validator_rewards =
@@ -127,15 +127,15 @@ pub(crate) fn check_balance(
             .into_iter()
             .try_fold(0u128, |res, balance| safe_add_balance(res, balance))
     };
-    let incoming_receipts_balance = receipts_cost(prev_receipts)?;
-    let outgoing_receipts_balance = receipts_cost(new_receipts)?;
+    let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
+    let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
     // execution.
-    let all_potential_postponed_receipt_ids = prev_receipts
+    let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())
         .map(|receipt| {
@@ -226,7 +226,7 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::MerkleHash;
+    use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_runtime_fees::RuntimeFeesConfig;
     use near_store::test_utils::create_trie;
     use near_store::{set_account, TrieUpdate};
@@ -236,9 +236,6 @@ mod tests {
 
     /// Initial balance used in tests.
     pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
-
-    /// Validator's stake used in tests.
-    pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
     /// One NEAR, divisible by 10^24.
     pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
@@ -281,7 +278,7 @@ mod tests {
             &ApplyStats::default(),
         )
         .unwrap_err();
-        assert_matches!(err, RuntimeError::BalanceMismatch(_));
+        assert_matches!(err, RuntimeError::BalanceMismatchError(_));
     }
 
     #[test]
@@ -296,12 +293,12 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(initial_balance + refund_balance, hash(&[]), 0);
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit();
+        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
@@ -338,7 +335,7 @@ mod tests {
         let mut initial_state = TrieUpdate::new(trie.clone(), root);
         let initial_account = Account::new(initial_balance, hash(&[]), 0);
         set_account(&mut initial_state, &account_id, &initial_account);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let mut final_state = TrieUpdate::new(trie.clone(), root);
         let final_account = Account::new(
@@ -348,7 +345,7 @@ mod tests {
             0,
         );
         set_account(&mut final_state, &account_id, &final_account);
-        final_state.commit();
+        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let tx = SignedTransaction::send_money(
@@ -406,7 +403,7 @@ mod tests {
 
         set_account(&mut initial_state, &alice_id, &alice);
         set_account(&mut initial_state, &bob_id, &bob);
-        initial_state.commit();
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
 

@@ -19,8 +19,8 @@ clap = "2.33.0"
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic" , features = ["costs_counting"]}
-near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting"]}
-node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting"]}
+near-vm-runner = {path = "../../runtime/near-vm-runner" , features = ["costs_counting", "no_cache"]}
+node-runtime = { path = "../../runtime/runtime" , features = ["costs_counting", "no_cache"]}
 near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 near = { path = "../../near" }

@@ -1,7 +1,5 @@
-use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
 
 /// Trait acts like an iterator. It iterates over transactions groups by returning mutable
 /// references to them. Each transaction group implements a draining iterator to pull transactions.
@@ -11,14 +9,14 @@ pub trait PoolIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
 }
 
-/// A key that is used for grouping transactions together.
-/// It consists of the signer's account ID and signer's public key.
-pub(crate) type AccountPK = (AccountId, PublicKey);
+/// A hash of (an AccountId, a PublicKey and a seed).
+/// Used to randomize the order of the keys.
+pub(crate) type PoolKey = CryptoHash;
 
 /// Represents a group of transactions with the same key.
 pub struct TransactionGroup {
     /// The key of the group.
-    pub(crate) key: AccountPK,
+    pub(crate) key: PoolKey,
     /// Ordered transactions by nonce in non-increasing order (e.g. 3, 2, 2).
     pub(crate) transactions: Vec<SignedTransaction>,
     /// Hashes of the transactions that were pulled from the group using `.next()`.

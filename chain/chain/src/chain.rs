@@ -40,7 +40,8 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateRequestParts, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -63,6 +64,9 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// The multiplier of the stake percentage when computing block weight
 pub const WEIGHT_MULTIPLIER: u128 = 1_000_000_000;
+
+/// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
+const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
@@ -371,7 +375,7 @@ impl Chain {
         for bp in bps.iter() {
             arr.append(&mut hash(bp.account_id.as_bytes()).into());
             arr.append(&mut hash(bp.public_key.try_to_vec()?.as_ref()).into());
-            arr.append(&mut hash(bp.amount.try_to_vec()?.as_ref()).into());
+            arr.append(&mut hash(bp.stake.try_to_vec()?.as_ref()).into());
         }
 
         Ok(hash(&arr))
@@ -745,7 +749,7 @@ impl Chain {
     }
 
     /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
+    pub fn find_common_header(&mut self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(&hash).map(|h| h.clone()) {
                 if let Ok(header_at_height) = self.get_header_by_height(header.inner_lite.height) {
@@ -910,15 +914,13 @@ impl Chain {
                     }
                     None => {}
                 }
-                // Sum validator balances in full NEARs (divided by 10**18)
+                // Sum validator balances in full NEARs (divided by 10**24)
                 let sum = block
                     .header
                     .inner_rest
                     .validator_proposals
                     .iter()
-                    .map(|validator_stake| {
-                        (validator_stake.amount / 1_000_000_000_000_000_000) as i64
-                    })
+                    .map(|validator_stake| (validator_stake.stake / NEAR_BASE) as i64)
                     .sum::<i64>();
                 near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
@@ -1310,6 +1312,48 @@ impl Chain {
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
+    }
+
+    pub fn get_state_response_by_request(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        need_header: bool,
+        parts: StateRequestParts,
+    ) -> Result<ShardStateSyncResponse, Error> {
+        let mut data = vec![];
+        for part_id in parts.ids.iter() {
+            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
+                Ok(part) => data.push(part),
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        }
+        if need_header {
+            match self.get_state_response_header(shard_id, sync_hash) {
+                Ok(header) => {
+                    return Ok(ShardStateSyncResponse {
+                        header: Some(header),
+                        part_ids: parts.ids,
+                        data,
+                    });
+                }
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+                    return Err(ErrorKind::Other(
+                        "Cannot build sync header (get_state_response_header)".to_string(),
+                    )
+                    .into());
+                }
+            }
+        } else {
+            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
+        }
     }
 
     pub fn set_state_header(

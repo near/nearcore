@@ -367,7 +367,7 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                peer_max_count: config.network.max_peers,
+                max_peer: config.network.max_peers,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
@@ -417,9 +417,15 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
+pub const CONFIG_VERSION: u32 = 1;
+
 /// Runtime configuration, defining genesis block.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GenesisConfig {
+    /// This is a version of a genesis config structure this version of binary works with.
+    /// If the binary tries to load a JSON config with a different version it will panic.
+    /// It's not a major protocol version, but used for automatic config migrations using scripts.
+    pub config_version: u32,
     /// Protocol version that this genesis works with.
     pub protocol_version: u32,
     /// Official time of blockchain start.
@@ -555,6 +561,7 @@ impl GenesisConfig {
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
+            config_version: CONFIG_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
@@ -764,6 +771,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
+                config_version: CONFIG_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -926,12 +934,14 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
 
 #[cfg(test)]
 mod test {
-    use crate::config::testnet_genesis;
+    use super::*;
 
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
         let genesis_config = testnet_genesis();
+        assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
+        assert_eq!(genesis_config.config_version, CONFIG_VERSION);
         assert!(genesis_config.total_supply > 0);
     }
 }

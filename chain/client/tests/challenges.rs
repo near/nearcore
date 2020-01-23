@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use borsh::BorshSerialize;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near::config::FISHERMEN_THRESHOLD;
 use near::{GenesisConfig, NightshadeRuntime};
@@ -176,6 +177,8 @@ fn create_chunk(
         let total_parts = client.chain.runtime_adapter.num_total_parts();
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let parity_parts = total_parts - data_parts;
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let (tx_root, _) = merklize(&transactions);
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
@@ -184,8 +187,7 @@ fn create_chunk(
             chunk.header.inner.outcome_root,
             chunk.header.inner.height_created,
             chunk.header.inner.shard_id,
-            total_parts,
-            data_parts,
+            &rs,
             chunk.header.inner.gas_used,
             chunk.header.inner.gas_limit,
             chunk.header.inner.rent_paid,
@@ -444,6 +446,10 @@ fn test_verify_chunk_invalid_state_challenge() {
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
+    let total_parts = env.clients[0].runtime_adapter.num_total_parts();
+    let data_parts = env.clients[0].runtime_adapter.num_data_parts();
+    let parity_parts = total_parts - data_parts;
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     let (mut invalid_chunk, merkle_paths) = env.clients[0]
         .shards_mgr
         .create_encoded_shard_chunk(
@@ -463,6 +469,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
             &signer,
+            &rs,
         )
         .unwrap();
 
@@ -532,17 +539,18 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 20, 155, 199, 55, 40, 218, 150, 222, 64, 132, 213, 252, 78, 132, 13,
-                    31, 108, 106, 36, 32, 241, 213, 207, 255, 230, 98, 36, 34, 59, 131, 51, 40, 83,
-                    252, 63, 177, 215, 80, 204, 201, 233, 89, 151, 192, 80, 3, 13, 123, 166, 78,
-                    235, 195, 174, 220, 16, 53, 121, 47, 85, 152, 199, 25, 129, 208, 171, 30, 7,
-                    228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148, 128,
-                    55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 83, 135, 2, 0, 0, 0, 0, 0
+                    1, 7, 0, 92, 241, 96, 67, 27, 175, 62, 116, 3, 39, 175, 167, 179, 91, 63, 212,
+                    212, 75, 174, 160, 30, 148, 184, 11, 249, 27, 202, 188, 201, 221, 145, 255,
+                    115, 118, 86, 148, 43, 154, 46, 88, 27, 131, 172, 99, 25, 223, 149, 122, 104,
+                    247, 21, 42, 198, 205, 43, 239, 65, 133, 166, 38, 174, 254, 133, 217, 171, 30,
+                    7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
+                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 143, 134, 2, 0, 0, 0,
+                    0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 30, 154, 189, 77, 49, 215, 102, 143, 121, 33, 102, 196, 53,
-                    104, 108, 227, 91, 238, 36, 249, 118, 30, 237, 85, 140, 16, 179, 219, 180, 118,
-                    20, 226, 135, 135, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 87, 105, 4, 75, 116, 102, 206, 154, 70, 99, 176, 15, 235,
+                    33, 252, 102, 42, 183, 44, 211, 10, 91, 215, 11, 231, 16, 255, 52, 90, 26, 233,
+                    136, 195, 134, 2, 0, 0, 0, 0, 0
                 ]
             ],
         );

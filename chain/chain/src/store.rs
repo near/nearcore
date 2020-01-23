@@ -3,6 +3,8 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
+use serde::Serialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
@@ -16,16 +18,18 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
+    StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
-    ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra, ColChunks,
-    ColEpochLightClientBlocks, ColIncomingReceipts, ColInvalidChunks, ColLastApprovalPerAccount,
-    ColLastBlockWithNewChunk, ColMyLastApprovalsPerChain, ColNextBlockHashes,
-    ColNextBlockWithNewChunk, ColOutgoingReceipts, ColPartialChunks, ColReceiptIdToShardId,
-    ColStateDlInfos, ColTransactionResult, ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
+    ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
+    ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
+    ColInvalidChunks, ColKeyValueChanges, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
+    ColPartialChunks, ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult,
+    ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
 };
 
 use crate::byzantine_assert;
@@ -48,7 +52,7 @@ const LARGEST_APPROVED_SCORE_KEY: &[u8; 22] = b"LARGEST_APPROVED_SCORE";
 const CACHE_SIZE: usize = 100;
 const CHUNK_CACHE_SIZE: usize = 1024;
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
@@ -58,8 +62,15 @@ fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     res
 }
 
+fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
+    let mut res = Vec::with_capacity(40);
+    res.extend_from_slice(&height.to_le_bytes());
+    res.extend_from_slice(&shard_id.to_le_bytes());
+    res
+}
+
 /// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateSyncInfo {
     /// The first block of the epoch for which syncing is happening
     pub epoch_tail_hash: CryptoHash,
@@ -240,6 +251,12 @@ pub trait ChainStoreAccess {
         &mut self,
         height: BlockHeight,
     ) -> Result<&HashMap<EpochId, CryptoHash>, Error>;
+    /// Check if we saw chunk hash at given height and shard id.
+    fn get_any_chunk_hash_by_height_shard(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<&ChunkHash, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &mut self,
@@ -314,6 +331,12 @@ pub trait ChainStoreAccess {
         &mut self,
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error>;
 }
 
 /// All chain-related database operations.
@@ -335,10 +358,12 @@ pub struct ChainStore {
     block_extras: SizedCache<Vec<u8>, BlockExtra>,
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
-    /// Cache with index to hash on the main chain.
+    /// Cache with height to hash on the main chain.
     height: SizedCache<Vec<u8>, CryptoHash>,
-    /// Cache with index to hash on any chain.
+    /// Cache with height to hash on any chain.
     block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    /// Cache with height and shard_id to any chunk hash.
+    chunk_hash_per_height_shard: SizedCache<Vec<u8>, ChunkHash>,
     /// Next block hashes for each block on the canonical chain
     next_block_hashes: SizedCache<Vec<u8>, CryptoHash>,
     /// Light client blocks corresponding to the last finalized block of each epoch
@@ -388,6 +413,7 @@ impl ChainStore {
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             height: SizedCache::with_size(CACHE_SIZE),
             block_hash_per_height: SizedCache::with_size(CACHE_SIZE),
+            chunk_hash_per_height_shard: SizedCache::with_size(CACHE_SIZE),
             next_block_hashes: SizedCache::with_size(CACHE_SIZE),
             epoch_light_client_blocks: SizedCache::with_size(CACHE_SIZE),
             my_last_approvals: SizedCache::with_size(CACHE_SIZE),
@@ -707,6 +733,22 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    fn get_any_chunk_hash_by_height_shard(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<&ChunkHash, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                ColChunkPerHeightShard,
+                &mut self.chunk_hash_per_height_shard,
+                &get_height_shard_id(height, shard_id),
+            ),
+            &format!("CHUNK PER HEIGHT AND SHARD ID: {} {}", height, shard_id),
+        )
+    }
+
     fn get_my_last_approval(&mut self, block_hash: &CryptoHash) -> Result<&Approval, Error> {
         option_to_not_found(
             read_with_cache(
@@ -863,6 +905,58 @@ impl ChainStoreAccess for ChainStore {
         read_with_cache(&*self.store, ColTransactions, &mut self.transactions, tx_hash.as_ref())
             .map_err(|e| e.into())
     }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error> {
+        use near_primitives::utils;
+        let mut storage_key = block_hash.as_ref().to_vec();
+        storage_key.extend(match state_changes_request {
+            StateChangesRequest::AccountChanges { account_id } => {
+                utils::key_for_account(account_id)
+            }
+            StateChangesRequest::DataChanges { account_id, key_prefix } => {
+                utils::key_for_data(account_id, key_prefix)
+            }
+            StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
+                utils::key_for_access_key(account_id, access_key_pk)
+            }
+            StateChangesRequest::AllAccessKeyChanges { account_id } => {
+                utils::key_for_all_access_keys(account_id)
+            }
+            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
+            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
+                utils::key_for_postponed_receipt_id(account_id, data_id)
+            }
+            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
+                utils::key_for_all_postponed_receipts(account_id)
+            }
+        });
+        let common_key_prefix_len = block_hash.as_ref().len()
+            + match state_changes_request {
+                StateChangesRequest::AccountChanges { .. }
+                | StateChangesRequest::SingleAccessKeyChanges { .. }
+                | StateChangesRequest::AllAccessKeyChanges { .. }
+                | StateChangesRequest::CodeChanges { .. }
+                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
+                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
+                StateChangesRequest::DataChanges { account_id, .. } => {
+                    utils::key_for_data(account_id, b"").len()
+                }
+            };
+        let mut changes = StateChanges::new();
+        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
+            ColKeyValueChanges,
+            &storage_key,
+        );
+        for change in changes_iter {
+            let (key, value) = change?;
+            changes.insert(key[common_key_prefix_len..].to_owned(), value);
+        }
+        Ok(changes)
+    }
 }
 
 /// Cache update for ChainStore
@@ -875,6 +969,7 @@ struct ChainStoreCacheUpdate {
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, CryptoHash>>,
+    chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
     height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, LightClientBlockView>,
@@ -901,6 +996,7 @@ impl ChainStoreCacheUpdate {
             chunks: Default::default(),
             partial_chunks: Default::default(),
             block_hash_per_height: HashMap::default(),
+            chunk_hash_per_height_shard: HashMap::default(),
             height_to_hashes: Default::default(),
             next_block_hashes: HashMap::default(),
             epoch_light_client_blocks: HashMap::default(),
@@ -1132,6 +1228,20 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_any_block_hash_by_height(height)
     }
 
+    fn get_any_chunk_hash_by_height_shard(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<&ChunkHash, Error> {
+        if let Some(chunk_hash) =
+            self.chain_store_cache_update.chunk_hash_per_height_shard.get(&(height, shard_id))
+        {
+            Ok(chunk_hash)
+        } else {
+            self.chain_store.get_any_chunk_hash_by_height_shard(height, shard_id)
+        }
+    }
+
     fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
         if let Some(next_hash) = self.chain_store_cache_update.next_block_hashes.get(hash) {
             Ok(next_hash)
@@ -1316,6 +1426,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.get_transaction(tx_hash)
         }
+    }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error> {
+        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
     }
 }
 
@@ -1581,6 +1699,17 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.last_block_with_new_chunk.insert(shard_id, block_hash);
     }
 
+    pub fn save_chunk_hash(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+        chunk_hash: ChunkHash,
+    ) {
+        self.chain_store_cache_update
+            .chunk_hash_per_height_shard
+            .insert((height, shard_id), chunk_hash);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -1657,6 +1786,14 @@ impl<'a> ChainStoreUpdate<'a> {
         for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
             store_update
                 .set_ser(ColBlockExtra, block_hash.as_ref(), block_extra)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for ((height, shard_id), chunk_hash) in
+            self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
+        {
+            let key = get_height_shard_id(*height, *shard_id);
+            store_update
+                .set_ser(ColChunkPerHeightShard, &key, chunk_hash)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
@@ -1746,8 +1883,12 @@ impl<'a> ChainStoreUpdate<'a> {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            trie_changes
+                .key_value_changes_into(&mut store_update)
+                .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
+
         let mut affected_catchup_blocks = HashSet::new();
         for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
@@ -1839,6 +1980,7 @@ impl<'a> ChainStoreUpdate<'a> {
             chunks,
             partial_chunks,
             block_hash_per_height,
+            chunk_hash_per_height_shard,
             height_to_hashes,
             next_block_hashes,
             epoch_light_client_blocks,
@@ -1879,6 +2021,10 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store
                 .block_hash_per_height
                 .cache_set(index_to_bytes(height), epoch_id_to_hash);
+        }
+        for ((height, shard_id), chunk_hash) in chunk_hash_per_height_shard {
+            let key = get_height_shard_id(height, shard_id);
+            self.chain_store.chunk_hash_per_height_shard.cache_set(key, chunk_hash);
         }
         for (height, block_hash) in height_to_hashes {
             let bytes = index_to_bytes(height);

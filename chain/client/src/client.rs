@@ -9,6 +9,7 @@ use std::time::Duration;
 use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::test_utils::format_hash;
@@ -64,6 +65,8 @@ pub struct Client {
     pub state_sync: StateSync,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
+    /// A ReedSolomon instance to reconstruct shard.
+    pub rs: ReedSolomon,
 }
 
 impl Client {
@@ -92,6 +95,8 @@ impl Client {
         let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producer_seats = config.num_block_producer_seats as usize;
+        let data_parts = runtime_adapter.num_data_parts();
+        let parity_parts = runtime_adapter.num_total_parts() - data_parts;
         Ok(Self {
             config,
             sync_status,
@@ -107,6 +112,7 @@ impl Client {
             block_sync,
             state_sync,
             challenges: Default::default(),
+            rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
         })
     }
 
@@ -474,6 +480,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             &*block_producer.signer,
+            &self.rs,
         )?;
 
         debug!(
@@ -604,6 +611,7 @@ impl Client {
                 _ => {}
             }
         }
+
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
@@ -615,17 +623,24 @@ impl Client {
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        let process_result = self
-            .shards_mgr
-            .process_partial_encoded_chunk(partial_encoded_chunk.clone(), self.chain.mut_store())?;
+        let process_result = self.shards_mgr.process_partial_encoded_chunk(
+            partial_encoded_chunk.clone(),
+            self.chain.mut_store(),
+            &self.rs,
+        )?;
 
         match process_result {
             ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash) => {
                 Ok(self.process_blocks_with_missing_chunks(prev_block_hash))
             }
-            ProcessPartialEncodedChunkResult::NeedMoreOnePartsOrReceipts(chunk_header) => {
+            ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(chunk_header) => {
                 self.shards_mgr.request_chunks(vec![chunk_header]).unwrap();
+                Ok(vec![])
+            }
+            ProcessPartialEncodedChunkResult::NeedBlock => {
+                self.shards_mgr
+                    .store_partial_encoded_chunk(self.chain.head_header()?, partial_encoded_chunk);
                 Ok(vec![])
             }
         }
@@ -790,6 +805,25 @@ impl Client {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Process stored partial encoded chunks
+        let next_height = block.header.inner_lite.height + 1;
+        let mut partial_encoded_chunks =
+            self.shards_mgr.get_stored_partial_encoded_chunks(next_height);
+        for (_shard_id, partial_encoded_chunk) in partial_encoded_chunks.drain() {
+            if let Ok(accepted_blocks) = self.process_partial_encoded_chunk(partial_encoded_chunk) {
+                // Executing process_partial_encoded_chunk can unlock some blocks.
+                // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
+                // for which we track shards will be unblocked here.
+                for accepted_block in accepted_blocks {
+                    self.on_block_accepted(
+                        accepted_block.hash,
+                        accepted_block.status,
+                        accepted_block.provenance,
+                    );
                 }
             }
         }

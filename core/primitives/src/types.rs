@@ -1,8 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde_derive::{Deserialize, Serialize};
+
+use near_crypto::PublicKey;
 
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
-use near_crypto::PublicKey;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -42,7 +44,55 @@ pub type PromiseId = Vec<ReceiptIndex>;
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+/// A structure used to index state changes due to transaction/receipt processing and other things.
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
+pub enum StateChangeCause {
+    /// A type of update that does not get finalized. Used for verification and execution of
+    /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
+    /// change will lead to panic.
+    NotWritableToDisk,
+    /// A type of update that is used to mark the initial storage update, e.g. during genesis
+    /// or in tests setup.
+    InitialState,
+    /// Processing of a transaction.
+    TransactionProcessing { tx_hash: CryptoHash },
+    /// Before the receipt is going to be processed, inputs get drained from the state, which
+    /// causes state modification.
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
+    /// Computation of gas reward.
+    ActionReceiptGasReward { receipt_hash: CryptoHash },
+    /// Processing of a receipt.
+    ReceiptProcessing { receipt_hash: CryptoHash },
+    /// The given receipt was postponed. This is either a data receipt or an action receipt.
+    /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
+    /// or other data dependencies are not satisfied.
+    /// An `ActionReceipt` can be postponed if not all data dependencies are received.
+    PostponedReceipt { receipt_hash: CryptoHash },
+    /// Updated delayed receipts queue in the state.
+    /// We either processed previously delayed receipts or added more receipts to the delayed queue.
+    UpdatedDelayedReceipts,
+    /// State change that happens when we update validator accounts. Not associated with with any
+    /// specific transaction or receipt.
+    ValidatorAccountsUpdate,
+}
+
+/// key that was updated -> list of updates with the corresponding indexing event.
+pub type StateChanges =
+    std::collections::BTreeMap<Vec<u8>, Vec<(StateChangeCause, Option<Vec<u8>>)>>;
+
+#[derive(Deserialize)]
+#[serde(tag = "changes_type", rename_all = "snake_case")]
+pub enum StateChangesRequest {
+    AccountChanges { account_id: AccountId },
+    DataChanges { account_id: AccountId, key_prefix: Vec<u8> },
+    SingleAccessKeyChanges { account_id: AccountId, access_key_pk: PublicKey },
+    AllAccessKeyChanges { account_id: AccountId },
+    CodeChanges { account_id: AccountId },
+    SinglePostponedReceiptChanges { account_id: AccountId, data_id: CryptoHash },
+    AllPostponedReceiptChanges { account_id: AccountId },
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
     pub data: Vec<u8>,
@@ -58,7 +108,16 @@ impl StateRootNode {
 
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 #[derive(
-    Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default, PartialOrd,
+    Hash,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Default,
+    PartialOrd,
 )]
 pub struct EpochId(pub CryptoHash);
 
@@ -69,30 +128,30 @@ impl AsRef<[u8]> for EpochId {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed validator.
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
-    pub amount: Balance,
+    pub stake: Balance,
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
-        ValidatorStake { account_id, public_key, amount }
+    pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
+        ValidatorStake { account_id, public_key, stake }
     }
 }
 
 /// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
@@ -141,4 +200,24 @@ impl ChunkExtra {
 pub struct Version {
     pub version: String,
     pub build: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockId {
+    Height(BlockHeight),
+    Hash(CryptoHash),
+}
+
+pub type MaybeBlockId = Option<BlockId>;
+
+#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
+pub struct ValidatorStats {
+    pub produced: NumBlocks,
+    pub expected: NumBlocks,
+}
+
+pub struct BlockChunkValidatorStats {
+    pub block_stats: ValidatorStats,
+    pub chunk_stats: ValidatorStats,
 }

@@ -67,9 +67,10 @@ def prepare_adversarial_binary():
         assert 0 == git_reset.returncode, err
 
 def corrupt_node(node):
-    assert 'LocalNode' in str(type(node)), "Node type %s != LocalNode. There's no support for remote nodes yet." % str(type(node))
-    prepare_adversarial_binary()
+    if not os.path.exists('.adv_on_top'):
+        assert 'LocalNode' in str(type(node)), "Node type %s != LocalNode. There's no support for remote nodes yet." % str(type(node))
+        prepare_adversarial_binary()
 
-    print("Corrupting node %s:%s" % node.addr())
-    node.near_root = ADVERSARIAL_PATH
+        print("Corrupting node %s:%s" % node.addr())
+        node.near_root = ADVERSARIAL_PATH
 
