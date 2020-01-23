@@ -10,7 +10,7 @@ use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
 use node_runtime::{ApplyState, Runtime, StateRecord};
 use random_config::random_config;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -69,15 +69,7 @@ impl StandaloneRuntime {
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
         let apply_result = self
             .runtime
-            .apply(
-                self.trie.clone(),
-                self.root,
-                &None,
-                &self.apply_state,
-                receipts,
-                transactions,
-                &HashSet::default(),
-            )
+            .apply(self.trie.clone(), self.root, &None, &self.apply_state, receipts, transactions)
             .unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();

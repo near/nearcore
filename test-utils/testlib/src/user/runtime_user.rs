@@ -77,15 +77,7 @@ impl RuntimeUser {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let apply_result = client
                 .runtime
-                .apply(
-                    client.trie.clone(),
-                    client.state_root,
-                    &None,
-                    &apply_state,
-                    &receipts,
-                    &txs,
-                    &HashSet::new(),
-                )
+                .apply(client.trie.clone(), client.state_root, &None, &apply_state, &receipts, &txs)
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
                         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
