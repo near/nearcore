@@ -211,7 +211,7 @@ pub(crate) fn action_function_call(
             account.amount = outcome.balance;
             account.storage_usage = outcome.storage_usage;
             result.result = Ok(outcome.return_data);
-            result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
+            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
