@@ -14,6 +14,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
+use near_primitives::types::StateChangeCause;
 use near_store::test_utils::create_trie;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
@@ -173,6 +174,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
+        state_update.commit(StateChangeCause::InitialState);
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update
             .finalize()

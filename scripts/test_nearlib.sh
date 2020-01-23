@@ -21,9 +21,10 @@ function get_nearlib_nearshell_release () {
 
 function get_nearlib_nearshell_git () {
     rm -rf nearlib
-    git clone --single-branch --branch master https://github.com/nearprotocol/nearlib.git nearlib
-    rm -rf near-shell
-    git clone --single-branch --branch master https://git@github.com/nearprotocol/near-shell.git near-shell
+    git clone https://github.com/nearprotocol/nearlib.git nearlib
+    cd nearlib
+    git checkout 436ed6339337e11cc4aca79cd43dd5f27feadd39
+    cd ..
 }
 
 if [ -z "${NEARLIB_RELEASE}" ]; then
@@ -39,10 +40,3 @@ yarn build
 ../scripts/waitonserver.sh
 yarn test
 yarn doc
-cd ..
-
-# Try creating and building new project using NEAR CLI tools
-cd near-shell
-yarn
-#yarn test
-cd ..

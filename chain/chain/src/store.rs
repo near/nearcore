@@ -18,14 +18,15 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId,
+    AccountId, BlockExtra, BlockHeight, ChunkExtra, EpochId, NumBlocks, ShardId, StateChangeCause,
+    StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
     ColChunkPerHeightShard, ColChunks, ColEpochLightClientBlocks, ColIncomingReceipts,
-    ColInvalidChunks, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
+    ColInvalidChunks, ColKeyValueChanges, ColLastApprovalPerAccount, ColLastBlockWithNewChunk,
     ColMyLastApprovalsPerChain, ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutgoingReceipts,
     ColPartialChunks, ColReceiptIdToShardId, ColStateDlInfos, ColTransactionResult,
     ColTransactions, Store, StoreUpdate, WrappedTrieChanges,
@@ -330,6 +331,12 @@ pub trait ChainStoreAccess {
         &mut self,
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error>;
 }
 
 /// All chain-related database operations.
@@ -898,6 +905,58 @@ impl ChainStoreAccess for ChainStore {
         read_with_cache(&*self.store, ColTransactions, &mut self.transactions, tx_hash.as_ref())
             .map_err(|e| e.into())
     }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error> {
+        use near_primitives::utils;
+        let mut storage_key = block_hash.as_ref().to_vec();
+        storage_key.extend(match state_changes_request {
+            StateChangesRequest::AccountChanges { account_id } => {
+                utils::key_for_account(account_id)
+            }
+            StateChangesRequest::DataChanges { account_id, key_prefix } => {
+                utils::key_for_data(account_id, key_prefix)
+            }
+            StateChangesRequest::SingleAccessKeyChanges { account_id, access_key_pk } => {
+                utils::key_for_access_key(account_id, access_key_pk)
+            }
+            StateChangesRequest::AllAccessKeyChanges { account_id } => {
+                utils::key_for_all_access_keys(account_id)
+            }
+            StateChangesRequest::CodeChanges { account_id } => utils::key_for_code(account_id),
+            StateChangesRequest::SinglePostponedReceiptChanges { account_id, data_id } => {
+                utils::key_for_postponed_receipt_id(account_id, data_id)
+            }
+            StateChangesRequest::AllPostponedReceiptChanges { account_id } => {
+                utils::key_for_all_postponed_receipts(account_id)
+            }
+        });
+        let common_key_prefix_len = block_hash.as_ref().len()
+            + match state_changes_request {
+                StateChangesRequest::AccountChanges { .. }
+                | StateChangesRequest::SingleAccessKeyChanges { .. }
+                | StateChangesRequest::AllAccessKeyChanges { .. }
+                | StateChangesRequest::CodeChanges { .. }
+                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
+                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
+                StateChangesRequest::DataChanges { account_id, .. } => {
+                    utils::key_for_data(account_id, b"").len()
+                }
+            };
+        let mut changes = StateChanges::new();
+        let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
+            ColKeyValueChanges,
+            &storage_key,
+        );
+        for change in changes_iter {
+            let (key, value) = change?;
+            changes.insert(key[common_key_prefix_len..].to_owned(), value);
+        }
+        Ok(changes)
+    }
 }
 
 /// Cache update for ChainStore
@@ -1368,6 +1427,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.get_transaction(tx_hash)
         }
     }
+
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Error> {
+        self.chain_store.get_key_value_changes(block_hash, state_changes_request)
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1816,8 +1883,12 @@ impl<'a> ChainStoreUpdate<'a> {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            trie_changes
+                .key_value_changes_into(&mut store_update)
+                .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
+
         let mut affected_catchup_blocks = HashSet::new();
         for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));

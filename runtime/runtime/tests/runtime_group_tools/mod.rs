@@ -39,7 +39,8 @@ impl StandaloneRuntime {
     }
 
     pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
-        let runtime_config = random_config();
+        let mut runtime_config = random_config();
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::max_value();
 
         let runtime = Runtime::new(runtime_config);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -83,7 +84,7 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
 
-        (apply_result.new_receipts, apply_result.outcomes)
+        (apply_result.outgoing_receipts, apply_result.outcomes)
     }
 }
 

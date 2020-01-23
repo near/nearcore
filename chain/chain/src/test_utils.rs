@@ -3,20 +3,14 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
-use serde::Serialize;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
+use serde::Serialize;
 
-use crate::chain::WEIGHT_MULTIPLIER;
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
-use crate::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_pool::types::PoolIterator;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::AccessKey;
 use near_primitives::block::{Approval, Block};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
@@ -29,8 +23,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, AccountView, EpochValidatorInfo, QueryResponse,
@@ -40,6 +34,12 @@ use near_store::test_utils::create_test_store;
 use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
+
+use crate::chain::{Chain, ChainGenesis, WEIGHT_MULTIPLIER};
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::ApplyTransactionResult;
+use crate::{BlockHeader, RuntimeAdapter};
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -141,7 +141,7 @@ impl KeyValueRuntime {
                             account_id: account_id.clone(),
                             public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
                                 .public_key(),
-                            amount: 1_000_000,
+                            stake: 1_000_000,
                         })
                         .collect()
                 })
@@ -326,13 +326,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
-    ) -> Result<u64, Error> {
-        Ok(0)
+    ) -> Result<ValidatorStats, Error> {
+        Ok(ValidatorStats { produced: 0, expected: 0 })
     }
 
     fn num_shards(&self) -> ShardId {
@@ -472,7 +472,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
@@ -626,6 +626,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root),
+                Default::default(),
+                block_hash.clone(),
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -817,6 +819,14 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
         })
+    }
+
+    fn get_key_value_changes(
+        &self,
+        _block_hash: &CryptoHash,
+        _state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(

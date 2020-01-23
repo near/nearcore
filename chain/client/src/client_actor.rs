@@ -145,13 +145,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 self.receive_header(header, peer_id)
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
-                let height_exists = self
+                let blocks_at_height = self
                     .client
                     .chain
                     .mut_store()
-                    .get_any_block_hash_by_height(block.header.inner_lite.height)
-                    .is_ok();
-                if was_requested || !height_exists {
+                    .get_any_block_hash_by_height(block.header.inner_lite.height);
+                if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
                             if block.hash() == header.prev_hash {
@@ -167,7 +166,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     self.receive_block(block, peer_id, was_requested)
                 } else {
-                    debug!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                    match self
+                        .client
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&block.header.prev_hash)
+                    {
+                        Ok(epoch_id) => {
+                            if Some(&block.header.hash) != blocks_at_height.unwrap().get(&epoch_id)
+                            {
+                                warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                            }
+                        }
+                        _ => {}
+                    }
                     return NetworkClientResponses::NoResponse;
                 }
             }
@@ -508,11 +519,12 @@ impl ClientActor {
             }
         } else {
             let num_blocks_missing = if head.epoch_id == epoch_id {
-                self.client.runtime_adapter.get_num_missing_blocks(
+                let validator_stats = self.client.runtime_adapter.get_num_validator_blocks(
                     &head.epoch_id,
                     &head.last_block_hash,
                     &next_block_producer_account,
-                )?
+                )?;
+                validator_stats.expected - validator_stats.produced
             } else {
                 0
             };
@@ -601,7 +613,7 @@ impl ClientActor {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
-        for accepted_block in accepted_blocks.into_iter() {
+        for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
                 accepted_block.hash,
                 accepted_block.status,

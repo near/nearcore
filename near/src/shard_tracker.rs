@@ -267,7 +267,7 @@ mod tests {
                 vec![ValidatorStake {
                     account_id: "test".to_string(),
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    amount: 100,
+                    stake: 100,
                 }],
             )
             .unwrap(),

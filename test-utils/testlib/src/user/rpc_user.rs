@@ -1,23 +1,23 @@
 use std::convert::TryInto;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
+use futures::{Future, TryFutureExt};
 
-use futures::Future;
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_jsonrpc_client::BlockId;
+use near_jsonrpc::ServerError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, ExecutionErrorView, ExecutionOutcomeView,
+    AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
     FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
@@ -26,35 +26,35 @@ use crate::user::User;
 pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<dyn Signer>,
-    pub client: Arc<RwLock<JsonRpcClient>>,
+    addr: String,
 }
 
 impl RpcUser {
     fn actix<F, Fut, R>(&self, f: F) -> R
     where
         Fut: Future<Output = R> + 'static,
-        F: FnOnce(Arc<RwLock<JsonRpcClient>>) -> Fut + 'static,
+        F: FnOnce(JsonRpcClient) -> Fut + 'static,
     {
-        let client = Arc::clone(&self.client);
-        System::new("actix").block_on(async { f(client).await })
+        let addr = self.addr.clone();
+        System::new("actix")
+            .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
     }
 
     pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {
-        RpcUser {
-            account_id,
-            client: Arc::new(RwLock::new(new_client(&format!("http://{}", addr)))),
-            signer,
-        }
+        RpcUser { account_id, addr: addr.to_owned(), signer }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
-        self.actix(|client| client.write().unwrap().status()).ok()
+        self.actix(|mut client| client.status()).ok()
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         let data = to_base(data);
-        self.actix(move |client| client.write().unwrap().query(path, data))
-            .map_err(|err| err.to_string())
+        self.actix(move |mut client| client.query(path, data).map_err(|err| err.to_string()))
+    }
+
+    pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
+        self.actix(move |mut client| client.validators(block_id).map_err(|err| err.to_string()))
     }
 }
 
@@ -67,21 +67,25 @@ impl User for RpcUser {
         self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let _ = self
-            .actix(move |client| client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))
-            .map_err(|err| err.to_string())?;
+            .actix(move |mut client| client.broadcast_tx_async(to_base64(&bytes)))
+            .map_err(|err| {
+                serde_json::from_value::<ServerError>(
+                    err.data.expect("server error must carry data"),
+                )
+                .expect("deserialize server error must be ok")
+            })?;
         Ok(())
     }
 
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
-        let result = self
-            .actix(move |client| client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)));
+        let result = self.actix(move |mut client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
         let height = self.get_best_height().unwrap();
         while height == self.get_best_height().unwrap() {
@@ -89,13 +93,11 @@ impl User for RpcUser {
         }
         match result {
             Ok(outcome) => Ok(outcome),
-            Err(err) => Err(serde_json::from_value::<ExecutionErrorView>(err.data.unwrap())
-                .unwrap()
-                .error_message),
+            Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
 
-    fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
+    fn add_receipt(&self, _receipt: Receipt) -> Result<(), ServerError> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
     }
@@ -109,7 +111,7 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
-        self.actix(move |client| client.write().unwrap().block(BlockId::Height(height))).ok()
+        self.actix(move |mut client| client.block(BlockId::Height(height))).ok()
     }
 
     fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
@@ -119,7 +121,7 @@ impl User for RpcUser {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
         let hash = *hash;
-        self.actix(move |client| client.write().unwrap().tx((&hash).into(), account_id)).unwrap()
+        self.actix(move |mut client| client.tx((&hash).into(), account_id)).unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {

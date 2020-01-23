@@ -1,5 +1,5 @@
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionCallError;
+use near_vm_errors::FunctionExecError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{External, HostError, VMConfig, VMContext};
@@ -37,9 +37,9 @@ pub fn test_ts_contract() {
     );
     assert_eq!(
         result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
-            "explicit guest panic".to_string()
-        ))))
+        Some(VMError::FunctionExecError(FunctionExecError::HostError(HostError::GuestPanic {
+            panic_msg: "explicit guest panic".to_string()
+        })))
     );
 
     // Call method that writes something into storage.
