@@ -1173,6 +1173,7 @@ mod test {
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::account::Account;
     use near_primitives::block::WeightAndScore;
     use near_primitives::challenge::{ChallengesResult, SlashedValidator};
     use near_primitives::hash::{hash, CryptoHash};
@@ -1186,7 +1187,7 @@ mod test {
         StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
-    use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
+    use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
     use node_runtime::config::RuntimeConfig;
@@ -1404,18 +1405,11 @@ mod test {
             self.step(vec![transactions], vec![true], ChallengesResult::default());
         }
 
-        pub fn view_account(&self, account_id: &str) -> AccountView {
+        pub fn view_account(&self, account_id: &str) -> Account {
             let shard_id = self.runtime.account_id_to_shard_id(&account_id.to_string());
-            AccountView::from_account(
-                &account_id.to_string(),
-                &self
-                    .runtime
-                    .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
-                    .unwrap(),
-                0,
-                0,
-                0,
-            )
+            self.runtime
+                .view_account(self.state_roots[shard_id as usize], &account_id.to_string())
+                .unwrap()
         }
 
         /// Compute per epoch per validator reward and per epoch protocol treasury reward
