@@ -183,7 +183,7 @@ fn test_log_utf16_number_limit() {
     assert_costs(map! {
         ExtCosts::base: max_number_logs + 1,
         ExtCosts::log_base: max_number_logs,
-        ExtCosts::log_byte: len * max_number_logs,
+        ExtCosts::log_byte: string.bytes().len() as u64 * max_number_logs,
         ExtCosts::read_memory_base: max_number_logs,
         ExtCosts::read_memory_byte: len * max_number_logs,
         ExtCosts::utf16_decoding_base: max_number_logs,
@@ -283,7 +283,7 @@ fn test_valid_log_utf16() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: len,
+        ExtCosts::log_byte: string.bytes().len() as u64,
     });
     let outcome = logic.outcome();
     assert_eq!(outcome.logs[0], string);
@@ -311,7 +311,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len - 2,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: len - 2 ,
+        ExtCosts::log_byte: string.bytes().len() as u64 ,
     });
 
     let string = "abc";
@@ -379,7 +379,7 @@ fn test_valid_log_utf16_null_terminated() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len - 2,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: len - 2,
+        ExtCosts::log_byte: string.bytes().len() as u64 ,
     });
 }
 
@@ -387,21 +387,21 @@ fn test_valid_log_utf16_null_terminated() {
 fn test_invalid_log_utf16() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let string = "$ qò$`";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
-    for u16_ in string.encode_utf16() {
-        utf16_bytes.push(0);
+    let utf16: Vec<u16> = vec![0xD834, 0xDD1E, 0x006d, 0x0075, 0xD800, 0x0069, 0x0063];
+    let mut utf16_bytes: Vec<u8> = vec![];
+    for u16_ in utf16 {
         utf16_bytes.push(u16_ as u8);
+        utf16_bytes.push((u16_ >> 8) as u8);
     }
-    let res = logic.log_utf8(utf16_bytes.len() as _, utf16_bytes.as_ptr() as _);
+    let res = logic.log_utf16(utf16_bytes.len() as _, utf16_bytes.as_ptr() as _);
     let len = utf16_bytes.len() as u64;
-    assert_eq!(res, Err(HostError::BadUTF8.into()));
+    assert_eq!(res, Err(HostError::BadUTF16.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::read_memory_base: 1,
         ExtCosts::read_memory_byte: len,
-        ExtCosts::utf8_decoding_base: 1,
-        ExtCosts::utf8_decoding_byte: len,
+        ExtCosts::utf16_decoding_base: 1,
+        ExtCosts::utf16_decoding_byte: len,
     });
 }
 
@@ -410,27 +410,25 @@ fn test_valid_log_utf16_null_terminated_fail() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
     let string = "$ qò$`";
-    let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
+    let mut utf16_bytes: Vec<u8> = vec![];
     for u16_ in string.encode_utf16() {
         utf16_bytes.push(u16_ as u8);
         utf16_bytes.push((u16_ >> 8) as u8);
     }
     utf16_bytes.push(0);
-    utf16_bytes.push(123);
+    utf16_bytes.push(0xD8u8); // Bad utf-16
     utf16_bytes.push(0);
     utf16_bytes.push(0);
-    logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _).expect("Valid utf-16 string_bytes");
+    let res = logic.log_utf16(std::u64::MAX, utf16_bytes.as_ptr() as _);
     let len = utf16_bytes.len() as u64;
+    assert_eq!(res, Err(HostError::BadUTF16.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: len / 2 ,
+        ExtCosts::read_memory_base: len / 2,
         ExtCosts::read_memory_byte: len,
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len - 2,
-        ExtCosts::log_base: 1,
-        ExtCosts::log_byte: len - 2,
     });
-    assert_ne!(logic.outcome().logs[0], string);
 }
 
 #[test]
