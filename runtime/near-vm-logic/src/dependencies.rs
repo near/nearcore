@@ -1,7 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
-use near_vm_errors::HostErrorOrStorageError;
+use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -30,7 +30,7 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
-pub type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime

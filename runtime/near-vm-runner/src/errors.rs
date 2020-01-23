@@ -1,5 +1,5 @@
 use near_vm_errors::{CompilationError, FunctionExecError, MethodResolveError, VMError};
-use near_vm_logic::HostErrorOrStorageError;
+use near_vm_logic::VMLogicError;
 
 pub trait IntoVMError {
     fn into_vm_error(self) -> VMError;
@@ -64,13 +64,14 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 VMError::FunctionExecError(FunctionExecError::WasmTrap { msg: msg.to_string() })
             }
             RuntimeError::Error { data } => {
-                if let Some(err) = data.downcast_ref::<HostErrorOrStorageError>() {
+                if let Some(err) = data.downcast_ref::<VMLogicError>() {
                     match err {
-                        HostErrorOrStorageError::StorageError(s) => {
-                            VMError::StorageError(s.clone())
-                        }
-                        HostErrorOrStorageError::HostError(h) => {
+                        VMLogicError::HostError(h) => {
                             VMError::FunctionExecError(FunctionExecError::HostError(h.clone()))
+                        }
+                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+                        VMLogicError::InconsistentStateError(e) => {
+                            VMError::InconsistentStateError(e.clone())
                         }
                     }
                 } else {

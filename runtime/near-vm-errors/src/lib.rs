@@ -8,8 +8,11 @@ use std::fmt;
 )]
 pub enum VMError {
     FunctionExecError(FunctionExecError),
-    // TODO: serialize/deserialize?
-    StorageError(Vec<u8>),
+    /// Serialized external error from External trait implementation.
+    ExternalError(Vec<u8>),
+    /// An error that is caused by an operation on an inconsistent state.
+    /// E.g. an integer overflow by using a value from the given context.
+    InconsistentStateError(InconsistentStateError),
 }
 
 #[derive(
@@ -135,15 +138,33 @@ pub enum HostError {
 }
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-pub enum HostErrorOrStorageError {
+pub enum VMLogicError {
     HostError(HostError),
-    /// Error from underlying storage, serialized
-    StorageError(Vec<u8>),
+    /// Serialized external error from External trait implementation.
+    ExternalError(Vec<u8>),
+    /// An error that is caused by an operation on an inconsistent state.
+    InconsistentStateError(InconsistentStateError),
 }
 
-impl From<HostError> for HostErrorOrStorageError {
+/// An error that is caused by an operation on an inconsistent state.
+/// E.g. a deserialization error or an integer overflow.
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+pub enum InconsistentStateError {
+    /// Math operation with a value from the state resulted in a integer overflow.
+    IntegerOverflow,
+}
+
+impl From<HostError> for VMLogicError {
     fn from(err: HostError) -> Self {
-        HostErrorOrStorageError::HostError(err)
+        VMLogicError::HostError(err)
+    }
+}
+
+impl From<InconsistentStateError> for VMLogicError {
+    fn from(err: InconsistentStateError) -> Self {
+        VMLogicError::InconsistentStateError(err)
     }
 }
 
@@ -208,7 +229,19 @@ impl fmt::Display for VMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             VMError::FunctionExecError(err) => fmt::Display::fmt(err, f),
-            VMError::StorageError(_err) => write!(f, "StorageError"),
+            VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
+            VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
+        }
+    }
+}
+
+impl std::fmt::Display for InconsistentStateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            InconsistentStateError::IntegerOverflow => write!(
+                f,
+                "Math operation with a value from the state resulted in a integer overflow.",
+            ),
         }
     }
 }

@@ -129,6 +129,13 @@ pub(crate) fn action_function_call(
             return Err(e);
         }
     };
+
+    if account.amount.checked_add(function_call.deposit).is_none() {
+        return Err(StorageError::StorageInconsistentState(
+            "Account balance integer overflow during function call deposit".to_string(),
+        ));
+    }
+
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
@@ -175,7 +182,7 @@ pub(crate) fn action_function_call(
         promise_results,
     );
     if let Some(err) = err {
-        if let VMError::StorageError(storage) = err {
+        if let VMError::ExternalError(storage) = err {
             let err: StorageError =
                 borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
             return Err(err);
@@ -245,7 +252,7 @@ pub(crate) fn action_transfer(
     transfer: &TransferAction,
 ) -> Result<(), StorageError> {
     account.amount = account.amount.checked_add(transfer.deposit).ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!("Account balance integer overflow"))
+        StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
     })?;
     Ok(())
 }
