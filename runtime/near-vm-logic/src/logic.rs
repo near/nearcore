@@ -11,6 +11,7 @@ use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_errors::InconsistentStateError;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
@@ -2222,7 +2223,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,

@@ -12,7 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
-use near_vm_errors::{FunctionCallError, HostError, MethodResolveErrorcore/primitives/src/errors.rs:9:41};
+use near_vm_errors::{FunctionCallError, HostError, MethodResolveError};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;

@@ -1,7 +1,7 @@
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_errors::{FunctionCallError, HostError, VMError};
+use near_vm_errors::{FunctionCallError, HostError};
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
@@ -137,8 +137,8 @@ fn test_evil_abort() {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(VMError::FunctionCallError(
-                    FunctionCallError::HostError(HostError::BadUTF16)
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
+                    HostError::BadUTF16
                 ))
             }
             .into()
