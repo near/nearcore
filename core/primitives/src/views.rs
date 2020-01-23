@@ -173,6 +173,7 @@ pub struct QueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
     pub block_height: BlockHeight,
+    pub block_hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
