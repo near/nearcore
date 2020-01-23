@@ -23,10 +23,10 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
-use crate::config::RuntimeConfig;
+use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_vm_errors::{CompilationError, FunctionCallError};
 use near_vm_runner::VMError;
 
@@ -115,7 +115,7 @@ pub(crate) fn action_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-) -> Result<(), StorageError> {
+) -> Result<(), RuntimeError> {
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
@@ -126,14 +126,15 @@ pub(crate) fn action_function_call(
             return Ok(());
         }
         Err(e) => {
-            return Err(e);
+            return Err(e.into());
         }
     };
 
     if account.amount.checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),
-        ));
+        )
+        .into());
     }
 
     let mut runtime_ext = RuntimeExt::new(
@@ -181,43 +182,41 @@ pub(crate) fn action_function_call(
         &config.transaction_costs,
         promise_results,
     );
-    if let Some(err) = err {
-        match err {
-            VMError::FunctionCallError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(err).into());
-                if let Some(outcome) = outcome {
-                    result.gas_burnt += outcome.burnt_gas;
-                    result.gas_burnt_for_function_call += outcome.burnt_gas;
-                    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-                    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-                    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` for
-                    // `FunctionCall`s error.
-                    result.gas_used += outcome.used_gas;
-                    result.logs.extend(outcome.logs.into_iter());
-                }
-                Ok(())
-            }
-            VMError::ExternalError(storage) => {
-                let err: StorageError =
-                    borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
-                Err(err)
-            }
-            VMError::InconsistentStateError(err) => {
-                Err(StorageError::StorageInconsistentState(err.to_string()))
-            }
+    let execution_succeeded = match err {
+        Some(VMError::FunctionCallError(err)) => {
+            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
+            false
+        }
+        Some(VMError::ExternalError(storage)) => {
+            let err: StorageError =
+                borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
+            return Err(err.into());
+        }
+        Some(VMError::InconsistentStateError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        }
+        None => true,
+    };
+    if let Some(outcome) = outcome {
+        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+        result.gas_burnt_for_function_call =
+            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+        // `FunctionCall`s error.
+        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+        result.logs.extend(outcome.logs.into_iter());
+        if execution_succeeded {
+            account.amount = outcome.balance;
+            account.storage_usage = outcome.storage_usage;
+            result.result = Ok(outcome.return_data);
+            result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
         }
     } else {
-        let outcome = outcome.unwrap();
-        result.logs.extend(outcome.logs.into_iter());
-        account.amount = outcome.balance;
-        account.storage_usage = outcome.storage_usage;
-        result.gas_burnt += outcome.burnt_gas;
-        result.gas_burnt_for_function_call += outcome.burnt_gas;
-        result.gas_used += outcome.used_gas;
-        result.result = Ok(outcome.return_data);
-        result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
-        Ok(())
+        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
     }
+    Ok(())
 }
 
 pub(crate) fn action_stake(

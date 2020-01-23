@@ -458,7 +458,7 @@ impl<'a> VMLogic<'a> {
 
     fn checked_push_log(&mut self, message: String) -> Result<()> {
         // The size of logged data can't be too large. No overflow.
-        self.total_log_length += message.as_bytes().len() as u64;
+        self.total_log_length += message.len() as u64;
         if self.total_log_length > self.config.limit_config.max_total_log_length {
             return Err(HostError::TotalLogLengthExceeded {
                 length: self.total_log_length,
@@ -1035,7 +1035,7 @@ impl<'a> VMLogic<'a> {
         let promise = self
             .promises
             .get(promise_idx as usize)
-            .ok_or_else(|| HostError::InvalidPromiseIndex { promise_idx })?;
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
         let receipt_dependencies = match &promise {
             Promise::Receipt(receipt_idx) => vec![*receipt_idx],
             Promise::NotReceipt(receipt_indices) => receipt_indices.clone(),
@@ -1069,7 +1069,7 @@ impl<'a> VMLogic<'a> {
         let promise = self
             .promises
             .get(promise_idx as usize)
-            .ok_or_else(|| HostError::InvalidPromiseIndex { promise_idx })?;
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
         let receipt_idx = match &promise {
             Promise::Receipt(receipt_idx) => Ok(*receipt_idx),
             Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
@@ -1581,7 +1581,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promise_results
             .get(result_idx as usize)
-            .ok_or_else(|| HostError::InvalidPromiseResultIndex { result_idx })?
+            .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
@@ -1614,7 +1614,7 @@ impl<'a> VMLogic<'a> {
         match self
             .promises
             .get(promise_idx as usize)
-            .ok_or_else(|| HostError::InvalidPromiseIndex { promise_idx })?
+            .ok_or(HostError::InvalidPromiseIndex { promise_idx })?
         {
             Promise::Receipt(receipt_idx) => {
                 self.return_data = ReturnData::ReceiptIndex(*receipt_idx);
@@ -1724,7 +1724,7 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -1749,7 +1749,7 @@ impl<'a> VMLogic<'a> {
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         // Let's not use `encode_utf16` for gas per byte here, since it's a lot of compute.
-        self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -1880,12 +1880,12 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_sub((old_value.len() as u64) * storage_config.value_cost_per_byte)
-                    .ok_or_else(|| InconsistentStateError::IntegerOverflow)?;
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_add(value.len() as u64 * storage_config.value_cost_per_byte)
-                    .ok_or_else(|| InconsistentStateError::IntegerOverflow)?;
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
             }
@@ -1898,7 +1898,7 @@ impl<'a> VMLogic<'a> {
                             + key.len() as u64 * storage_config.key_cost_per_byte
                             + storage_config.data_record_cost,
                     )
-                    .ok_or_else(|| InconsistentStateError::IntegerOverflow)?;
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
             }
         }
@@ -2015,7 +2015,7 @@ impl<'a> VMLogic<'a> {
                             + key.len() as u64 * storage_config.key_cost_per_byte
                             + storage_config.data_record_cost,
                     )
-                    .ok_or_else(|| InconsistentStateError::IntegerOverflow)?;
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;
                 Ok(1)
             }

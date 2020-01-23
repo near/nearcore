@@ -183,7 +183,7 @@ fn test_log_utf16_number_limit() {
     assert_costs(map! {
         ExtCosts::base: max_number_logs + 1,
         ExtCosts::log_base: max_number_logs,
-        ExtCosts::log_byte: string.bytes().len() as u64 * max_number_logs,
+        ExtCosts::log_byte: string.len() as u64 * max_number_logs,
         ExtCosts::read_memory_base: max_number_logs,
         ExtCosts::read_memory_byte: len * max_number_logs,
         ExtCosts::utf16_decoding_base: max_number_logs,
@@ -283,7 +283,7 @@ fn test_valid_log_utf16() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: string.bytes().len() as u64,
+        ExtCosts::log_byte: string.len() as u64,
     });
     let outcome = logic.outcome();
     assert_eq!(outcome.logs[0], string);
@@ -311,7 +311,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len - 2,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: string.bytes().len() as u64 ,
+        ExtCosts::log_byte: string.len() as u64 ,
     });
 
     let string = "abc";
@@ -379,7 +379,7 @@ fn test_valid_log_utf16_null_terminated() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: len - 2,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: string.bytes().len() as u64 ,
+        ExtCosts::log_byte: string.len() as u64 ,
     });
 }
 
