@@ -3,7 +3,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use log::debug;
 
-use near_primitives::account::{calculate_rent, cost_per_block, Account};
+use near_primitives::account::{calculate_rent, rent_per_block, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
@@ -48,7 +48,7 @@ pub(crate) fn check_rent(
         runtime_config.poke_threshold
     };
     let buffer_amount = u128::from(buffer_length)
-        * cost_per_block(
+        * rent_per_block(
             account_id,
             account,
             runtime_config.account_length_baseline_cost_per_block,
