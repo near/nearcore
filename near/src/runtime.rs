@@ -899,7 +899,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
@@ -911,6 +911,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Ok(r) => Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(r.into()),
                     block_height,
+                    block_hash: *block_hash,
                 }),
                 Err(e) => Err(e),
             },
@@ -928,10 +929,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::CallResult(CallResult { result, logs }),
                         block_height,
+                        block_hash: *block_hash,
                     }),
                     Err(err) => Ok(QueryResponse {
                         kind: QueryResponseKind::Error(QueryError { error: err.to_string(), logs }),
                         block_height,
+                        block_hash: *block_hash,
                     }),
                 }
             }
@@ -940,6 +943,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewState(result),
                         block_height,
+                        block_hash: *block_hash,
                     }),
                     Err(err) => Ok(QueryResponse {
                         kind: QueryResponseKind::Error(QueryError {
@@ -947,6 +951,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             logs: vec![],
                         }),
                         block_height,
+                        block_hash: *block_hash,
                     }),
                 }
             }
@@ -963,6 +968,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                     .collect(),
                             ),
                             block_height,
+                            block_hash: *block_hash,
                         }
                     })
                 } else {
@@ -974,6 +980,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .map(|access_key| QueryResponse {
                         kind: QueryResponseKind::AccessKey(access_key.into()),
                         block_height,
+                        block_hash: *block_hash,
                     })
                 };
                 match result {
@@ -984,6 +991,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             logs: vec![],
                         }),
                         block_height,
+                        block_hash: *block_hash,
                     }),
                 }
             }

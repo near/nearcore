@@ -147,13 +147,17 @@ fn test_query_account() {
     init_test_logger();
 
     System::run(|| {
-        let (_view_client_addr, addr) = start_all(false);
+        let (_, addr) = start_all(false);
 
-        let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(
-            |query_response| {
+        let mut client = new_client(&format!("http://{}", addr.clone()));
+        actix::spawn(client.status().then(move |status| {
+            let status = status.unwrap();
+            let block_hash = status.sync_info.latest_block_hash;
+            let mut client = new_client(&format!("http://{}", addr));
+            client.query("account/test".to_string(), "".to_string()).then(move |query_response| {
                 let query_response = query_response.unwrap();
                 assert_eq!(query_response.block_height, 0);
+                assert_eq!(query_response.block_hash, block_hash);
                 let account_info =
                     if let QueryResponseKind::ViewAccount(account) = query_response.kind {
                         account
@@ -170,8 +174,8 @@ fn test_query_account() {
                 assert_eq!(account_info.storage_usage, 0);
                 System::current().stop();
                 future::ready(())
-            },
-        ));
+            })
+        }));
     })
     .unwrap();
 }

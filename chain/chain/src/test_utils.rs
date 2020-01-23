@@ -664,7 +664,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         path: Vec<&str>,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
@@ -686,6 +686,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         .into(),
                     ),
                     block_height,
+                    block_hash: *block_hash,
                 })
             }
             "access_key" if path.len() == 2 => Ok(QueryResponse {
@@ -696,10 +697,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }],
                 }),
                 block_height,
+                block_hash: *block_hash,
             }),
             "access_key" if path.len() == 3 => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
                 block_height,
+                block_hash: *block_hash,
             }),
             _ => {
                 panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);
