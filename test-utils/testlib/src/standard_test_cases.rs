@@ -12,7 +12,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
-use near_vm_errors::{FunctionExecError, HostError, MethodResolveError, VMError};
+use near_vm_errors::{FunctionCallError, HostError, MethodResolveErrorcore/primitives/src/errors.rs:9:41};
 
 use crate::fees_utils::FeeHelper;
 use crate::node::Node;
@@ -82,10 +82,8 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::HostError(HostError::GuestPanic {
-                        panic_msg: "WAT?".to_string()
-                    })
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GuestPanic { panic_msg: "WAT?".to_string() }
                 ))
             }
             .into()
@@ -122,8 +120,8 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::MethodResolveError(MethodResolveError::MethodNotFound)
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound
                 ))
             }
             .into()
@@ -146,8 +144,8 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
                 ))
             }
             .into()
@@ -170,8 +168,8 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCall(VMError::FunctionExecError(
-                    FunctionExecError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
                 ))
             }
             .into()

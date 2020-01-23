@@ -7,7 +7,7 @@ use std::fmt;
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum VMError {
-    FunctionExecError(FunctionExecError),
+    FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
     ExternalError(Vec<u8>),
     /// An error that is caused by an operation on an inconsistent state.
@@ -18,7 +18,7 @@ pub enum VMError {
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
-pub enum FunctionExecError {
+pub enum FunctionCallError {
     CompilationError(CompilationError),
     LinkError { msg: String },
     MethodResolveError(MethodResolveError),
@@ -170,7 +170,7 @@ impl From<InconsistentStateError> for VMLogicError {
 
 impl From<PrepareError> for VMError {
     fn from(err: PrepareError) -> Self {
-        VMError::FunctionExecError(FunctionExecError::CompilationError(
+        VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::PrepareError(err),
         ))
     }
@@ -193,14 +193,14 @@ impl fmt::Display for PrepareError {
     }
 }
 
-impl fmt::Display for FunctionExecError {
+impl fmt::Display for FunctionCallError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            FunctionExecError::CompilationError(e) => e.fmt(f),
-            FunctionExecError::MethodResolveError(e) => e.fmt(f),
-            FunctionExecError::HostError(e) => e.fmt(f),
-            FunctionExecError::LinkError { msg } => write!(f, "{}", msg),
-            FunctionExecError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
+            FunctionCallError::CompilationError(e) => e.fmt(f),
+            FunctionCallError::MethodResolveError(e) => e.fmt(f),
+            FunctionCallError::HostError(e) => e.fmt(f),
+            FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionCallError::WasmTrap { msg } => write!(f, "WebAssembly trap: {}", msg),
         }
     }
 }
@@ -228,7 +228,7 @@ impl fmt::Display for MethodResolveError {
 impl fmt::Display for VMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            VMError::FunctionExecError(err) => fmt::Display::fmt(err, f),
+            VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
             VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
             VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
         }
@@ -285,20 +285,20 @@ impl std::fmt::Display for HostError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CompilationError, FunctionExecError, MethodResolveError, PrepareError, VMError};
+    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
 
     #[test]
     fn test_display() {
         // TODO: proper printing
         assert_eq!(
-            VMError::FunctionExecError(FunctionExecError::MethodResolveError(
+            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature
             ))
             .to_string(),
             "MethodInvalidSignature"
         );
         assert_eq!(
-            VMError::FunctionExecError(FunctionExecError::CompilationError(
+            VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
             ))
             .to_string(),
