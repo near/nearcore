@@ -37,15 +37,13 @@ pub fn calculate_rent(
     account_length_baseline_cost_per_block: Balance,
     storage_cost_byte_per_block: Balance,
 ) -> Balance {
-    let charge = u128::from(block_height.saturating_sub(account.storage_paid_at))
+    u128::from(block_height.saturating_sub(account.storage_paid_at))
         * rent_per_block(
             account_id,
             account,
             account_length_baseline_cost_per_block,
             storage_cost_byte_per_block,
-        );
-    let actual_charge = std::cmp::min(account.amount, charge);
-    actual_charge
+        )
 }
 
 /// Calculates an account rent per block

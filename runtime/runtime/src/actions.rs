@@ -76,7 +76,8 @@ pub(crate) fn apply_rent(
         runtime_config.account_length_baseline_cost_per_block,
         runtime_config.storage_cost_byte_per_block,
     );
-    account.amount -= rent;
+    let actual_charge = std::cmp::min(account.amount, rent);
+    account.amount -= actual_charge;
     account.storage_paid_at = block_index;
     rent
 }
