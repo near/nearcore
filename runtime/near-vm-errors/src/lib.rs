@@ -3,9 +3,7 @@ use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
@@ -148,9 +146,7 @@ pub enum VMLogicError {
 
 /// An error that is caused by an operation on an inconsistent state.
 /// E.g. a deserialization error or an integer overflow.
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum InconsistentStateError {
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,

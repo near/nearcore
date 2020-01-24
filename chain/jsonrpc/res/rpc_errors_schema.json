@@ -127,13 +127,6 @@
       ],
       "props": {}
     },
-    "InconsistentStateError": {
-      "name": "InconsistentStateError",
-      "subtypes": [
-        "IntegerOverflow"
-      ],
-      "props": {}
-    },
     "Instantiate": {
       "name": "Instantiate",
       "subtypes": [],
@@ -329,15 +322,6 @@
         "length": "",
         "limit": ""
       }
-    },
-    "VMError": {
-      "name": "VMError",
-      "subtypes": [
-        "FunctionCallError",
-        "ExternalError",
-        "InconsistentStateError"
-      ],
-      "props": {}
     },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
