@@ -271,8 +271,9 @@
     "VMError": {
       "name": "VMError",
       "subtypes": [
-        "FunctionExecError",
-        "StorageError"
+        "FunctionCallError",
+        "ExternalError",
+        "InconsistentStateError"
       ],
       "props": {}
     },
@@ -326,7 +327,7 @@
         "RentUnpaid",
         "TriesToUnstake",
         "TriesToStake",
-        "FunctionCall",
+        "FunctionCallError",
         "NewReceiptValidationError"
       ],
       "props": {
@@ -635,6 +636,24 @@
     "DepositWithFunctionCall": {
       "name": "DepositWithFunctionCall",
       "subtypes": [],
+      "props": {}
+    },
+    "FunctionCallError": {
+      "name": "FunctionCallError",
+      "subtypes": [
+        "CompilationError",
+        "LinkError",
+        "MethodResolveError",
+        "WasmTrap",
+        "HostError"
+      ],
+      "props": {}
+    },
+    "InconsistentStateError": {
+      "name": "InconsistentStateError",
+      "subtypes": [
+        "IntegerOverflow"
+      ],
       "props": {}
     }
   }

@@ -14,7 +14,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
-use near_vm_logic::{External, HostError, HostErrorOrStorageError, ValuePtr};
+use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -98,13 +98,14 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
-fn wrap_error(error: StorageError) -> HostErrorOrStorageError {
-    HostErrorOrStorageError::StorageError(
+fn wrap_error(error: StorageError) -> VMLogicError {
+    // TODO(#2010): Wrap StorageError into ExternalError.
+    VMLogicError::ExternalError(
         borsh::BorshSerialize::try_to_vec(&error).expect("Borsh serialize cannot fail"),
     )
 }
 
-type ExtResult<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
@@ -199,11 +200,7 @@ impl<'a> External for RuntimeExt<'a> {
             let data_id = self.new_data_id();
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .ok_or_else(|| {
-                    HostErrorOrStorageError::HostError(
-                        HostError::InvalidReceiptIndex { receipt_index }.into(),
-                    )
-                })?
+                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });

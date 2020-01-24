@@ -2,7 +2,7 @@ use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::{FunctionExecError, MethodResolveError, VMError};
+use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMConfig, VMContext, VMLogic, VMOutcome};
 use wasmer_runtime::Module;
@@ -16,12 +16,12 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
-            Err(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
+            Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             )))
         }
     } else {
-        Err(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
+        Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
             MethodResolveError::MethodNotFound,
         )))
     }
@@ -57,7 +57,7 @@ pub fn run<'a>(
     if method_name.is_empty() {
         return (
             None,
-            Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
         );
@@ -86,7 +86,7 @@ pub fn run<'a>(
         Err(_) => {
             return (
                 None,
-                Some(VMError::FunctionExecError(FunctionExecError::MethodResolveError(
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodUTF8Error,
                 ))),
             )

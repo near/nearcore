@@ -1,5 +1,5 @@
 use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_errors::FunctionExecError;
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
@@ -174,7 +174,7 @@ pub fn test_out_of_memory() {
     );
     assert_eq!(
         result.1,
-        Some(VMError::FunctionExecError(FunctionExecError::WasmTrap {
+        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
             msg: "unknown".to_string()
         }))
     );

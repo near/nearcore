@@ -288,7 +288,7 @@ impl Runtime {
         promise_results: &[PromiseResult],
         action_hash: CryptoHash,
         is_last_action: bool,
-    ) -> Result<ActionResult, StorageError> {
+    ) -> Result<ActionResult, RuntimeError> {
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(&self.config.transaction_costs, action);
         result.gas_burnt += exec_fees;
