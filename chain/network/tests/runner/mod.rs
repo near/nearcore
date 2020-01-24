@@ -13,9 +13,9 @@ use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, StopSignal, WaitOrTimeout,
 };
-use near_network::types::{OutboundTcpConnect, StopSignal, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_vec;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
