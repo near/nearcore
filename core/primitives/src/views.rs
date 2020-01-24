@@ -34,12 +34,12 @@ use crate::types::{
 /// A view of the account
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
-    /// A spendable balance (before state rent charge)
+    /// A balance from storage
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
-    /// An actual balance in storage
+    /// Storage rent to pay on next transaction
     #[serde(with = "u128_dec_format")]
-    pub actual_amount: Balance,
+    pub rent: Balance,
     /// The amount locked due to staking
     #[serde(with = "u128_dec_format")]
     pub locked: Balance,
@@ -60,18 +60,16 @@ impl AccountView {
         account_length_baseline_cost_per_block: Balance,
         storage_cost_byte_per_block: Balance,
     ) -> AccountView {
-        let actual_amount = account.amount;
-        let amount = actual_amount
-            - calculate_rent(
-                account_id,
-                account,
-                block_height,
-                account_length_baseline_cost_per_block,
-                storage_cost_byte_per_block,
-            );
+        let rent = calculate_rent(
+            account_id,
+            account,
+            block_height,
+            account_length_baseline_cost_per_block,
+            storage_cost_byte_per_block,
+        );
         AccountView {
-            amount,
-            actual_amount,
+            amount: account.amount,
+            rent,
             code_hash: account.code_hash,
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
@@ -83,7 +81,7 @@ impl AccountView {
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         Self {
-            amount: view.actual_amount,
+            amount: view.amount,
             locked: view.locked,
             code_hash: view.code_hash,
             storage_usage: view.storage_usage,

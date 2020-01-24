@@ -29,16 +29,15 @@ impl Account {
 }
 
 /// Calculates the storage and the name rent for the given account
-/// for period of account.storage_paid_at to current block_height
+/// for period from `account.storage_paid_at` to the current `block_height`
 pub fn calculate_rent(
     account_id: &AccountId,
     account: &Account,
-    // TODO #1903 block_height: BlockHeight,
-    block_index: BlockHeight,
+    block_height: BlockHeight,
     account_length_baseline_cost_per_block: Balance,
     storage_cost_byte_per_block: Balance,
 ) -> Balance {
-    let charge = u128::from(block_index - account.storage_paid_at)
+    let charge = u128::from(block_height.saturating_sub(account.storage_paid_at))
         * rent_per_block(
             account_id,
             account,

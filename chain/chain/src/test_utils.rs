@@ -682,7 +682,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(AccountView {
                         amount,
-                        actual_amount: amount,
+                        rent: 0,
                         locked: 0,
                         code_hash: CryptoHash::default(),
                         storage_usage: 0,

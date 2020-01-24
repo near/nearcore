@@ -1211,7 +1211,7 @@ mod test {
     };
     use near_primitives::utils::key_for_account;
     use near_primitives::views::{
-        AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+        CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     };
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;

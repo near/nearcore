@@ -189,14 +189,7 @@ impl User for RuntimeUser {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_account(&state_update, account_id)
-            .map(|account| AccountView {
-                code_hash: account.code_hash,
-                storage_usage: account.storage_usage,
-                storage_paid_at: account.storage_paid_at,
-                locked: account.locked,
-                actual_amount: account.amount,
-                amount: account.amount,
-            })
+            .map(|account| AccountView::from_account(account_id, &account, 0, 0, 0))
             .map_err(|err| err.to_string())
     }
 

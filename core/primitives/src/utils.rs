@@ -307,8 +307,8 @@ where
 /// it shows its json representation. It is used to display complex
 /// objects using tracing.
 ///
-/// ```
-/// // tracing::debug!(target: "diagnostic", value=%ser(&object));
+/// ```ignore
+/// tracing::debug!(target: "diagnostic", value=%ser(&object));
 /// ```
 pub fn ser<'a, T>(object: &'a T) -> Serializable<'a, T>
 where
