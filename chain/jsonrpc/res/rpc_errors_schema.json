@@ -41,6 +41,14 @@
       ],
       "props": {}
     },
+    "ContractSizeExceeded": {
+      "name": "ContractSizeExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "size": ""
+      }
+    },
     "Deserialization": {
       "name": "Deserialization",
       "subtypes": [],
@@ -51,8 +59,8 @@
       "subtypes": [],
       "props": {}
     },
-    "FunctionExecError": {
-      "name": "FunctionExecError",
+    "FunctionCallError": {
+      "name": "FunctionCallError",
       "subtypes": [
         "CompilationError",
         "LinkError",
@@ -116,6 +124,13 @@
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded"
+      ],
+      "props": {}
+    },
+    "InconsistentStateError": {
+      "name": "InconsistentStateError",
+      "subtypes": [
+        "IntegerOverflow"
       ],
       "props": {}
     },
@@ -191,6 +206,14 @@
         "iterator_index": ""
       }
     },
+    "KeyLengthExceeded": {
+      "name": "KeyLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
     "LinkError": {
       "name": "LinkError",
       "subtypes": [],
@@ -238,6 +261,29 @@
       "subtypes": [],
       "props": {}
     },
+    "NumberInputDataDependenciesExceeded": {
+      "name": "NumberInputDataDependenciesExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "number_of_input_data_dependencies": ""
+      }
+    },
+    "NumberOfLogsExceeded": {
+      "name": "NumberOfLogsExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": ""
+      }
+    },
+    "NumberPromisesExceeded": {
+      "name": "NumberPromisesExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "number_of_promises": ""
+      }
+    },
     "PrepareError": {
       "name": "PrepareError",
       "subtypes": [
@@ -258,6 +304,14 @@
         "method_name": ""
       }
     },
+    "ReturnedValueLengthExceeded": {
+      "name": "ReturnedValueLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
     "Serialization": {
       "name": "Serialization",
       "subtypes": [],
@@ -268,6 +322,14 @@
       "subtypes": [],
       "props": {}
     },
+    "TotalLogLengthExceeded": {
+      "name": "TotalLogLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
+    },
     "VMError": {
       "name": "VMError",
       "subtypes": [
@@ -276,6 +338,14 @@
         "InconsistentStateError"
       ],
       "props": {}
+    },
+    "ValueLengthExceeded": {
+      "name": "ValueLengthExceeded",
+      "subtypes": [],
+      "props": {
+        "length": "",
+        "limit": ""
+      }
     },
     "WasmTrap": {
       "name": "WasmTrap",
@@ -404,6 +474,11 @@
         "account_id": "",
         "public_key": ""
       }
+    },
+    "DepositWithFunctionCall": {
+      "name": "DepositWithFunctionCall",
+      "subtypes": [],
+      "props": {}
     },
     "Expired": {
       "name": "Expired",
@@ -568,92 +643,6 @@
     "Timeout": {
       "name": "Timeout",
       "subtypes": [],
-      "props": {}
-    },
-    "ContractSizeExceeded": {
-      "name": "ContractSizeExceeded",
-      "subtypes": [],
-      "props": {
-        "limit": "",
-        "size": ""
-      }
-    },
-    "KeyLengthExceeded": {
-      "name": "KeyLengthExceeded",
-      "subtypes": [],
-      "props": {
-        "length": "",
-        "limit": ""
-      }
-    },
-    "NumberInputDataDependenciesExceeded": {
-      "name": "NumberInputDataDependenciesExceeded",
-      "subtypes": [],
-      "props": {
-        "limit": "",
-        "number_of_input_data_dependencies": ""
-      }
-    },
-    "NumberOfLogsExceeded": {
-      "name": "NumberOfLogsExceeded",
-      "subtypes": [],
-      "props": {
-        "limit": ""
-      }
-    },
-    "NumberPromisesExceeded": {
-      "name": "NumberPromisesExceeded",
-      "subtypes": [],
-      "props": {
-        "limit": "",
-        "number_of_promises": ""
-      }
-    },
-    "ReturnedValueLengthExceeded": {
-      "name": "ReturnedValueLengthExceeded",
-      "subtypes": [],
-      "props": {
-        "length": "",
-        "limit": ""
-      }
-    },
-    "TotalLogLengthExceeded": {
-      "name": "TotalLogLengthExceeded",
-      "subtypes": [],
-      "props": {
-        "length": "",
-        "limit": ""
-      }
-    },
-    "ValueLengthExceeded": {
-      "name": "ValueLengthExceeded",
-      "subtypes": [],
-      "props": {
-        "length": "",
-        "limit": ""
-      }
-    },
-    "DepositWithFunctionCall": {
-      "name": "DepositWithFunctionCall",
-      "subtypes": [],
-      "props": {}
-    },
-    "FunctionCallError": {
-      "name": "FunctionCallError",
-      "subtypes": [
-        "CompilationError",
-        "LinkError",
-        "MethodResolveError",
-        "WasmTrap",
-        "HostError"
-      ],
-      "props": {}
-    },
-    "InconsistentStateError": {
-      "name": "InconsistentStateError",
-      "subtypes": [
-        "IntegerOverflow"
-      ],
       "props": {}
     }
   }
