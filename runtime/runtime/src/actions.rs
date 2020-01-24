@@ -79,7 +79,7 @@ pub(crate) fn apply_rent(
     let actual_charge = std::cmp::min(account.amount, rent);
     account.amount -= actual_charge;
     account.storage_paid_at = block_index;
-    rent
+    actual_charge
 }
 
 pub(crate) fn get_code_with_cache(
