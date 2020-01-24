@@ -2,19 +2,20 @@ use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, AsyncContext, Context, Handler, Message};
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, Message};
 use futures::{future, FutureExt};
+use log::debug;
 use rand::{thread_rng, RngCore};
 use tokio::time::delay_for;
 
+use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
+use near_primitives::utils::index_to_bytes;
 
 use crate::types::{NetworkConfig, NetworkInfo, PeerId, PeerInfo, ROUTED_MESSAGE_TTL};
 use crate::PeerManagerActor;
-use near_chain::chain::WEIGHT_MULTIPLIER;
-use near_primitives::utils::index_to_bytes;
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -197,5 +198,35 @@ impl Handler<GetInfo> for PeerManagerActor {
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopSignal {
+    pub should_panic: bool,
+}
+
+impl StopSignal {
+    pub fn new() -> Self {
+        Self { should_panic: false }
+    }
+
+    pub fn should_panic() -> Self {
+        Self { should_panic: true }
+    }
+}
+
+impl Handler<StopSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Receive Stop Signal.");
+
+        if msg.should_panic {
+            panic!("Node crashed");
+        } else {
+            ctx.stop();
+        }
     }
 }
