@@ -254,7 +254,8 @@ impl PeerManagerActor {
     }
 
     /// Connects peer with given TcpStream and optional information if it's outbound.
-    fn connect_peer(
+    /// This might fail if the other peers drop listener at its endpoint while establishing connection.
+    fn try_connect_peer(
         &mut self,
         recipient: Addr<Self>,
         stream: TcpStream,
@@ -268,9 +269,27 @@ impl PeerManagerActor {
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
         let view_client_addr = self.view_client_addr.clone();
+
+        let server_addr = match server_addr {
+            Some(server_addr) => server_addr,
+            None => match stream.local_addr() {
+                Ok(server_addr) => server_addr,
+                _ => {
+                    warn!(target: "network", "Failed establishing connection with {:?}", peer_info);
+                    return;
+                }
+            },
+        };
+
+        let remote_addr = match stream.peer_addr() {
+            Ok(remote_addr) => remote_addr,
+            _ => {
+                warn!(target: "network", "Failed establishing connection with {:?}", peer_info);
+                return;
+            }
+        };
+
         Peer::create(move |ctx| {
-            let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
-            let remote_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
@@ -1142,7 +1161,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
         if self.is_inbound_allowed() {
-            self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
@@ -1164,7 +1183,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                             debug!(target: "network", "Connecting to {}", msg.peer_info);
                             let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
-                            act.connect_peer(
+                            act.try_connect_peer(
                                 ctx.address(),
                                 stream,
                                 PeerType::Outbound,

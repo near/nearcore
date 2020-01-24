@@ -5,6 +5,7 @@ use std::time::Duration;
 use actix::actors::mocker::Mocker;
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
+use tracing::info;
 
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
@@ -13,8 +14,6 @@ use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
 use near_primitives::block::WeightAndScore;
 use near_primitives::test_utils::init_test_logger_allow_panic;
 use near_store::test_utils::create_test_store;
-
-use tracing::info;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
