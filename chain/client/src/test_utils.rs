@@ -468,11 +468,9 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::StateRequest {
+                        NetworkRequests::StateRequestHeader {
                             shard_id,
                             sync_hash,
-                            need_header,
-                            parts,
                             target: target_account_id,
                         } => {
                             let target_account_id = match target_account_id {
@@ -485,11 +483,53 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1.read().unwrap()[i]
                                             .1
-                                            .send(NetworkViewClientMessages::StateRequest {
+                                            .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
-                                                need_header: *need_header,
-                                                parts: parts.clone(),
+                                            })
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkViewClientResponses::StateResponse(
+                                                        response,
+                                                    ) => {
+                                                        connectors2.read().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                response,
+                                                            ),
+                                                        );
+                                                    }
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::ready(())
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::StateRequestPart {
+                            shard_id,
+                            sync_hash,
+                            part_id,
+                            target: target_account_id,
+                        } => {
+                            let target_account_id = match target_account_id {
+                                AccountOrPeerIdOrHash::AccountId(x) => x,
+                                _ => panic!(),
+                            };
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                if name == target_account_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.read().unwrap()[i]
+                                            .1
+                                            .send(NetworkViewClientMessages::StateRequestPart {
+                                                shard_id: *shard_id,
+                                                sync_hash: *sync_hash,
+                                                part_id: *part_id,
                                             })
                                             .then(move |response| {
                                                 let response = response.unwrap();

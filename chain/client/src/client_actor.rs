@@ -246,7 +246,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 if let Some(shard_sync_download) = download {
                     match shard_sync_download.status {
                         ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = &state_response.header {
+                            if let Some(header) = state_response.header {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(
                                         shard_id,
@@ -272,33 +272,27 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                         ShardSyncStatus::StateDownloadParts => {
-                            let num_parts = shard_sync_download.downloads.len();
-                            if state_response.part_ids.len() != state_response.data.len() {
-                                error!(target: "sync", "State sync received incorrect number of parts for hash {:?}, potential malicious peer", hash);
-                                return NetworkClientResponses::NoResponse;
-                            }
-                            // We trust only on received parts.
-                            // Possible malicious behavior is to send "no parts collected" to enforce us re-request parts again is blocked.
-                            for (i, part_id) in state_response.part_ids.iter().enumerate() {
-                                let part_id = *part_id as usize;
+                            if let Some(part) = state_response.part {
+                                let num_parts = shard_sync_download.downloads.len() as u64;
+                                let (part_id, data) = part;
                                 if part_id >= num_parts {
                                     error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
-                                    continue;
+                                    return NetworkClientResponses::NoResponse;
                                 }
-                                if !shard_sync_download.downloads[part_id].done {
-                                    match self.client.chain.set_state_part(
-                                        shard_id,
-                                        hash,
-                                        part_id as u64,
-                                        num_parts as u64,
-                                        &state_response.data[i],
-                                    ) {
+                                if !shard_sync_download.downloads[part_id as usize].done {
+                                    match self
+                                        .client
+                                        .chain
+                                        .set_state_part(shard_id, hash, part_id, num_parts, data)
+                                    {
                                         Ok(()) => {
-                                            shard_sync_download.downloads[part_id].done = true;
+                                            shard_sync_download.downloads[part_id as usize].done =
+                                                true;
                                         }
                                         Err(err) => {
                                             error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
-                                            shard_sync_download.downloads[part_id].error = true;
+                                            shard_sync_download.downloads[part_id as usize].error =
+                                                true;
                                         }
                                     }
                                 }

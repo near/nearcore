@@ -40,8 +40,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
-    StateRequestParts, Tip,
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -1280,11 +1279,18 @@ impl Chain {
         })
     }
 
+    pub fn get_num_state_parts(memory_usage: u64) -> u64 {
+        // We assume that 1 Mb is a good limit for state part size.
+        // On the other side, it's important to divide any state into
+        // several parts to make sure that partitioning always works.
+        // TODO #1708
+        memory_usage / (1024 * 1024) + 3
+    }
+
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
         part_id: u64,
-        num_parts: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
         let sync_block =
@@ -1304,6 +1310,8 @@ impl Chain {
             .into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
+        let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
+        let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::Other(
@@ -1314,49 +1322,6 @@ impl Chain {
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
-    }
-
-    pub fn get_state_response_by_request(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
-    ) -> ShardStateSyncResponse {
-        match self.get_block(&sync_hash) {
-            Err(e) => {
-                // This case may appear in case of latency in epoch switching.
-                // Request sender is ready to sync but we still didn't get the block.
-                info!(target: "sync", "Can't get sync_hash block {:?} for state request, {:?}", sync_hash, e);
-                return ShardStateSyncResponse { header: None, part_ids: vec![], data: vec![] };
-            }
-            Ok(_) => {}
-        }
-        let header = if need_header {
-            match self.get_state_response_header(shard_id, sync_hash) {
-                Ok(header) => Some(header),
-                Err(e) => {
-                    error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let mut data = vec![];
-        let mut part_ids = vec![];
-        for part_id in parts.ids.iter() {
-            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
-                Ok(part) => {
-                    data.push(part);
-                    part_ids.push(*part_id);
-                }
-                Err(e) => {
-                    error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
-                }
-            }
-        }
-        return ShardStateSyncResponse { header, part_ids, data };
     }
 
     pub fn set_state_header(
@@ -1560,12 +1525,12 @@ impl Chain {
         sync_hash: CryptoHash,
         part_id: u64,
         num_parts: u64,
-        data: &Vec<u8>,
+        data: Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, &data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_state_part failed: validate_state_part failed".into(),
@@ -1576,7 +1541,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(ColStateParts, &key, data)?;
+        store_update.set_ser(ColStateParts, &key, &data)?;
         store_update.commit()?;
         Ok(())
     }
