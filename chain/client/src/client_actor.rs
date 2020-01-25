@@ -273,10 +273,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         ShardSyncStatus::StateDownloadParts => {
                             let num_parts = shard_sync_download.downloads.len();
+                            if state_response.part_ids.len() != state_response.data.len() {
+                                error!(target: "sync", "State sync received incorrect number of parts for hash {:?}, potential malicious peer", hash);
+                                return NetworkClientResponses::NoResponse;
+                            }
+                            // We trust only on received parts.
+                            // Possible malicious behavior is to send "no parts collected" to enforce us re-request parts again is blocked.
                             for (i, part_id) in state_response.part_ids.iter().enumerate() {
                                 let part_id = *part_id as usize;
                                 if part_id >= num_parts {
-                                    // This may happen only if we somehow have accepted wrong header
+                                    error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
                                     continue;
                                 }
                                 if !shard_sync_download.downloads[part_id].done {

@@ -5,7 +5,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use near_primitives::block::{genesis_chunks, Approval, WeightAndScore};
 use near_primitives::challenge::{
@@ -1142,7 +1142,7 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<Option<ShardStateSyncResponseHeader>, Error> {
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -1150,15 +1150,8 @@ impl Chain {
         //    Let's call it `current`.
         // 2a. `prev_` means we're working with height before current.
         // 3. In inner loops we use all prefixes with no relation to the context described above.
-        let sync_block = match self.get_block(&sync_hash) {
-            Ok(sync_block) => sync_block,
-            _ => {
-                // This case may appear in case of latency in epoch switching.
-                // Request sender is ready to sync but we still didn't get the block.
-                warn!(target: "sync", "get_state_response_header can't get sync_hash block {:?}", sync_hash);
-                return Ok(None);
-            }
-        };
+        let sync_block =
+            self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
@@ -1276,7 +1269,7 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
 
-        Ok(Some(ShardStateSyncResponseHeader {
+        Ok(ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1284,7 +1277,7 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs,
             state_root_node,
-        }))
+        })
     }
 
     pub fn get_state_response_part(
@@ -1294,7 +1287,8 @@ impl Chain {
         num_parts: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
-        let sync_block = self.get_block(&sync_hash)?;
+        let sync_block =
+            self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other(
@@ -1328,36 +1322,41 @@ impl Chain {
         sync_hash: CryptoHash,
         need_header: bool,
         parts: StateRequestParts,
-    ) -> Result<ShardStateSyncResponse, Error> {
-        let mut data = vec![];
-        for part_id in parts.ids.iter() {
-            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
-                Ok(part) => data.push(part),
-                Err(e) => {
-                    error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                    return Err(ErrorKind::Other(
-                        "Cannot build sync part (get_state_response_part)".to_string(),
-                    )
-                    .into());
-                }
+    ) -> ShardStateSyncResponse {
+        match self.get_block(&sync_hash) {
+            Err(e) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", "Can't get sync_hash block {:?} for state request, {:?}", sync_hash, e);
+                return ShardStateSyncResponse { header: None, part_ids: vec![], data: vec![] };
             }
+            Ok(_) => {}
         }
-        if need_header {
+        let header = if need_header {
             match self.get_state_response_header(shard_id, sync_hash) {
-                Ok(header) => {
-                    return Ok(ShardStateSyncResponse { header, part_ids: parts.ids, data });
-                }
+                Ok(header) => Some(header),
                 Err(e) => {
                     error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                    return Err(ErrorKind::Other(
-                        "Cannot build sync header (get_state_response_header)".to_string(),
-                    )
-                    .into());
+                    None
                 }
             }
         } else {
-            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
+            None
+        };
+        let mut data = vec![];
+        let mut part_ids = vec![];
+        for part_id in parts.ids.iter() {
+            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
+                Ok(part) => {
+                    data.push(part);
+                    part_ids.push(*part_id);
+                }
+                Err(e) => {
+                    error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
+                }
+            }
         }
+        return ShardStateSyncResponse { header, part_ids, data };
     }
 
     pub fn set_state_header(
