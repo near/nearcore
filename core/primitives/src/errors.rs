@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::VMError;
+use near_vm_errors::FunctionCallError;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -329,7 +329,7 @@ pub enum ActionErrorKind {
         balance: Balance,
     },
     /// An error occurred during a `FunctionCall` Action.
-    FunctionCall(VMError),
+    FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
@@ -615,7 +615,7 @@ impl Display for ActionErrorKind {
                 "Account {:?} can't be deleted. It has {}, which is enough to cover the rent",
                 account_id, balance
             ),
-            ActionErrorKind::FunctionCall(s) => write!(f, "{}", s),
+            ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }

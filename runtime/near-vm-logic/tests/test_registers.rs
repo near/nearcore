@@ -2,7 +2,7 @@ mod fixtures;
 mod vm_logic_builder;
 
 use fixtures::get_context;
-use near_vm_logic::{HostError, HostErrorOrStorageError, VMConfig};
+use near_vm_logic::{HostError, VMConfig, VMLogicError};
 use vm_logic_builder::VMLogicBuilder;
 
 #[test]
@@ -22,7 +22,7 @@ fn test_non_existent_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
-    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostErrorOrStorageError>);
+    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, VMLogicError>);
     let buffer = [0u8; 3];
     assert_eq!(
         logic.read_register(0, buffer.as_ptr() as u64),

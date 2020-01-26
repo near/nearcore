@@ -141,7 +141,6 @@ fn test_stake_nodes() {
     });
 }
 
-/// TODO(1094): Enable kickout test after figuring
 #[test]
 fn test_validator_kickout() {
     heavy_test(|| {

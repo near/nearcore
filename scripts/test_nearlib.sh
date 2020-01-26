@@ -22,9 +22,6 @@ function get_nearlib_nearshell_release () {
 function get_nearlib_nearshell_git () {
     rm -rf nearlib
     git clone https://github.com/nearprotocol/nearlib.git nearlib
-    cd nearlib
-    git checkout 436ed6339337e11cc4aca79cd43dd5f27feadd39
-    cd ..
 }
 
 if [ -z "${NEARLIB_RELEASE}" ]; then

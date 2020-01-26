@@ -7,14 +7,15 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
-use crate::{ExtCosts, HostError, HostErrorOrStorageError, ValuePtr};
+use crate::{ExtCosts, HostError, VMLogicError, ValuePtr};
 use byteorder::ByteOrder;
 use near_runtime_fees::RuntimeFeesConfig;
+use near_vm_errors::InconsistentStateError;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -103,6 +104,7 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
     ) -> Self {
         ext.reset_touched_nodes_counter();
+        // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
         let max_gas_burnt = if context.is_view {
@@ -340,6 +342,7 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
+                // self.try_fit_mem will check for u64 overflow on the first iteration (i == 0)
                 let el = self.memory_get_u8(ptr + i)?;
                 if el == 0 {
                     break;
@@ -454,7 +457,8 @@ impl<'a> VMLogic<'a> {
     }
 
     fn checked_push_log(&mut self, message: String) -> Result<()> {
-        self.total_log_length += message.as_bytes().len() as u64;
+        // The size of logged data can't be too large. No overflow.
+        self.total_log_length += message.len() as u64;
         if self.total_log_length > self.config.limit_config.max_total_log_length {
             return Err(HostError::TotalLogLengthExceeded {
                 length: self.total_log_length,
@@ -1208,7 +1212,8 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        let num_bytes = (method_name.len() + arguments.len()) as u64;
+        // Input can't be large enough to overflow
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.gas_counter
             .pay_action_base(&self.fees_config.action_creation_config.function_call_cost, sir)?;
         self.gas_counter.pay_action_per_byte(
@@ -1719,7 +1724,7 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -1743,10 +1748,8 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(
-            log_byte,
-            message.encode_utf16().count() as u64 * size_of::<u16>() as u64,
-        )?;
+        // Let's not use `encode_utf16` for gas per byte here, since it's a lot of compute.
+        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -1772,6 +1775,7 @@ impl<'a> VMLogic<'a> {
         }
         self.check_can_add_a_log_message()?;
 
+        // Underflow checked above.
         let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
         let filename_len = self.memory_get_u32((filename_ptr - 4) as u64)?;
 
@@ -1872,18 +1876,29 @@ impl<'a> VMLogic<'a> {
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
             Some(old_value) => {
-                self.current_storage_usage -=
-                    (old_value.len() as u64) * storage_config.value_cost_per_byte;
-                self.current_storage_usage +=
-                    value.len() as u64 * storage_config.value_cost_per_byte;
+                // Inner value can't overflow, because the value length is limited.
+                self.current_storage_usage = self
+                    .current_storage_usage
+                    .checked_sub((old_value.len() as u64) * storage_config.value_cost_per_byte)
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
+                // Inner value can't overflow, because the value length is limited.
+                self.current_storage_usage = self
+                    .current_storage_usage
+                    .checked_add(value.len() as u64 * storage_config.value_cost_per_byte)
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
             }
             None => {
-                self.current_storage_usage +=
-                    value.len() as u64 * storage_config.value_cost_per_byte;
-                self.current_storage_usage += key.len() as u64 * storage_config.key_cost_per_byte;
-                self.current_storage_usage += storage_config.data_record_cost;
+                // Inner value can't overflow, because the key/value length is limited.
+                self.current_storage_usage = self
+                    .current_storage_usage
+                    .checked_add(
+                        value.len() as u64 * storage_config.value_cost_per_byte
+                            + key.len() as u64 * storage_config.key_cost_per_byte
+                            + storage_config.data_record_cost,
+                    )
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
             }
         }
@@ -1992,10 +2007,15 @@ impl<'a> VMLogic<'a> {
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
-                self.current_storage_usage -=
-                    (value.len() as u64) * storage_config.value_cost_per_byte;
-                self.current_storage_usage -= key.len() as u64 * storage_config.key_cost_per_byte;
-                self.current_storage_usage -= storage_config.data_record_cost;
+                // Inner value can't overflow, because the key/value length is limited.
+                self.current_storage_usage = self
+                    .current_storage_usage
+                    .checked_sub(
+                        value.len() as u64 * storage_config.value_cost_per_byte
+                            + key.len() as u64 * storage_config.key_cost_per_byte
+                            + storage_config.data_record_cost,
+                    )
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;
                 Ok(1)
             }

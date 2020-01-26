@@ -5,6 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -32,7 +33,6 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use std::sync::RwLock;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -1378,10 +1378,6 @@ pub struct PartialEncodedChunkRequestMsg {
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct StopSignal {}
-
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
 pub trait NetworkAdapter: Sync + Send {
@@ -1436,8 +1432,9 @@ impl NetworkAdapter for NetworkRecipient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::mem::size_of;
+
+    use super::*;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -1501,6 +1498,5 @@ mod tests {
         assert_size!(StateResponseInfo);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
-        assert_size!(StopSignal);
     }
 }
