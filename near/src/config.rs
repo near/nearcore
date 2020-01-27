@@ -740,6 +740,7 @@ pub fn init_testnet_configs(
     num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     prefix: &str,
+    local_ports: bool,
     archive: bool,
 ) {
     let (configs, validator_signers, network_signers, genesis_config) = create_testnet_configs(
@@ -747,7 +748,7 @@ pub fn init_testnet_configs(
         num_validator_seats,
         num_non_validator_seats,
         prefix,
-        false,
+        local_ports,
         archive,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
@@ -759,6 +760,7 @@ pub fn init_testnet_configs(
 
         genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
+
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
     }
 }

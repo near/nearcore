@@ -72,6 +72,7 @@ fn main() {
             .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
             .arg(Arg::with_name("s").long("shards").takes_value(true).help("Number of shards to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
+            .arg(Arg::with_name("local").long("local").help("Use local ports in configs."))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
             .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").takes_value(true))
@@ -128,12 +129,14 @@ fn main() {
                 .map(|x| x.parse().expect("Failed to parse number of shards"))
                 .unwrap_or(1);
             let prefix = args.value_of("prefix").unwrap_or("node");
+            let local_ports = args.is_present("local");
             init_testnet_configs(
                 home_dir,
                 num_shards,
                 num_validators,
                 num_non_validators,
                 prefix,
+                local_ports,
                 false,
             );
         }
