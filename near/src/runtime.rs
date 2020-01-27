@@ -1158,7 +1158,6 @@ mod test {
     use tempdir::TempDir;
 
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
-    use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::WeightAndScore;
     use near_primitives::challenge::{ChallengesResult, SlashedValidator};
@@ -1173,6 +1172,7 @@ mod test {
         StateRoot, ValidatorId, ValidatorStake,
     };
     use near_primitives::utils::key_for_account;
+    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
@@ -1186,18 +1186,15 @@ mod test {
     fn stake(
         nonce: Nonce,
         signer: &dyn Signer,
-        sender: &BlockProducer,
+        sender: &dyn ValidatorSigner,
         amount: Balance,
     ) -> SignedTransaction {
         SignedTransaction::from_actions(
             nonce,
-            sender.account_id.clone(),
-            sender.account_id.clone(),
+            sender.validator_id().clone(),
+            sender.validator_id().clone(),
             &*signer,
-            vec![Action::Stake(StakeAction {
-                stake: amount,
-                public_key: sender.signer.public_key(),
-            })],
+            vec![Action::Stake(StakeAction { stake: amount, public_key: sender.public_key() })],
             // runtime does not validate block history
             CryptoHash::default(),
         )
@@ -1435,18 +1432,18 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
         let new_account = format!("test{}", num_nodes + 1);
-        let new_validator: BlockProducer =
-            InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account).into();
+        let new_validator =
+            InMemoryValidatorSigner::from_seed(&new_account, KeyType::ED25519, &new_account);
         let new_signer = InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account);
         let create_account_transaction = SignedTransaction::create_account(
             2,
-            block_producers[0].account_id.clone(),
+            block_producers[0].validator_id().clone(),
             new_account,
             TESTING_INIT_STAKE * 3,
             new_signer.public_key(),
@@ -1455,7 +1452,7 @@ mod test {
         );
         env.step_default(vec![staking_transaction, create_account_transaction]);
         env.step_default(vec![]);
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
@@ -1464,8 +1461,8 @@ mod test {
         // Send invalid transaction to see if the rollback of the state affects the validator rewards.
         let invalid_transaction = SignedTransaction::from_actions(
             1,
-            new_validator.account_id.clone(),
-            new_validator.account_id.clone(),
+            new_validator.validator_id().clone(),
+            new_validator.validator_id().clone(),
             &new_signer,
             vec![Action::CreateAccount(CreateAccountAction {})],
             // runtime does not validate block history
@@ -1541,7 +1538,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1549,14 +1546,14 @@ mod test {
         let desired_stake = 2 * TESTING_INIT_STAKE / 3;
         let staking_transaction = stake(1, &signer, &block_producers[0], desired_stake);
         env.step_default(vec![staking_transaction]);
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE);
         for _ in 2..=4 {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward
@@ -1567,7 +1564,7 @@ mod test {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - desired_stake);
         assert_eq!(account.locked, desired_stake + per_epoch_per_validator_reward * 3);
     }
@@ -1586,7 +1583,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
@@ -1601,7 +1598,7 @@ mod test {
         let staking_transaction2 =
             stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction, staking_transaction1, staking_transaction2]);
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE);
 
@@ -1628,19 +1625,19 @@ mod test {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[1].account_id);
+        let account = env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + per_epoch_per_validator_reward - 1);
 
-        let account = env.view_account(&block_producers[2].account_id);
+        let account = env.view_account(&block_producers[2].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE + per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[3].account_id);
+        let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward
@@ -1651,7 +1648,7 @@ mod test {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 2 * per_epoch_per_validator_reward);
 
@@ -1659,15 +1656,15 @@ mod test {
         // less than the reward they get in an epoch, and the stake change happens an epoch
         // after they stake, the difference in stakes will be returned in 2 epochs rather than
         // 3.
-        let account = env.view_account(&block_producers[1].account_id);
+        let account = env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward - 1);
 
-        let account = env.view_account(&block_producers[2].account_id);
+        let account = env.view_account(&block_producers[2].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[3].account_id);
+        let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward + 1
@@ -1678,19 +1675,19 @@ mod test {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 3 * per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[1].account_id);
+        let account = env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE - 1 + 3 * per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[2].account_id);
+        let account = env.view_account(&block_producers[2].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 3 * per_epoch_per_validator_reward);
 
-        let account = env.view_account(&block_producers[3].account_id);
+        let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(
             account.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward + 1
@@ -1713,7 +1710,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
@@ -1735,7 +1732,7 @@ mod test {
         for _ in 13..=16 {
             env.step_default(vec![]);
         }
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         let return_stake =
             (TESTING_INIT_STAKE + TESTING_INIT_STAKE / 2 + 2 * per_epoch_per_validator_reward)
                 - (TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6 + per_epoch_per_validator_reward);
@@ -1785,7 +1782,7 @@ mod test {
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], true);
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1801,9 +1798,9 @@ mod test {
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
             let proposals = if i == 1 {
                 vec![ValidatorStake {
-                    account_id: block_producers[0].account_id.clone(),
+                    account_id: block_producers[0].validator_id().clone(),
                     amount: TESTING_INIT_STAKE + 1,
-                    public_key: block_producers[0].signer.public_key(),
+                    public_key: block_producers[0].public_key(),
                 }]
             } else {
                 vec![]
@@ -1842,11 +1839,11 @@ mod test {
             new_env.step_default(vec![]);
         }
 
-        let account = new_env.view_account(&block_producers[0].account_id);
+        let account = new_env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 1 + 2 * per_epoch_per_validator_reward);
 
-        let account = new_env.view_account(&block_producers[1].account_id);
+        let account = new_env.view_account(&block_producers[1].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
     }
@@ -1872,7 +1869,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1887,7 +1884,7 @@ mod test {
         for _ in 2..10 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        let account = env.view_account(&block_producers[3].account_id);
+        let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(account.locked, TESTING_INIT_STAKE);
         assert_eq!(
             account.amount,
@@ -1896,7 +1893,7 @@ mod test {
 
         let (new_per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes - 1);
 
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(
             account.locked,
             TESTING_INIT_STAKE
@@ -1908,7 +1905,7 @@ mod test {
         for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        let account = env.view_account(&block_producers[3].account_id);
+        let account = env.view_account(&block_producers[3].validator_id());
         assert_eq!(account.locked, 0);
     }
 
@@ -1926,7 +1923,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
@@ -1962,7 +1959,7 @@ mod test {
                 next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake {
                     account_id: "test1".to_string(),
-                    public_key: block_producers[0].signer.public_key(),
+                    public_key: block_producers[0].public_key(),
                     amount: 0
                 }
                 .into()]
@@ -1976,7 +1973,7 @@ mod test {
             response.next_validators,
             vec![ValidatorStake {
                 account_id: "test2".to_string(),
-                public_key: block_producers[1].signer.public_key(),
+                public_key: block_producers[1].public_key(),
                 amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
             }
             .into()]
@@ -1998,7 +1995,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let signer = InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
         let staking_transaction = stake(1, &signer, &block_producers[1], 0);
@@ -2108,7 +2105,7 @@ mod test {
             TestEnv::new("test_challenges", vec![validators.clone()], 3, vec![], vec![], false);
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
 
         let signer = InMemorySigner::from_seed(&validators[2], KeyType::ED25519, &validators[2]);
@@ -2322,7 +2319,7 @@ mod test {
         );
         let block_producers: Vec<_> = validators
             .iter()
-            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .map(|id| InMemoryValidatorSigner::from_seed(id, KeyType::ED25519, id))
             .collect();
         let (per_epoch_per_validator_reward1, _) = env.compute_reward(num_nodes);
         let signers: Vec<_> = validators
@@ -2333,13 +2330,13 @@ mod test {
         let staking_transaction = stake(1, &signers[0], &block_producers[0], FISHERMEN_THRESHOLD);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], FISHERMEN_THRESHOLD);
         env.step_default(vec![staking_transaction, staking_transaction1]);
-        let account = env.view_account(&block_producers[0].account_id);
+        let account = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
         assert_eq!(account.locked, TESTING_INIT_STAKE);
         for _ in 2..=13 {
             env.step_default(vec![]);
         }
-        let account0 = env.view_account(&block_producers[0].account_id);
+        let account0 = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account0.locked, FISHERMEN_THRESHOLD + per_epoch_per_validator_reward1);
         assert_eq!(
             account0.amount,
@@ -2364,14 +2361,14 @@ mod test {
         }
         let (per_epoch_per_validator_reward2, _) = env.compute_reward(3);
 
-        let account0 = env.view_account(&block_producers[0].account_id);
+        let account0 = env.view_account(&block_producers[0].validator_id());
         assert_eq!(account0.locked, TESTING_INIT_STAKE + per_epoch_per_validator_reward2);
         assert_eq!(
             account0.amount,
             TESTING_INIT_BALANCE - TESTING_INIT_STAKE + per_epoch_per_validator_reward1 * 2
         );
 
-        let account1 = env.view_account(&block_producers[1].account_id);
+        let account1 = env.view_account(&block_producers[1].validator_id());
         assert_eq!(account1.locked, 0);
         assert_eq!(account1.amount, TESTING_INIT_BALANCE + per_epoch_per_validator_reward1 * 2);
         let response = env.runtime.get_validator_info(&env.head.last_block_hash).unwrap();

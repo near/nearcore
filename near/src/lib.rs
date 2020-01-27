@@ -92,7 +92,7 @@ pub fn start_with_config(
         runtime,
         node_id,
         network_adapter.clone(),
-        config.block_producer,
+        config.validator_signer,
         telemetry,
     )
     .unwrap()

@@ -7,12 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
-use crate::chain::WEIGHT_MULTIPLIER;
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
-use crate::{Chain, ChainGenesis};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
@@ -30,6 +25,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
     StateRootNode, ValidatorStake,
 };
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
 };
@@ -37,6 +33,12 @@ use near_store::test_utils::create_test_store;
 use near_store::{
     ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
+
+use crate::chain::WEIGHT_MULTIPLIER;
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter};
+use crate::{Chain, ChainGenesis};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -865,13 +867,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
@@ -880,7 +882,7 @@ pub fn setup_with_tx_validity_period(
         &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }
 
@@ -890,11 +892,11 @@ pub fn setup_with_validators(
     num_shards: ShardId,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers = validators
         .iter()
-        .map(|x| Arc::new(InMemorySigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -1037,25 +1039,29 @@ impl ChainGenesis {
 // Change the timestamp of a block so that it has a different hash
 // Note that it only works for tests that process blocks with `Provenance::PRODUCED`, since the
 // weights of blocks following `block` will be computed incorrectly.
-pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemorySigner) {
+pub fn tamper_with_block(block: &mut Block, delta: u64, signer: &InMemoryValidatorSigner) {
     block.header.inner_lite.timestamp += delta;
-    block.header.init();
-    block.header.signature = signer.sign(block.header.hash().as_ref());
+    let (block_hash, signature) = signer.sign_block_header_parts(
+        block.header.prev_hash,
+        &block.header.inner_lite,
+        &block.header.inner_rest,
+    );
+    block.header.hash = block_hash;
+    block.header.signature = signature;
 }
 
 pub fn new_block_no_epoch_switches(
     prev_block: &Block,
     height: BlockHeight,
     approvals: Vec<&str>,
-    signer: &InMemorySigner,
+    signer: &InMemoryValidatorSigner,
     time: u64,
     time_delta: u128,
 ) -> Block {
     let num_approvals = approvals.len() as u128;
-    let approvals = approvals
-        .into_iter()
-        .map(|x| Approval::new(prev_block.hash(), prev_block.hash(), signer, x.to_string()))
-        .collect();
+    let approval = Approval::new(prev_block.hash(), prev_block.hash(), signer);
+    // MOOO!
+    let approvals = approvals.into_iter().map(|x| approval.clone()).collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
         (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
     } else {
@@ -1086,7 +1092,12 @@ pub fn new_block_no_epoch_switches(
         prev_block.header.inner_lite.next_bp_hash.clone(),
     );
     block.header.inner_lite.timestamp = time;
-    block.header.init();
-    block.header.signature = signer.sign(block.header.hash.as_ref());
+    let (block_hash, signature) = signer.sign_block_header_parts(
+        block.header.prev_hash,
+        &block.header.inner_lite,
+        &block.header.inner_rest,
+    );
+    block.header.hash = block_hash;
+    block.header.signature = signature;
     block
 }

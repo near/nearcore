@@ -27,9 +27,10 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{BlockProducer, Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
+use crate::{Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
 use near_network::routing::EdgeInfo;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
@@ -95,7 +96,8 @@ pub fn setup(
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer =
+        Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(
         store.clone(),
@@ -117,7 +119,7 @@ pub fn setup(
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
         network_adapter,
-        Some(signer.into()),
+        Some(signer),
         telemetry,
     )
     .unwrap();
@@ -662,12 +664,6 @@ pub fn setup_no_network_with_validity_period(
     )
 }
 
-impl BlockProducer {
-    pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
-    }
-}
-
 pub fn setup_client_with_runtime(
     store: Arc<Store>,
     num_validator_seats: NumSeats,
@@ -676,13 +672,21 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
-    let block_producer =
-        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
+    let validator_signer = account_id.map(|x| {
+        Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
+            as Arc<dyn ValidatorSigner>
+    });
     let mut config = ClientConfig::test(true, 10, 20, num_validator_seats);
     config.epoch_length = chain_genesis.epoch_length;
-    let mut client =
-        Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
-            .unwrap();
+    let mut client = Client::new(
+        config,
+        store,
+        chain_genesis,
+        runtime_adapter,
+        network_adapter,
+        validator_signer,
+    )
+    .unwrap();
     client.sync_status = SyncStatus::NoSync;
     client
 }

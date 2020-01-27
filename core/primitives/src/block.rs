@@ -1,8 +1,10 @@
+use std::cmp::{max, Ordering};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
@@ -12,7 +14,7 @@ use crate::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
-use std::cmp::{max, Ordering};
+use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -164,12 +166,15 @@ impl Approval {
     pub fn new(
         parent_hash: CryptoHash,
         reference_hash: CryptoHash,
-        signer: &dyn Signer,
-        account_id: AccountId,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
-        let signature =
-            signer.sign(Approval::get_data_for_sig(&parent_hash, &reference_hash).as_ref());
-        Approval { parent_hash, reference_hash, signature, account_id }
+        let signature = signer.sign_approval(&parent_hash, &reference_hash);
+        Approval {
+            parent_hash,
+            reference_hash,
+            signature,
+            account_id: signer.validator_id().clone(),
+        }
     }
 
     pub fn get_data_for_sig(parent_hash: &CryptoHash, reference_hash: &CryptoHash) -> Vec<u8> {
@@ -184,11 +189,10 @@ impl ApprovalMessage {
     pub fn new(
         parent_hash: CryptoHash,
         reference_hash: CryptoHash,
-        signer: &dyn Signer,
-        account_id: AccountId,
+        signer: &dyn ValidatorSigner,
         target: AccountId,
     ) -> Self {
-        let approval = Approval::new(parent_hash, reference_hash, signer, account_id);
+        let approval = Approval::new(parent_hash, reference_hash, signer);
         ApprovalMessage { approval, target }
     }
 }
@@ -256,7 +260,7 @@ impl BlockHeader {
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
         approvals: Vec<Approval>,
@@ -289,8 +293,8 @@ impl BlockHeader {
             last_quorum_pre_commit,
             approvals,
         );
-        let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
-        Self { prev_hash, inner_lite, inner_rest, signature: signer.sign(hash.as_ref()), hash }
+        let (hash, signature) = signer.sign_block_header_parts(prev_hash, &inner_lite, &inner_rest);
+        Self { prev_hash, inner_lite, inner_rest, signature, hash }
     }
 
     pub fn genesis(
@@ -393,7 +397,7 @@ pub fn genesis_chunks(
                 vec![],
                 &vec![],
                 CryptoHash::default(),
-                &EmptySigner {},
+                &EmptyValidatorSigner::default(),
             )
             .expect("Failed to decode genesis chunk");
             encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
@@ -440,7 +444,7 @@ impl Block {
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         time_delta: u128,
         weight_delta: u128,
         score: Weight,

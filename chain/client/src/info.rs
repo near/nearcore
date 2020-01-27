@@ -1,3 +1,5 @@
+use std::cmp::min;
+use std::sync::Arc;
 use std::time::Instant;
 
 use actix::Addr;
@@ -7,13 +9,14 @@ use serde_json::json;
 use sysinfo::{get_current_pid, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
-use near_network::types::{NetworkInfo, PeerId};
+use near_network::types::NetworkInfo;
+use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;
+use near_primitives::types::Gas;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::types::{BlockProducer, ShardSyncStatus, SyncStatus};
-use near_primitives::types::Gas;
-use std::cmp::min;
+use crate::types::{ShardSyncStatus, SyncStatus};
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
@@ -30,7 +33,7 @@ pub struct InfoHelper {
     /// System reference.
     sys: System,
     /// Sign telemetry with block producer key if available.
-    block_producer: Option<BlockProducer>,
+    validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
     telemetry_actor: Addr<TelemetryActor>,
 }
@@ -38,7 +41,7 @@ pub struct InfoHelper {
 impl InfoHelper {
     pub fn new(
         telemetry_actor: Addr<TelemetryActor>,
-        block_producer: Option<BlockProducer>,
+        validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
         InfoHelper {
             started: Instant::now(),
@@ -48,7 +51,7 @@ impl InfoHelper {
             pid: get_current_pid().ok(),
             sys: System::new(),
             telemetry_actor,
-            block_producer,
+            validator_signer,
         }
     }
 
@@ -106,7 +109,7 @@ impl InfoHelper {
             &self.telemetry_actor,
             try_sign_json(
                 json!({
-                    "account_id": self.block_producer.clone().map(|bp| bp.account_id).unwrap_or("".to_string()),
+                    "account_id": self.validator_signer.clone().map(|vs| vs.validator_id().clone()).unwrap_or("".to_string()),
                     "is_validator": is_validator,
                     "node_id": format!("{}", node_id),
                     "status": display_sync_status(&sync_status, &head),
@@ -118,7 +121,7 @@ impl InfoHelper {
                     "cpu": cpu_usage,
                     "memory": memory,
                 }),
-                &self.block_producer,
+                &self.validator_signer,
             ),
         );
     }
@@ -127,12 +130,12 @@ impl InfoHelper {
 /// Tries to sign given JSON with block producer if it's present and all succeeds.
 fn try_sign_json(
     mut value: serde_json::Value,
-    block_producer: &Option<BlockProducer>,
+    validator_signer: &Option<Arc<dyn ValidatorSigner>>,
 ) -> serde_json::Value {
     let mut signature = "".to_string();
-    if let Some(bp) = block_producer {
+    if let Some(vs) = validator_signer {
         if let Ok(s) = serde_json::to_string(&value) {
-            signature = format!("{}", bp.signer.sign(s.as_bytes()));
+            signature = format!("{}", vs.sign_json(s));
         }
     }
     value["signature"] = signature.into();

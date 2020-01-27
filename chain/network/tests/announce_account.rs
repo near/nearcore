@@ -9,19 +9,21 @@ use futures::{future, FutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
-use near_crypto::{InMemorySigner, KeyType};
+use near_client::{ClientActor, ClientConfig, ViewClientActor};
+use near_crypto::KeyType;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, vec_ref_to_str, GetInfo, WaitOrTimeout,
 };
-use near_network::types::{AnnounceAccount, NetworkViewClientResponses, PeerId, SyncData};
+use near_network::types::{NetworkViewClientResponses, SyncData};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRecipient,
     NetworkRequests, PeerManagerActor,
 };
 use near_primitives::block::{GenesisId, WeightAndScore};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::ValidatorId;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use testlib::test_helpers::heavy_test;
@@ -52,12 +54,11 @@ pub fn setup_network_node(
         1,
         5,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(
+    let validator_signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.as_str(),
         KeyType::ED25519,
         account_id.as_str(),
     ));
-    let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis =
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
@@ -72,7 +73,7 @@ pub fn setup_network_node(
             runtime.clone(),
             config.public_key.clone().into(),
             network_adapter.clone(),
-            Some(block_producer),
+            Some(validator_signer),
             telemetry_actor,
         )
         .unwrap()

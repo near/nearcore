@@ -1,11 +1,14 @@
+use std::cmp::{max, Ordering};
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::Signature;
+use near_pool::types::PoolIterator;
 use near_primitives::block::{Approval, WeightAndScore};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -20,9 +23,6 @@ use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::errors::InvalidTxError;
-use std::cmp::{max, Ordering};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -553,13 +553,15 @@ pub struct StateRequestParts {
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_crypto::KeyType;
     use near_primitives::block::genesis_chunks;
-
-    use super::*;
-    use crate::Chain;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+
+    use crate::Chain;
+
+    use super::*;
 
     #[test]
     fn test_block_produce() {
@@ -572,20 +574,12 @@ mod tests {
             1_000_000_000,
             Chain::compute_bp_hash_inner(&vec![]).unwrap(),
         );
-        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
-        assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
+        assert!(b1.header.verify_block_producer(&signer.public_key()));
         assert_eq!(b1.header.inner_rest.total_weight.to_num(), 1);
-        let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![
-            (Approval {
-                parent_hash: b1.hash(),
-                reference_hash: b1.hash(),
-                account_id: "other2".to_string(),
-                signature: other_signer
-                    .sign(Approval::get_data_for_sig(&b1.hash(), &b1.hash()).as_ref()),
-            }),
-        ];
+        let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
+        let approvals = vec![(Approval::new(b1.hash(), b1.hash(), &other_signer))];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
@@ -597,7 +591,7 @@ mod tests {
             20,
             1,
         );
-        assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
+        b2.header.verify_block_producer(&signer.public_key());
         assert_eq!(b2.header.inner_rest.total_weight.to_num(), 21);
     }
 

@@ -1,8 +1,8 @@
 use near_chain::test_utils::{setup, tamper_with_block};
 use near_chain::{Block, ChainStoreAccess, ErrorKind, Provenance};
-use near_crypto::Signer;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::validator_signer::ValidatorSigner;
 
 #[test]
 fn empty_chain() {
@@ -160,8 +160,13 @@ fn blocks_at_height() {
 
     let mut e_2 = Block::empty_with_height(&b_1, 2, &*signer);
     e_2.header.inner_rest.total_weight = (10 * e_2.header.inner_rest.total_weight.to_num()).into();
-    e_2.header.init();
-    e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
+    let (block_hash, signature) = signer.sign_block_header_parts(
+        e_2.header.prev_hash,
+        &e_2.header.inner_lite,
+        &e_2.header.inner_rest,
+    );
+    e_2.header.hash = block_hash;
+    e_2.header.signature = signature;
 
     let b_1_hash = b_1.hash();
     let b_2_hash = b_2.hash();

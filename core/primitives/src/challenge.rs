@@ -1,11 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
+use crate::validator_signer::ValidatorSigner;
 
 /// Serialized TrieNodeWithSize
 pub type StateItem = Vec<u8>;
@@ -89,10 +90,9 @@ impl Challenge {
         self.hash = hash(&self.body.try_to_vec().expect("Failed to serialize"));
     }
 
-    pub fn produce(body: ChallengeBody, account_id: AccountId, signer: &dyn Signer) -> Self {
-        let hash = hash(&body.try_to_vec().expect("Failed to serialize"));
-        let signature = signer.sign(hash.as_ref());
-        Self { body, account_id, signature, hash }
+    pub fn produce(body: ChallengeBody, signer: &dyn ValidatorSigner) -> Self {
+        let (hash, signature) = signer.sign_challenge(&body);
+        Self { body, account_id: signer.validator_id().clone(), signature, hash }
     }
 }
 

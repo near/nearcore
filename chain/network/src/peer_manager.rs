@@ -1,5 +1,7 @@
 use std::cmp;
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +13,7 @@ use actix::{
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
+use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use log::{debug, error, info, trace, warn};
 use rand::{thread_rng, Rng};
@@ -18,6 +21,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
@@ -28,20 +32,17 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
-    AccountOrPeerIdOrHash, AnnounceAccount, Ban, BlockedPorts, Consolidate, ConsolidateResponse,
-    FullPeerInfo, InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages,
-    OutboundTcpConnect, PeerId, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage,
-    PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    SendMessage, StopSignal, SyncData, Unregister,
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
+    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
+    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal, SyncData,
+    Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
-use futures::task::Poll;
-use std::net::SocketAddr;
-use std::pin::Pin;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;

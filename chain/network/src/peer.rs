@@ -13,6 +13,7 @@ use log::{debug, error, info, warn};
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 
@@ -22,7 +23,7 @@ use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
+    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
     PROTOCOL_VERSION,
@@ -800,8 +801,9 @@ impl Handler<PeerManagerRequest> for Peer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use near_primitives::hash::hash;
+
+    use super::*;
 
     #[test]
     #[should_panic]

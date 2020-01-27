@@ -858,7 +858,7 @@ mod test {
 
     use near_chain::test_utils::{new_block_no_epoch_switches, setup, setup_with_validators};
     use near_chain::Provenance;
-    use near_network::types::{PeerChainInfo, PeerId};
+    use near_network::types::PeerChainInfo;
     use near_network::PeerInfo;
     use near_primitives::block::{Block, GenesisId};
 
@@ -867,6 +867,7 @@ mod test {
     use near_chain::chain::WEIGHT_MULTIPLIER;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
+    use near_primitives::network::PeerId;
     use std::thread;
 
     #[test]

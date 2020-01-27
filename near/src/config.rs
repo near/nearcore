@@ -13,7 +13,6 @@ use serde_derive::{Deserialize, Serialize};
 
 use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
-use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
@@ -28,6 +27,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
@@ -294,7 +294,7 @@ pub struct NearConfig {
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
     pub telemetry_config: TelemetryConfig,
-    pub block_producer: Option<BlockProducer>,
+    pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     pub genesis_config: GenesisConfig,
 }
 
@@ -303,7 +303,7 @@ impl NearConfig {
         config: Config,
         genesis_config: &GenesisConfig,
         network_key_pair: KeyFile,
-        block_producer: Option<BlockProducer>,
+        validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
         NearConfig {
             config: config.clone(),
@@ -348,7 +348,7 @@ impl NearConfig {
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
                 secret_key: network_key_pair.secret_key,
-                account_id: block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                account_id: validator_signer.as_ref().map(|vs| vs.validator_id().clone()),
                 addr: if config.network.addr.is_empty() {
                     None
                 } else {
@@ -383,7 +383,7 @@ impl NearConfig {
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),
-            block_producer,
+            validator_signer,
         }
     }
 }
@@ -396,8 +396,8 @@ impl NearConfig {
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-        if let Some(block_producer) = &self.block_producer {
-            block_producer.signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
+        if let Some(validator_signer) = &self.validator_signer {
+            validator_signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
         }
 
         let network_signer =
@@ -806,11 +806,11 @@ pub fn create_testnet_configs_from_seeds(
     num_shards: NumShards,
     num_non_validator_seats: NumSeats,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
-    let signers = seeds
+    let validator_signers = seeds
         .iter()
-        .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
+        .map(|seed| InMemoryValidatorSigner::from_seed(seed, KeyType::ED25519, seed))
         .collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
@@ -842,7 +842,7 @@ pub fn create_testnet_configs_from_seeds(
             cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, signers, network_signers, genesis_config)
+    (configs, validator_signers, network_signers, genesis_config)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -853,7 +853,7 @@ pub fn create_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
     create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
@@ -871,7 +871,7 @@ pub fn init_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
 ) {
-    let (configs, signers, network_signers, genesis_config) = create_testnet_configs(
+    let (configs, validator_signers, network_signers, genesis_config) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
@@ -882,7 +882,7 @@ pub fn init_testnet_configs(
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
+        validator_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
         network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
 
         genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
@@ -894,15 +894,16 @@ pub fn init_testnet_configs(
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
-    let block_producer = if dir.join(config.validator_key_file.clone()).exists() {
-        let signer =
-            Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
-        Some(BlockProducer::from(signer))
+    let validator_signer = if dir.join(config.validator_key_file.clone()).exists() {
+        let signer = Arc::new(InMemoryValidatorSigner::from_file(
+            &dir.join(config.validator_key_file.clone()),
+        )) as Arc<dyn ValidatorSigner>;
+        Some(signer)
     } else {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), validator_signer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
@@ -913,15 +914,17 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-    let (signer, block_producer) = if seed.is_empty() {
+    let (signer, validator_signer) = if seed.is_empty() {
         let signer = Arc::new(InMemorySigner::from_random("".to_string(), KeyType::ED25519));
         (signer, None)
     } else {
         let signer = Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed));
-        let block_producer = Some(BlockProducer::from(signer.clone()));
-        (signer, block_producer)
+        let validator_signer =
+            Arc::new(InMemoryValidatorSigner::from_seed(seed, KeyType::ED25519, seed))
+                as Arc<dyn ValidatorSigner>;
+        (signer, Some(validator_signer))
     };
-    NearConfig::new(config, &genesis_config, signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, signer.into(), validator_signer)
 }
 
 #[cfg(test)]
