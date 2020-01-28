@@ -123,11 +123,11 @@ impl Params {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct PublicShare(pub Box<[u8]>);
+pub struct PublicShares(pub Box<[u8]>);
 #[derive(Clone, PartialEq, Eq)]
-pub struct SecretShare(Box<[Scalar]>);
+pub struct SecretShares(Box<[Scalar]>);
 #[derive(Clone, PartialEq, Eq)]
-pub struct ValidatedPublicShare(Box<[Point]>);
+pub struct ValidatedPublicShares(Box<[Point]>);
 value_type!(pub, EncryptedShare, 32, "encrypted share");
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct DecryptedShare(Scalar);
@@ -143,11 +143,11 @@ value_type!(pub, RandomShare, 96, "random share");
 pub struct ValidatedRandomShare(Point);
 value_type!(pub, RandomValue, 32, "random value");
 
-pub fn generate_share(
+pub fn generate_shares(
     Params { n, k }: Params,
     key: &PublicKey,
     rng: &mut (impl RngCore + CryptoRng),
-) -> (PublicShare, SecretShare) {
+) -> (PublicShares, SecretShares) {
     let mut public = Vec::with_capacity(k * 32 + 64);
     let mut secret = Vec::with_capacity(n);
     for _ in 0..k {
@@ -160,16 +160,16 @@ pub fn generate_share(
     secret.iter().zip(ChaChaScalars::from_hash(hash!(key, &public))).for_each(|(s, c)| r -= c * s);
     public.extend_from_slice(&r.pack());
     secret.extend(expand::<Scalar, _>(secret.iter()).take(n - k));
-    debug_assert!(public.len() == PublicShare::length(Params { n, k }) && secret.len() == n);
-    (PublicShare(public.into_boxed_slice()), SecretShare(secret.into_boxed_slice()))
+    debug_assert!(public.len() == PublicShares::length(Params { n, k }) && secret.len() == n);
+    (PublicShares(public.into_boxed_slice()), SecretShares(secret.into_boxed_slice()))
 }
 
-impl PublicShare {
+impl PublicShares {
     pub const fn length(Params { k, .. }: Params) -> usize {
         k * 32 + 64
     }
 
-    pub fn validate(&self, key: &PublicKey) -> Option<ValidatedPublicShare> {
+    pub fn validate(&self, key: &PublicKey) -> Option<ValidatedPublicShares> {
         let k = (self.0.len() - 64) / 32;
         assert!(self.0.len() >= 64 && self.0.len() % 32 == 0 && Params::is_valid_n(k));
         let mut res = Vec::with_capacity(k);
@@ -187,7 +187,7 @@ impl PublicShare {
         {
             return None;
         }
-        Some(ValidatedPublicShare(res.into_boxed_slice()))
+        Some(ValidatedPublicShares(res.into_boxed_slice()))
     }
 }
 
@@ -199,14 +199,14 @@ fn xor32(a: [u8; 32], b: [u8; 32]) -> [u8; 32] {
     res
 }
 
-impl SecretShare {
+impl SecretShares {
     pub fn encrypt(&self, index: usize, key: &PublicKey) -> EncryptedShare {
         let s = &self.0[index];
         EncryptedShare(xor32(hash!(s * &key.1), s.pack()))
     }
 }
 
-impl ValidatedPublicShare {
+impl ValidatedPublicShares {
     fn get_element(&self, index: usize) -> Point {
         if index < self.0.len() {
             self.0[index as usize]
@@ -262,7 +262,7 @@ fn i2s(i: usize) -> Scalar {
 impl RandomEpoch {
     pub fn from_shares(
         Params { n, k }: Params,
-        mut shares: impl Iterator<Item = ValidatedPublicShare>,
+        mut shares: impl Iterator<Item = ValidatedPublicShares>,
     ) -> Self {
         let mut res = Vec::with_capacity(n);
         match shares.next() {
@@ -357,36 +357,36 @@ impl RandomRound {
     }
 }
 
-impl From<&[u8]> for PublicShare {
+impl From<&[u8]> for PublicShares {
     fn from(value: &[u8]) -> Self {
-        PublicShare(value.into())
+        PublicShares(value.into())
     }
 }
 
-impl AsRef<[u8]> for PublicShare {
+impl AsRef<[u8]> for PublicShares {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
 
-impl AsMut<[u8]> for PublicShare {
+impl AsMut<[u8]> for PublicShares {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
     }
 }
 
-impl TryFrom<&str> for PublicShare {
+impl TryFrom<&str> for PublicShares {
     type Error = ();
 
     fn try_from(value: &str) -> Result<Self, ()> {
         match bs58::decode(value).into_vec() {
-            Ok(v) => Ok(PublicShare(v.into_boxed_slice())),
+            Ok(v) => Ok(PublicShares(v.into_boxed_slice())),
             Err(_) => Err(()),
         }
     }
 }
 
-common_conversions!(PublicShare, "public share");
+common_conversions!(PublicShares, "public shares");
 
 eq!(RandomRound, |a, b| &a.0 == &b.0);
 
@@ -417,7 +417,7 @@ mod tests {
         let mut public_shares = Vec::new();
         let mut decrypted_shares = Vec::new();
         for i in 0..gens {
-            let (ps, ss) = generate_share(params, &gen_keys[i].public_key(), &mut OsRng);
+            let (ps, ss) = generate_shares(params, &gen_keys[i].public_key(), &mut OsRng);
             let vs = ps.validate(&gen_keys[i].public_key()).unwrap();
             for j in 0..params.n {
                 let es = ss.encrypt(j, &recv_keys[j].public_key());
