@@ -31,6 +31,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
+use near_primitives::utils::is_valid_account_id;
 use near_primitives::views::FinalExecutionStatus;
 
 mod metrics;
@@ -296,6 +297,12 @@ impl JsonRpcHandler {
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        if !is_valid_account_id(&account_id) {
+            return Err(RpcError::invalid_params(Some(format!(
+                "Invalid account id: {}",
+                account_id
+            ))));
+        }
         let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
             CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
         })?;
