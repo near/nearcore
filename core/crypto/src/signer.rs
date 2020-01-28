@@ -14,7 +14,14 @@ pub trait Signer: Sync + Send {
     }
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, path: &Path);
+    fn write_to_file(&self, _path: &Path) {
+        unimplemented!();
+    }
+
+    /// Used to save explicitly this signer. Only implement if make sense, otherwise raise `unimplemented`.
+    fn secret_key(&self) -> SecretKey {
+        unimplemented!();
+    }
 }
 
 // Signer that returns empty signature. Used for transaction testing.
@@ -27,10 +34,6 @@ impl Signer for EmptySigner {
 
     fn sign(&self, _data: &[u8]) -> Signature {
         Signature::empty(KeyType::ED25519)
-    }
-
-    fn write_to_file(&self, _path: &Path) {
-        unimplemented!()
     }
 }
 
@@ -68,6 +71,10 @@ impl Signer for InMemorySigner {
 
     fn write_to_file(&self, path: &Path) {
         KeyFile::from(self).write_to_file(path);
+    }
+
+    fn secret_key(&self) -> SecretKey {
+        self.secret_key.clone()
     }
 }
 

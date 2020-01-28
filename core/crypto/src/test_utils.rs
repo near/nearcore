@@ -1,8 +1,9 @@
+use rand::rngs::StdRng;
+
 use crate::signature::{
     ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey, SECP256K1,
 };
 use crate::{InMemorySigner, Signature};
-use rand::rngs::StdRng;
 
 fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::Keypair {
     let seed_bytes = seed.as_bytes();

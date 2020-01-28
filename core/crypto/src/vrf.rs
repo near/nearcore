@@ -1,12 +1,14 @@
-use crate::curve::*;
+use std::borrow::Borrow;
+use std::convert::TryFrom;
+
 use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
 use rand_core::{CryptoRng, RngCore};
-use std::borrow::Borrow;
-use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
+
+use crate::curve::*;
 
 #[derive(Copy, Clone)]
 pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
@@ -58,7 +60,7 @@ impl SecretKey {
         SecretKey(sk, PublicKey(pk.pack(), pk))
     }
 
-    fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
+    pub fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
         Scalar::unpack(bytes).map(Self::from_scalar)
     }
 
@@ -123,10 +125,11 @@ traits!(SecretKey, 32);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand_core::OsRng;
+    use rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
+
+    use super::*;
 
     #[test]
     fn test_conversion() {

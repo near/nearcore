@@ -1,9 +1,16 @@
+use std::fs::File;
+use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
+use rand::rngs::{OsRng, StdRng};
+use rand::SeedableRng;
+use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::vrf;
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 
 use crate::block::{Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
 use crate::challenge::ChallengeBody;
@@ -114,21 +121,88 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorKeyFile {
+    pub account_id: String,
+    pub public_key: PublicKey,
+    pub secret_key: SecretKey,
+    pub ristretto_secret_key: vrf::SecretKey,
+}
+
+impl ValidatorKeyFile {
+    pub fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let mut perm =
+            file.metadata().expect("Failed to retrieve key file metadata.").permissions();
+        perm.set_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
+        file.set_permissions(perm).expect("Failed to set permissions for a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
+        }
+    }
+
+    pub fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
+}
+
+/// This should only be used for testing.
+fn ristretto_key_pair_from_seed(seed: &str) -> vrf::SecretKey {
+    let seed_bytes = seed.as_bytes();
+    let len = seed_bytes.len();
+    let mut seed: [u8; 32] = [b' '; 32];
+    seed[..len].copy_from_slice(&seed_bytes[..len]);
+    vrf::SecretKey::from_bytes(&seed).unwrap()
+}
+
+#[derive(Clone)]
+pub struct InMemoryRistrettoSigner {
+    pub public_key: vrf::PublicKey,
+    pub secret_key: vrf::SecretKey,
+}
+
+impl InMemoryRistrettoSigner {
+    pub fn from_random() -> Self {
+        let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
+        let secret_key = vrf::SecretKey::random(&mut rng);
+        let public_key = secret_key.public_key();
+        Self { public_key, secret_key }
+    }
+
+    pub fn from_seed(seed: &str) -> Self {
+        let secret_key = ristretto_key_pair_from_seed(seed);
+        let public_key = secret_key.public_key();
+        Self { public_key, secret_key }
+    }
+
+    pub fn from_secret_key(secret_key: vrf::SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        Self { public_key, secret_key }
+    }
+}
+
 #[derive(Clone)]
 pub struct InMemoryValidatorSigner {
     account_id: AccountId,
     signer: Arc<dyn Signer>,
+    ristretto_signer: InMemoryRistrettoSigner,
 }
 
 impl InMemoryValidatorSigner {
     pub fn new(account_id: AccountId, signer: Arc<dyn Signer>) -> Self {
-        Self { account_id, signer }
+        let ristretto_signer = InMemoryRistrettoSigner::from_random();
+        Self { account_id, signer, ristretto_signer }
     }
 
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
         Self {
             account_id: account_id.clone(),
             signer: Arc::new(InMemorySigner::from_random(account_id, key_type)),
+            ristretto_signer: InMemoryRistrettoSigner::from_random(),
         }
     }
 
@@ -136,6 +210,7 @@ impl InMemoryValidatorSigner {
         Self {
             account_id: account_id.to_string(),
             signer: Arc::new(InMemorySigner::from_seed(account_id, key_type, seed)),
+            ristretto_signer: InMemoryRistrettoSigner::from_seed(seed),
         }
     }
 
@@ -144,8 +219,17 @@ impl InMemoryValidatorSigner {
     }
 
     pub fn from_file(path: &Path) -> Self {
-        let signer = Arc::new(InMemorySigner::from_file(path));
-        Self { account_id: signer.account_id.clone(), signer }
+        let validator_key_file = ValidatorKeyFile::from_file(path);
+        Self {
+            account_id: validator_key_file.account_id.clone(),
+            signer: Arc::new(InMemorySigner::from_secret_key(
+                validator_key_file.account_id.clone(),
+                validator_key_file.secret_key,
+            )),
+            ristretto_signer: InMemoryRistrettoSigner::from_secret_key(
+                validator_key_file.ristretto_secret_key,
+            ),
+        }
     }
 }
 
@@ -202,6 +286,12 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     }
 
     fn write_to_file(&self, path: &Path) {
-        self.signer.write_to_file(path);
+        let validator_key_file = ValidatorKeyFile {
+            account_id: self.account_id.clone(),
+            secret_key: self.signer.secret_key(),
+            public_key: self.signer.public_key(),
+            ristretto_secret_key: self.ristretto_signer.secret_key,
+        };
+        validator_key_file.write_to_file(path);
     }
 }
