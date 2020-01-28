@@ -150,15 +150,6 @@ impl ValidatorKeyFile {
     }
 }
 
-/// This should only be used for testing.
-fn ristretto_key_pair_from_seed(seed: &str) -> vrf::SecretKey {
-    let seed_bytes = seed.as_bytes();
-    let len = seed_bytes.len();
-    let mut seed: [u8; 32] = [b' '; 32];
-    seed[..len].copy_from_slice(&seed_bytes[..len]);
-    vrf::SecretKey::from_bytes(&seed).unwrap()
-}
-
 #[derive(Clone)]
 pub struct InMemoryRistrettoSigner {
     pub public_key: vrf::PublicKey,
@@ -174,7 +165,7 @@ impl InMemoryRistrettoSigner {
     }
 
     pub fn from_seed(seed: &str) -> Self {
-        let secret_key = ristretto_key_pair_from_seed(seed);
+        let secret_key = vrf::SecretKey::from_seed(seed);
         let public_key = secret_key.public_key();
         Self { public_key, secret_key }
     }

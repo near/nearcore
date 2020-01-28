@@ -60,8 +60,18 @@ impl SecretKey {
         SecretKey(sk, PublicKey(pk.pack(), pk))
     }
 
-    pub fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
+    fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
         Scalar::unpack(bytes).map(Self::from_scalar)
+    }
+
+    pub fn from_seed(seed: &str) -> Self {
+        let seed_bytes = seed.as_bytes();
+        let len = seed_bytes.len();
+        let mut seed: [u8; 32] = [b' '; 32];
+        seed[..len].copy_from_slice(&seed_bytes[..len]);
+
+        let scalar = Scalar::from_bytes_mod_order(seed);
+        Self::from_scalar(scalar)
     }
 
     pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
