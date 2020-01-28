@@ -283,7 +283,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     match self
                                         .client
                                         .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, data)
+                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
                                     {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =

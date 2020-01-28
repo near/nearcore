@@ -1510,13 +1510,13 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        /*self.store.store().get_ser(ColStateHeaders, sync_hash.as_ref())?.unwrap_or(
-            return Err(
-            ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
-                .into(),
-        ));*/
-        // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.owned_store().get_ser(ColStateHeaders, &key)?.unwrap())
+        match self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            Ok(Some(header)) => Ok(header),
+            _ => Err(ErrorKind::Other(
+                "set_state_finalize failed: cannot get shard_state_header".into(),
+            )
+            .into()),
+        }
     }
 
     pub fn set_state_part(
@@ -1525,12 +1525,12 @@ impl Chain {
         sync_hash: CryptoHash,
         part_id: u64,
         num_parts: u64,
-        data: Vec<u8>,
+        data: &Vec<u8>,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, &data) {
+        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_state_part failed: validate_state_part failed".into(),
@@ -1541,7 +1541,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(ColStateParts, &key, &data)?;
+        store_update.set_ser(ColStateParts, &key, data)?;
         store_update.commit()?;
         Ok(())
     }
