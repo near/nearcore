@@ -712,8 +712,9 @@ pub fn init_configs(
             if let Some(account_id) =
                 account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
             {
-                let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
-                info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
+                let signer =
+                    InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
+                info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
 
@@ -744,9 +745,9 @@ pub fn init_configs(
                 .to_string();
 
             let signer = if let Some(test_seed) = test_seed {
-                InMemorySigner::from_seed(&account_id, KeyType::ED25519, test_seed)
+                InMemoryValidatorSigner::from_seed(&account_id, KeyType::ED25519, test_seed)
             } else {
-                InMemorySigner::from_random(account_id.clone(), KeyType::ED25519)
+                InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519)
             };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
@@ -754,7 +755,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
             let mut records = state_records_account_with_key(
                 &account_id,
-                &signer.public_key,
+                &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
                 CryptoHash::default(),
@@ -780,7 +781,7 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key,
+                    public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,

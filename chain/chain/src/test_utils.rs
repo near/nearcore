@@ -1060,8 +1060,7 @@ pub fn new_block_no_epoch_switches(
 ) -> Block {
     let num_approvals = approvals.len() as u128;
     let approval = Approval::new(prev_block.hash(), prev_block.hash(), signer);
-    // MOOO!
-    let approvals = approvals.into_iter().map(|x| approval.clone()).collect();
+    let approvals = approvals.into_iter().map(|_| approval.clone()).collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
         (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
     } else {
