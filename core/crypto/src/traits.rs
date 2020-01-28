@@ -5,61 +5,12 @@ macro_rules! to_str {
 }
 
 macro_rules! common_conversions {
-    ($ty:ty, $l:literal, $bytes:expr, $what:literal) => {
-        impl ::std::convert::TryFrom<&[u8]> for $ty {
-            type Error = ();
-
-            fn try_from(value: &[u8]) -> Result<Self, ()> {
-                if value.len() == $l {
-                    Self::try_from(array_ref!(value, 0, $l)).or(Err(()))
-                } else {
-                    Err(())
-                }
-            }
-        }
-
-        impl ::std::convert::TryFrom<&str> for $ty {
-            type Error = ();
-
-            fn try_from(value: &str) -> Result<Self, ()> {
-                let mut buf = [0; $l];
-                if bs58::decode(value).into(&mut buf[..]) == Ok($l) {
-                    Self::try_from(&buf).or(Err(()))
-                } else {
-                    Err(())
-                }
-            }
-        }
-
+    ($ty:ty, $what:literal) => {
         impl ::std::convert::TryFrom<String> for $ty {
             type Error = ();
 
             fn try_from(value: String) -> Result<Self, ()> {
                 Self::try_from(value.as_str())
-            }
-        }
-
-        impl AsRef<[u8; $l]> for $ty {
-            fn as_ref(&self) -> &[u8; $l] {
-                ::std::convert::identity::<fn(&$ty) -> &[u8; $l]>($bytes)(self)
-            }
-        }
-
-        impl AsRef<[u8]> for $ty {
-            fn as_ref(&self) -> &[u8] {
-                <Self as AsRef<[u8; $l]>>::as_ref(self)
-            }
-        }
-
-        impl Into<[u8; $l]> for $ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
-            }
-        }
-
-        impl Into<[u8; $l]> for &$ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
             }
         }
 
@@ -109,18 +60,77 @@ macro_rules! common_conversions {
     };
 }
 
+macro_rules! common_conversions_fixed {
+    ($ty:ty, $l:literal, $bytes:expr, $what:literal) => {
+        impl ::std::convert::TryFrom<&[u8]> for $ty {
+            type Error = ();
+
+            fn try_from(value: &[u8]) -> Result<Self, ()> {
+                match value.len() {
+                    $l => Self::try_from(array_ref!(value, 0, $l)).or(Err(())),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl AsRef<[u8; $l]> for $ty {
+            fn as_ref(&self) -> &[u8; $l] {
+                ::std::convert::identity::<fn(&$ty) -> &[u8; $l]>($bytes)(self)
+            }
+        }
+
+        impl AsRef<[u8]> for $ty {
+            fn as_ref(&self) -> &[u8] {
+                <Self as AsRef<[u8; $l]>>::as_ref(self)
+            }
+        }
+
+        impl Into<[u8; $l]> for $ty {
+            fn into(self) -> [u8; $l] {
+                *self.as_ref()
+            }
+        }
+
+        impl Into<[u8; $l]> for &$ty {
+            fn into(self) -> [u8; $l] {
+                *self.as_ref()
+            }
+        }
+
+        impl ::std::convert::TryFrom<&str> for $ty {
+            type Error = ();
+
+            fn try_from(value: &str) -> Result<Self, ()> {
+                let mut buf = [0; $l];
+                match bs58::decode(value).into(&mut buf[..]) {
+                    Ok($l) => Self::try_from(&buf).or(Err(())),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        common_conversions!($ty, $what);
+    };
+}
+
+macro_rules! eq {
+    ($ty:ty, $e:expr) => {
+        impl PartialEq for $ty {
+            fn eq(&self, other: &Self) -> bool {
+                ::std::convert::identity::<fn(&Self, &Self) -> bool>($e)(self, other)
+            }
+        }
+
+        impl Eq for $ty {}
+    };
+}
+
 macro_rules! value_type {
     ($vis:vis, $ty:ident, $l:literal, $what:literal) => {
         #[derive(Copy, Clone)]
         $vis struct $ty(pub [u8; $l]);
 
-        impl PartialEq for $ty {
-            fn eq(&self, other: &Self) -> bool {
-                self.0[..] == other.0[..]
-            }
-        }
-
-        impl Eq for $ty {}
+        eq!($ty, |a, b| a.0[..] == b.0[..]);
 
         impl AsMut<[u8; $l]> for $ty {
             fn as_mut(&mut self) -> &mut [u8; $l] {
@@ -140,6 +150,6 @@ macro_rules! value_type {
             }
         }
 
-        common_conversions!($ty, $l, |s| &s.0, $what);
+        common_conversions_fixed!($ty, $l, |s| &s.0, $what);
     };
 }
