@@ -238,6 +238,10 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
+
+    /// Adversarial controls
+    pub adv_sync_info: Option<(u64, u64)>,
+    pub adv_disable_header_sync: bool,
 }
 
 impl Chain {
@@ -365,6 +369,8 @@ impl Chain {
                 min_gas_price: chain_genesis.min_gas_price,
             },
             doomslug_threshold_mode,
+            adv_sync_info: None,
+            adv_disable_header_sync: false,
         })
     }
 

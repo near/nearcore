@@ -41,6 +41,10 @@ use crate::SyncStatus;
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 pub struct Client {
+    /// Adversarial controls
+    pub adv_produce_blocks: bool,
+    pub adv_produce_blocks_only_valid: bool,
+
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
     pub chain: Chain,
@@ -122,6 +126,8 @@ impl Client {
         );
 
         Ok(Self {
+            adv_produce_blocks: false,
+            adv_produce_blocks_only_valid: false,
             config,
             sync_status,
             chain,
@@ -191,8 +197,10 @@ impl Client {
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
         // Check that this block height is not known yet.
-        if next_height <= self.chain.mut_store().get_latest_known()?.height {
-            return Ok(None);
+        if !self.adv_produce_blocks {
+            if next_height <= self.chain.mut_store().get_latest_known()?.height {
+                return Ok(None);
+            }
         }
         let validator_signer = self
             .validator_signer
@@ -210,9 +218,16 @@ impl Client {
             &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
             next_height,
         )?;
-        if *validator_signer.validator_id() != next_block_proposer {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-            return Ok(None);
+        if !self.adv_produce_blocks {
+            if *validator_signer.validator_id() != next_block_proposer {
+                info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+                return Ok(None);
+            }
+        } else if self.adv_produce_blocks_only_valid {
+            if *validator_signer.validator_id() != next_block_proposer {
+                info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+                return Ok(None);
+            }
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
@@ -227,17 +242,19 @@ impl Client {
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(None);
+        if !self.adv_produce_blocks {
+            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                    // Currently state for the chunks we are interested in this epoch
+                    // are not yet caught up (e.g. still state syncing).
+                    // We reschedule block production.
+                    // Alex's comment:
+                    // The previous block is not caught up for the next epoch relative to the previous
+                    // block, which is the current epoch for this block, so this block cannot be applied
+                    // at all yet, block production must to be rescheduled
+                    debug!(target: "client", "Produce block: prev block is not caught up");
+                    return Ok(None);
+                }
             }
         }
 

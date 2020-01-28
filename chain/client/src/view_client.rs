@@ -19,6 +19,7 @@ use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::block::BlockScore;
 use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
@@ -534,10 +535,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                if let Ok(headers) = self.retrieve_headers(hashes) {
-                    NetworkViewClientResponses::BlockHeaders(headers)
-                } else {
+                if self.chain.adv_disable_header_sync {
                     NetworkViewClientResponses::NoResponse
+                } else {
+                    if let Ok(headers) = self.retrieve_headers(hashes) {
+                        NetworkViewClientResponses::BlockHeaders(headers)
+                    } else {
+                        NetworkViewClientResponses::NoResponse
+                    }
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
@@ -546,8 +551,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         chain_id: self.config.chain_id.clone(),
                         hash: self.chain.genesis().hash(),
                     },
-                    height: head.height,
-                    score: head.score,
+                    height: if let Some((height, _)) = self.chain.adv_sync_info {
+                        height
+                    } else {
+                        head.height
+                    },
+                    score: if let Some((_, score)) = self.chain.adv_sync_info {
+                        BlockScore::from(score)
+                    } else {
+                        head.score
+                    },
                     tracked_shards: self.config.tracked_shards.clone(),
                 },
                 Err(err) => {
