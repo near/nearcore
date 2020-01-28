@@ -7,6 +7,7 @@ use actix::{Actor, Context, Handler};
 use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
+use near_primitives::block::WeightAndScore;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -517,10 +518,14 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                if let Ok(headers) = self.retrieve_headers(hashes) {
-                    NetworkViewClientResponses::BlockHeaders(headers)
-                } else {
+                if self.chain.adv_disable_header_sync {
                     NetworkViewClientResponses::NoResponse
+                } else {
+                    if let Ok(headers) = self.retrieve_headers(hashes) {
+                        NetworkViewClientResponses::BlockHeaders(headers)
+                    } else {
+                        NetworkViewClientResponses::NoResponse
+                    }
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
@@ -529,8 +534,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         chain_id: self.config.chain_id.clone(),
                         hash: self.chain.genesis().hash(),
                     },
-                    height: head.height,
-                    weight_and_score: head.weight_and_score,
+                    height: if let Some((height, _, _)) = self.chain.adv_sync_info {
+                        height
+                    } else {
+                        head.height
+                    },
+                    weight_and_score: if let Some((_, weight, score)) = self.chain.adv_sync_info {
+                        WeightAndScore { score: score.into(), weight: weight.into() }
+                    } else {
+                        head.weight_and_score
+                    },
                     tracked_shards: self.config.tracked_shards.clone(),
                 },
                 Err(err) => {

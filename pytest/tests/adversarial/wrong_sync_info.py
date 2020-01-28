@@ -9,7 +9,6 @@ sys.path.append('lib')
 
 
 from cluster import start_cluster
-from adversary import corrupt_node
 from utils import LogTracker
 
 TIMEOUT = 300
@@ -23,12 +22,8 @@ started = time.time()
 nodes[1].kill()
 nodes[2].kill()
 
-corrupt_node(nodes[1])
-tracker = LogTracker(nodes[1])
-
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 time.sleep(2)
-assert tracker.check("ADVERSARIAL")
 
 print("Waiting for %s blocks..." % BLOCKS)
 

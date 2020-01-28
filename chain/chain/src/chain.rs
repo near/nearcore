@@ -217,6 +217,10 @@ pub struct Chain {
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
+
+    /// Adversarial controls
+    pub adv_sync_info: Option<(u64, u128, u128)>,
+    pub adv_disable_header_sync: bool,
 }
 
 impl Chain {
@@ -345,6 +349,8 @@ impl Chain {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
                 min_gas_price: chain_genesis.min_gas_price,
             },
+            adv_sync_info: None,
+            adv_disable_header_sync: false,
         })
     }
 
