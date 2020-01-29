@@ -510,8 +510,9 @@ impl Chain {
     pub fn clear_old_data(&mut self) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
-        if head.height >= NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length {
-            let last_height = head.height - NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
+        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
+        if head.height >= height_diff {
+            let last_height = head.height - height_diff;
             for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
                 match chain_store_update.clear_old_data_on_height(height) {
                     Ok(_) => {}

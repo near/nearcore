@@ -240,9 +240,7 @@ pub trait ChainStoreAccess {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<&LightClientBlockView, Error>;
-    /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
-    /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
-    /// height must be the same.
+    /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
     fn get_all_block_hashes_by_height(
         &mut self,
         height: BlockHeight,
@@ -1828,10 +1826,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 Ok(m) => m.clone(),
                 Err(_) => HashMap::new(),
             };
-            if !map.contains_key(&block.header.inner_lite.epoch_id) {
-                map.insert(block.header.inner_lite.epoch_id.clone(), HashSet::new());
-            }
-            map.get_mut(&block.header.inner_lite.epoch_id).unwrap().insert(*hash);
+            map.entry(block.header.inner_lite.epoch_id.clone())
+                .or_insert_with(|| HashSet::new())
+                .insert(*hash);
             store_update
                 .set_ser(ColBlockPerHeight, &index_to_bytes(block.header.inner_lite.height), &map)
                 .map_err::<Error, _>(|e| e.into())?;
@@ -2161,7 +2158,7 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::utils::index_to_bytes;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2362,7 +2359,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_old_data() {
+    fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
@@ -2412,5 +2409,50 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
+    }
+
+    #[test]
+    fn test_clear_old_data() {
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut store_update = chain.mut_store().store_update();
+        let mut prev_block = genesis.clone();
+        let mut blocks = vec![prev_block.clone()];
+        for i in 1..15 {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            blocks.push(block.clone());
+            store_update.save_block(block.clone());
+            store_update.save_block_header(block.header.clone());
+            store_update
+                .chain_store_cache_update
+                .height_to_hashes
+                .insert(i, Some(block.header.hash));
+            store_update.save_next_block_hash(&prev_block.hash(), block.hash());
+            prev_block = block.clone();
+        }
+        let mut head = store_update.head().unwrap().clone();
+        head.height = 14;
+        store_update.save_body_head(&head).unwrap();
+        store_update.commit().unwrap();
+
+        chain.epoch_length = 1;
+        assert!(chain.clear_old_data().is_ok());
+
+        assert!(chain.get_block(&blocks[0].hash()).is_ok());
+        for i in 1..15 {
+            println!("height = {:?}", i);
+            if i < 9 {
+                assert!(chain.get_block(&blocks[i].hash()).is_err());
+                assert!(chain
+                    .mut_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .is_err());
+            } else {
+                assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+            }
+            assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
+        }
     }
 }
