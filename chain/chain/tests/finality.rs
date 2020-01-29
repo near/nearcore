@@ -482,7 +482,6 @@ fn test_finality_quorum_precommit_cases() {
 fn test_my_approvals() {
     let (mut chain, _, signer) = setup();
     let stakes = gen_stakes(4);
-    let account_id = "test1".to_string();
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
@@ -525,7 +524,7 @@ fn test_my_approvals() {
         let approval = Approval::new(block.hash(), reference_hash, &*signer);
         let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
         FinalityGadget::process_approval(
-            &Some(account_id.clone()),
+            &Some(signer.validator_id().clone()),
             &approval,
             &mut chain_store_update,
         )

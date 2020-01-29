@@ -142,7 +142,7 @@ impl Actor for ClientActor {
         self.start_sync(ctx);
 
         // Start block production tracking if have block producer info.
-        if let Some(_) = self.client.validator_signer {
+        if self.client.validator_signer.is_some() {
             self.block_production_tracking(ctx);
         }
 

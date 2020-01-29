@@ -1059,8 +1059,14 @@ pub fn new_block_no_epoch_switches(
     time_delta: u128,
 ) -> Block {
     let num_approvals = approvals.len() as u128;
-    let approval = Approval::new(prev_block.hash(), prev_block.hash(), signer);
-    let approvals = approvals.into_iter().map(|_| approval.clone()).collect();
+    let approvals = approvals
+        .into_iter()
+        .map(|account_id| {
+            let signer =
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
+            Approval::new(prev_block.hash(), prev_block.hash(), &signer)
+        })
+        .collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
         (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
     } else {
