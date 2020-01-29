@@ -14,7 +14,7 @@ use near_primitives::views::{
     ExecutionStatusView, ViewStateResult,
 };
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_store::{StateUpdate, StorageChanges, Trie, TrieState};
+use near_store::{CombinedDBState, StateUpdate, StorageChanges, Trie, TrieState};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -75,7 +75,13 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
-            let state = Arc::new(TrieState::new(client.trie.clone(), client.state_root));
+            // TODO
+            let state = //Arc::new(CombinedDBState::new(
+                Arc::new(TrieState::new(client.trie.clone(), client.state_root));
+            //            ,
+            //                0,
+            //                Default::default(),
+            //            ));
             let apply_result = client
                 .runtime
                 .apply(state, &None, &apply_state, &receipts, &txs)

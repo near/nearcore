@@ -36,15 +36,7 @@ pub trait StorageChanges {
 
     /// Return a StoreUpdate transaction with insertions and deletions (but not kv changes)
     fn into2(&self, trie: Arc<Trie>) -> Result<(StoreUpdate, StateRoot), StorageError> {
-        let mut store_update = StoreUpdate::new_with_trie(
-            trie.storage
-                .as_caching_storage()
-                .expect("Storage should be TrieCachingStorage")
-                .store
-                .storage
-                .clone(),
-            trie.clone(),
-        );
+        let mut store_update = StoreUpdate::new_with_trie(trie.clone());
         self.insertions_into(trie.clone(), &mut store_update)?;
         self.deletions_into(trie, &mut store_update)?;
         Ok((store_update, self.get_new_root()))
@@ -94,7 +86,7 @@ impl WrappedTrieChanges {
     }
 
     pub fn empty(trie: Arc<Trie>, block_hash: CryptoHash, root: StateRoot) -> Self {
-        let trie_changes = CombinedDBChanges::empty(root);
+        let trie_changes = CombinedDBChanges::empty(root, block_hash);
         WrappedTrieChanges { trie, trie_changes, block_hash }
     }
 
@@ -116,7 +108,7 @@ impl WrappedTrieChanges {
 
 pub struct CombinedDBChanges {
     pub(crate) trie_changes: TrieChanges,
-    //    pub(crate) flat_db_changes: FlatDBChanges,
+    pub(crate) flat_db_changes: Option<FlatDBChanges>,
     pub(crate) kv_changes: StateChanges,
 }
 
@@ -131,7 +123,9 @@ impl StorageChanges for CombinedDBChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
         self.trie_changes.insertions_into(trie.clone(), store_update)?;
-        //        self.flat_db_changes.insertions_into(trie, store_update)?;
+        if let Some(ref flat_db_changes) = self.flat_db_changes {
+            flat_db_changes.insertions_into(&self.kv_changes, store_update)?;
+        }
         Ok(())
     }
 
@@ -141,7 +135,6 @@ impl StorageChanges for CombinedDBChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
         self.trie_changes.deletions_into(trie.clone(), store_update)?;
-        //        self.flat_db_changes.deletions_into(trie, store_update)?;
         Ok(())
     }
 
@@ -174,7 +167,11 @@ impl StorageChanges for CombinedDBChanges {
 }
 
 impl CombinedDBChanges {
-    pub fn empty(state_root: CryptoHash) -> Self {
-        Self { trie_changes: TrieChanges::empty(state_root), kv_changes: Default::default() }
+    pub fn empty(state_root: CryptoHash, block_hash: CryptoHash) -> Self {
+        Self {
+            trie_changes: TrieChanges::empty(state_root),
+            flat_db_changes: None,
+            kv_changes: Default::default(),
+        }
     }
 }

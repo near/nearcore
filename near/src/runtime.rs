@@ -35,8 +35,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, ColState, PartialStorage, ReadOnlyState, StateUpdate, Store, StoreUpdate,
-    Trie, TrieState, WrappedTrieChanges,
+    get_access_key_raw, ColState, CombinedDBState, FlatDBChanges, PartialStorage, ReadOnlyState,
+    StateUpdate, Store, StoreUpdate, Trie, TrieState, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -189,7 +189,13 @@ impl NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let state_update = StateUpdate::from_trie(self.trie.clone(), MerkleHash::default());
+            let state = Arc::new(CombinedDBState::new(
+                TrieState::new(self.trie.clone(), MerkleHash::default()),
+                shard_id,
+                0,
+                CryptoHash::default(),
+            ));
+            let state_update = StateUpdate::from_state(state);
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
                 self.trie.clone(),
                 state_update,
@@ -338,7 +344,7 @@ impl NightshadeRuntime {
             total_validator_reward: apply_result.stats.total_validator_reward,
             total_balance_burnt: apply_result.stats.total_balance_burnt
                 + apply_result.stats.total_balance_slashed,
-            proof: state.get_trie_state().and_then(|trie_state| trie_state.trie.recorded_storage()),
+            proof: state.get_trie_state().trie.recorded_storage(),
         };
 
         Ok(result)
@@ -407,7 +413,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         transaction: &SignedTransaction,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let mut state_update = StateUpdate::from_trie(self.trie.clone(), state_root);
+        let state = Arc::new(TrieState::new(self.trie.clone(), state_root));
+        let mut state_update = StateUpdate::from_state(state);
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
@@ -834,12 +841,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = if generate_storage_proof {
-            Arc::new(self.trie.recording_reads())
+        let state: Arc<dyn ReadOnlyState> = if generate_storage_proof {
+            Arc::new(TrieState::new(Arc::new(self.trie.recording_reads()), *state_root))
         } else {
-            self.trie.clone()
+            let trie_state = TrieState::new(self.trie.clone(), *state_root);
+            Arc::new(CombinedDBState::new(trie_state, shard_id, height, *block_hash))
         };
-        let state = Arc::new(TrieState::new(trie.clone(), *state_root));
         match self.process_state_update(
             state,
             shard_id,
@@ -1041,7 +1048,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn confirm_state(&self, state_root: &StateRoot, data: &Vec<Vec<u8>>) -> Result<(), Error> {
+    fn confirm_state(
+        &self,
+        shard_id: ShardId,
+        block_height: BlockHeight,
+        state_root: &StateRoot,
+        data: &Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut parts = vec![];
         for part in data {
             parts.push(
@@ -1052,8 +1065,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie_changes = Trie::combine_state_parts(&state_root, &parts)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         // TODO clean old states
-        let trie = self.trie.clone();
-        let (store_update, _) = trie_changes.into(trie).expect("TrieChanges::into never fails");
+        let mut store_update = StoreUpdate::new_with_trie(self.trie.clone());
+        // TODO pass correct block hash
+        let flat_db_changes =
+            FlatDBChanges { shard_id, block_hash: Default::default(), block_height };
+        flat_db_changes.from_full_trie(self.trie.clone(), &trie_changes, &mut store_update);
+        trie_changes
+            .insertions_into(self.trie.clone(), &mut store_update)
+            .expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
     }
 
@@ -1845,7 +1864,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.confirm_state(&env.state_roots[0], &vec![state_part]).unwrap();
+        new_env.runtime.confirm_state(0, 0, &env.state_roots[0], &vec![state_part]).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);

@@ -3,15 +3,16 @@ use crate::runtime_state::state::{ReadOnlyState, ValueRef};
 use crate::{Trie, TrieChanges, TrieIterator};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::StateRoot;
 use std::sync::Arc;
 
 pub struct TrieState {
     pub trie: Arc<Trie>,
-    pub root: CryptoHash,
+    pub root: StateRoot,
 }
 
 impl ReadOnlyState for TrieState {
-    fn state_root(&self) -> CryptoHash {
+    fn state_root(&self) -> StateRoot {
         self.root
     }
 
@@ -27,8 +28,8 @@ impl ReadOnlyState for TrieState {
         self.trie.iter(&self.root).map(|x| Box::new(x) as Box<dyn StateIterator>)
     }
 
-    fn get_trie_state(&self) -> Option<&TrieState> {
-        Some(self)
+    fn get_trie_state(&self) -> &TrieState {
+        self
     }
 }
 

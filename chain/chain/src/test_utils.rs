@@ -734,7 +734,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error> {
+    fn confirm_state(
+        &self,
+        _shard_id: ShardId,
+        _block_height: BlockHeight,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let mut data = vec![];
         for part in parts {
             data.push(part.clone());

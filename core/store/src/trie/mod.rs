@@ -446,10 +446,10 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
     #[allow(dead_code)]
-    old_root: StateRoot,
+    pub(crate) old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
-    deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
+    pub(crate) insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
+    pub(crate) deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 impl TrieChanges {
@@ -499,15 +499,7 @@ impl TrieChanges {
     }
 
     pub fn into(self, trie: Arc<Trie>) -> Result<(StoreUpdate, StateRoot), StorageError> {
-        let mut store_update = StoreUpdate::new_with_trie(
-            trie.storage
-                .as_caching_storage()
-                .expect("Storage should be TrieCachingStorage")
-                .store
-                .storage
-                .clone(),
-            trie.clone(),
-        );
+        let mut store_update = StoreUpdate::new_with_trie(trie.clone());
         self.insertions_into(trie.clone(), &mut store_update)?;
         self.deletions_into(trie, &mut store_update)?;
         Ok((store_update, self.new_root))

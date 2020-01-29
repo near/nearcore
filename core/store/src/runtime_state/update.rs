@@ -1,6 +1,6 @@
-use crate::flat_db_state::FlatKVState;
+use crate::flat_db_state::{FlatDBChanges, FlatKVState};
 use crate::runtime_state::iterator::StateIterator;
-use crate::runtime_state::state::{PersistentState, ReadOnlyState, ValueRef};
+use crate::runtime_state::state::{CombinedDBState, ReadOnlyState, ValueRef};
 use crate::runtime_state::state_changes::StorageChanges;
 use crate::runtime_state::state_trie::TrieState;
 use crate::{CombinedDBChanges, TrieChanges};
@@ -57,9 +57,7 @@ impl StateUpdate {
     }
     pub fn from_trie(trie: Arc<Trie>, root: CryptoHash) -> Self {
         let trie = TrieState { trie, root };
-        let flat_state = FlatKVState {};
-        let state = PersistentState { trie, flat_state };
-        StateUpdate::from_state(Arc::new(state))
+        StateUpdate::from_state(Arc::new(trie))
     }
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         if let Some(value) = self.prospective.get(key) {
@@ -167,8 +165,16 @@ impl StateUpdate {
                 &changes.last().as_ref().expect("Committed entry should have at least one change");
             (k.clone(), last_change.clone())
         }));
-        let trie_changes = state.get_trie_state().expect("always have a trie").update(iter)?;
-        Ok(CombinedDBChanges { trie_changes, kv_changes: committed })
+        let trie_changes = state.get_trie_state().update(iter)?;
+        let flat_db_changes = state.as_combined_state().map(|persistent| {
+            let flat_state = &persistent.flat_state;
+            FlatDBChanges {
+                shard_id: flat_state.shard_id,
+                block_hash: flat_state.block_hash,
+                block_height: flat_state.block_height,
+            }
+        });
+        Ok(CombinedDBChanges { trie_changes, flat_db_changes, kv_changes: committed })
     }
 
     /// Returns Error if the underlying storage fails

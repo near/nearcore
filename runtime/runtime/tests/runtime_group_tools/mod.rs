@@ -68,6 +68,7 @@ impl StandaloneRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
+        // TODO: test CombinedDBState here. need to generate block index and hash.
         let state = Arc::new(TrieState::new(self.trie.clone(), self.root));
         let apply_result =
             self.runtime.apply(state, &None, &self.apply_state, receipts, transactions).unwrap();

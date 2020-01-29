@@ -1548,7 +1548,7 @@ impl Chain {
         }
 
         // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(&state_root, &parts)?;
+        self.runtime_adapter.confirm_state(shard_id, height, &state_root, &parts)?;
 
         // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(

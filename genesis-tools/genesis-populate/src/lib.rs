@@ -21,8 +21,8 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, ColState, StateUpdate,
-    StorageChanges, Store,
+    create_store, get_account, set_access_key, set_account, set_code, ColState, CombinedDBState,
+    StateUpdate, StorageChanges, Store, TrieState,
 };
 use node_runtime::StateRecord;
 
@@ -178,8 +178,14 @@ impl GenesisBuilder {
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
-        self.state_updates
-            .insert(shard_idx, StateUpdate::from_trie(self.runtime.trie.clone(), root));
+        let state = Arc::new(CombinedDBState::new(
+            TrieState::new(self.runtime.trie.clone(), root),
+            shard_idx,
+            0,
+            CryptoHash::default(),
+        ));
+
+        self.state_updates.insert(shard_idx, StateUpdate::from_state(state));
         Ok(())
     }
 

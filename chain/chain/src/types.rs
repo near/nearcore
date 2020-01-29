@@ -406,7 +406,13 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Should be executed after accepting all the parts to set up a new state.
-    fn confirm_state(&self, state_root: &StateRoot, parts: &Vec<Vec<u8>>) -> Result<(), Error>;
+    fn confirm_state(
+        &self,
+        shard_id: ShardId,
+        block_height: BlockHeight,
+        state_root: &StateRoot,
+        parts: &Vec<Vec<u8>>,
+    ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
     /// Panics if requested hash is not in storage.

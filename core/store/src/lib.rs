@@ -29,7 +29,8 @@ pub use crate::runtime_state::update::{
     PrefixKeyValueChanges, StateUpdate, TrieUpdateIterator, TrieUpdateValuePtr,
 };
 
-pub use crate::runtime_state::state::ReadOnlyState;
+pub use crate::flat_db_state::FlatDBChanges;
+pub use crate::runtime_state::state::{CombinedDBState, ReadOnlyState};
 pub use crate::runtime_state::state_changes::{
     CombinedDBChanges, StorageChanges, WrappedTrieChanges,
 };
@@ -141,7 +142,14 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, trie: None }
     }
 
-    pub fn new_with_trie(storage: Arc<dyn Database>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_trie(trie: Arc<Trie>) -> Self {
+        let storage = trie
+            .storage
+            .as_caching_storage()
+            .expect("Storage should be TrieCachingStorage")
+            .store
+            .storage
+            .clone();
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }
