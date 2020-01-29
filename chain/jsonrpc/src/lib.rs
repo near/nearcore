@@ -174,13 +174,25 @@ impl JsonRpcHandler {
     }
 
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
-        match request.method.as_ref() {
-            // Adversarial controls
-            "adv_set_weight" => self.adv_set_sync_info(request.params).await,
-            "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
-            "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
-            "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
+        #[cfg(feature = "adversarial")]
+        {
+            let params = request.params.clone();
 
+            let res = match request.method.as_ref() {
+                // Adversarial controls
+                "adv_set_weight" => Some(self.adv_set_sync_info(params).await),
+                "adv_disable_header_sync" => Some(self.adv_disable_header_sync(params).await),
+                "adv_produce_blocks" => Some(self.adv_produce_blocks(params).await),
+                "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
+                _ => None,
+            };
+
+            if let Some(res) = res {
+                return res;
+            }
+        }
+
+        match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params).await,
             "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
             "validators" => self.validators(request.params).await,
@@ -198,6 +210,7 @@ impl JsonRpcHandler {
         }
     }
 
+    #[cfg(feature = "adversarial")]
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (height, weight, score) = parse_params::<(u64, String, String)>(params)?;
         actix::spawn(
@@ -212,6 +225,7 @@ impl JsonRpcHandler {
         Ok(Value::String("".to_string()))
     }
 
+    #[cfg(feature = "adversarial")]
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr.send(NetworkClientMessages::AdvDisableHeaderSync).map(|_| ()),
@@ -219,6 +233,7 @@ impl JsonRpcHandler {
         Ok(Value::String("".to_string()))
     }
 
+    #[cfg(feature = "adversarial")]
     async fn adv_produce_blocks(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = parse_params::<(u64, bool)>(params)?;
         actix::spawn(
@@ -229,6 +244,7 @@ impl JsonRpcHandler {
         Ok(Value::String("".to_string()))
     }
 
+    #[cfg(feature = "adversarial")]
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self.client_addr.send(NetworkClientMessages::AdvGetSavedBlocks).await {
             Ok(result) => match result {

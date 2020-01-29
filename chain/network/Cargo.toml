@@ -37,6 +37,9 @@ near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
 testlib = { path = "../../test-utils/testlib" }
 
+[features]
+adversarial = []
+
 [[bench]]
 name = "graph"
 harness = false

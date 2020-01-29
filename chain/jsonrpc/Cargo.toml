@@ -39,3 +39,4 @@ _rand = { package = "rand", version = "0.6.5" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+adversarial = []

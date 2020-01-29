@@ -42,7 +42,9 @@ const NUM_BLOCKS_FOR_APPROVAL: usize = 20;
 
 pub struct Client {
     /// Adversarial controls
+    #[cfg(feature = "adversarial")]
     pub adv_produce_blocks: bool,
+    #[cfg(feature = "adversarial")]
     pub adv_produce_blocks_only_valid: bool,
 
     pub config: ClientConfig,
@@ -102,7 +104,9 @@ impl Client {
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
         Ok(Self {
+            #[cfg(feature = "adversarial")]
             adv_produce_blocks: false,
+            #[cfg(feature = "adversarial")]
             adv_produce_blocks_only_valid: false,
             config,
             sync_status,
@@ -175,12 +179,22 @@ impl Client {
         next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
+        #[allow(unused_assignments)]
+        #[allow(unused_mut)]
+        let mut adv_produce_blocks = false;
+
+        #[cfg(feature = "adversarial")]
+        {
+            adv_produce_blocks = self.adv_produce_blocks;
+        }
+
         // Check that this block height is not known yet.
-        if !self.adv_produce_blocks {
+        if !adv_produce_blocks {
             if next_height <= self.chain.mut_store().get_latest_known()?.height {
                 return Ok(None);
             }
         }
+
         let block_producer = self
             .block_producer
             .as_ref()
@@ -197,17 +211,33 @@ impl Client {
             &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
             next_height,
         )?;
-        if !self.adv_produce_blocks {
+
+        #[allow(unused_assignments)]
+        #[allow(unused_mut)]
+        let mut adv_produce_blocks = false;
+
+        #[allow(unused_assignments)]
+        #[allow(unused_mut)]
+        let mut adv_produce_blocks_only_valid = false;
+
+        #[cfg(feature = "adversarial")]
+        {
+            adv_produce_blocks = self.adv_produce_blocks;
+            adv_produce_blocks_only_valid = self.adv_produce_blocks_only_valid;
+        }
+
+        if !adv_produce_blocks {
             if block_producer.account_id != next_block_proposer {
                 info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
                 return Ok(None);
             }
-        } else if self.adv_produce_blocks_only_valid {
+        } else if adv_produce_blocks_only_valid {
             if block_producer.account_id != next_block_proposer {
                 info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
                 return Ok(None);
             }
         }
+
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.prev_hash;
@@ -217,7 +247,16 @@ impl Client {
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
-        if !self.adv_produce_blocks {
+        #[allow(unused_assignments)]
+        #[allow(unused_mut)]
+        let mut adv_produce_blocks = false;
+
+        #[cfg(feature = "adversarial")]
+        {
+            adv_produce_blocks = self.adv_produce_blocks;
+        }
+
+        if !adv_produce_blocks {
             if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
                 if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                     // Currently state for the chunks we are interested in this epoch
