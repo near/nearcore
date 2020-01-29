@@ -820,12 +820,20 @@ mod tests {
 
     #[test]
     fn test_doomslug_approvals() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
-            .into_iter()
+        let accounts: Vec<(&str, u128)> =
+            vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let stakes = accounts
+            .iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
-                stake,
+                stake: *stake,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+            })
+            .collect::<Vec<_>>();
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
             })
             .collect::<Vec<_>>();
 
@@ -850,7 +858,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -860,7 +868,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[2]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -870,7 +878,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -880,7 +888,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now + Duration::from_millis(100),
-                &Approval::new(hash(&[1]), None, 4, true, &*signer),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -890,7 +898,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::ReadyToProduce(now),
@@ -900,7 +908,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -912,7 +920,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -922,7 +930,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[2]), None, 4, true, &*signer),
+                &Approval::new(hash(&[2]), None, 4, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -931,7 +939,14 @@ mod tests {
 
     #[test]
     fn test_doomslug_one_approval_per_target_height() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
+        let accounts = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+            })
+            .collect::<Vec<_>>();
+        let stakes = accounts
             .into_iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
@@ -939,16 +954,15 @@ mod tests {
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new();
 
-        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &*signer);
-        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &*signer);
-        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &*signer);
+        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &signers[0]);
+        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &signers[1]);
+        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &signers[2]);
 
-        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &*signer);
-        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &*signer);
-        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &*signer);
+        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &signers[0]);
+        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &signers[1]);
+        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &signers[2]);
 
         // Process first approval, and then process it again and make sure it works
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::HalfStake);
