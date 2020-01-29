@@ -40,8 +40,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
-    StateRequestParts, Tip,
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -1174,7 +1173,8 @@ impl Chain {
         //    Let's call it `current`.
         // 2a. `prev_` means we're working with height before current.
         // 3. In inner loops we use all prefixes with no relation to the context described above.
-        let sync_block = self.get_block(&sync_hash)?;
+        let sync_block =
+            self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
@@ -1303,14 +1303,22 @@ impl Chain {
         })
     }
 
+    pub fn get_num_state_parts(memory_usage: u64) -> u64 {
+        // We assume that 1 Mb is a good limit for state part size.
+        // On the other side, it's important to divide any state into
+        // several parts to make sure that partitioning always works.
+        // TODO #1708
+        memory_usage / (1024 * 1024) + 3
+    }
+
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
         part_id: u64,
-        num_parts: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
-        let sync_block = self.get_block(&sync_hash)?;
+        let sync_block =
+            self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other(
@@ -1326,6 +1334,8 @@ impl Chain {
             .into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
+        let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
+        let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::Other(
@@ -1336,48 +1346,6 @@ impl Chain {
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
         Ok(state_part)
-    }
-
-    pub fn get_state_response_by_request(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
-    ) -> Result<ShardStateSyncResponse, Error> {
-        let mut data = vec![];
-        for part_id in parts.ids.iter() {
-            match self.get_state_response_part(shard_id, *part_id, parts.num_parts, sync_hash) {
-                Ok(part) => data.push(part),
-                Err(e) => {
-                    error!(target: "sync", "Cannot build sync part (get_state_response_part): {}", e);
-                    return Err(ErrorKind::Other(
-                        "Cannot build sync header (get_state_response_header)".to_string(),
-                    )
-                    .into());
-                }
-            }
-        }
-        if need_header {
-            match self.get_state_response_header(shard_id, sync_hash) {
-                Ok(header) => {
-                    return Ok(ShardStateSyncResponse {
-                        header: Some(header),
-                        part_ids: parts.ids,
-                        data,
-                    });
-                }
-                Err(e) => {
-                    error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                    return Err(ErrorKind::Other(
-                        "Cannot build sync header (get_state_response_header)".to_string(),
-                    )
-                    .into());
-                }
-            }
-        } else {
-            return Ok(ShardStateSyncResponse { header: None, part_ids: parts.ids, data });
-        }
     }
 
     pub fn set_state_header(
@@ -1566,13 +1534,13 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        /*self.store.store().get_ser(ColStateHeaders, sync_hash.as_ref())?.unwrap_or(
-            return Err(
-            ErrorKind::Other("set_state_finalize failed: cannot get shard_state_header".into())
-                .into(),
-        ));*/
-        // TODO achtung, line above compiles weirdly, remove unwrap
-        Ok(self.store.owned_store().get_ser(ColStateHeaders, &key)?.unwrap())
+        match self.store.owned_store().get_ser(ColStateHeaders, &key) {
+            Ok(Some(header)) => Ok(header),
+            _ => Err(ErrorKind::Other(
+                "set_state_finalize failed: cannot get shard_state_header".into(),
+            )
+            .into()),
+        }
     }
 
     pub fn set_state_part(
