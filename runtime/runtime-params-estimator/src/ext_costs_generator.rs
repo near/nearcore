@@ -25,7 +25,7 @@ impl ExtCostsGenerator {
         let mut res = agg.upper() as f64;
         let mut multiplier = None;
         for (k, v) in &agg.ext_costs {
-            if ignore_costs.contains(k) {
+            if ignore_costs.contains(k) || k == &ExtCosts::touching_trie_node {
                 continue;
             }
             if k == &ext_cost {

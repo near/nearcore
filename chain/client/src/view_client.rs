@@ -8,7 +8,7 @@ use log::{error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
     GasPriceView, LightClientBlockView, QueryResponse,
@@ -16,7 +16,9 @@ use near_primitives::views::{
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{sync, ClientConfig, GetChunk, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{
+    sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
+};
 use cached::{Cached, SizedCache};
 use near_network::types::{
     AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
@@ -369,6 +371,18 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
         self.maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.runtime_adapter.get_validator_info(&block_hash))
             .map_err(|err| err.to_string())
+    }
+}
+
+/// Returns a list of changes in a store for a given block.
+impl Handler<GetKeyValueChanges> for ViewClientActor {
+    type Result = Result<StateChanges, String>;
+
+    fn handle(&mut self, msg: GetKeyValueChanges, _: &mut Context<Self>) -> Self::Result {
+        self.chain
+            .store()
+            .get_key_value_changes(&msg.block_hash, &msg.state_changes_request)
+            .map_err(|e| e.to_string())
     }
 }
 

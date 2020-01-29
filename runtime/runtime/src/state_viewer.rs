@@ -167,6 +167,7 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::StateChangeCause;
     use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
@@ -235,6 +236,7 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
+        state_update.commit(StateChangeCause::InitialState);
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
@@ -259,15 +261,9 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(
-            root,
-            1,
-            1,
-            &alice_account(),
-            "panic_after_logging",
-            &[],
-            &mut logs,
-        );
+        viewer
+            .call_function(root, 1, 1, &alice_account(), "panic_after_logging", &[], &mut logs)
+            .unwrap_err();
 
         assert_eq!(logs, vec!["hello".to_string()]);
     }

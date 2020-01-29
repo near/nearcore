@@ -1,5 +1,5 @@
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::HostErrorOrStorageError;
+use near_vm_logic::VMLogicError;
 
 pub trait IntoVMError {
     fn into_vm_error(self) -> VMError;
@@ -10,9 +10,9 @@ impl IntoVMError for wasmer_runtime::error::Error {
         use wasmer_runtime::error::Error;
         match self {
             Error::CompileError(err) => err.into_vm_error(),
-            Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError(
-                format!("{:.500}", Error::LinkError(err).to_string()),
-            )),
+            Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError {
+                msg: format!("{:.500}", Error::LinkError(err).to_string()),
+            }),
             Error::RuntimeError(err) => err.into_vm_error(),
             Error::ResolveError(err) => err.into_vm_error(),
             Error::CallError(err) => err.into_vm_error(),
@@ -34,7 +34,7 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
         VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::WasmerCompileError(self.to_string()),
+            CompilationError::WasmerCompileError { msg: self.to_string() },
         ))
     }
 }
@@ -44,13 +44,13 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
         use wasmer_runtime::error::ResolveError as WasmerResolveError;
         match self {
             WasmerResolveError::Signature { .. } => VMError::FunctionCallError(
-                FunctionCallError::ResolveError(MethodResolveError::MethodInvalidSignature),
+                FunctionCallError::MethodResolveError(MethodResolveError::MethodInvalidSignature),
             ),
             WasmerResolveError::ExportNotFound { .. } => VMError::FunctionCallError(
-                FunctionCallError::ResolveError(MethodResolveError::MethodNotFound),
+                FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
             ),
             WasmerResolveError::ExportWrongType { .. } => VMError::FunctionCallError(
-                FunctionCallError::ResolveError(MethodResolveError::MethodNotFound),
+                FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
             ),
         }
     }
@@ -61,16 +61,17 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
         use wasmer_runtime::error::RuntimeError;
         match &self {
             RuntimeError::Trap { msg } => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(msg.to_string()))
+                VMError::FunctionCallError(FunctionCallError::WasmTrap { msg: msg.to_string() })
             }
             RuntimeError::Error { data } => {
-                if let Some(err) = data.downcast_ref::<HostErrorOrStorageError>() {
+                if let Some(err) = data.downcast_ref::<VMLogicError>() {
                     match err {
-                        HostErrorOrStorageError::StorageError(s) => {
-                            VMError::StorageError(s.clone())
-                        }
-                        HostErrorOrStorageError::HostError(h) => {
+                        VMLogicError::HostError(h) => {
                             VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                        }
+                        VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
+                        VMLogicError::InconsistentStateError(e) => {
+                            VMError::InconsistentStateError(e.clone())
                         }
                     }
                 } else {
@@ -79,7 +80,9 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                         data.type_id(),
                         self.to_string()
                     );
-                    VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string()))
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap {
+                        msg: "unknown".to_string(),
+                    })
                 }
             }
         }

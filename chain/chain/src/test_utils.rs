@@ -23,8 +23,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateRoot,
-    StateRootNode, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
@@ -471,7 +471,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
@@ -625,6 +625,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root),
+                Default::default(),
+                block_hash.clone(),
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -662,20 +664,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         path: Vec<&str>,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         match path[0] {
             "account" => {
                 let account_id = path[1].to_string();
-                let account_id2 = account_id.clone();
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(
                         Account {
                             amount: self.state.read().unwrap().get(&state_root).map_or_else(
                                 || 0,
-                                |state| *state.amounts.get(&account_id2).unwrap_or(&0),
+                                |state| *state.amounts.get(&account_id).unwrap_or(&0),
                             ),
                             locked: 0,
                             code_hash: CryptoHash::default(),
@@ -685,6 +686,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         .into(),
                     ),
                     block_height,
+                    block_hash: *block_hash,
                 })
             }
             "access_key" if path.len() == 2 => Ok(QueryResponse {
@@ -695,10 +697,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                     }],
                 }),
                 block_height,
+                block_hash: *block_hash,
             }),
             "access_key" if path.len() == 3 => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
                 block_height,
+                block_hash: *block_hash,
             }),
             _ => {
                 panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);
@@ -815,6 +819,14 @@ impl RuntimeAdapter for KeyValueRuntime {
             next_fishermen: vec![],
             current_proposals: vec![],
         })
+    }
+
+    fn get_key_value_changes(
+        &self,
+        _block_hash: &CryptoHash,
+        _state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(

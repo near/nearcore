@@ -1,6 +1,7 @@
 extern crate prometheus;
 
 use std::convert::TryFrom;
+use std::fmt::Display;
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
@@ -12,24 +13,26 @@ use futures::Future;
 use futures::{FutureExt, TryFutureExt};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::time::{delay_for, timeout};
 
 use message::Message;
 use message::{Request, RpcError};
 use near_client::{
-    ClientActor, GetBlock, GetChunk, GetGasPrice, GetNetworkInfo, GetNextLightClientBlock,
-    GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, GetBlock, GetChunk, GetGasPrice, GetKeyValueChanges, GetNetworkInfo,
+    GetNextLightClientBlock, GetValidatorInfo, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
+use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId};
-use near_primitives::views::{ExecutionErrorView, FinalExecutionStatus};
+use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
+use near_primitives::utils::is_valid_account_id;
+use near_primitives::views::FinalExecutionStatus;
 
 mod metrics;
 pub mod test_utils;
@@ -111,15 +114,47 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
         .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
-fn convert_mailbox_error(e: MailboxError) -> ExecutionErrorView {
-    ExecutionErrorView { error_message: e.to_string(), error_type: "MailBoxError".to_string() }
+/// A general Server Error
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
+pub enum ServerError {
+    TxExecutionError(TxExecutionError),
+    Timeout,
+    Closed,
+}
+
+impl Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
+            ServerError::Timeout => write!(f, "ServerError: Timeout"),
+            ServerError::Closed => write!(f, "ServerError: Closed"),
+        }
+    }
+}
+
+impl From<InvalidTxError> for ServerError {
+    fn from(e: InvalidTxError) -> ServerError {
+        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
+    }
+}
+
+impl From<MailboxError> for ServerError {
+    fn from(e: MailboxError) -> Self {
+        match e {
+            MailboxError::Closed => ServerError::Closed,
+            MailboxError::Timeout => ServerError::Timeout,
+        }
+    }
+}
+
+impl From<ServerError> for RpcError {
+    fn from(e: ServerError) -> RpcError {
+        RpcError::server_error(Some(e))
+    }
 }
 
 fn timeout_err() -> RpcError {
-    RpcError::server_error(Some(ExecutionErrorView {
-        error_message: "send_tx_commit has timed out".to_string(),
-        error_type: "TimeoutError".to_string(),
-    }))
+    RpcError::server_error(Some(ServerError::Timeout))
 }
 
 struct JsonRpcHandler {
@@ -150,6 +185,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "block" => self.block(request.params).await,
             "chunk" => self.chunk(request.params).await,
+            "changes" => self.changes(request.params).await,
             "next_light_client_block" => self.next_light_client_block(request.params).await,
             "network_info" => self.network_info().await,
             "gas_price" => self.gas_price(request.params).await,
@@ -198,20 +234,17 @@ impl JsonRpcHandler {
         let result = self
             .client_addr
             .send(NetworkClientMessages::Transaction(tx))
-            .map_err(|err| RpcError::server_error(Some(convert_mailbox_error(err))))
+            .map_err(|err| RpcError::server_error(Some(ServerError::from(err))))
             .await?;
         match result {
             NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
                 self.tx_polling(tx_hash, signer_account_id).await
             }
             NetworkClientResponses::InvalidTx(err) => {
-                Err(RpcError::server_error(Some(ExecutionErrorView::from(err))))
+                Err(RpcError::server_error(Some(ServerError::TxExecutionError(err.into()))))
             }
             NetworkClientResponses::NoResponse => {
-                Err(RpcError::server_error(Some(ExecutionErrorView {
-                    error_message: "send_tx_commit has timed out".to_string(),
-                    error_type: "TimeoutError".to_string(),
-                })))
+                Err(RpcError::server_error(Some(ServerError::Timeout)))
             }
             _ => unreachable!(),
         }
@@ -264,6 +297,12 @@ impl JsonRpcHandler {
 
     async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (hash, account_id) = parse_params::<(String, String)>(params)?;
+        if !is_valid_account_id(&account_id) {
+            return Err(RpcError::invalid_params(Some(format!(
+                "Invalid account id: {}",
+                account_id
+            ))));
+        }
         let tx_hash = from_base_or_parse_err(hash).and_then(|bytes| {
             CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
         })?;
@@ -297,6 +336,38 @@ impl JsonRpcHandler {
                     ChunkId::Hash(chunk_hash) => GetChunk::ChunkHash(chunk_hash.into()),
                 })
                 .await,
+        )
+    }
+
+    async fn changes(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (block_hash, state_changes_request) =
+            parse_params::<(CryptoHash, StateChangesRequest)>(params)?;
+        let block_hash_copy = block_hash.clone();
+        jsonify(
+            self.view_client_addr
+                .send(GetKeyValueChanges { block_hash, state_changes_request })
+                .await
+                .map(|v| {
+                    v.map(|changes| {
+                        json!({
+                            "block_hash": block_hash_copy,
+                            "changes_by_key": changes
+                            .into_iter()
+                            .map(|(key, changes)| {
+                                json!({
+                                    "key": key,
+                                    "changes": changes.into_iter().map(|(cause, value)| {
+                                        json!({
+                                            "cause": cause,
+                                            "value": value
+                                        })
+                                    }).collect::<Vec<_>>()
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                        })
+                    })
+                }),
         )
     }
 

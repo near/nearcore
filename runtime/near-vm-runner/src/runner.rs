@@ -16,12 +16,12 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
-            Err(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             )))
         }
     } else {
-        Err(VMError::FunctionCallError(FunctionCallError::ResolveError(
+        Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
             MethodResolveError::MethodNotFound,
         )))
     }
@@ -57,7 +57,7 @@ pub fn run<'a>(
     if method_name.is_empty() {
         return (
             None,
-            Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
         );
@@ -67,7 +67,10 @@ pub fn run<'a>(
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
-    let mut memory = match WasmerMemory::new(wasm_config) {
+    let mut memory = match WasmerMemory::new(
+        wasm_config.limit_config.initial_memory_pages,
+        wasm_config.limit_config.max_memory_pages,
+    ) {
         Ok(x) => x,
         Err(_err) => panic!("Cannot create memory for a contract call"),
     };
@@ -83,7 +86,7 @@ pub fn run<'a>(
         Err(_) => {
             return (
                 None,
-                Some(VMError::FunctionCallError(FunctionCallError::ResolveError(
+                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodUTF8Error,
                 ))),
             )
