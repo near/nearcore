@@ -16,7 +16,7 @@ use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
@@ -315,7 +315,8 @@ pub enum RoutedMessageBody {
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -422,7 +423,8 @@ impl RoutedMessage {
         match self.body {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::StateRequestHeader(_, _)
+            | RoutedMessageBody::StateRequestPart(_, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. }
             | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
@@ -527,7 +529,8 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateResponseHeader"),
+                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateResponsePart"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                     f.write_str("Receipt outcome request")
@@ -683,10 +686,17 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
+                RoutedMessageBody::StateRequestHeader(_, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
+                        &metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::StateRequestPart(_, _, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -761,7 +771,8 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
                 | RoutedMessageBody::ReceiptOutComeResponse(_)
-                | RoutedMessageBody::StateRequest(_, _, _, _) => true,
+                | RoutedMessageBody::StateRequestHeader(_, _)
+                | RoutedMessageBody::StateRequestPart(_, _, _) => true,
                 _ => false,
             },
             PeerMessage::BlockHeadersRequest(_) => true,
@@ -1049,12 +1060,17 @@ pub enum NetworkRequests {
         hashes: Vec<CryptoHash>,
         peer_id: PeerId,
     },
-    /// Request state for given shard at given state root.
-    StateRequest {
+    /// Request state header for given shard at given state root.
+    StateRequestHeader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
+        target: AccountOrPeerIdOrHash,
+    },
+    /// Request state part for given shard at given state root.
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id: u64,
         target: AccountOrPeerIdOrHash,
     },
     /// Response to state request.
@@ -1198,7 +1214,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub shard_state: ShardStateSyncResponse,
+    pub state_response: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]
@@ -1278,13 +1294,10 @@ pub enum NetworkViewClientMessages {
     BlockRequest(CryptoHash),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
-    /// State request.
-    StateRequest {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
-    },
+    /// State request header.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// State request part.
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
     /// Get Chain information from Client.
     GetChainInfo,
     /// Account announcements that needs to be validated before being processed.
