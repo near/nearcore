@@ -441,21 +441,21 @@ impl EpochManager {
         Ok(epoch_info.validators[validator_id as usize].clone())
     }
 
-    /// Returns settlement of all block producers in current epoch, with indicator on whether they are slashed or not.
-    pub fn get_all_block_producers_settlement(
+    /// Returns seat assignment of all block producers in current epoch, with indicator on whether they are slashed or not.
+    pub fn get_all_block_producers_assignment(
         &mut self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut settlement = vec![];
-        for validator_id in epoch_info.block_producers_settlement.iter() {
+        let mut assignment = vec![];
+        for validator_id in epoch_info.block_producers_assignment.iter() {
             let validator_stake = epoch_info.validators[*validator_id as usize].clone();
             let is_slashed = slashed.contains_key(&validator_stake.account_id);
-            settlement.push((validator_stake, is_slashed));
+            assignment.push((validator_stake, is_slashed));
         }
-        Ok(settlement)
+        Ok(assignment)
     }
 
     /// Returns all unique block producers in current epoch sorted by account_id, with indicator on whether they are slashed or not.
@@ -464,11 +464,11 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
-        let settlement =
-            self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
+        let assignment =
+            self.get_all_block_producers_assignment(epoch_id, last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
-        for (validator_stake, is_slashed) in settlement.into_iter() {
+        for (validator_stake, is_slashed) in assignment.into_iter() {
             if !validators.contains(&validator_stake.account_id) {
                 validators.insert(validator_stake.account_id.clone());
                 result.push((validator_stake, is_slashed));
@@ -729,7 +729,7 @@ impl EpochManager {
         let mut validator_to_shard = (0..cur_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in cur_epoch_info.chunk_producers_settlement.iter().enumerate() {
+        for (shard_id, validators) in cur_epoch_info.chunk_producers_assignment.iter().enumerate() {
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
             }
@@ -761,7 +761,7 @@ impl EpochManager {
         let mut next_validator_to_shard = (0..next_epoch_info.validators.len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in next_epoch_info.chunk_producers_settlement.iter().enumerate()
+        for (shard_id, validators) in next_epoch_info.chunk_producers_assignment.iter().enumerate()
         {
             for validator_id in validators {
                 next_validator_to_shard[*validator_id as usize].insert(shard_id as u64);
@@ -831,7 +831,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        for validator_id in epoch_info.chunk_producers_settlement[shard_id as usize].iter() {
+        for validator_id in epoch_info.chunk_producers_assignment[shard_id as usize].iter() {
             if &epoch_info.validators[*validator_id as usize].account_id == account_id {
                 return Ok(true);
             }
@@ -871,8 +871,8 @@ impl EpochManager {
     }
 
     fn block_producer_from_info(epoch_info: &EpochInfo, height: BlockHeight) -> ValidatorId {
-        epoch_info.block_producers_settlement
-            [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize]
+        epoch_info.block_producers_assignment
+            [(height as u64 % (epoch_info.block_producers_assignment.len() as u64)) as usize]
     }
 
     fn chunk_producer_from_info(
@@ -880,8 +880,8 @@ impl EpochManager {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> ValidatorId {
-        epoch_info.chunk_producers_settlement[shard_id as usize][(height as u64
-            % (epoch_info.chunk_producers_settlement[shard_id as usize].len() as u64))
+        epoch_info.chunk_producers_assignment[shard_id as usize][(height as u64
+            % (epoch_info.chunk_producers_assignment[shard_id as usize].len() as u64))
             as usize]
     }
 

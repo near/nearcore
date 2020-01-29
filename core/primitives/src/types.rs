@@ -33,7 +33,7 @@ pub type Gas = u64;
 pub type NumBlocks = u64;
 /// Number of shards in current group.
 pub type NumShards = u64;
-/// Number of seats of validators (block producer or hidden ones) in current group (settlement).
+/// Number of seats of validators (block producer or hidden ones) in current group (seat assignment).
 pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;

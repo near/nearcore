@@ -714,9 +714,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let settlement =
-            epoch_manager.get_all_block_producers_settlement(&epoch_id, parent_hash)?;
-        Ok(settlement[part_id as usize % settlement.len()].0.account_id.clone())
+        let assignment =
+            epoch_manager.get_all_block_producers_assignment(&epoch_id, parent_hash)?;
+        Ok(assignment[part_id as usize % assignment.len()].0.account_id.clone())
     }
 
     fn cares_about_shard(

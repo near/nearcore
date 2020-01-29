@@ -30,6 +30,52 @@ fn find_threshold(stakes: &[Balance], num_seats: NumSeats) -> Result<Balance, Ep
     }
 }
 
+pub fn get_block_producers_assignment_from_proposals(
+    rng_seed: RngSeed,
+    proposals: &Vec<ValidatorStake>,
+    threshold: Balance,
+    num_total_seats: NumSeats,
+) -> Result<Vec<ValidatorId>, EpochError> {
+    let mut minimal_stake = Balance::max_value();
+    for proposal in proposals.iter() {
+        if proposal.stake >= threshold && proposal.stake < minimal_stake {
+            minimal_stake = proposal.stake;
+        }
+    }
+    let mut guaranteed_proposals = vec![];
+    let mut probably_proposals = vec![];
+    for (i, proposal) in proposals.iter().enumerate() {
+        if proposal.stake > minimal_stake {
+            // Seats are guaranteed because we're above the threshold
+            guaranteed_proposals.extend(
+                iter::repeat(i as ValidatorId)
+                    .take((proposal.stake / threshold) as usize)
+                    .collect::<Vec<_>>(),
+            );
+        } else {
+            // Seats are not guaranteed for ones on the threshold
+            probably_proposals.push(i as ValidatorId);
+        }
+    }
+    if guaranteed_proposals.len() + probably_proposals.len() < num_total_seats as usize {
+        return Err(EpochError::SelectedSeatsMismatch(
+            (guaranteed_proposals.len() + probably_proposals.len()) as NumSeats,
+            num_total_seats,
+        ));
+    }
+    {
+        use protocol_defining_rand::seq::SliceRandom;
+        use protocol_defining_rand::{rngs::StdRng, SeedableRng};
+        // Shuffle lowest-stake proposals.
+        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+        probably_proposals.shuffle(&mut rng);
+    }
+    for i in 0..num_total_seats as usize - guaranteed_proposals.len() {
+        guaranteed_proposals.push(probably_proposals[i]);
+    }
+    Ok(guaranteed_proposals)
+}
+
 /// Calculates new seat assignments based on current seat assignments and proposals.
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
@@ -128,41 +174,24 @@ pub fn proposals_to_epoch_info(
         },
     );
 
-    // Duplicate each proposal for number of seats it has.
-    let mut dup_proposals = final_proposals
-        .iter()
-        .enumerate()
-        .flat_map(|(i, p)| iter::repeat(i as u64).take((p.stake / threshold) as usize))
-        .collect::<Vec<_>>();
-    if dup_proposals.len() < num_total_seats as usize {
-        return Err(EpochError::SelectedSeatsMismatch(
-            dup_proposals.len() as NumSeats,
-            num_total_seats,
-        ));
-    }
-    {
-        use protocol_defining_rand::seq::SliceRandom;
-        use protocol_defining_rand::{rngs::StdRng, SeedableRng};
-        // Shuffle duplicate proposals.
-        let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
-        dup_proposals.shuffle(&mut rng);
-    }
-
-    // Block producers are first `num_block_producer_seats` proposals.
-    let block_producers_settlement =
-        dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
+    let block_producers_assignment = get_block_producers_assignment_from_proposals(
+        rng_seed,
+        &final_proposals,
+        threshold,
+        num_total_seats,
+    )?;
 
     // Collect proposals into block producer assignments.
-    let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
+    let mut chunk_producers_assignment: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: u64 = 0;
     for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
-        let mut shard_settlement: Vec<ValidatorId> = vec![];
+        let mut shard_assignment: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats_in_shard {
-            let proposal_index =
-                dup_proposals[((i + last_index) % epoch_config.num_block_producer_seats) as usize];
-            shard_settlement.push(proposal_index);
+            let proposal_index = block_producers_assignment
+                [((i + last_index) % epoch_config.num_block_producer_seats) as usize];
+            shard_assignment.push(proposal_index);
         }
-        chunk_producers_settlement.push(shard_settlement);
+        chunk_producers_assignment.push(shard_assignment);
         last_index = (last_index + num_seats_in_shard) % epoch_config.num_block_producer_seats;
     }
 
@@ -174,9 +203,9 @@ pub fn proposals_to_epoch_info(
         validators: final_proposals,
         fishermen,
         validator_to_index,
-        block_producers_settlement,
-        chunk_producers_settlement,
-        hidden_validators_settlement: vec![],
+        block_producers_assignment,
+        chunk_producers_assignment,
+        hidden_validators_assignment: vec![],
         stake_change: final_stake_change,
         validator_reward,
         inflation,

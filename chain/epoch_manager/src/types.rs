@@ -46,12 +46,12 @@ pub struct EpochInfo {
     pub validators: Vec<ValidatorStake>,
     /// Validator account id to index in proposals.
     pub validator_to_index: HashMap<AccountId, ValidatorId>,
-    /// Settlement of validators responsible for block production.
-    pub block_producers_settlement: Vec<ValidatorId>,
-    /// Per each shard, settlement validators that are responsible.
-    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
-    pub hidden_validators_settlement: Vec<ValidatorWeight>,
+    /// Seat assignment of validators responsible for block production.
+    pub block_producers_assignment: Vec<ValidatorId>,
+    /// Per each shard, seat assignment validators that are responsible.
+    pub chunk_producers_assignment: Vec<Vec<ValidatorId>>,
+    /// Seat assignment of hidden validators with weights used to determine how many shards they will validate.
+    pub hidden_validators_assignment: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStake>,
     /// Fisherman account id to index of proposal.
@@ -133,8 +133,8 @@ impl BlockInfo {
         prev_block_height: BlockHeight,
         mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
     ) {
-        let block_producer_id = epoch_info.block_producers_settlement
-            [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
+        let block_producer_id = epoch_info.block_producers_assignment
+            [(self.height as u64 % (epoch_info.block_producers_assignment.len() as u64)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
             .and_modify(|validator_stats| {
@@ -144,8 +144,8 @@ impl BlockInfo {
             .or_insert(ValidatorStats { produced: 1, expected: 1 });
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for height in prev_block_height + 1..self.height {
-            let block_producer_id = epoch_info.block_producers_settlement
-                [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
+            let block_producer_id = epoch_info.block_producers_assignment
+                [(height as u64 % (epoch_info.block_producers_assignment.len() as u64)) as usize];
             prev_block_tracker
                 .entry(block_producer_id)
                 .and_modify(|validator_stats| {
