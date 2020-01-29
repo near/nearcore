@@ -20,7 +20,7 @@ use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
+use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -179,10 +179,16 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain weight/score of the peer.
-    pub weight_and_score: WeightAndScore,
+    /// Last known chain score of the peer.
+    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
+}
+
+impl PeerChainInfo {
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.score, height: self.height }
+    }
 }
 
 /// Peer type.
@@ -816,10 +822,10 @@ pub struct NetworkConfig {
     pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Weight horizon for most weighted peers, measured in stake seconds.
-    /// For example if one peer is 1 stake second away from max weight peer,
+    /// Height horizon for highest height peers
+    /// For example if one peer is 1 height away from max height peer,
     /// we still want to use the rest to query for state/headers/blocks.
-    pub most_weighted_peer_horizon: u128,
+    pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
     /// Peers on blacklist by IP:Port.
@@ -1165,7 +1171,7 @@ pub struct NetworkInfo {
     pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
@@ -1321,7 +1327,7 @@ pub enum NetworkViewClientResponses {
     ChainInfo {
         genesis_id: GenesisId,
         height: BlockHeight,
-        weight_and_score: WeightAndScore,
+        score: BlockScore,
         tracked_shards: Vec<ShardId>,
     },
     /// Response to state request.

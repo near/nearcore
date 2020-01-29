@@ -43,6 +43,7 @@ fn repro_1183() {
             false,
             false,
             5,
+            false,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();

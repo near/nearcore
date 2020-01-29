@@ -51,7 +51,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
-/// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
+/// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
@@ -595,8 +595,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                         return Ok(false);
                     }
                     if !approval.signature.verify(
-                        Approval::get_data_for_sig(&approval.parent_hash, &approval.reference_hash)
-                            .as_ref(),
+                        Approval::get_data_for_sig(
+                            &approval.parent_hash,
+                            &approval.reference_hash,
+                            approval.target_height,
+                            approval.is_endorsement,
+                        )
+                        .as_ref(),
                         &validator.public_key,
                     ) {
                         return Ok(false);
@@ -1186,7 +1191,6 @@ mod test {
     use near_chain::{ReceiptResult, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::block::WeightAndScore;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId};
@@ -1321,8 +1325,7 @@ mod test {
                     prev_block_hash: CryptoHash::default(),
                     height: 0,
                     epoch_id: EpochId::default(),
-                    prev_timestamp: 0,
-                    weight_and_score: WeightAndScore::from_ints(0, 0),
+                    score: 0.into(),
                 },
                 state_roots,
                 last_receipts: HashMap::default(),
@@ -1389,11 +1392,7 @@ mod test {
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
                 epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                prev_timestamp: 0,
-                weight_and_score: WeightAndScore::from_ints(
-                    self.head.weight_and_score.weight.to_num() + 1,
-                    self.head.weight_and_score.score.to_num(),
-                ),
+                score: self.head.score,
             };
         }
 

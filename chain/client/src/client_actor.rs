@@ -22,14 +22,14 @@ use near_network::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::{from_timestamp, to_timestamp};
+use near_primitives::utils::from_timestamp;
 use near_primitives::views::ValidatorInfo;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::InfoHelper;
-use crate::sync::{most_weight_peer, StateSyncResult};
+use crate::sync::{highest_height_peer, StateSyncResult};
 use crate::types::{
     BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload,
     ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
@@ -77,6 +77,7 @@ impl ClientActor {
         network_adapter: Arc<dyn NetworkAdapter>,
         block_producer: Option<BlockProducer>,
         telemetry_actor: Addr<TelemetryActor>,
+        enable_doomslug: bool,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         if let Some(bp) = &block_producer {
@@ -90,6 +91,7 @@ impl ClientActor {
             runtime_adapter,
             network_adapter.clone(),
             block_producer,
+            enable_doomslug,
         )?;
 
         Ok(ClientActor {
@@ -100,7 +102,7 @@ impl ClientActor {
                 active_peers: vec![],
                 num_active_peers: 0,
                 peer_max_count: 0,
-                most_weight_peers: vec![],
+                highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
@@ -191,16 +193,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(approval, peer_id) => {
-                if self.client.collect_block_approval(&approval, &peer_id) {
-                    NetworkClientResponses::NoResponse
-                } else {
-                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", approval.account_id, approval.parent_hash, approval.signature);
-                    NetworkClientResponses::NoResponse
-
-                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban them.
-                    // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
-                }
+            NetworkClientMessages::BlockApproval(approval, _) => {
+                self.client.collect_block_approval(&approval, false);
+                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
@@ -502,68 +497,45 @@ impl ClientActor {
         if self.client.sync_status.is_syncing() {
             return Ok(());
         }
+
+        let _ = self.client.check_and_update_doomslug_tip();
+
         let head = self.client.chain.head()?;
-        let mut latest_known = self.client.chain.mut_store().get_latest_known()?;
+        let latest_known = self.client.chain.mut_store().get_latest_known()?;
         assert!(
             head.height <= latest_known.height,
             format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
         );
+
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        // Get who is the block producer for the upcoming `latest_known.height + 1` block.
-        let next_block_producer_account =
-            self.client.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
 
-        let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
-        if self.client.block_producer.as_ref().map(|bp| bp.account_id.clone())
-            == Some(next_block_producer_account.clone())
+        for height in
+            latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
-            // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
-            if elapsed >= self.client.config.min_block_production_delay {
-                if let Err(err) = self.produce_block(latest_known.height + 1, elapsed) {
-                    // If there is an error, report it and let it retry on the next loop step.
-                    error!(target: "client", "Block production failed: {:?}", err);
-                }
-            }
-        } else {
-            let num_blocks_missing = if head.epoch_id == epoch_id {
-                let validator_stats = self.client.runtime_adapter.get_num_validator_blocks(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    &next_block_producer_account,
-                )?;
-                validator_stats.expected - validator_stats.produced
-            } else {
-                0
-            };
-            // Given next block producer already missed `num_blocks_missing`, we back off the time we are waiting for them.
-            if elapsed
-                < std::cmp::max(
-                    self.client
-                        .config
-                        .max_block_wait_delay
-                        .checked_sub(
-                            self.client.config.reduce_wait_for_missing_block
-                                * num_blocks_missing as u32,
-                        )
-                        .unwrap_or(self.client.config.max_block_production_delay),
-                    self.client.config.max_block_production_delay,
-                )
+            let next_block_producer_account =
+                self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
+
+            if self.client.block_producer.as_ref().map(|bp| &bp.account_id)
+                == Some(&next_block_producer_account)
             {
-                // Next block producer is not this client, so just go for another loop iteration.
-            } else {
-                // Upcoming block has not been seen in max block production delay, suggest to skip.
-                if !self.client.config.produce_empty_blocks {
-                    // If we are not producing empty blocks, we always wait for a block to be produced.
-                    // Used exclusively for testing.
-                    return Ok(());
+                let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
+                let have_all_chunks =
+                    head.height == 0 || num_chunks == self.client.runtime_adapter.num_shards();
+
+                if self.client.doomslug.ready_to_produce_block(
+                    Instant::now(),
+                    height,
+                    have_all_chunks,
+                ) {
+                    if let Err(err) = self.produce_block(height) {
+                        // If there is an error, report it and let it retry on the next loop step.
+                        error!(target: "client", "Block production failed: {:?}", err);
+                    }
                 }
-                debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
-                latest_known.height += 1;
-                latest_known.seen = to_timestamp(Utc::now());
-                self.client.chain.mut_store().save_latest_known(latest_known)?;
             }
         }
+
         Ok(())
     }
 
@@ -583,12 +555,8 @@ impl ClientActor {
 
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
-    fn produce_block(
-        &mut self,
-        next_height: BlockHeight,
-        elapsed_since_last_block: Duration,
-    ) -> Result<(), Error> {
-        match self.client.produce_block(next_height, elapsed_since_last_block) {
+    fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let block_hash = block.hash();
                 let res = self.process_block(block, Provenance::PRODUCED);
@@ -781,43 +749,39 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info =
-            if let Some(full_peer_info) = most_weight_peer(&self.network_info.most_weight_peers) {
-                full_peer_info
-            } else {
-                if !self.client.config.skip_sync_wait {
-                    warn!(target: "client", "Sync: no peers available, disabling sync");
-                }
-                return Ok((false, 0));
-            };
+        let full_peer_info = if let Some(full_peer_info) =
+            highest_height_peer(&self.network_info.highest_height_peers)
+        {
+            full_peer_info
+        } else {
+            if !self.client.config.skip_sync_wait {
+                warn!(target: "client", "Sync: no peers available, disabling sync");
+            }
+            return Ok((false, 0));
+        };
 
         if is_syncing {
-            if full_peer_info.chain_info.weight_and_score <= head.weight_and_score {
-                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, most weight peer: {} @ {:?}",
-                      head.height, head.weight_and_score, format_hash(head.last_block_hash),
+            if full_peer_info.chain_info.score_and_height() <= head.score_and_height() {
+                info!(target: "client", "Sync: synced at {} @ {:?} [{}], {}, highest height peer: {} @ {:?}",
+                      head.height, head.score, format_hash(head.last_block_hash),
                     full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height, full_peer_info.chain_info.weight_and_score
+                    full_peer_info.chain_info.height, full_peer_info.chain_info.score
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info
-                .chain_info
-                .weight_and_score
-                .beyond_threshold(&head.weight_and_score, self.client.config.sync_weight_threshold)
-                && full_peer_info.chain_info.height
-                    > head.height + self.client.config.sync_height_threshold
-            {
+            if full_peer_info.chain_info.score_and_height().beyond_threshold(
+                &head.score_and_height(),
+                self.client.config.sync_height_threshold,
+            ) {
                 info!(
                     target: "client",
-                    "Sync: height/weight/score: {}/{}/{}, peer id/height/weight/score: {}/{}/{}/{}, enabling sync",
+                    "Sync: height/score: {}/{}, peer id/height//score: {}/{}/{}, enabling sync",
                     head.height,
-                    head.weight_and_score.weight,
-                    head.weight_and_score.score,
+                    head.score,
                     full_peer_info.peer_info.id,
                     full_peer_info.chain_info.height,
-                    full_peer_info.chain_info.weight_and_score.weight,
-                    full_peer_info.chain_info.weight_and_score.score,
+                    full_peer_info.chain_info.score,
                 );
                 is_syncing = true;
             }
@@ -836,6 +800,10 @@ impl ClientActor {
             });
             return;
         }
+
+        // Start doomslug timer
+        self.doomslug_timer(ctx);
+
         // Start main sync loop.
         self.sync(ctx);
     }
@@ -851,7 +819,7 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.client.run_catchup(&self.network_info.most_weight_peers) {
+        match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -875,6 +843,34 @@ impl ClientActor {
         };
         ctx.run_later(self.client.config.chunk_request_retry_period, move |act, ctx| {
             act.chunk_request_retry(ctx);
+        });
+    }
+
+    /// An actix recursive function that processes doomslug timer
+    fn doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
+        let _ = self.client.check_and_update_doomslug_tip();
+
+        let approvals = self.client.doomslug.process_timer(Instant::now());
+
+        // Important to save the largest skipped height before sending approvals, so that if the
+        // node crashes in the meantime, we cannot get slashed on recovery
+        let mut chain_store_update = self.client.chain.mut_store().store_update();
+        chain_store_update
+            .save_largest_skipped_height(&self.client.doomslug.get_largest_skipped_height());
+
+        match chain_store_update.commit() {
+            Ok(_) => {
+                for approval in approvals {
+                    if let Err(e) = self.client.send_approval(approval) {
+                        error!("Error while sending an approval {:?}", e);
+                    }
+                }
+            }
+            Err(e) => error!("Error while committing largest skipped height {:?}", e),
+        };
+
+        ctx.run_later(Duration::from_millis(50), move |act, ctx| {
+            act.doomslug_timer(ctx);
         });
     }
 
@@ -918,7 +914,7 @@ impl ClientActor {
                 &mut self.client.sync_status,
                 &mut self.client.chain,
                 highest_height,
-                &self.network_info.most_weight_peers
+                &self.network_info.highest_height_peers
             ));
             // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.client.chain.header_head());
@@ -934,7 +930,7 @@ impl ClientActor {
                         &mut self.client.sync_status,
                         &mut self.client.chain,
                         highest_height,
-                        &self.network_info.most_weight_peers
+                        &self.network_info.highest_height_peers
                     ))
                 }
                 _ => false,
@@ -967,14 +963,14 @@ impl ClientActor {
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
-                    &self.network_info.most_weight_peers,
+                    &self.network_info.highest_height_peers,
                     shards_to_sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
                         self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
                         if let Some(peer_info) =
-                            most_weight_peer(&self.network_info.most_weight_peers)
+                            highest_height_peer(&self.network_info.highest_height_peers)
                         {
                             if fetch_block {
                                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {

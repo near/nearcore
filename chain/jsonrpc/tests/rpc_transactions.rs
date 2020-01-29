@@ -122,7 +122,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (view_client, addr) = start_all_with_validity_period(true, 1);
+        let (view_client, addr) = start_all_with_validity_period(true, 1, false);
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
