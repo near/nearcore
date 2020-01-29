@@ -1,3 +1,8 @@
+use std::collections::{HashMap, HashSet};
+
+use rand::seq::SliceRandom;
+use rand::Rng;
+
 use near_chain::test_utils::setup;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain::{FinalityGadget, FinalityGadgetQuorums};
@@ -6,9 +11,6 @@ use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
 use near_store::test_utils::create_test_store;
-use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
 
 fn compute_quorums_slow(
     mut prev_hash: CryptoHash,

@@ -1,11 +1,12 @@
-use near_crypto::Signer;
-use near_primitives::block::Approval;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use near_crypto::Signer;
+use near_primitives::block::Approval;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -668,16 +669,18 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
-    use crate::doomslug::{
-        DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
-    };
-    use crate::Doomslug;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
     use near_crypto::{InMemorySigner, KeyType, SecretKey};
     use near_primitives::block::Approval;
     use near_primitives::hash::hash;
     use near_primitives::types::ValidatorStake;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+
+    use crate::doomslug::{
+        DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
+    };
+    use crate::Doomslug;
 
     #[test]
     fn test_endorsements_and_skips_basic() {

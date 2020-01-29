@@ -1185,9 +1185,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::config::{FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::get_store_path;
+    use std::collections::BTreeSet;
+
+    use tempdir::TempDir;
+
     use near_chain::{ReceiptResult, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -1197,8 +1198,11 @@ mod test {
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
-    use std::collections::BTreeSet;
-    use tempdir::TempDir;
+
+    use crate::config::{FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::get_store_path;
+
+    use super::*;
 
     fn stake(
         nonce: Nonce,

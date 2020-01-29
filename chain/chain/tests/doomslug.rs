@@ -1,14 +1,16 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use rand::{thread_rng, Rng};
+
     use near_chain::{Doomslug, DoomslugThresholdMode};
     use near_crypto::{InMemorySigner, KeyType, SecretKey};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::{BlockHeight, ValidatorStake};
-    use rand::{thread_rng, Rng};
-    use std::collections::{HashMap, HashSet};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     fn block_hash(height: BlockHeight) -> CryptoHash {
         hash(height.to_le_bytes().as_ref())

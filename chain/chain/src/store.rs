@@ -3,13 +3,15 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
-use serde::Serialize;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
+use serde::Serialize;
 
+use near_primitives::block::{Approval, BlockScore};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -22,6 +24,7 @@ use near_primitives::types::{
     StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
@@ -35,10 +38,6 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-use near_primitives::block::{Approval, BlockScore};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::merkle::MerklePath;
-use near_primitives::views::LightClientBlockView;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -2152,10 +2151,11 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use std::sync::Arc;
+
     use borsh::ser::BorshSerialize;
     use cached::Cached;
+
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
@@ -2163,7 +2163,9 @@ mod tests {
     use near_primitives::types::EpochId;
     use near_primitives::utils::index_to_bytes;
     use near_store::test_utils::create_test_store;
-    use std::sync::Arc;
+
+    use crate::test_utils::KeyValueRuntime;
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
         let store = create_test_store();

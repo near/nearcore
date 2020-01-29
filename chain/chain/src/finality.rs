@@ -1,11 +1,13 @@
-use crate::error::{Error, ErrorKind};
-use crate::{ChainStoreAccess, ChainStoreUpdate};
+use std::collections::{HashMap, HashSet};
+
 use near_primitives::block::{
     Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest, BlockScore,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorStake};
-use std::collections::{HashMap, HashSet};
+
+use crate::error::{Error, ErrorKind};
+use crate::{ChainStoreAccess, ChainStoreUpdate};
 
 // How many blocks back to search for a new reference hash when the chain switches and the block
 //     producer cannot use the same reference hash as the last approval on chain
