@@ -49,6 +49,9 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view};
 use near_primitives::utils::to_timestamp;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2210,7 +2213,11 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        for (shard_id, receipt_proofs) in receipt_proofs_by_shard_id {
+        for (shard_id, mut receipt_proofs) in receipt_proofs_by_shard_id {
+            let mut slice = [0u8; 32];
+            slice.copy_from_slice(block.hash().as_ref());
+            let mut rng: StdRng = SeedableRng::from_seed(slice);
+            receipt_proofs.shuffle(&mut rng);
             self.chain_store_update.save_incoming_receipt(&block.hash(), shard_id, receipt_proofs);
         }
 
