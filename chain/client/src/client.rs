@@ -28,8 +28,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
+use near_primitives::{adversarial_variable, unwrap_or_return};
 use near_store::Store;
 
 use crate::metrics;
@@ -179,14 +179,7 @@ impl Client {
         next_height: BlockHeight,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
-        #[allow(unused_assignments)]
-        #[allow(unused_mut)]
-        let mut adv_produce_blocks = false;
-
-        #[cfg(feature = "adversarial")]
-        {
-            adv_produce_blocks = self.adv_produce_blocks;
-        }
+        adversarial_variable!(adv_produce_blocks, false, self.adv_produce_blocks);
 
         // Check that this block height is not known yet.
         if !adv_produce_blocks {
@@ -212,19 +205,12 @@ impl Client {
             next_height,
         )?;
 
-        #[allow(unused_assignments)]
-        #[allow(unused_mut)]
-        let mut adv_produce_blocks = false;
-
-        #[allow(unused_assignments)]
-        #[allow(unused_mut)]
-        let mut adv_produce_blocks_only_valid = false;
-
-        #[cfg(feature = "adversarial")]
-        {
-            adv_produce_blocks = self.adv_produce_blocks;
-            adv_produce_blocks_only_valid = self.adv_produce_blocks_only_valid;
-        }
+        adversarial_variable!(adv_produce_blocks, false, self.adv_produce_blocks);
+        adversarial_variable!(
+            adv_produce_blocks_only_valid,
+            false,
+            self.adv_produce_blocks_only_valid
+        );
 
         if !adv_produce_blocks {
             if block_producer.account_id != next_block_proposer {

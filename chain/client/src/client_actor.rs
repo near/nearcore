@@ -20,6 +20,7 @@ use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, St
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
+use near_primitives::adversarial_variable;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
@@ -949,14 +950,11 @@ impl ClientActor {
         let currently_syncing = self.client.sync_status.is_syncing();
         let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
 
-        #[allow(unused_assignments)]
-        #[allow(unused_mut)]
-        let mut adv_disable_header_sync = false;
-
-        #[cfg(feature = "adversarial")]
-        {
-            adv_disable_header_sync = self.client.chain.adv_disable_header_sync;
-        }
+        adversarial_variable!(
+            adv_disable_header_sync,
+            false,
+            self.client.chain.adv_disable_header_sync
+        );
 
         if !needs_syncing || adv_disable_header_sync {
             if currently_syncing {

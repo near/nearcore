@@ -16,6 +16,7 @@ use near_network::types::{
     StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::adversarial_variable;
 #[cfg(feature = "adversarial")]
 use near_primitives::block::WeightAndScore;
 use near_primitives::block::{BlockHeader, GenesisId};
@@ -519,14 +520,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                #[allow(unused_assignments)]
-                #[allow(unused_mut)]
-                let mut adv_disable_header_sync = false;
-
-                #[cfg(feature = "adversarial")]
-                {
-                    adv_disable_header_sync = self.chain.adv_disable_header_sync;
-                }
+                adversarial_variable!(
+                    adv_disable_header_sync,
+                    false,
+                    self.chain.adv_disable_header_sync
+                );
 
                 if adv_disable_header_sync {
                     NetworkViewClientResponses::NoResponse
@@ -540,22 +538,22 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    #[allow(unused_assignments)]
-                    #[allow(unused_mut)]
-                    let mut height = head.height;
+                    adversarial_variable!(
+                        height,
+                        head.height,
+                        self.chain.adv_sync_info.map_or(head.height, |(height, _, _)| { height })
+                    );
 
-                    #[allow(unused_assignments)]
-                    #[allow(unused_mut)]
-                    let mut weight_and_score = head.weight_and_score;
-
-                    #[cfg(feature = "adversarial")]
-                    {
-                        if let Some((cur_height, weight, score)) = self.chain.adv_sync_info {
-                            height = cur_height;
-                            weight_and_score =
-                                WeightAndScore { score: score.into(), weight: weight.into() };
-                        }
-                    }
+                    adversarial_variable!(
+                        weight_and_score,
+                        head.weight_and_score,
+                        self.chain.adv_sync_info.map_or(
+                            head.weight_and_score,
+                            |(_, weight, score)| {
+                                WeightAndScore { score: score.into(), weight: weight.into() }
+                            }
+                        )
+                    );
 
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {
