@@ -255,6 +255,46 @@ macro_rules! unwrap_option_or_return {
     };
 }
 
+/// Create a variable that will take a value depending if the code is compiled
+/// with or without adversarial behavior (--features "adversarial").
+///
+/// ```
+/// adversarial_variable!(
+///     adv_disable_header_sync,
+///     // value when adversarial behavior is disabled
+///     false,
+///     // value when adversarial behavior is enabled
+///     self.chain.adv_disable_header_sync
+/// );
+/// ```
+///
+/// This is equivalent to:
+///
+/// ```
+/// let adv_disable_header_sync = if !cfg!(feature = "adversarial") {
+///     // value when adversarial behavior is disabled
+///     false
+/// } else {
+///     // value when adversarial behavior is enabled
+///     self.chain.adv_disable_header_sync
+/// };
+/// ```
+///
+/// The difference is that this macro allows to use variables that are only exposed when the
+/// adversarial method is enabled.
+#[macro_export]
+macro_rules! adversarial_variable {
+    ($var: ident, $honest: expr, $adversarial: expr) => {
+        #[allow(unused_assignments, unused_mut)]
+        let mut $var = $honest;
+
+        #[cfg(feature = "adversarial")]
+        {
+            $var = $adversarial;
+        }
+    };
+}
+
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
     DateTime::from_utc(

@@ -5,6 +5,8 @@ use std::path::Path;
 
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
+#[cfg(feature = "adversarial")]
+use log::error;
 use log::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -85,6 +87,11 @@ fn main() {
         .get_matches();
 
     init_logging(matches.value_of("verbose"));
+
+    #[cfg(feature = "adversarial")]
+    {
+        error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+    }
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 

@@ -87,3 +87,4 @@ opt-level = 3 # bs58 library is too slow to use in debug
 expensive_tests = []
 regression_tests = []
 old_tests = []
+adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]

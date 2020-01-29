@@ -21,6 +21,7 @@ use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
+use near_primitives::adversarial_variable;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -28,7 +29,9 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
-use near_store::{ColBlock, Store};
+#[cfg(feature = "adversarial")]
+use near_store::ColBlock;
+use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -145,16 +148,19 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
+            #[cfg(feature = "adversarial")]
             NetworkClientMessages::AdvSetSyncInfo(height, score) => {
                 info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
                 self.client.chain.adv_sync_info = Some((height, score));
                 return NetworkClientResponses::NoResponse;
             }
+            #[cfg(feature = "adversarial")]
             NetworkClientMessages::AdvDisableHeaderSync => {
                 info!(target: "adversary", "Blocking header sync");
                 self.client.chain.adv_disable_header_sync = true;
                 return NetworkClientResponses::NoResponse;
             }
+            #[cfg(feature = "adversarial")]
             NetworkClientMessages::AdvProduceBlocks(num_blocks, only_valid) => {
                 info!(target: "adversary", "Producing {} blocks", num_blocks);
                 self.client.adv_produce_blocks = true;
@@ -187,6 +193,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 return NetworkClientResponses::NoResponse;
             }
+            #[cfg(feature = "adversarial")]
             NetworkClientMessages::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
                 let store = self.client.chain.store().store();
@@ -921,7 +928,13 @@ impl ClientActor {
         let currently_syncing = self.client.sync_status.is_syncing();
         let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
 
-        if !needs_syncing || self.client.chain.adv_disable_header_sync {
+        adversarial_variable!(
+            adv_disable_header_sync,
+            false,
+            self.client.chain.adv_disable_header_sync
+        );
+
+        if !needs_syncing || adv_disable_header_sync {
             if currently_syncing {
                 debug!(
                     target: "client",

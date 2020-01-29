@@ -16,9 +16,13 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
+    StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
+use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::adversarial_variable;
+#[cfg(feature = "adversarial")]
 use near_primitives::block::BlockScore;
 use near_primitives::block::{BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -32,7 +36,9 @@ use near_primitives::views::{
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
+use crate::{
+    sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
+};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -535,7 +541,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                if self.chain.adv_disable_header_sync {
+                adversarial_variable!(
+                    adv_disable_header_sync,
+                    false,
+                    self.chain.adv_disable_header_sync
+                );
+
+                if adv_disable_header_sync {
                     NetworkViewClientResponses::NoResponse
                 } else {
                     if let Ok(headers) = self.retrieve_headers(hashes) {
@@ -546,23 +558,31 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
-                Ok(head) => NetworkViewClientResponses::ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.config.chain_id.clone(),
-                        hash: self.chain.genesis().hash(),
-                    },
-                    height: if let Some((height, _)) = self.chain.adv_sync_info {
-                        height
-                    } else {
-                        head.height
-                    },
-                    score: if let Some((_, score)) = self.chain.adv_sync_info {
-                        BlockScore::from(score)
-                    } else {
-                        head.score
-                    },
-                    tracked_shards: self.config.tracked_shards.clone(),
-                },
+                Ok(head) => {
+                    adversarial_variable!(
+                        height,
+                        head.height,
+                        self.chain.adv_sync_info.map_or(head.height, |(height, _)| { height })
+                    );
+
+                    adversarial_variable!(
+                        score,
+                        head.score,
+                        self.chain
+                            .adv_sync_info
+                            .map_or(head.score, |(_, score)| { BlockScore::from(score) })
+                    );
+
+                    NetworkViewClientResponses::ChainInfo {
+                        genesis_id: GenesisId {
+                            chain_id: self.config.chain_id.clone(),
+                            hash: self.chain.genesis().hash(),
+                        },
+                        height,
+                        score,
+                        tracked_shards: self.config.tracked_shards.clone(),
+                    }
+                }
                 Err(err) => {
                     error!(target: "view_client", "{}", err);
                     NetworkViewClientResponses::NoResponse

@@ -1117,9 +1117,13 @@ pub struct StateResponseInfo {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     /// Adversarial controls
+    #[cfg(feature = "adversarial")]
     AdvProduceBlocks(u64, bool),
+    #[cfg(feature = "adversarial")]
     AdvDisableHeaderSync,
+    #[cfg(feature = "adversarial")]
     AdvGetSavedBlocks,
+    #[cfg(feature = "adversarial")]
     AdvSetSyncInfo(u64, u64),
 
     /// Received transaction.
@@ -1149,6 +1153,7 @@ pub enum NetworkClientMessages {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// Adv controls.
+    #[cfg(feature = "adversarial")]
     AdvU64(u64),
 
     /// No response.
@@ -1159,7 +1164,7 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
 
@@ -1230,7 +1235,7 @@ pub enum NetworkViewClientResponses {
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,

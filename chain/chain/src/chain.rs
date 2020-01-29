@@ -240,7 +240,9 @@ pub struct Chain {
     pub doomslug_threshold_mode: DoomslugThresholdMode,
 
     /// Adversarial controls
+    #[cfg(feature = "adversarial")]
     pub adv_sync_info: Option<(u64, u64)>,
+    #[cfg(feature = "adversarial")]
     pub adv_disable_header_sync: bool,
 }
 
@@ -369,7 +371,9 @@ impl Chain {
                 min_gas_price: chain_genesis.min_gas_price,
             },
             doomslug_threshold_mode,
+            #[cfg(feature = "adversarial")]
             adv_sync_info: None,
+            #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
         })
     }

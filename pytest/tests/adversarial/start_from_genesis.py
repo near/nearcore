@@ -2,11 +2,14 @@ import sys, time
 
 sys.path.append('lib')
 
+from cluster import start_cluster
+from adversary import setup_adversarial_test
+
+setup_adversarial_test()
+
 overtake = False # create a new chain which should not be accepted
 if "overtake" in sys.argv:
     overtake = True # create a new chain which head should be accepted and then the chain is restored completely
-
-from cluster import start_cluster
 
 TIMEOUT = 300
 BLOCKS = 30

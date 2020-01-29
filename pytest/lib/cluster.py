@@ -16,6 +16,7 @@ import rc
 from rc import gcloud
 import uuid
 import network
+import adversary
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
@@ -335,7 +336,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(
+    process = subprocess.Popen([os.path.join(near_root, "near"), "testnet", "--v", str(num_nodes), "--shards", str(
         num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
     assert 0 == process.returncode, err
@@ -422,6 +423,10 @@ CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 def load_config():
     config = DEFAULT_CONFIG
+
+    if adversary.ADVERSARIAL_TEST:
+        config['near_root'] = adversary.ADVERSARIAL_PATH
+
     config_file = os.environ.get(CONFIG_ENV_VAR, '')
     if config_file:
         try:
