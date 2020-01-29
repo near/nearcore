@@ -1,13 +1,26 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use std::cmp::Ordering;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
+use cached::{Cached, SizedCache};
 use log::{error, warn};
 
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, ErrorKind, RuntimeAdapter};
+use near_network::types::{
+    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
+    StateResponseInfo,
+};
+use near_network::{NetworkAdapter, NetworkRequests};
+#[cfg(feature = "adversarial")]
 use near_primitives::block::WeightAndScore;
+use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_path;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -19,18 +32,6 @@ use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{
     sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
 };
-use cached::{Cached, SizedCache};
-use near_network::types::{
-    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
-    StateResponseInfo,
-};
-use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::verify_path;
-use std::cmp::Ordering;
-use std::hash::Hash;
-use std::time::{Duration, Instant};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -518,7 +519,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                if self.chain.adv_disable_header_sync {
+                #[allow(unused_assignments)]
+                #[allow(unused_mut)]
+                let mut adv_disable_header_sync = false;
+
+                #[cfg(feature = "adversarial")]
+                {
+                    adv_disable_header_sync = self.chain.adv_disable_header_sync;
+                }
+
+                if adv_disable_header_sync {
                     NetworkViewClientResponses::NoResponse
                 } else {
                     if let Ok(headers) = self.retrieve_headers(hashes) {
@@ -529,23 +539,34 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
-                Ok(head) => NetworkViewClientResponses::ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.config.chain_id.clone(),
-                        hash: self.chain.genesis().hash(),
-                    },
-                    height: if let Some((height, _, _)) = self.chain.adv_sync_info {
-                        height
-                    } else {
-                        head.height
-                    },
-                    weight_and_score: if let Some((_, weight, score)) = self.chain.adv_sync_info {
-                        WeightAndScore { score: score.into(), weight: weight.into() }
-                    } else {
-                        head.weight_and_score
-                    },
-                    tracked_shards: self.config.tracked_shards.clone(),
-                },
+                Ok(head) => {
+                    #[allow(unused_assignments)]
+                    #[allow(unused_mut)]
+                    let mut height = head.height;
+
+                    #[allow(unused_assignments)]
+                    #[allow(unused_mut)]
+                    let mut weight_and_score = head.weight_and_score;
+
+                    #[cfg(feature = "adversarial")]
+                    {
+                        if let Some((cur_height, weight, score)) = self.chain.adv_sync_info {
+                            height = cur_height;
+                            weight_and_score =
+                                WeightAndScore { score: score.into(), weight: weight.into() };
+                        }
+                    }
+
+                    NetworkViewClientResponses::ChainInfo {
+                        genesis_id: GenesisId {
+                            chain_id: self.config.chain_id.clone(),
+                            hash: self.chain.genesis().hash(),
+                        },
+                        height,
+                        weight_and_score,
+                        tracked_shards: self.config.tracked_shards.clone(),
+                    }
+                }
                 Err(err) => {
                     error!(target: "view_client", "{}", err);
                     NetworkViewClientResponses::NoResponse

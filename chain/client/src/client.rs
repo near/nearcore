@@ -247,15 +247,6 @@ impl Client {
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", block_producer.account_id, next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
-        #[allow(unused_assignments)]
-        #[allow(unused_mut)]
-        let mut adv_produce_blocks = false;
-
-        #[cfg(feature = "adversarial")]
-        {
-            adv_produce_blocks = self.adv_produce_blocks;
-        }
-
         if !adv_produce_blocks {
             if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
                 if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {

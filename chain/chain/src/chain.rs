@@ -26,6 +26,7 @@ use near_primitives::types::{
     NumBlocks, ShardId, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::to_timestamp;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
@@ -48,7 +49,6 @@ use crate::validate::{
     validate_chunk_with_chunk_extra,
 };
 use crate::{byzantine_assert, create_light_client_block_view};
-use near_primitives::utils::to_timestamp;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -219,7 +219,9 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
 
     /// Adversarial controls
+    #[cfg(feature = "adversarial")]
     pub adv_sync_info: Option<(u64, u128, u128)>,
+    #[cfg(feature = "adversarial")]
     pub adv_disable_header_sync: bool,
 }
 
@@ -349,7 +351,9 @@ impl Chain {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
                 min_gas_price: chain_genesis.min_gas_price,
             },
+            #[cfg(feature = "adversarial")]
             adv_sync_info: None,
+            #[cfg(feature = "adversarial")]
             adv_disable_header_sync: false,
         })
     }
