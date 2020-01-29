@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use actix::System;
 use borsh::BorshSerialize;
@@ -18,7 +17,7 @@ use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
 };
-use near_primitives::block::{Approval, BlockHeader, WeightAndScore};
+use near_primitives::block::{Approval, BlockHeader};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -39,6 +38,7 @@ fn produce_two_blocks() {
             vec!["test"],
             "test",
             true,
+            false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { .. } = msg {
                     count.fetch_add(1, Ordering::Relaxed);
@@ -67,6 +67,7 @@ fn produce_blocks_with_tx() {
             vec!["test"],
             "test",
             true,
+            false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::PartialEncodedChunkMessage {
                     account_id: _,
@@ -126,6 +127,7 @@ fn receive_network_block() {
             vec!["test2", "test1", "test3"],
             "test2",
             true,
+            false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockHeaderAnnounce { approval_message, .. } = msg {
                     assert!(approval_message.is_some());
@@ -154,9 +156,8 @@ fn receive_network_block() {
                 vec![],
                 vec![],
                 &signer,
-                1,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -180,6 +181,7 @@ fn receive_network_block_header() {
             vec!["test"],
             "other",
             true,
+            false,
             Box::new(move |msg, _ctx, client_addr| match msg {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
                     let block = block_holder1.read().unwrap().clone().unwrap();
@@ -218,9 +220,8 @@ fn receive_network_block_header() {
                 vec![],
                 vec![],
                 &signer,
-                1,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -249,9 +250,14 @@ fn produce_block_with_approvals() {
             validators.clone(),
             "test1",
             true,
+            false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    if block.header.num_approvals() == validators.len() as u64 - 1 {
+                    // Below we send approvals from all the block producers except for test1 and test2
+                    // test1 will only create their approval for height 10 after their doomslug timer
+                    // runs 10 iterations, which is way further in the future than them producing the
+                    // block
+                    if block.header.num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
                     } else {
                         println!(
@@ -264,7 +270,12 @@ fn produce_block_with_approvals() {
                                 .map(|x| x.account_id.clone())
                                 .collect::<Vec<_>>()
                         );
-                        println!("{} != {} -1 ", block.header.num_approvals(), validators.len());
+                        println!(
+                            "{} != {} -2 (height: {})",
+                            block.header.num_approvals(),
+                            validators.len(),
+                            block.header.inner_lite.height
+                        );
                         assert!(false);
                     }
                 }
@@ -291,9 +302,8 @@ fn produce_block_with_approvals() {
                 vec![],
                 vec![],
                 &signer1,
-                1,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -301,7 +311,14 @@ fn produce_block_with_approvals() {
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
                 let signer = InMemorySigner::from_seed(&s, KeyType::ED25519, &s);
-                let approval = Approval::new(block.hash(), block.hash(), &signer, s.to_string());
+                let approval = Approval::new(
+                    block.hash(),
+                    Some(block.hash()),
+                    10, // the height at which "test1" is producing
+                    false,
+                    &signer,
+                    s.to_string(),
+                );
                 client
                     .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
             }
@@ -324,15 +341,15 @@ fn invalid_blocks() {
             vec!["test"],
             "other",
             false,
+            false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
-                    NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
+                    NetworkRequests::BlockHeaderAnnounce { header, approval_message: _ } => {
                         assert_eq!(header.inner_lite.height, 1);
                         assert_eq!(
                             header.inner_lite.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
-                        assert_eq!(*approval_message, None);
                         System::current().stop();
                     }
                     _ => {}
@@ -361,9 +378,8 @@ fn invalid_blocks() {
                 vec![],
                 vec![],
                 &signer,
-                1,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -392,9 +408,8 @@ fn invalid_blocks() {
                 vec![],
                 vec![],
                 &signer,
-                (block.header.inner_lite.timestamp - last_block.header.timestamp) as u128,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -418,9 +433,8 @@ fn invalid_blocks() {
                 vec![],
                 vec![],
                 &signer,
-                1,
-                1,
                 0.into(),
+                CryptoHash::default(),
                 CryptoHash::default(),
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
@@ -443,6 +457,7 @@ fn skip_block_production() {
             vec!["test1", "test2"],
             "test2",
             true,
+            false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -471,6 +486,7 @@ fn client_sync_headers() {
             vec!["test"],
             "other",
             false,
+            false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
@@ -488,19 +504,19 @@ fn client_sync_headers() {
                 chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
                     height: 5,
-                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    score: 4.into(),
                     tracked_shards: vec![],
                 },
                 edge_info: EdgeInfo::default(),
             }],
             num_active_peers: 1,
             peer_max_count: 1,
-            most_weight_peers: vec![FullPeerInfo {
+            highest_height_peers: vec![FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
                     height: 5,
-                    weight_and_score: WeightAndScore::from_ints(100, 100),
+                    score: 4.into(),
                     tracked_shards: vec![],
                 },
                 edge_info: EdgeInfo::default(),
@@ -516,7 +532,7 @@ fn client_sync_headers() {
 
 fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
-        let b = client.produce_block(i, Duration::from_millis(100)).unwrap().unwrap();
+        let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
         let more_accepted_blocks = client.run_catchup(&vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
@@ -543,6 +559,7 @@ fn test_process_invalid_tx() {
         1,
         1,
         Some("test1"),
+        false,
         network_adapter,
         chain_genesis,
     );
@@ -587,6 +604,7 @@ fn test_time_attack() {
         1,
         1,
         Some("test1"),
+        false,
         network_adapter,
         chain_genesis,
     );
@@ -600,7 +618,7 @@ fn test_time_attack() {
     b1.header.signature = signer.sign(hash.as_ref());
     let _ = client.process_block(b1, Provenance::NONE);
 
-    let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
+    let b2 = client.produce_block(2).unwrap().unwrap();
     assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
 }
 
@@ -618,6 +636,7 @@ fn test_invalid_approvals() {
         1,
         1,
         Some("test1"),
+        false,
         network_adapter,
         chain_genesis,
     );
@@ -627,14 +646,19 @@ fn test_invalid_approvals() {
     b1.header.inner_rest.approvals = (0..100)
         .map(|i| Approval {
             account_id: format!("test{}", i).to_string(),
-            reference_hash: genesis.hash(),
+            reference_hash: Some(genesis.hash()),
             parent_hash: genesis.hash(),
+            target_height: 1,
+            is_endorsement: true,
             signature: InMemorySigner::from_seed(
                 &format!("test{}", i),
                 KeyType::ED25519,
                 &format!("test{}", i),
             )
-            .sign(Approval::get_data_for_sig(&genesis.hash(), &genesis.hash()).as_ref()),
+            .sign(
+                Approval::get_data_for_sig(&genesis.hash(), &Some(genesis.hash()), 1, true)
+                    .as_ref(),
+            ),
         })
         .collect();
     let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
@@ -653,9 +677,9 @@ fn test_invalid_approvals() {
 #[test]
 fn test_no_double_sign() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    let _ = env.clients[0].produce_block(1).unwrap().unwrap();
     // Second time producing with the same height should fail.
-    assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
+    assert_eq!(env.clients[0].produce_block(1).unwrap(), None);
 }
 
 #[test]
@@ -671,6 +695,7 @@ fn test_invalid_gas_price() {
         1,
         1,
         Some("test1"),
+        false,
         network_adapter,
         chain_genesis,
     );
@@ -695,7 +720,7 @@ fn test_invalid_gas_price() {
 #[test]
 fn test_invalid_height() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let b1 = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);

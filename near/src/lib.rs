@@ -95,6 +95,7 @@ pub fn start_with_config(
         network_adapter.clone(),
         config.block_producer,
         telemetry,
+        true,
     )
     .unwrap()
     .start();

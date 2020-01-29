@@ -11,7 +11,7 @@ use near_primitives::views::QueryResponseKind;
 fn query_client() {
     init_test_logger();
     System::run(|| {
-        let (_, view_client) = setup_no_network(vec!["test"], "other", true);
+        let (_, view_client) = setup_no_network(vec!["test"], "other", true, true);
         actix::spawn(view_client.send(Query::new("account/test".to_string(), vec![])).then(
             |res| {
                 match res.unwrap().unwrap().unwrap().kind {

@@ -18,7 +18,6 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
-use near_primitives::block::Weight;
 use near_primitives::utils::to_timestamp;
 
 /// Maximum number of block headers send over the network.
@@ -42,13 +41,13 @@ pub const STATE_SYNC_TIMEOUT: i64 = 10;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
-/// Get random peer from the most weighted peers.
-pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
-    if most_weight_peers.len() == 0 {
+/// Get random peer from the hightest height peers.
+pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
+    if highest_height_peers.len() == 0 {
         return None;
     }
-    let index = thread_rng().gen_range(0, most_weight_peers.len());
-    Some(most_weight_peers[index].clone())
+    let index = thread_rng().gen_range(0, highest_height_peers.len());
+    Some(highest_height_peers[index].clone())
 }
 
 /// Helper to keep track of sync headers.
@@ -56,14 +55,14 @@ pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPee
 pub struct HeaderSync {
     network_adapter: Arc<dyn NetworkAdapter>,
     history_locator: Vec<(BlockHeight, CryptoHash)>,
-    prev_header_sync: (DateTime<Utc>, Weight, BlockHeight),
+    prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight),
     syncing_peer: Option<FullPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
 
     initial_timeout: Duration,
     progress_timeout: Duration,
     stall_ban_timeout: Duration,
-    expected_weight_per_second: u128,
+    expected_height_per_second: u64,
 }
 
 impl HeaderSync {
@@ -72,18 +71,18 @@ impl HeaderSync {
         initial_timeout: TimeDuration,
         progress_timeout: TimeDuration,
         stall_ban_timeout: TimeDuration,
-        expected_weight_per_second: u128,
+        expected_height_per_second: u64,
     ) -> Self {
         HeaderSync {
             network_adapter,
             history_locator: vec![],
-            prev_header_sync: (Utc::now(), 0.into(), 0),
+            prev_header_sync: (Utc::now(), 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
             progress_timeout: Duration::from_std(progress_timeout).unwrap(),
             stall_ban_timeout: Duration::from_std(stall_ban_timeout).unwrap(),
-            expected_weight_per_second,
+            expected_height_per_second,
         }
     }
 
@@ -92,7 +91,7 @@ impl HeaderSync {
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
         highest_height: BlockHeight,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
         if !self.header_sync_due(sync_status, &header_head) {
@@ -106,8 +105,8 @@ impl HeaderSync {
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}/{:?}, resetting to {} at {}/{:?}",
-                    sync_head.last_block_hash, sync_head.height, sync_head.weight_and_score,
-                    header_head.last_block_hash, header_head.height, header_head.weight_and_score,
+                    sync_head.last_block_hash, sync_head.height, sync_head.score,
+                    header_head.last_block_hash, header_head.height, header_head.score,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
                 chain.reset_sync_head()?;
@@ -122,8 +121,8 @@ impl HeaderSync {
                 SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
             let header_head = chain.header_head()?;
             self.syncing_peer = None;
-            if let Some(peer) = most_weight_peer(&most_weight_peers) {
-                if peer.chain_info.weight_and_score > header_head.weight_and_score {
+            if let Some(peer) = highest_height_peer(&highest_height_peers) {
+                if peer.chain_info.score_and_height() > header_head.score_and_height() {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -131,22 +130,26 @@ impl HeaderSync {
         Ok(())
     }
 
-    fn compute_expected_weight(&self, old_weight: Weight, time_delta: Duration) -> Weight {
-        (old_weight.to_num()
-            + (time_delta.num_nanoseconds().unwrap() as u128 * self.expected_weight_per_second
-                / NS_PER_SECOND))
-            .into()
+    fn compute_expected_height(
+        &self,
+        old_height: BlockHeight,
+        time_delta: Duration,
+    ) -> BlockHeight {
+        (old_height as u128
+            + (time_delta.num_nanoseconds().unwrap() as u128
+                * self.expected_height_per_second as u128
+                / NS_PER_SECOND)) as u64
     }
 
     fn header_sync_due(&mut self, sync_status: &SyncStatus, header_head: &Tip) -> bool {
         let now = Utc::now();
-        let (timeout, old_expected_weight, prev_height) = self.prev_header_sync;
+        let (timeout, old_expected_height, prev_height) = self.prev_header_sync;
 
         // Received all necessary header, can request more.
         let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
 
         // Did we receive as many headers as we expected from the peer? Request more or ban peer.
-        let stalling = header_head.weight_and_score.weight <= old_expected_weight && now > timeout;
+        let stalling = header_head.height <= old_expected_height && now > timeout;
 
         // Always enable header sync on initial state transition from NoSync / AwaitingPeers.
         let force_sync = match sync_status {
@@ -157,10 +160,7 @@ impl HeaderSync {
         if force_sync || all_headers_received || stalling {
             self.prev_header_sync = (
                 now + self.initial_timeout,
-                self.compute_expected_weight(
-                    header_head.weight_and_score.weight,
-                    self.initial_timeout,
-                ),
+                self.compute_expected_height(header_head.height, self.initial_timeout),
                 header_head.height,
             );
 
@@ -182,8 +182,8 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.chain_info.height
                                 {
-                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}, score: {}",
-                                        peer.peer_info, peer.chain_info.height, peer.chain_info.weight_and_score.weight, peer.chain_info.weight_and_score.score);
+                                    info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, score: {}",
+                                        peer.peer_info, peer.chain_info.height, peer.chain_info.score);
                                     self.network_adapter.do_send(NetworkRequests::BanPeer {
                                         peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
@@ -201,21 +201,14 @@ impl HeaderSync {
             // Resetting the timeout as long as we make progress.
             let ns_time_till_timeout =
                 (to_timestamp(timeout).saturating_sub(to_timestamp(now))) as u128;
-            // `ns_till_timeout` will not exceed 1B * largest timeout we have, which is 10s
-            // `expected_weight_per_second` is on the order of `WEIGHT_MULTIPLIER` times
-            // 1B times a small constant. Thus the result of the multiplication is on the
-            // order of ~1B^3 * 10 * 10 = 10^29, which is way under the u128 limit
-            let remaining_expected_weight =
-                self.expected_weight_per_second * ns_time_till_timeout / NS_PER_SECOND;
-            if header_head.weight_and_score.weight.to_num()
-                >= old_expected_weight.to_num().saturating_sub(remaining_expected_weight)
-            {
-                let new_expected_weight = self.compute_expected_weight(
-                    header_head.weight_and_score.weight,
-                    self.progress_timeout,
-                );
+            let remaining_expected_height = (self.expected_height_per_second as u128
+                * ns_time_till_timeout
+                / NS_PER_SECOND) as u64;
+            if header_head.height >= old_expected_height.saturating_sub(remaining_expected_height) {
+                let new_expected_height =
+                    self.compute_expected_height(header_head.height, self.progress_timeout);
                 self.prev_header_sync =
-                    (now + self.progress_timeout, new_expected_weight, prev_height);
+                    (now + self.progress_timeout, new_expected_height, prev_height);
             }
             false
         }
@@ -339,10 +332,10 @@ impl BlockSync {
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
         highest_height: BlockHeight,
-        most_weight_peers: &[FullPeerInfo],
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.block_sync_due(chain)? {
-            if self.block_sync(chain, most_weight_peers, self.block_fetch_horizon)? {
+            if self.block_sync(chain, highest_height_peers, self.block_fetch_horizon)? {
                 debug!(target: "sync", "Sync: transition to State Sync.");
                 return Ok(true);
             }
@@ -358,7 +351,7 @@ impl BlockSync {
     pub fn block_sync(
         &mut self,
         chain: &mut Chain,
-        most_weight_peers: &[FullPeerInfo],
+        highest_height_peers: &[FullPeerInfo],
         block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
         let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
@@ -368,7 +361,7 @@ impl BlockSync {
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
         let block_count = min(
-            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * most_weight_peers.len()),
+            min(MAX_BLOCK_REQUEST, MAX_PEER_BLOCK_REQUEST * highest_height_peers.len()),
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
@@ -383,12 +376,12 @@ impl BlockSync {
             let head = chain.head()?;
             let header_head = chain.header_head()?;
 
-            debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.height, header_head.height, hashes_to_request, most_weight_peers.len());
+            debug!(target: "sync", "Block sync: {}/{} requesting blocks {:?} from {} peers", head.height, header_head.height, hashes_to_request, highest_height_peers.len());
 
             self.blocks_requested = 0;
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
-            let mut peers_iter = most_weight_peers.iter().cycle();
+            let mut peers_iter = highest_height_peers.iter().cycle();
             for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
                     self.network_adapter.do_send(NetworkRequests::BlockRequest {
@@ -504,7 +497,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
@@ -671,7 +664,7 @@ impl StateSync {
                     runtime_adapter,
                     sync_hash,
                     shard_sync_download.clone(),
-                    most_weight_peers,
+                    highest_height_peers,
                 )?;
             }
         }
@@ -688,7 +681,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let prev_block_hash =
             unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
@@ -718,7 +711,7 @@ impl StateSync {
                 None
             }
         })
-        .chain(most_weight_peers.iter().filter_map(|peer| {
+        .chain(highest_height_peers.iter().filter_map(|peer| {
             if peer.chain_info.tracked_shards.contains(&shard_id) {
                 Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
             } else {
@@ -798,7 +791,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let now = Utc::now();
@@ -821,7 +814,7 @@ impl StateSync {
             new_shard_sync,
             chain,
             runtime_adapter,
-            most_weight_peers,
+            highest_height_peers,
             tracking_shards,
             now,
         )?;
@@ -851,7 +844,6 @@ mod test {
 
     use super::*;
     use crate::test_utils::MockNetworkAdapter;
-    use near_chain::chain::WEIGHT_MULTIPLIER;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use std::thread;
@@ -911,7 +903,7 @@ mod test {
                     hash: chain.genesis().hash(),
                 },
                 height: chain2.head().unwrap().height,
-                weight_and_score: chain2.head().unwrap().weight_and_score,
+                score: chain2.head().unwrap().score,
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -938,22 +930,20 @@ mod test {
     /// sends headers below the threshold gets banned, and the peer that sends them faster doesn't get
     /// banned.
     /// Also makes sure that if `header_sync_due` is checked more frequently than the `progress_timeout`
-    /// the peer doesn't get banned. (specifically, that the expected weight downloaded gets properly
+    /// the peer doesn't get banned. (specifically, that the expected height downloaded gets properly
     /// adjusted for time passed)
     #[test]
-    fn test_slow_header_sync_common() {
+    fn test_slow_header_sync() {
         let network_adapter = Arc::new(MockNetworkAdapter::default());
         let highest_height = 1000;
 
-        // Setup header_sync with expectation of 2 full-stake-seconds worth of weight per second
-        // Or 6 full-stake-seconds worth of weight per three seconds
-        // Or 15 headers with 0.4 stake spaced one second away from each other per three seconds
+        // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
             network_adapter.clone(),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(3),
-            1_000_000_000 * WEIGHT_MULTIPLIER * 2,
+            25,
         );
 
         let set_syncing_peer = |header_sync: &mut HeaderSync| {
@@ -982,8 +972,6 @@ mod test {
         );
         let genesis = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-        let now = genesis.header.inner_lite.timestamp;
-
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
         for i in 0..61 {
@@ -993,15 +981,6 @@ mod test {
                 current_height,
                 vec!["test3", "test4"],
                 &*signers[3],
-                // this collectively pushes the head 61 seconds from genesis time,
-                // which is within the 2 minutes allowance beyond which the blocks
-                // would be rejected
-                now + (1_000_000_000) as u64,
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    0
-                } else {
-                    1_000_000_000
-                },
             );
 
             all_blocks.push(block);
@@ -1010,7 +989,7 @@ mod test {
         }
 
         let mut last_added_block_ord = 0;
-        // First send 6 blocks every second for a while and make sure it doesn't get
+        // First send 30 heights every second for a while and make sure it doesn't get
         // banned
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
@@ -1018,10 +997,7 @@ mod test {
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header_and_prev_timestamp(
-                    &block.header,
-                    last_block.header.inner_lite.timestamp,
-                ),
+                &Tip::from_header(&block.header),
             );
 
             last_added_block_ord += 3;
@@ -1031,17 +1007,14 @@ mod test {
         // 6 blocks / second is fast enough, we should not have banned the peer
         assert!(network_adapter.requests.read().unwrap().is_empty());
 
-        // Now the same, but only four blocks / sec
+        // Now the same, but only 20 heights / sec
         for _iter in 0..12 {
             let block = &all_blocks[last_added_block_ord];
             let current_height = block.header.inner_lite.height;
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
                 &SyncStatus::HeaderSync { current_height, highest_height },
-                &Tip::from_header_and_prev_timestamp(
-                    &block.header,
-                    last_block.header.inner_lite.timestamp,
-                ),
+                &Tip::from_header(&block.header),
             );
 
             last_added_block_ord += 2;
