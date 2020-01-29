@@ -165,7 +165,16 @@ pub enum QueryResponseKind {
     Error(QueryError),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
-    Validators(EpochValidatorInfo),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(tag = "request_type", rename_all = "snake_case")]
+pub enum QueryRequest {
+    ViewAccount { account_id: AccountId },
+    ViewState { account_id: AccountId, prefix: Vec<u8> },
+    ViewAccessKey { account_id: AccountId, public_key: PublicKey },
+    ViewAccessKeyList { account_id: AccountId },
+    CallFunction { account_id: AccountId, method_name: String, args: Vec<u8> },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

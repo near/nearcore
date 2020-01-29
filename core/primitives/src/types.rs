@@ -202,7 +202,7 @@ pub struct Version {
     pub build: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),

@@ -18,7 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
+    FinalExecutionOutcomeView, QueryRequest, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;

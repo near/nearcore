@@ -17,7 +17,7 @@ mod tests {
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
-    use near_primitives::views::QueryResponseKind::ViewAccount;
+    use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
@@ -308,8 +308,10 @@ mod tests {
                                             connectors1.write().unwrap()[i]
                                                 .1
                                                 .send(Query::new(
-                                                    "account/".to_string() + &account_to,
-                                                    vec![],
+                                                    None,
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: account_to.clone(),
+                                                    },
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
@@ -502,8 +504,11 @@ mod tests {
                                                 connectors1.write().unwrap()[i]
                                                     .1
                                                     .send(Query::new(
-                                                        "account/".to_string() + flat_validators[j],
-                                                        vec![],
+                                                        None,
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: flat_validators[j]
+                                                                .to_string(),
+                                                        },
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
