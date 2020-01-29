@@ -9,6 +9,7 @@ use near::config::{
 };
 use near::NearConfig;
 use near_crypto::{InMemorySigner, Signer};
+use near_jsonrpc::ServerError;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
@@ -67,7 +68,7 @@ pub trait Node: Send + Sync {
         self.user().view_balance(account_id)
     }
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
+    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
         self.user().add_transaction(transaction)
     }
 

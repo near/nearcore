@@ -3,6 +3,7 @@ use std::sync::Arc;
 use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
+use near_jsonrpc::ServerError;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -31,14 +32,14 @@ pub trait User {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
-    fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), String>;
+    fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), ServerError>;
 
     fn commit_transaction(
         &self,
         signed_transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, String>;
+    ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError>;
 
     fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
         self.get_access_key(account_id, &self.signer().public_key())
@@ -72,7 +73,7 @@ pub trait User {
         signer_id: AccountId,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
@@ -90,7 +91,7 @@ pub trait User {
         signer_id: AccountId,
         receiver_id: AccountId,
         amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             receiver_id,
@@ -102,7 +103,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         code: Vec<u8>,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -118,7 +119,7 @@ pub trait User {
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             contract_id,
@@ -137,7 +138,7 @@ pub trait User {
         new_account_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id,
             new_account_id,
@@ -154,7 +155,7 @@ pub trait User {
         signer_id: AccountId,
         public_key: PublicKey,
         access_key: AccessKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -166,7 +167,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         public_key: PublicKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -180,7 +181,7 @@ pub trait User {
         old_public_key: PublicKey,
         new_public_key: PublicKey,
         access_key: AccessKey,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
@@ -195,7 +196,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             receiver_id,
@@ -207,12 +208,12 @@ pub trait User {
         &self,
         signer_id: AccountId,
         public_key: PublicKey,
-        amount: Balance,
-    ) -> Result<FinalExecutionOutcomeView, String> {
+        stake: Balance,
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::Stake(StakeAction { stake: amount, public_key })],
+            vec![Action::Stake(StakeAction { stake, public_key })],
         )
     }
 }
@@ -222,49 +223,49 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<AccountView, String>>;
+    ) -> LocalBoxFuture<'static, Result<AccountView, ServerError>>;
 
     fn view_balance(
         &self,
         account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<Balance, String>> {
+    ) -> LocalBoxFuture<'static, Result<Balance, ServerError>> {
         self.view_account(account_id).map(|res| res.map(|acc| acc.amount)).boxed_local()
     }
 
     fn view_state(
         &self,
         account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<ViewStateResult, String>>;
+    ) -> LocalBoxFuture<'static, Result<ViewStateResult, ServerError>>;
 
     fn add_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> LocalBoxFuture<'static, Result<(), String>>;
+    ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
-    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), String>>;
+    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
     fn get_account_nonce(
         &self,
         account_id: &AccountId,
-    ) -> LocalBoxFuture<'static, Result<u64, String>>;
+    ) -> LocalBoxFuture<'static, Result<u64, ServerError>>;
 
-    fn get_best_height(&self) -> LocalBoxFuture<'static, Result<BlockHeight, String>>;
+    fn get_best_height(&self) -> LocalBoxFuture<'static, Result<BlockHeight, ServerError>>;
 
     fn get_transaction_result(
         &self,
         hash: &CryptoHash,
-    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, String>>;
+    ) -> LocalBoxFuture<'static, Result<ExecutionOutcome, ServerError>>;
 
     fn get_transaction_final_result(
         &self,
         hash: &CryptoHash,
-    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, String>>;
+    ) -> LocalBoxFuture<'static, Result<FinalExecutionOutcomeView, ServerError>>;
 
-    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, String>>;
+    fn get_state_root(&self) -> LocalBoxFuture<'static, Result<MerkleHash, ServerError>>;
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, String>>;
+    ) -> LocalBoxFuture<'static, Result<Option<AccessKey>, ServerError>>;
 }

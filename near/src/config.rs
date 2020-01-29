@@ -11,7 +11,6 @@ use chrono::{DateTime, Utc};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 
-use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::ChainGenesis;
 use near_client::ClientConfig;
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -131,7 +130,7 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
 /// How much height horizon to give to consider peer up to date.
-pub const MOST_WEIGHTED_PEER_HORIZON: u128 = 5 * WEIGHT_MULTIPLIER;
+pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -320,15 +319,11 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
-                sync_weight_threshold: 0,
                 sync_height_threshold: 1,
                 header_sync_initial_timeout: Duration::from_secs(10),
                 header_sync_progress_timeout: Duration::from_secs(2),
                 header_sync_stall_ban_timeout: Duration::from_secs(40),
-                // weight is measured in WM * ns, so if we expect `k` headers per second
-                // synced, and assuming most headers have most approvals, the value should
-                // be `k * WM * 1B`
-                header_sync_expected_weight_per_second: WEIGHT_MULTIPLIER * 1_000_000_000 * 10,
+                header_sync_expected_height_per_second: 10,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -367,7 +362,7 @@ impl NearConfig {
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
-                peer_max_count: config.network.max_peers,
+                max_peer: config.network.max_peers,
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
@@ -375,7 +370,7 @@ impl NearConfig {
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 routed_message_ttl: ROUTED_MESSAGE_TTL,
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
-                most_weighted_peer_horizon: MOST_WEIGHTED_PEER_HORIZON,
+                highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
                 blacklist: blacklist_from_vec(&config.network.blacklist),
                 outbound_disabled: false,
@@ -417,9 +412,15 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
+pub const CONFIG_VERSION: u32 = 1;
+
 /// Runtime configuration, defining genesis block.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GenesisConfig {
+    /// This is a version of a genesis config structure this version of binary works with.
+    /// If the binary tries to load a JSON config with a different version it will panic.
+    /// It's not a major protocol version, but used for automatic config migrations using scripts.
+    pub config_version: u32,
     /// Protocol version that this genesis works with.
     pub protocol_version: u32,
     /// Official time of blockchain start.
@@ -555,6 +556,7 @@ impl GenesisConfig {
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
+            config_version: CONFIG_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
@@ -765,6 +767,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
+                config_version: CONFIG_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -930,12 +933,14 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
 
 #[cfg(test)]
 mod test {
-    use crate::config::testnet_genesis;
+    use super::*;
 
     /// make sure testnet genesis can be deserialized
     #[test]
     fn test_deserialize_state() {
         let genesis_config = testnet_genesis();
+        assert_eq!(genesis_config.protocol_version, PROTOCOL_VERSION);
+        assert_eq!(genesis_config.config_version, CONFIG_VERSION);
         assert!(genesis_config.total_supply > 0);
     }
 }

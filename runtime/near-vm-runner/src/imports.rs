@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
-use near_vm_logic::{HostErrorOrStorageError, VMLogic};
+use near_vm_logic::{VMLogic, VMLogicError};
 use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 struct ImportReference(*mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}

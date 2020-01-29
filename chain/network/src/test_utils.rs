@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::TcpListener;
 use std::time::Duration;
 
-use actix::{Actor, AsyncContext, Context, Handler, Message, System};
+use actix::{Actor, ActorContext, AsyncContext, Context, Handler, Message};
 use futures::{future, FutureExt};
+use log::debug;
 use rand::{thread_rng, RngCore};
 use tokio::time::delay_for;
 
-use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
@@ -40,7 +40,7 @@ impl NetworkConfig {
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
-            peer_max_count: 10,
+            max_peer: 10,
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
@@ -48,7 +48,7 @@ impl NetworkConfig {
             ttl_account_id_router: Duration::from_secs(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
-            most_weighted_peer_horizon: 5 * WEIGHT_MULTIPLIER,
+            highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
             blacklist: HashMap::new(),
             outbound_disabled: false,
@@ -77,7 +77,6 @@ impl PeerInfo {
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
     actix::spawn(delay_for(Duration::from_millis(max_wait_ms)).then(|_| {
-        System::current().stop();
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -193,5 +192,35 @@ impl Handler<GetInfo> for PeerManagerActor {
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopSignal {
+    pub should_panic: bool,
+}
+
+impl StopSignal {
+    pub fn new() -> Self {
+        Self { should_panic: false }
+    }
+
+    pub fn should_panic() -> Self {
+        Self { should_panic: true }
+    }
+}
+
+impl Handler<StopSignal> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+        debug!(target: "network", "Receive Stop Signal.");
+
+        if msg.should_panic {
+            panic!("Node crashed");
+        } else {
+            ctx.stop();
+        }
     }
 }

@@ -8,17 +8,17 @@ use std::time::Duration;
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, SystemService, WrapFuture,
+    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
+    Running, StreamHandler, SystemService, WrapFuture,
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
-use log::{debug, error, info, trace, warn};
 use rand::{thread_rng, Rng};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
+use tracing::{debug, error, info, trace, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -33,16 +33,15 @@ use crate::peer_store::PeerStore;
 use crate::routing::{Edge, EdgeInfo, EdgeType, ProcessEdgeResult, RoutingTable};
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, NetworkViewClientMessages, OutboundTcpConnect,
-    PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StopSignal, SyncData,
-    Unregister,
+    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
+    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, SyncData, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use crate::NetworkClientResponses;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -152,7 +151,7 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        debug!(target: "network", "Connected to {:?}", full_peer_info);
+        debug!(target: "network", "Consolidated connection with {:?}", full_peer_info);
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
@@ -255,7 +254,8 @@ impl PeerManagerActor {
     }
 
     /// Connects peer with given TcpStream and optional information if it's outbound.
-    fn connect_peer(
+    /// This might fail if the other peers drop listener at its endpoint while establishing connection.
+    fn try_connect_peer(
         &mut self,
         recipient: Addr<Self>,
         stream: TcpStream,
@@ -269,14 +269,40 @@ impl PeerManagerActor {
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
         let view_client_addr = self.view_client_addr.clone();
+
+        let server_addr = match server_addr {
+            Some(server_addr) => server_addr,
+            None => match stream.local_addr() {
+                Ok(server_addr) => server_addr,
+                _ => {
+                    warn!(target: "network", "Failed establishing connection with {:?}", peer_info);
+                    return;
+                }
+            },
+        };
+
+        let remote_addr = match stream.peer_addr() {
+            Ok(remote_addr) => remote_addr,
+            _ => {
+                warn!(target: "network", "Failed establishing connection with {:?}", peer_info);
+                return;
+            }
+        };
+
         Peer::create(move |ctx| {
-            let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
-            let remote_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
             Peer::add_stream(
-                FramedRead::new(read, Codec::new()).map(|x| x.expect("Decoder error")),
+                FramedRead::new(read, Codec::new())
+                    .take_while(|x| match x {
+                        Ok(_) => future::ready(true),
+                        Err(e) => {
+                            warn!(target: "network", "Peer stream error: {:?}", e);
+                            future::ready(false)
+                        }
+                    })
+                    .map(Result::unwrap),
                 ctx,
             );
             Peer::new(
@@ -295,35 +321,33 @@ impl PeerManagerActor {
     }
 
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        (self.active_peers.len() + self.outgoing_peers.len())
-            < (self.config.peer_max_count as usize)
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
             && !self.config.outbound_disabled
     }
 
-    /// Returns single random peer with the most weight.
-    fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
-        // This finds max of weight and height and returns such peer.
-        let max_weight_and_score = match self
+    fn is_inbound_allowed(&self) -> bool {
+        self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
+    }
+
+    /// Returns single random peer with the highest score/height
+    fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
+        // This finds max of score and height and returns such peer.
+        let max_score_and_height = match self
             .active_peers
             .values()
-            .map(|active_peers| {
-                (
-                    active_peers.full_peer_info.chain_info.weight_and_score,
-                    active_peers.full_peer_info.chain_info.height,
-                )
-            })
+            .map(|active_peers| active_peers.full_peer_info.chain_info.score_and_height())
             .max()
         {
-            Some((weight_and_score, _)) => weight_and_score,
+            Some(score_and_height) => score_and_height,
             None => return vec![],
         };
-        // Find all peers whose height is within `most_weighted_peer_horizon` from max weight peer(s).
+        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if max_weight_and_score.beyond_threshold(
-                    &active_peer.full_peer_info.chain_info.weight_and_score,
-                    self.config.most_weighted_peer_horizon,
+                if max_score_and_height.beyond_threshold(
+                    &active_peer.full_peer_info.chain_info.score_and_height(),
+                    self.config.highest_peer_horizon,
                 ) {
                     None
                 } else {
@@ -715,11 +739,21 @@ impl PeerManagerActor {
                 .map(|a| a.full_peer_info.clone())
                 .collect::<Vec<_>>(),
             num_active_peers: self.num_active_peers(),
-            peer_max_count: self.config.peer_max_count,
-            most_weight_peers: self.most_weight_peers(),
+            peer_max_count: self.config.max_peer,
+            highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,
-            known_producers: self.routing_table.get_accounts_keys(),
+            known_producers: self
+                .routing_table
+                .get_announce_accounts()
+                .iter()
+                .map(|announce_account| KnownProducer {
+                    account_id: announce_account.account_id.clone(),
+                    peer_id: announce_account.peer_id.clone(),
+                    // TODO: fill in the address.
+                    addr: None,
+                })
+                .collect(),
         }
     }
 
@@ -760,7 +794,7 @@ impl Actor for PeerManagerActor {
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
                     let incoming = IncomingCrutch { listener };
-                    info!(target: "info", "Server listening at {}@{}", act.peer_id, server_addr);
+                    info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
                     ctx.add_message_stream(
                         incoming.filter_map(|x| future::ready(x.map(InboundTcpConnect::new).ok())),
                     );
@@ -977,17 +1011,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     .collect();
 
                 // Ask client to validate accounts before accepting them.
-                self.client_addr
-                    .send(NetworkClientMessages::AnnounceAccount(new_accounts))
+                self.view_client_addr
+                    .send(NetworkViewClientMessages::AnnounceAccount(new_accounts))
                     .into_actor(self)
                     .then(move |response, act, ctx| {
                         match response {
-                        Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                        Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
                             if let Some(active_peer) = act.active_peers.get(&peer_id) {
                                 active_peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
                             }
                         }
-                        Ok(NetworkClientResponses::AnnounceAccount(accounts)) => {
+                        Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
                             // Filter known edges.
                             let me = act.peer_id.clone();
 
@@ -1121,7 +1155,12 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
-        self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        if self.is_inbound_allowed() {
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        } else {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+        }
     }
 }
 
@@ -1139,7 +1178,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                             debug!(target: "network", "Connecting to {}", msg.peer_info);
                             let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
 
-                            act.connect_peer(
+                            act.try_connect_peer(
                                 ctx.address(),
                                 stream,
                                 PeerType::Outbound,
@@ -1190,6 +1229,12 @@ impl Handler<Consolidate> for PeerManagerActor {
                 debug!(target: "network", "Dropping handshake (Tied). {:?} {:?}", self.peer_id, msg.peer_info.id);
                 return ConsolidateResponse::Reject;
             }
+        }
+
+        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+            return ConsolidateResponse::Reject;
         }
 
         if msg.other_edge_info.nonce == 0 {
@@ -1327,14 +1372,5 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
-    }
-}
-
-impl Handler<StopSignal> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(&mut self, _msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
-        debug!(target: "network", "Receive Stop Signal. Me: {:?}", self.peer_id);
-        ctx.stop();
     }
 }

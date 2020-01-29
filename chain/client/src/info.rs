@@ -6,20 +6,27 @@ use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use serde_json::json;
-use sysinfo::{get_current_pid, Pid, ProcessExt, System, SystemExt};
+use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
 use near_network::types::NetworkInfo;
 use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;
 use near_primitives::types::Gas;
+use near_primitives::types::Version;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::types::{ShardSyncStatus, SyncStatus};
+use crate::types::{ClientConfig, ShardSyncStatus, SyncStatus};
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
+    /// Nearcore agent (executable) version
+    nearcore_version: Version,
+    /// System reference.
+    sys: System,
+    /// Process id to query resources.
+    pid: Option<Pid>,
     /// Timestamp when client was started.
     started: Instant,
     /// Total number of blocks processed.
@@ -28,10 +35,6 @@ pub struct InfoHelper {
     gas_used: u64,
     /// Total gas limit during period.
     gas_limit: u64,
-    /// Process id to query resources.
-    pid: Option<Pid>,
-    /// System reference.
-    sys: System,
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
@@ -41,15 +44,18 @@ pub struct InfoHelper {
 impl InfoHelper {
     pub fn new(
         telemetry_actor: Addr<TelemetryActor>,
+        client_config: &ClientConfig,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
+        set_open_files_limit(0);
         InfoHelper {
+            nearcore_version: client_config.version.clone(),
+            sys: System::new(),
+            pid: get_current_pid().ok(),
             started: Instant::now(),
             num_blocks_processed: 0,
             gas_used: 0,
             gas_limit: 0,
-            pid: get_current_pid().ok(),
-            sys: System::new(),
             telemetry_actor,
             validator_signer,
         }
@@ -71,7 +77,7 @@ impl InfoHelper {
         is_fisherman: bool,
         num_validators: usize,
     ) {
-        let (cpu_usage, memory) = if let Some(pid) = self.pid {
+        let (cpu_usage, memory_usage) = if let Some(pid) = self.pid {
             if self.sys.refresh_process(pid) {
                 let proc = self
                     .sys
@@ -91,13 +97,13 @@ impl InfoHelper {
             * 1000.0;
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
-        info!(target: "info", "{} {} {} {} {} {}",
+        info!(target: "stats", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
-              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
+              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
-              Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory * 1024)))
+              Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
         );
 
         self.started = Instant::now();
@@ -109,17 +115,26 @@ impl InfoHelper {
             &self.telemetry_actor,
             try_sign_json(
                 json!({
-                    "account_id": self.validator_signer.clone().map(|vs| vs.validator_id().clone()).unwrap_or("".to_string()),
-                    "is_validator": is_validator,
-                    "node_id": format!("{}", node_id),
-                    "status": display_sync_status(&sync_status, &head),
-                    "latest_block_hash": to_base(&head.last_block_hash),
-                    "latest_block_height": head.height,
-                    "num_peers":  network_info.num_active_peers,
-                    "bandwidth_download": network_info.received_bytes_per_sec,
-                    "bandwidth_upload": network_info.sent_bytes_per_sec,
-                    "cpu": cpu_usage,
-                    "memory": memory,
+                    "agent": {
+                        "name": "near-rs",
+                        "version": self.nearcore_version.version,
+                        "build": self.nearcore_version.build,
+                    },
+                    "system": {
+                        "bandwidth_download": network_info.received_bytes_per_sec,
+                        "bandwidth_upload": network_info.sent_bytes_per_sec,
+                        "cpu_usage": cpu_usage,
+                        "memory_usage": memory_usage,
+                    },
+                    "chain": {
+                        "node_id": node_id.to_string(),
+                        "account_id": self.validator_signer.clone().map(|bp| bp.validator_id().clone()).unwrap_or("".to_string()),
+                        "is_validator": is_validator,
+                        "status": sync_status.as_variant_name(),
+                        "latest_block_hash": to_base(&head.last_block_hash),
+                        "latest_block_height": head.height,
+                        "num_peers":  network_info.num_active_peers,
+                    }
                 }),
                 &self.validator_signer,
             ),
@@ -145,7 +160,7 @@ fn try_sign_json(
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
+        SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height == 0 {
                 0

@@ -27,9 +27,12 @@ actix = "0.9.0"
 borsh = "0.2.10"
 
 near-crypto = { path = "../crypto" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 default = ["jemallocator"]
+dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 
 [dev-dependencies]
 bencher = "0.1.5"

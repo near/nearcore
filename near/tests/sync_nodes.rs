@@ -8,7 +8,6 @@ use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_chain::chain::WEIGHT_MULTIPLIER;
 use near_chain::{Block, Chain};
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
@@ -30,11 +29,6 @@ fn add_blocks(
     epoch_length: BlockHeightDelta,
     signer: &dyn ValidatorSigner,
 ) -> Vec<Block> {
-    let mut prev_prev_timestamp = if blocks.len() == 1 {
-        blocks[0].header.inner_lite.timestamp
-    } else {
-        blocks[blocks.len() - 2].header.inner_lite.timestamp
-    };
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
         let epoch_id = match prev.header.inner_lite.height + 1 {
@@ -51,32 +45,29 @@ fn add_blocks(
             &prev.header,
             prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
-            epoch_id.clone(),
+            epoch_id,
             next_epoch_id,
-            vec![Approval::new(prev.hash(), prev.hash(), signer)],
+            vec![Approval::new(
+                prev.hash(),
+                None,
+                prev.header.inner_lite.height + 1,
+                false,
+                signer,
+            )],
             0,
             0,
             Some(0),
             vec![],
             vec![],
             signer,
-            (prev.header.inner_lite.timestamp - prev_prev_timestamp) as u128,
-            WEIGHT_MULTIPLIER,
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
-                prev.header.inner_rest.total_weight
-            } else {
-                prev.header.inner_rest.score
-            },
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
-                prev.hash()
-            } else {
-                prev.header.inner_rest.last_quorum_pre_vote
-            },
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
             CryptoHash::default(),
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {
                 account_id: "other".to_string(),
                 public_key: signer.public_key(),
-                amount: TESTING_INIT_STAKE,
+                stake: TESTING_INIT_STAKE,
             }])
             .unwrap(),
         );
@@ -85,7 +76,6 @@ fn add_blocks(
             PeerInfo::random().id,
             false,
         ));
-        prev_prev_timestamp = prev.header.inner_lite.timestamp;
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
     }

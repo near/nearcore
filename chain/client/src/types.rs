@@ -6,14 +6,15 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
-use near_network::types::AccountOrPeerIdOrHash;
+use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, ShardId, Version,
+    AccountId, BlockHeight, BlockHeightDelta, MaybeBlockId, NumBlocks, NumSeats, ShardId,
+    StateChanges, StateChangesRequest, Version,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
@@ -97,8 +98,6 @@ pub struct ClientConfig {
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
-    /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
     /// How much time to wait after initial header sync
@@ -108,7 +107,7 @@ pub struct ClientConfig {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
-    pub header_sync_expected_weight_per_second: u128,
+    pub header_sync_expected_height_per_second: u64,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -162,12 +161,11 @@ impl ClientConfig {
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
-            sync_weight_threshold: 0,
             sync_height_threshold: 1,
             header_sync_initial_timeout: Duration::from_secs(10),
             header_sync_progress_timeout: Duration::from_secs(2),
             header_sync_stall_ban_timeout: Duration::from_secs(30),
-            header_sync_expected_weight_per_second: 1_000_000_000,
+            header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
@@ -230,7 +228,7 @@ pub struct ShardSyncDownload {
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, strum::AsStaticStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
     AwaitingPeers,
@@ -247,6 +245,11 @@ pub enum SyncStatus {
 }
 
 impl SyncStatus {
+    /// Get a string representation of the status variant
+    pub fn as_variant_name(&self) -> &'static str {
+        strum::AsStaticRef::as_static(self)
+    }
+
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
         match self {
@@ -318,10 +321,8 @@ impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
 }
 
-pub enum GetGasPrice {
-    Height(BlockHeight),
-    Hash(CryptoHash),
-    None,
+pub struct GetGasPrice {
+    pub block_id: MaybeBlockId,
 }
 
 impl Message for GetGasPrice {
@@ -336,7 +337,7 @@ pub struct NetworkInfoResponse {
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
-    pub known_producers: Vec<AccountId>,
+    pub known_producers: Vec<KnownProducer>,
 }
 
 /// Status of given transaction including all the subsequent receipts.
@@ -350,9 +351,18 @@ impl Message for TxStatus {
 }
 
 pub struct GetValidatorInfo {
-    pub last_block_hash: CryptoHash,
+    pub block_id: MaybeBlockId,
 }
 
 impl Message for GetValidatorInfo {
     type Result = Result<EpochValidatorInfo, String>;
+}
+
+pub struct GetKeyValueChanges {
+    pub block_hash: CryptoHash,
+    pub state_changes_request: StateChangesRequest,
+}
+
+impl Message for GetKeyValueChanges {
+    type Result = Result<StateChanges, String>;
 }
