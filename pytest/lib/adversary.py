@@ -1,3 +1,10 @@
+# For adversarial test make sure to always call `setup_adversarial_test`
+# at the beginning to use adversarial compiled binary.
+#
+# ```
+# from adversary import setup_adversarial_test
+# setup_adversarial_test()
+# ```
 import subprocess
 
 ADVERSARIAL_TEST = False
