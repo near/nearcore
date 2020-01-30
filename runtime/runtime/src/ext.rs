@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 use near_vm_logic::{External, HostError, VMLogicError, ValuePtr};
+use sha3::{Keccak256, Keccak512};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -356,8 +357,29 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn sha256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
         use sha2::Digest;
+
         let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
+    }
+
+    fn keccak256(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> ExtResult<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {

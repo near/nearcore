@@ -40,6 +40,8 @@ extern "C" {
     // ############
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
+    fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
+    fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
