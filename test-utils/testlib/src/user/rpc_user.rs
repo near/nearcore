@@ -18,7 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, EpochValidatorInfo, ExecutionOutcomeView,
-    FinalExecutionOutcomeView, QueryRequest, QueryResponse, ViewStateResult,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -50,7 +50,9 @@ impl RpcUser {
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         let data = to_base(data);
-        self.actix(move |mut client| client.query(path, data).map_err(|err| err.to_string()))
+        self.actix(move |mut client| {
+            client.query_by_path(path, data).map_err(|err| err.to_string())
+        })
     }
 
     pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
