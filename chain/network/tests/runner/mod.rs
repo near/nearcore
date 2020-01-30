@@ -62,7 +62,6 @@ pub fn setup_network_node(
         let network_adapter = Arc::new(network_adapter);
         let client_actor = ClientActor::new(
             client_config.clone(),
-            store.clone(),
             chain_genesis.clone(),
             runtime.clone(),
             config.public_key.clone().into(),
@@ -74,7 +73,6 @@ pub fn setup_network_node(
         .unwrap()
         .start();
         let view_client_actor = ViewClientActor::new(
-            store.clone(),
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
