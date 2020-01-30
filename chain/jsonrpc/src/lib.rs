@@ -269,62 +269,68 @@ impl JsonRpcHandler {
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let query_request = if let Ok((path, data)) =
-            parse_params::<(String, String)>(params.clone())
-        {
-            let data = from_base_or_parse_err(data)?;
-            let query_data_size = path.len() + data.len();
-            if query_data_size > QUERY_DATA_MAX_SIZE {
-                return Err(RpcError::server_error(Some(format!(
-                    "Query data size {} is too large",
-                    query_data_size
-                ))));
-            }
-            let path_parts: Vec<&str> = path.splitn(3, '/').collect();
-            if path_parts.len() <= 1 {
-                return Err(RpcError::server_error(Some(
-                    "Not enough query parameters provided".to_string(),
-                )));
-            }
-            let account_id = AccountId::from(path_parts[1].clone());
-            let request = match path_parts[0] {
-                "account" => QueryRequest::ViewAccount { account_id },
-                "access_key" => match path_parts.len() {
-                    2 => QueryRequest::ViewAccessKeyList { account_id },
-                    3 => QueryRequest::ViewAccessKey {
-                        account_id,
-                        public_key: PublicKey::try_from(path_parts[2])
-                            .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
-                    },
-                    _ => {
-                        unreachable!("path parts are at least 2 and at most 3 elements due to splitn(3) and the check right after it");
-                    }
-                },
-                "contract" => QueryRequest::ViewState { account_id, prefix: data },
-                "call" => {
-                    if let Some(method_name) = path_parts.get(2) {
-                        QueryRequest::CallFunction {
-                            account_id,
-                            method_name: method_name.to_string(),
-                            args: data,
-                        }
-                    } else {
-                        return Err(RpcError::server_error(Some(
-                            "Method name is missing".to_string(),
-                        )));
-                    }
-                }
-                _ => {
+        let query_request =
+            if let Ok((path, data)) = parse_params::<(String, String)>(params.clone()) {
+                // Handle a soft-deprecated version of the query API, which is based on
+                // positional arguments with a "path"-style first argument.
+                //
+                // This whole block can be removed one day, when the new API is 100% adopted.
+                let data = from_base_or_parse_err(data)?;
+                let query_data_size = path.len() + data.len();
+                if query_data_size > QUERY_DATA_MAX_SIZE {
                     return Err(RpcError::server_error(Some(format!(
-                        "Unknown path {}",
-                        path_parts[0]
-                    ))))
+                        "Query data size {} is too large",
+                        query_data_size
+                    ))));
                 }
+                let path_parts: Vec<&str> = path.splitn(3, '/').collect();
+                if path_parts.len() <= 1 {
+                    return Err(RpcError::server_error(Some(
+                        "Not enough query parameters provided".to_string(),
+                    )));
+                }
+                let account_id = AccountId::from(path_parts[1].clone());
+                let request = match path_parts[0] {
+                    "account" => QueryRequest::ViewAccount { account_id },
+                    "access_key" => match path_parts.len() {
+                        2 => QueryRequest::ViewAccessKeyList { account_id },
+                        3 => QueryRequest::ViewAccessKey {
+                            account_id,
+                            public_key: PublicKey::try_from(path_parts[2])
+                                .map_err(|_| RpcError::server_error(Some("Invalid public key")))?,
+                        },
+                        _ => {
+                            unreachable!(
+                                "`access_key` query path parts are at least 2 and at most 3 \
+                                 elements due to splitn(3) and the check right after it"
+                            );
+                        }
+                    },
+                    "contract" => QueryRequest::ViewState { account_id, prefix: data },
+                    "call" => {
+                        if let Some(method_name) = path_parts.get(2) {
+                            QueryRequest::CallFunction {
+                                account_id,
+                                method_name: method_name.to_string(),
+                                args: data,
+                            }
+                        } else {
+                            return Err(RpcError::server_error(Some(
+                                "Method name is missing".to_string(),
+                            )));
+                        }
+                    }
+                    _ => {
+                        return Err(RpcError::server_error(Some(format!(
+                            "Unknown path {}",
+                            path_parts[0]
+                        ))))
+                    }
+                };
+                RpcQueryRequest { block_id: None, request }
+            } else {
+                parse_params::<RpcQueryRequest>(params)?
             };
-            RpcQueryRequest { block_id: None, request }
-        } else {
-            parse_params::<RpcQueryRequest>(params)?
-        };
         let query = Query::new(query_request.block_id, query_request.request);
         timeout(self.polling_config.polling_timeout, async {
             loop {
