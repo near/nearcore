@@ -24,7 +24,6 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::views::ValidatorInfo;
-use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
@@ -70,7 +69,6 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
-        store: Arc<Store>,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
@@ -86,7 +84,6 @@ impl ClientActor {
         let info_helper = InfoHelper::new(telemetry_actor, &config, block_producer.clone());
         let client = Client::new(
             config,
-            store,
             chain_genesis,
             runtime_adapter,
             network_adapter.clone(),

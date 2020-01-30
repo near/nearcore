@@ -109,7 +109,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (store_update, roots) = self.runtime.genesis_state();
+        let (_store, store_update, roots) = self.runtime.genesis_state();
         store_update.commit()?;
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self

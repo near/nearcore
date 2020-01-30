@@ -77,7 +77,6 @@ pub fn start_with_config(
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
     let view_client = ViewClientActor::new(
-        store.clone(),
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
@@ -88,7 +87,6 @@ pub fn start_with_config(
 
     let client_actor = ClientActor::new(
         config.client_config,
-        store.clone(),
         chain_genesis.clone(),
         runtime,
         node_id,

@@ -48,8 +48,7 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
         genesis_config.transaction_validity_period,
         genesis_config.epoch_length,
     );
-    let chain =
-        Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
+    let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
@@ -65,8 +64,7 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
         vec![],
     ));
     let mut chain =
-        Chain::new(store, runtime, &genesis_config.into(), DoomslugThresholdMode::HalfStake)
-            .unwrap();
+        Chain::new(runtime, &genesis_config.into(), DoomslugThresholdMode::HalfStake).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
