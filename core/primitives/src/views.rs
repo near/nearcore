@@ -25,8 +25,8 @@ use crate::transaction::{
     FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateRoot, StorageUsage, ValidatorStake, Version,
+    AccountId, Balance, BlockHeight, EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId,
+    StateChanges, StateRoot, StorageUsage, StoreKey, ValidatorStake, Version,
 };
 
 /// A view of the account
@@ -171,10 +171,10 @@ pub enum QueryResponseKind {
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
     ViewAccount { account_id: AccountId },
-    ViewState { account_id: AccountId, prefix: Vec<u8> },
+    ViewState { account_id: AccountId, prefix: StoreKey },
     ViewAccessKey { account_id: AccountId, public_key: PublicKey },
     ViewAccessKeyList { account_id: AccountId },
-    CallFunction { account_id: AccountId, method_name: String, args: Vec<u8> },
+    CallFunction { account_id: AccountId, method_name: String, args: FunctionArgs },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

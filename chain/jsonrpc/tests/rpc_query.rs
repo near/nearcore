@@ -278,7 +278,10 @@ fn test_query_state() {
         let query_response = client
             .query(RpcQueryRequest {
                 block_id: None,
-                request: QueryRequest::ViewState { account_id: "test".to_string(), prefix: vec![] },
+                request: QueryRequest::ViewState {
+                    account_id: "test".to_string(),
+                    prefix: vec![].into(),
+                },
             })
             .await
             .unwrap();
@@ -302,7 +305,7 @@ fn test_query_call_function() {
                 request: QueryRequest::CallFunction {
                     account_id: "test".to_string(),
                     method_name: "method".to_string(),
-                    args: vec![],
+                    args: vec![].into(),
                 },
             })
             .await

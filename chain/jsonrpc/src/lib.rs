@@ -306,13 +306,13 @@ impl JsonRpcHandler {
                             );
                         }
                     },
-                    "contract" => QueryRequest::ViewState { account_id, prefix: data },
+                    "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
                     "call" => {
                         if let Some(method_name) = path_parts.get(2) {
                             QueryRequest::CallFunction {
                                 account_id,
                                 method_name: method_name.to_string(),
-                                args: data,
+                                args: data.into(),
                             }
                         } else {
                             return Err(RpcError::server_error(Some(

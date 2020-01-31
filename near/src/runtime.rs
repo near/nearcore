@@ -926,7 +926,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_timestamp,
                     account_id,
                     method_name,
-                    args,
+                    args.as_ref(),
                     &mut logs,
                 ) {
                     Ok(result) => Ok(QueryResponse {
@@ -942,7 +942,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
             QueryRequest::ViewState { account_id, prefix } => {
-                match self.view_state(*state_root, account_id, prefix) {
+                match self.view_state(*state_root, account_id, prefix.as_ref()) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewState(result),
                         block_height,
