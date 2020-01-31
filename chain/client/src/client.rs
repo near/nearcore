@@ -1,5 +1,5 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
-//! This client works completely syncronously and must be operated by some async actor outside.
+//! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -28,9 +28,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::{adversarial_variable, unwrap_or_return};
 use near_store::Store;
 
 use crate::metrics;
@@ -197,17 +197,78 @@ impl Client {
         }
     }
 
-    /// Produce block if we are block producer for given `next_height` block height.
-    /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        adversarial_variable!(adv_produce_blocks, false, self.adv_produce_blocks);
-
-        // Check that this block height is not known yet.
-        if !adv_produce_blocks {
-            if next_height <= self.chain.mut_store().get_latest_known()?.height {
+    /// Check that this block height is not known yet.
+    fn check_block_height(
+        &mut self,
+        next_height: BlockHeight,
+    ) -> Result<Option<Option<Block>>, Error> {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_produce_blocks {
                 return Ok(None);
             }
         }
+
+        if next_height <= self.chain.mut_store().get_latest_known()?.height {
+            Ok(Some(None))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Check that we are next block proposer
+    fn no_block_producer(
+        &self,
+        block_producer: &BlockProducer,
+        next_block_proposer: &AccountId,
+    ) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if adv_produce_blocks && !adv_produce_blocks_only_valid {
+                return false;
+            }
+        }
+
+        &block_producer.account_id != next_block_proposer
+    }
+
+    fn should_reschedule_block(
+        &self,
+        head: &Tip,
+        prev_hash: &CryptoHash,
+        prev_prev_hash: &CryptoHash,
+    ) -> Result<Option<Option<Block>>, Error> {
+        #[cfg(feature = "adversarial")]
+        {
+            if adv_produce_blocks {
+                return Ok(None);
+            }
+        }
+
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // Currently state for the chunks we are interested in this epoch
+                // are not yet caught up (e.g. still state syncing).
+                // We reschedule block production.
+                // Alex's comment:
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, block production must to be rescheduled
+                debug!(target: "client", "Produce block: prev block is not caught up");
+                return Ok(Some(None));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Produce block if we are block producer for given `next_height` block height.
+    /// Either returns produced block (not applied) or error.
+    pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
+        if let Some(res) = self.check_block_height(next_height)? {
+            return Ok(res);
+        }
+
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -225,23 +286,9 @@ impl Client {
             next_height,
         )?;
 
-        adversarial_variable!(adv_produce_blocks, false, self.adv_produce_blocks);
-        adversarial_variable!(
-            adv_produce_blocks_only_valid,
-            false,
-            self.adv_produce_blocks_only_valid
-        );
-
-        if !adv_produce_blocks {
-            if *validator_signer.validator_id() != next_block_proposer {
-                info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-                return Ok(None);
-            }
-        } else if adv_produce_blocks_only_valid {
-            if *validator_signer.validator_id() != next_block_proposer {
-                info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-                return Ok(None);
-            }
+        if self.no_block_producer(&block_producer, &next_block_proposer) {
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+            return Ok(None);
         }
 
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
@@ -257,20 +304,8 @@ impl Client {
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
-        if !adv_produce_blocks {
-            if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-                if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                    // Currently state for the chunks we are interested in this epoch
-                    // are not yet caught up (e.g. still state syncing).
-                    // We reschedule block production.
-                    // Alex's comment:
-                    // The previous block is not caught up for the next epoch relative to the previous
-                    // block, which is the current epoch for this block, so this block cannot be applied
-                    // at all yet, block production must to be rescheduled
-                    debug!(target: "client", "Produce block: prev block is not caught up");
-                    return Ok(None);
-                }
-            }
+        if let Some(res) = self.should_reschedule_block(&head, &prev_hash, &prev_prev_hash)? {
+            return Ok(res);
         }
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);

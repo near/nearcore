@@ -12,14 +12,13 @@ use log::{error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
 };
 use near_chain_configs::ClientConfig;
 use near_network::types::{
     AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
     StateResponseInfo,
 };
-use near_network::{NetworkAdapter, NetworkRequests};
 use near_network::{NetworkAdapter, NetworkRequests};
 use near_primitives::adversarial_variable;
 #[cfg(feature = "adversarial")]
@@ -288,6 +287,17 @@ impl ViewClientActor {
             )
             .map_err(|e| e.into())
     }
+
+    fn get_height_and_score(&self, head: &Tip) -> (BlockHeight, BlockScore) {
+        #[cfg(feature = "adversarial")]
+        {
+            if let Some((height, score)) = self.chain.adv_sync_info {
+                return (height, BlockScore::from(score));
+            }
+        }
+
+        (head.height, head.score)
+    }
 }
 
 impl Actor for ViewClientActor {
@@ -541,37 +551,22 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                adversarial_variable!(
-                    adv_disable_header_sync,
-                    false,
-                    self.chain.adv_disable_header_sync
-                );
-
-                if adv_disable_header_sync {
-                    NetworkViewClientResponses::NoResponse
-                } else {
-                    if let Ok(headers) = self.retrieve_headers(hashes) {
-                        NetworkViewClientResponses::BlockHeaders(headers)
-                    } else {
-                        NetworkViewClientResponses::NoResponse
+                #[cfg(feature = "adversarial")]
+                {
+                    if self.chain.adv_disable_header_sync {
+                        return NetworkViewClientResponses::NoResponse;
                     }
+                }
+
+                if let Ok(headers) = self.retrieve_headers(hashes) {
+                    NetworkViewClientResponses::BlockHeaders(headers)
+                } else {
+                    NetworkViewClientResponses::NoResponse
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    adversarial_variable!(
-                        height,
-                        head.height,
-                        self.chain.adv_sync_info.map_or(head.height, |(height, _)| { height })
-                    );
-
-                    adversarial_variable!(
-                        score,
-                        head.score,
-                        self.chain
-                            .adv_sync_info
-                            .map_or(head.score, |(_, score)| { BlockScore::from(score) })
-                    );
+                    let (height, score) = self.get_height_and_score(&head);
 
                     NetworkViewClientResponses::ChainInfo {
                         genesis_id: GenesisId {

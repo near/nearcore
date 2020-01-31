@@ -21,7 +21,6 @@ use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
-use near_primitives::adversarial_variable;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -771,7 +770,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
-    fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
+    fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
@@ -813,6 +812,17 @@ impl ClientActor {
             }
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
+    }
+
+    fn needs_syncing(&self, needs_syncing: bool) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.client.chain.adv_disable_header_sync {
+                return false;
+            }
+        }
+
+        needs_syncing
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -926,15 +936,9 @@ impl ClientActor {
         let mut wait_period = self.client.config.sync_step_period;
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
+        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
 
-        adversarial_variable!(
-            adv_disable_header_sync,
-            false,
-            self.client.chain.adv_disable_header_sync
-        );
-
-        if !needs_syncing || adv_disable_header_sync {
+        if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
                 debug!(
                     target: "client",
