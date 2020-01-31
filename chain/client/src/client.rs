@@ -224,7 +224,7 @@ impl Client {
     ) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if adv_produce_blocks && !adv_produce_blocks_only_valid {
+            if self.adv_produce_blocks && !self.adv_produce_blocks_only_valid {
                 return false;
             }
         }
@@ -240,7 +240,7 @@ impl Client {
     ) -> Result<Option<Option<Block>>, Error> {
         #[cfg(feature = "adversarial")]
         {
-            if adv_produce_blocks {
+            if self.adv_produce_blocks {
                 return Ok(None);
             }
         }

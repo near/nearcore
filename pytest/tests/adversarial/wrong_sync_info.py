@@ -7,12 +7,8 @@ import sys, time
 
 sys.path.append('lib')
 
-
 from cluster import start_cluster
 from utils import LogTracker
-from adversary import setup_adversarial_test
-
-setup_adversarial_test()
 
 TIMEOUT = 300
 BLOCKS = 30

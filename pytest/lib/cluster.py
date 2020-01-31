@@ -16,7 +16,6 @@ import rc
 from rc import gcloud
 import uuid
 import network
-import adversary
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
@@ -423,9 +422,6 @@ CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 def load_config():
     config = DEFAULT_CONFIG
-
-    if adversary.ADVERSARIAL_TEST:
-        config['near_root'] = adversary.ADVERSARIAL_PATH
 
     config_file = os.environ.get(CONFIG_ENV_VAR, '')
     if config_file:

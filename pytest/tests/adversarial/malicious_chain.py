@@ -3,9 +3,6 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
-from adversary import setup_adversarial_test
-
-setup_adversarial_test()
 
 valid_blocks_only = False # creating invalid blocks, should be banned instantly
 if "valid_blocks_only" in sys.argv:

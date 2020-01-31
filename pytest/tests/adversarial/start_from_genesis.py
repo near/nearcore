@@ -3,9 +3,6 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
-from adversary import setup_adversarial_test
-
-setup_adversarial_test()
 
 overtake = False # create a new chain which should not be accepted
 if "overtake" in sys.argv:
