@@ -508,14 +508,7 @@ pub struct ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
-    pub part_ids: Vec<u64>,
-    pub data: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Default)]
-pub struct StateRequestParts {
-    pub ids: Vec<u64>,
-    pub num_parts: u64,
+    pub part: Option<(u64, Vec<u8>)>,
 }
 
 #[cfg(test)]

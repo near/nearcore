@@ -97,10 +97,6 @@ mod tests {
         let mut is_done = false;
         while !is_done {
             now = now + Duration::from_millis(25);
-            /*println!("{:?}, {}, {}", now, approval_queue.len(), block_queue.len());
-            for ds in doomslugs.iter() {
-                println!(" --> {:?}", ds.get_tip());
-            }*/
             let mut new_approval_queue = vec![];
             let mut new_block_queue = vec![];
 

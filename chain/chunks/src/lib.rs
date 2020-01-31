@@ -18,6 +18,7 @@ use near_chain::{
 use near_network::types::{NetworkAdapter, PartialEncodedChunkRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -34,7 +35,6 @@ use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use near_primitives::block::BlockHeader;
 
 mod chunk_cache;
 mod types;

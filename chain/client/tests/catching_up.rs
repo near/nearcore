@@ -9,7 +9,6 @@ mod tests {
     use futures::{future, FutureExt};
 
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
@@ -81,8 +80,7 @@ mod tests {
     pub struct StateRequestStruct {
         pub shard_id: u64,
         pub sync_hash: CryptoHash,
-        pub need_header: bool,
-        pub parts: StateRequestParts,
+        pub part_id: Option<u64>,
         pub target: AccountOrPeerIdOrHash,
     }
 
@@ -237,11 +235,9 @@ mod tests {
                                 //    being included in the block
                                 return (NetworkResponses::NoResponse, false);
                             }
-                            if let NetworkRequests::StateRequest {
+                            if let NetworkRequests::StateRequestHeader {
                                 shard_id,
                                 sync_hash,
-                                need_header,
-                                parts,
                                 target,
                             } = msg
                             {
@@ -249,8 +245,30 @@ mod tests {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
                                         sync_hash: *sync_hash,
-                                        need_header: *need_header,
-                                        parts: parts.clone(),
+                                        part_id: None,
+                                        target: target.clone(),
+                                    };
+                                    if !seen_hashes_with_state
+                                        .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    {
+                                        seen_hashes_with_state
+                                            .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        return (NetworkResponses::NoResponse, false);
+                                    }
+                                }
+                            }
+                            if let NetworkRequests::StateRequestPart {
+                                shard_id,
+                                sync_hash,
+                                part_id,
+                                target,
+                            } = msg
+                            {
+                                if sync_hold {
+                                    let srs = StateRequestStruct {
+                                        shard_id: *shard_id,
+                                        sync_hash: *sync_hash,
+                                        part_id: Some(*part_id),
                                         target: target.clone(),
                                     };
                                     if !seen_hashes_with_state
@@ -874,19 +892,19 @@ mod tests {
 
     #[test]
     fn test_all_chunks_accepted_10() {
-        test_all_chunks_accepted_common(10, 1000, 5)
+        test_all_chunks_accepted_common(10, 2000, 5)
     }
 
     #[test]
     #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000() {
-        test_all_chunks_accepted_common(1000, 1000, 5)
+        test_all_chunks_accepted_common(1000, 2000, 5)
     }
 
     #[test]
     #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_slow() {
-        test_all_chunks_accepted_common(1000, 3000, 5)
+        test_all_chunks_accepted_common(1000, 4000, 5)
     }
 
     #[test]

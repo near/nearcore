@@ -305,13 +305,11 @@ impl Peer {
                     RoutedMessageBody::ReceiptOutComeResponse(response) => {
                         NetworkViewClientMessages::ReceiptOutcomeResponse(response)
                     }
-                    RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts) => {
-                        NetworkViewClientMessages::StateRequest {
-                            shard_id,
-                            sync_hash,
-                            need_header,
-                            parts,
-                        }
+                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
+                        NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
+                    }
+                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
+                        NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id }
                     }
                     body => {
                         error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
@@ -435,7 +433,8 @@ impl Peer {
                     | RoutedMessageBody::QueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::ReceiptOutComeResponse(_)
-                    | RoutedMessageBody::StateRequest(_, _, _, _) => {
+                    | RoutedMessageBody::StateRequestHeader(_, _)
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }

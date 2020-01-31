@@ -10,14 +10,11 @@ use futures::{future, FutureExt};
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 
-use near_chain::types::StateRequestParts;
 use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId, StateRootNode,
-};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 
@@ -464,15 +461,6 @@ impl StateSync {
         }
     }
 
-    pub fn get_num_parts(&self, state_root_node: &StateRootNode) -> u64 {
-        let state_size = state_root_node.memory_usage;
-        // We assume that 1 Mb is a good limit for state part size.
-        // On the other side, it's important to divide any state into
-        // several parts to make sure that partitioning always works.
-        // TODO #1708
-        state_size / (1024 * 1024) + 3
-    }
-
     pub fn sync_block_status(
         &mut self,
         sync_hash: CryptoHash,
@@ -544,8 +532,9 @@ impl StateSync {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header =
                             chain.get_received_state_header(shard_id, sync_hash)?;
-                        let state_num_parts =
-                            self.get_num_parts(&shard_state_header.state_root_node);
+                        let state_num_parts = Chain::get_num_state_parts(
+                            shard_state_header.state_root_node.memory_usage,
+                        );
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
@@ -606,7 +595,8 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadFinalize => {
                     let shard_state_header =
                         chain.get_received_state_header(shard_id, sync_hash)?;
-                    let state_num_parts = self.get_num_parts(&shard_state_header.state_root_node);
+                    let state_num_parts =
+                        Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
                     match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
@@ -629,7 +619,8 @@ impl StateSync {
                     this_done = true;
                     let shard_state_header =
                         chain.get_received_state_header(shard_id, sync_hash)?;
-                    let state_num_parts = self.get_num_parts(&shard_state_header.state_root_node);
+                    let state_num_parts =
+                        Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }
@@ -745,16 +736,14 @@ impl StateSync {
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 actix::spawn(
                     self.network_adapter
-                        .send(NetworkRequests::StateRequest {
+                        .send(NetworkRequests::StateRequestHeader {
                             shard_id,
                             sync_hash,
-                            need_header: true,
-                            parts: StateRequestParts::default(),
                             target: target.clone(),
                         })
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) = result {
-                                // Send a StateRequest on the next iteration
+                                // Send a StateRequestHeader on the next iteration
                                 run_me.store(true, Ordering::SeqCst);
                             }
                             future::ready(())
@@ -762,7 +751,6 @@ impl StateSync {
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
-                let num_parts = new_shard_sync_download.downloads.len() as u64;
                 for (i, download) in new_shard_sync_download.downloads.iter_mut().enumerate() {
                     if download.run_me.load(Ordering::SeqCst) {
                         let target = possible_targets
@@ -774,16 +762,15 @@ impl StateSync {
                         let run_me = download.run_me.clone();
                         actix::spawn(
                             self.network_adapter
-                                .send(NetworkRequests::StateRequest {
+                                .send(NetworkRequests::StateRequestPart {
                                     shard_id,
                                     sync_hash,
-                                    need_header: false,
-                                    parts: StateRequestParts { ids: vec![i as u64], num_parts },
+                                    part_id: i as u64,
                                     target: target.clone(),
                                 })
                                 .then(move |result| {
                                     if let Ok(NetworkResponses::RouteNotFound) = result {
-                                        // Send a StateRequest on the next iteration
+                                        // Send a StateRequestPart on the next iteration
                                         run_me.store(true, Ordering::SeqCst);
                                     }
                                     future::ready(())
