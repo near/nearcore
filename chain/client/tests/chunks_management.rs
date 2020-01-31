@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -18,7 +19,6 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
-use std::time::Instant;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {

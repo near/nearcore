@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -12,6 +13,7 @@ use rand::{thread_rng, Rng};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
     PeerChainInfo,
@@ -21,6 +23,7 @@ use near_network::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -30,9 +33,6 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
-use near_network::routing::EdgeInfo;
-use near_primitives::hash::{hash, CryptoHash};
-use std::ops::Bound::{Excluded, Included, Unbounded};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 

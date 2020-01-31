@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::mem::swap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -29,7 +30,6 @@ use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
 use near_store::test_utils::create_test_store;
-use std::mem::swap;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {

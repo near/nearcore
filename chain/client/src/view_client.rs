@@ -1,15 +1,27 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use std::cmp::Ordering;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
+use cached::{Cached, SizedCache};
 use log::{error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
+use near_network::types::{
+    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
+    StateResponseInfo,
+};
+use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_path;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -21,18 +33,6 @@ use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{
     sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
 };
-use cached::{Cached, SizedCache};
-use near_network::types::{
-    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
-    StateResponseInfo,
-};
-use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::verify_path;
-use std::cmp::Ordering;
-use std::hash::Hash;
-use std::time::{Duration, Instant};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;

@@ -1,8 +1,13 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::Entry;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, RwLock};
+
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
+
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::sync::STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
@@ -18,9 +23,6 @@ mod tests {
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
     use near_primitives::views::QueryResponseKind::ViewAccount;
-    use std::collections::hash_map::Entry;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, RwLock};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![
