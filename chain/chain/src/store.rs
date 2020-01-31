@@ -1837,8 +1837,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // 4a. Delete blocks with current height (ColBlockPerHeight)
         store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
         self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
-        // 4b. Delete from ColBlockHeight
-        store_update.delete(ColBlockHeight, &index_to_bytes(height));
+        // 4b. Delete from ColBlockHeight if not genesis
+        if height > 0 {
+            store_update.delete(ColBlockHeight, &index_to_bytes(height));
+        }
 
         self.merge(store_update);
 
