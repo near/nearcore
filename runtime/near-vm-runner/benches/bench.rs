@@ -1,12 +1,14 @@
+use std::fs;
+use std::mem::size_of;
+use std::path::PathBuf;
+
 use bencher::{benchmark_group, benchmark_main, Bencher};
+
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ReturnData, VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
-use std::fs;
-use std::mem::size_of;
-use std::path::PathBuf;
 
 fn setup(
     input: u64,
@@ -22,6 +24,7 @@ fn setup(
         signer_account_pk: vec![1, 2, 3],
         predecessor_account_id: "carol".to_owned(),
         input,
+        epoch_id: [0u8; 32],
         block_index: 0,
         block_timestamp: 0,
         account_balance: 0,

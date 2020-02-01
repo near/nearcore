@@ -117,7 +117,7 @@ impl TrieViewer {
                 input: args.to_owned(),
                 block_index: block_height,
                 block_timestamp,
-                epoch_id: epoch_id.clone(),
+                epoch_id: ((epoch_id.0).0).0,
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,

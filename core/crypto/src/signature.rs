@@ -327,8 +327,9 @@ impl SecretKey {
     pub fn from_random(key_type: KeyType) -> SecretKey {
         match key_type {
             KeyType::ED25519 => {
-                let mut csprng = rand_os::OsRng::new().unwrap();
-                let keypair = ed25519_dalek::Keypair::generate::<sha2::Sha512, _>(&mut csprng);
+                // let mut csprng = OsRng::new().unwrap();
+                let mut csprng = StdRng::from_rng(OsRng::default()).unwrap();
+                let keypair = ed25519_dalek::Keypair::generate(&mut csprng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
@@ -342,7 +343,7 @@ impl SecretKey {
         match &self {
             SecretKey::ED25519(secret_key) => {
                 let keypair = ed25519_dalek::Keypair::from_bytes(&secret_key.0).unwrap();
-                Signature::ED25519(keypair.sign::<sha2::Sha512>(data))
+                Signature::ED25519(keypair.sign(data))
             }
 
             SecretKey::SECP256K1(secret_key) => {
@@ -478,7 +479,7 @@ impl Signature {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {
                     Err(_) => false,
-                    Ok(public_key) => public_key.verify::<sha2::Sha512>(data, signature).is_ok(),
+                    Ok(public_key) => public_key.verify(data, signature).is_ok(),
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {

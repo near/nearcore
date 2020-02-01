@@ -10,7 +10,7 @@ fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::Keypair {
     let mut seed: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [b' '; ed25519_dalek::SECRET_KEY_LENGTH];
     seed[..len].copy_from_slice(&seed_bytes[..len]);
     let secret = ed25519_dalek::SecretKey::from_bytes(&seed).unwrap();
-    let public = ed25519_dalek::PublicKey::from_secret::<sha2::Sha512>(&secret);
+    let public = ed25519_dalek::PublicKey::from(&secret);
     ed25519_dalek::Keypair { secret, public }
 }
 
