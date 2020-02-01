@@ -53,6 +53,7 @@ fn add_blocks(
                 false,
                 signer,
                 "other".to_string(),
+                None,
             )],
             0,
             0,

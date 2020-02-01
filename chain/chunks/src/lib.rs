@@ -19,7 +19,7 @@ use near_crypto::Signer;
 use near_network::types::{NetworkAdapter, PartialEncodedChunkRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
@@ -28,13 +28,16 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, Gas, MerkleHash, NumShards, ShardId, StateRoot, ValidatorStake,
 };
 use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
+use cached::{Cached, SizedCache};
 use near_primitives::block::BlockHeader;
+use near_primitives::utils::num_leading_zeros;
+use std::cmp::{max, min};
 
 mod chunk_cache;
 mod types;
@@ -46,6 +49,8 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
 const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
+const TARGET_RED_PART_PROBABILITY: f64 = 0.1;
+const NUM_BLOCK_HASH_TO_HONEYPOT: usize = 30;
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -240,6 +245,7 @@ pub struct ShardsManager {
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
     stored_partial_encoded_chunks: HashMap<BlockHeight, HashMap<ShardId, PartialEncodedChunk>>,
+    block_hash_to_honeypot_shard_id: SizedCache<CryptoHash, (Option<ShardId>, NumShards)>,
 
     seals_mgr: SealsManager,
 }
@@ -263,6 +269,7 @@ impl ShardsManager {
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
             ),
             stored_partial_encoded_chunks: HashMap::new(),
+            block_hash_to_honeypot_shard_id: SizedCache::with_size(NUM_BLOCK_HASH_TO_HONEYPOT),
             seals_mgr: SealsManager::new(me, runtime_adapter),
         }
     }
@@ -636,8 +643,11 @@ impl ShardsManager {
             return;
         };
 
-        let parts =
-            request.part_ords.iter().map(|part_ord| entry.parts.get(&part_ord)).collect::<Vec<_>>();
+        let parts = request
+            .part_ords
+            .iter()
+            .map(|part_ord| entry.parts.get(&part_ord).map(|(_, part)| part))
+            .collect::<Vec<_>>();
 
         if parts.iter().any(|x| x.is_none()) {
             debug!(target:"chunks", "Not responding, some parts are missing");
@@ -864,7 +874,7 @@ impl ShardsManager {
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
-        let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
+        let (have_all_parts, honey_pot_shard_id) = self.has_all_parts(&prev_block_hash, entry)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
 
         let can_reconstruct = entry.parts.len() >= self.runtime_adapter.num_data_parts();
@@ -875,6 +885,18 @@ impl ShardsManager {
             header.inner.shard_id,
         )?;
         self.seals_mgr.track_seals();
+
+        if have_all_parts {
+            let (mut shard_id, num_shards) = self
+                .block_hash_to_honeypot_shard_id
+                .cache_remove(&prev_block_hash)
+                .unwrap_or_else(|| (None, 0));
+            if shard_id.is_none() {
+                shard_id = honey_pot_shard_id;
+            }
+            self.block_hash_to_honeypot_shard_id
+                .cache_set(prev_block_hash, (shard_id, num_shards + 1));
+        }
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             self.encoded_chunks.insert_chunk_header(partial_encoded_chunk.shard_id, header.clone());
@@ -920,7 +942,7 @@ impl ShardsManager {
             let mut encoded_chunk =
                 EncodedShardChunk::from_header(header, self.runtime_adapter.num_total_parts());
 
-            for (part_ord, part_entry) in entry.parts.iter() {
+            for (part_ord, (_, part_entry)) in entry.parts.iter() {
                 encoded_chunk.content.parts[*part_ord as usize] = Some(part_entry.part.clone());
             }
 
@@ -937,6 +959,18 @@ impl ShardsManager {
         }
 
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(header))
+    }
+
+    pub fn honeypot_shard_id(&mut self, prev_block_hash: &CryptoHash) -> Option<Option<ShardId>> {
+        let (shard_id, num_shards) = self
+            .block_hash_to_honeypot_shard_id
+            .cache_get(prev_block_hash)
+            .unwrap_or_else(|| &(None, 0));
+        if *num_shards == self.runtime_adapter.num_shards() {
+            Some(shard_id.clone())
+        } else {
+            None
+        }
     }
 
     fn need_receipt(&self, prev_block_hash: &CryptoHash, shard_id: ShardId) -> bool {
@@ -972,16 +1006,35 @@ impl ShardsManager {
         &self,
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
-    ) -> Result<bool, Error> {
+    ) -> Result<(bool, Option<ShardId>), Error> {
+        let mut red_part_shard_id = None;
+        let shard_id = chunk_entry.header.inner.shard_id;
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
-            if !chunk_entry.parts.contains_key(&part_ord) {
+            if let Some((part_hash, _)) = chunk_entry.parts.get(&part_ord) {
+                if red_part_shard_id.is_none() && self.is_part_red(part_hash) {
+                    red_part_shard_id = Some(shard_id);
+                }
+            } else {
                 if self.need_part(&prev_block_hash, part_ord)? {
-                    return Ok(false);
+                    return Ok((false, None));
                 }
             }
         }
-        Ok(true)
+        Ok((true, red_part_shard_id))
+    }
+
+    pub fn is_part_red(&self, part_hash: &CryptoHash) -> bool {
+        let num_total_parts = self.runtime_adapter.num_total_parts();
+        let target_num_leading_zeros: u64 = max(
+            (1 as f64
+                / (1 as f64 - TARGET_RED_PART_PROBABILITY.powf(1 as f64 / num_total_parts as f64)))
+            .log2()
+            .floor() as u64,
+            0,
+        );
+        let target_num_trailing_zeros = min(target_num_leading_zeros, 32);
+        target_num_trailing_zeros <= num_leading_zeros(part_hash.as_ref())
     }
 
     pub fn create_encoded_shard_chunk(
@@ -1039,7 +1092,7 @@ impl ShardsManager {
             parts: chunk_entry
                 .parts
                 .iter()
-                .filter_map(|(part_ord, part_entry)| {
+                .filter_map(|(part_ord, (_, part_entry))| {
                     if let Ok(need_part) = self.need_part(&prev_block_hash, *part_ord) {
                         if need_part {
                             Some(part_entry.clone())
@@ -1140,7 +1193,11 @@ impl ShardsManager {
                 .map(|(part_ord, (part, merkle_proof))| {
                     let part_ord = part_ord as u64;
                     let part = part.unwrap();
-                    (part_ord, PartialEncodedChunkPart { part_ord, part, merkle_proof })
+                    let part_hash = hash(&part);
+                    (
+                        part_ord,
+                        (part_hash, PartialEncodedChunkPart { part_ord, part, merkle_proof }),
+                    )
                 })
                 .collect(),
             receipts: self
@@ -1228,5 +1285,47 @@ impl ShardsManager {
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ShardsManager;
+    use actix::MailboxError;
+    use futures::future::BoxFuture;
+    use near_chain::test_utils::setup;
+    use near_network::{NetworkAdapter, NetworkRequests, NetworkResponses};
+    use near_primitives::hash::CryptoHash;
+    use std::convert::TryFrom;
+    use std::sync::Arc;
+
+    struct MockNetworkAdapter {}
+
+    impl NetworkAdapter for MockNetworkAdapter {
+        fn send(
+            &self,
+            _msg: NetworkRequests,
+        ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+            unimplemented!();
+        }
+
+        fn do_send(&self, _msg: NetworkRequests) {
+            unimplemented!();
+        }
+    }
+
+    #[test]
+    fn test_is_part_red() {
+        let (_, runtime, _) = setup();
+        let shards_manager =
+            ShardsManager::new(Some("test0".to_string()), runtime, Arc::new(MockNetworkAdapter {}));
+        let hash1 = CryptoHash::try_from([255u8; 32].as_ref()).unwrap();
+        assert!(!shards_manager.is_part_red(&hash1));
+        let mut hash2 = [255u8; 32];
+        hash2[0] = 127;
+        assert!(!shards_manager.is_part_red(&CryptoHash::try_from(hash2.as_ref()).unwrap()));
+        let mut hash3 = hash2.clone();
+        hash3[0] = 63;
+        assert!(shards_manager.is_part_red(&CryptoHash::try_from(hash3.as_ref()).unwrap()));
     }
 }

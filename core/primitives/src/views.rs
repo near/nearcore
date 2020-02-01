@@ -282,7 +282,15 @@ pub struct BlockHeaderView {
     pub last_quorum_pre_commit: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
-    pub approvals: Vec<(AccountId, CryptoHash, Option<CryptoHash>, BlockHeight, bool, Signature)>,
+    pub approvals: Vec<(
+        AccountId,
+        CryptoHash,
+        Option<CryptoHash>,
+        BlockHeight,
+        bool,
+        Signature,
+        Option<ShardId>,
+    )>,
     pub signature: Signature,
 }
 
@@ -331,6 +339,7 @@ impl From<BlockHeader> for BlockHeaderView {
                         x.target_height,
                         x.is_endorsement,
                         x.signature,
+                        x.honeypot_shard_id,
                     )
                 })
                 .collect(),
@@ -384,6 +393,7 @@ impl From<BlockHeaderView> for BlockHeader {
                             target_height,
                             is_endorsement,
                             signature,
+                            honeypot_shard_id,
                         )| {
                             Approval {
                                 account_id,
@@ -392,6 +402,7 @@ impl From<BlockHeaderView> for BlockHeader {
                                 target_height,
                                 is_endorsement,
                                 signature,
+                                honeypot_shard_id,
                             }
                         },
                     )

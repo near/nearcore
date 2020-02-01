@@ -547,8 +547,10 @@ mod tests {
                 target_height: 2,
                 is_endorsement: true,
                 signature: other_signer.sign(
-                    Approval::get_data_for_sig(&b1.hash(), &Some(b1.hash()), 2, true).as_ref(),
+                    Approval::get_data_for_sig(&b1.hash(), &Some(b1.hash()), 2, true, None)
+                        .as_ref(),
                 ),
+                honeypot_shard_id: None,
             }),
         ];
         let b2 = Block::empty_with_approvals(

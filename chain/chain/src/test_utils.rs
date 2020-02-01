@@ -1068,6 +1068,7 @@ pub fn new_block_no_epoch_switches(
                 true,
                 signer,
                 x.to_string(),
+                None,
             )
         })
         .collect();

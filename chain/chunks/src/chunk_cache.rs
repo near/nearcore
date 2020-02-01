@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
@@ -14,7 +14,7 @@ const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
-    pub parts: HashMap<u64, PartialEncodedChunkPart>,
+    pub parts: HashMap<u64, (CryptoHash, PartialEncodedChunkPart)>,
     pub receipts: HashMap<ShardId, ReceiptProof>,
 }
 
@@ -35,7 +35,8 @@ impl EncodedChunksCacheEntry {
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
             if !self.parts.contains_key(&part_ord) {
-                self.parts.insert(part_ord, part_info.clone());
+                let part_hash = hash(part_info.part.as_ref());
+                self.parts.insert(part_ord, (part_hash, part_info.clone()));
             }
         }
 

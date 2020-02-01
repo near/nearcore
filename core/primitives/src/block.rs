@@ -9,7 +9,8 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId, StateRoot,
+    ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
 use std::cmp::{max, Ordering};
@@ -144,6 +145,10 @@ impl BlockHeaderInnerRest {
     }
 }
 
+/// Honeypot shard id: if there is any shard with red part, it is Some(shard_id)
+/// else it is None.
+pub type HoneypotShardId = Option<ShardId>;
+
 /// Block approval by other block producers.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
@@ -153,6 +158,9 @@ pub struct Approval {
     pub is_endorsement: bool,
     pub signature: Signature,
     pub account_id: AccountId,
+    /// Shard id of some shard that contains at least one red part.
+    /// None if no shard has red parts.
+    pub honeypot_shard_id: HoneypotShardId,
 }
 
 /// Block approval by other block producers.
@@ -170,6 +178,7 @@ impl Approval {
         is_endorsement: bool,
         signer: &dyn Signer,
         account_id: AccountId,
+        honeypot_shard_id: Option<ShardId>,
     ) -> Self {
         let signature = signer.sign(
             Approval::get_data_for_sig(
@@ -177,6 +186,7 @@ impl Approval {
                 &reference_hash,
                 target_height,
                 is_endorsement,
+                honeypot_shard_id.clone(),
             )
             .as_ref(),
         );
@@ -187,6 +197,7 @@ impl Approval {
             is_endorsement,
             signature,
             account_id,
+            honeypot_shard_id,
         }
     }
 
@@ -195,6 +206,7 @@ impl Approval {
         reference_hash: &Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
+        honeypot_shard_id: Option<ShardId>,
     ) -> Vec<u8> {
         let mut res = Vec::with_capacity(73);
         res.extend_from_slice(parent_hash.as_ref());
@@ -202,8 +214,15 @@ impl Approval {
             Some(x) => x.as_ref(),
             None => [0; 32].as_ref(),
         });
-        res.extend_from_slice(target_height.to_be_bytes().as_ref());
+        res.extend_from_slice(target_height.to_le_bytes().as_ref());
         res.extend_from_slice(if is_endorsement { &[1] } else { &[0] });
+        if let Some(shard_id) = honeypot_shard_id {
+            res.extend_from_slice(&[1u8]);
+            res.extend_from_slice(shard_id.to_le_bytes().as_ref());
+        } else {
+            res.extend(&[0u8]);
+        }
+
         res
     }
 }

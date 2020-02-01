@@ -291,6 +291,18 @@ pub fn generate_random_string(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
 }
 
+pub fn num_leading_zeros(bytes: &[u8]) -> u64 {
+    let mut res = 0;
+    for byte in bytes {
+        let num_leading_zeros = byte.leading_zeros();
+        res += num_leading_zeros;
+        if num_leading_zeros != 8 {
+            return res as u64;
+        }
+    }
+    res as u64
+}
+
 pub struct Serializable<'a, T>(&'a T);
 
 impl<'a, T> fmt::Display for Serializable<'a, T>

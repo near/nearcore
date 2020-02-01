@@ -175,6 +175,7 @@ fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHas
         target_height: 0,
         parent_hash,
         signature: Signature::default(),
+        honeypot_shard_id: None,
     }
 }
 
@@ -545,6 +546,7 @@ fn test_my_approvals() {
             true,
             &*signer,
             account_id.clone(),
+            None,
         );
         let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
         FinalityGadget::process_approval(

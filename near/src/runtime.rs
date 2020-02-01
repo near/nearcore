@@ -600,6 +600,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &approval.reference_hash,
                             approval.target_height,
                             approval.is_endorsement,
+                            approval.honeypot_shard_id,
                         )
                         .as_ref(),
                         &validator.public_key,

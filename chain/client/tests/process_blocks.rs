@@ -318,6 +318,7 @@ fn produce_block_with_approvals() {
                     false,
                     &signer,
                     s.to_string(),
+                    None,
                 );
                 client
                     .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
@@ -656,9 +657,10 @@ fn test_invalid_approvals() {
                 &format!("test{}", i),
             )
             .sign(
-                Approval::get_data_for_sig(&genesis.hash(), &Some(genesis.hash()), 1, true)
+                Approval::get_data_for_sig(&genesis.hash(), &Some(genesis.hash()), 1, true, None)
                     .as_ref(),
             ),
+            honeypot_shard_id: None,
         })
         .collect();
     let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
@@ -746,4 +748,48 @@ fn test_minimum_gas_price() {
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
     assert!(block.header.inner_rest.gas_price >= min_gas_price);
+}
+
+#[test]
+fn test_honeypot() {
+    init_test_logger();
+    let mut env = TestEnv::new(ChainGenesis::test(), 2, 2);
+    let b1 = env.clients[1].produce_block(1).unwrap().unwrap();
+    env.process_block(1, b1.clone(), Provenance::PRODUCED);
+    env.process_block(0, b1.clone(), Provenance::NONE);
+    let mut honeypot_shard_id = None;
+    for message in env.network_adapters[1].requests.write().unwrap().iter() {
+        match message {
+            NetworkRequests::PartialEncodedChunkMessage {
+                account_id: _,
+                partial_encoded_chunk,
+            } => {
+                let shard_id = partial_encoded_chunk.shard_id;
+                for part in partial_encoded_chunk.parts.iter() {
+                    let part_hash = hash(&part.part);
+                    if honeypot_shard_id.is_none()
+                        && env.clients[1].shards_mgr.is_part_red(&part_hash)
+                    {
+                        honeypot_shard_id = Some(shard_id);
+                    }
+                }
+
+                if let Ok(accepted_blocks) =
+                    env.clients[0].process_partial_encoded_chunk(partial_encoded_chunk.clone())
+                {
+                    for accepted_block in accepted_blocks {
+                        env.clients[0].on_block_accepted(
+                            accepted_block.hash,
+                            accepted_block.status,
+                            accepted_block.provenance,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let b2 = env.clients[0].produce_block(2).unwrap().unwrap();
+    assert_eq!(b2.header.inner_rest.approvals.len(), 1);
+    assert_eq!(b2.header.inner_rest.approvals[0].honeypot_shard_id, honeypot_shard_id);
 }

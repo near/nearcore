@@ -653,13 +653,20 @@ impl Client {
                 self.chain.get_block_header(&last_ds_final_hash)?.inner_lite.height
             };
 
-            let may_be_approval = self.doomslug.set_tip(
-                Instant::now(),
-                tip.last_block_hash,
-                self.chain.get_my_approval_reference_hash(tip.last_block_hash),
-                tip.height,
-                last_ds_final_height,
-            );
+            let may_be_approval = if let Some(honeypot_shard_id) =
+                self.shards_mgr.honeypot_shard_id(&tip.last_block_hash)
+            {
+                self.doomslug.set_tip(
+                    Instant::now(),
+                    tip.last_block_hash,
+                    self.chain.get_my_approval_reference_hash(tip.last_block_hash),
+                    tip.height,
+                    last_ds_final_height,
+                    honeypot_shard_id,
+                )
+            } else {
+                None
+            };
 
             if let Some(approval) = may_be_approval {
                 self.chain.process_approval(
@@ -905,6 +912,7 @@ impl Client {
             target_height,
             is_endorsement,
             signature,
+            honeypot_shard_id,
         } = approval;
 
         let head = match self.chain.head() {
@@ -923,6 +931,7 @@ impl Client {
                     reference_hash,
                     *target_height,
                     *is_endorsement,
+                    honeypot_shard_id.clone(),
                 )
                 .as_ref(),
                 signature,

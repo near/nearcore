@@ -153,6 +153,7 @@ mod test {
                 target_height: 1,
                 is_endorsement: true,
                 signature: bls_signature,
+                honeypot_shard_id: None,
             }),
         });
         test_codec(msg);

@@ -849,7 +849,9 @@ impl ClientActor {
     fn doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
         let _ = self.client.check_and_update_doomslug_tip();
 
-        let approvals = self.client.doomslug.process_timer(Instant::now());
+        let (doomslug_tip, _) = self.client.doomslug.get_tip();
+        let honeypot_shard_id = self.client.shards_mgr.honeypot_shard_id(&doomslug_tip);
+        let approvals = self.client.doomslug.process_timer(Instant::now(), honeypot_shard_id);
 
         // Important to save the largest skipped height before sending approvals, so that if the
         // node crashes in the meantime, we cannot get slashed on recovery

@@ -84,7 +84,7 @@ mod tests {
         chain_lengths.insert(block_hash(1), 1);
 
         for ds in doomslugs.iter_mut() {
-            let approval = ds.set_tip(now, block_hash(1), None, 1, 1).unwrap();
+            let approval = ds.set_tip(now, block_hash(1), None, 1, 1, None).unwrap();
             approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
             hash_to_block_info.insert(block_hash(1), (1, 1));
         }
@@ -155,6 +155,7 @@ mod tests {
                                     None,
                                     block_info.0 as BlockHeight,
                                     block_info.1,
+                                    Some(None),
                                 )
                                 .unwrap();
 
@@ -167,7 +168,7 @@ mod tests {
 
             // 3. Process timers
             for ds in doomslugs.iter_mut() {
-                for approval in ds.process_timer(now) {
+                for approval in ds.process_timer(now, Some(None)) {
                     approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
                 }
             }
@@ -240,6 +241,7 @@ mod tests {
                                 None,
                                 target_height as BlockHeight,
                                 last_ds_final_height,
+                                Some(None),
                             )
                             .unwrap();
 
