@@ -116,6 +116,7 @@ impl StateRootNode {
     BorshSerialize,
     BorshDeserialize,
     Serialize,
+    Deserialize,
     Default,
     PartialOrd,
 )]

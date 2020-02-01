@@ -9,6 +9,7 @@ pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
+pub type EpochId = [u8; 32];
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ReturnData {

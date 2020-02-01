@@ -7,6 +7,7 @@ use borsh::BorshSerialize;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::EpochId;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_primitives::views::ViewStateResult;
@@ -78,6 +79,7 @@ impl TrieViewer {
         mut state_update: TrieUpdate,
         block_height: BlockHeight,
         block_timestamp: u64,
+        epoch_id: &EpochId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -115,6 +117,7 @@ impl TrieViewer {
                 input: args.to_owned(),
                 block_index: block_height,
                 block_timestamp,
+                epoch_id: epoch_id.clone(),
                 account_balance: account.amount,
                 account_locked_balance: account.locked,
                 storage_usage: account.storage_usage,
@@ -180,7 +183,16 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(root, 1, 1, &alice_account(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &Default::default(),
+            &alice_account(),
+            "run_test",
+            &[],
+            &mut logs,
+        );
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -194,6 +206,7 @@ mod tests {
             root,
             1,
             1,
+            &Default::default(),
             &"bad!contract".to_string(),
             "run_test",
             &[],
@@ -212,6 +225,7 @@ mod tests {
             root,
             1,
             1,
+            &Default::default(),
             &alice_account(),
             "run_test_with_storage_change",
             &[],
@@ -226,8 +240,16 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
-        let view_call_result =
-            viewer.call_function(root, 1, 1, &alice_account(), "sum_with_input", &args, &mut logs);
+        let view_call_result = viewer.call_function(
+            root,
+            1,
+            1,
+            &Default::default(),
+            &alice_account(),
+            "sum_with_input",
+            &args,
+            &mut logs,
+        );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
@@ -262,7 +284,16 @@ mod tests {
 
         let mut logs = vec![];
         viewer
-            .call_function(root, 1, 1, &alice_account(), "panic_after_logging", &[], &mut logs)
+            .call_function(
+                root,
+                1,
+                1,
+                &Default::default(),
+                &alice_account(),
+                "panic_after_logging",
+                &[],
+                &mut logs,
+            )
             .unwrap_err();
 
         assert_eq!(logs, vec!["hello".to_string()]);

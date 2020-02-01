@@ -284,9 +284,12 @@ impl NightshadeRuntime {
             }
         };
 
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
+            epoch_id,
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -414,8 +417,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
             gas_price,
             block_timestamp,
-            // NOTE: verify transaction doesn't use gas limit
+            // NOTE: verify transaction doesn't use gas limit or epoch id
             gas_limit: None,
+            epoch_id: Default::default(),
         };
 
         match verify_and_charge_transaction(
@@ -449,6 +453,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_state = ApplyState {
             block_index: block_height,
             epoch_length: self.genesis_config.epoch_length,
+            // Not used in this function
+            epoch_id: Default::default(),
             gas_price,
             block_timestamp,
             gas_limit: Some(gas_limit),
@@ -905,6 +911,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
+        epoch_id: &EpochId,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
@@ -926,6 +933,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     *state_root,
                     block_height,
                     block_timestamp,
+                    epoch_id,
                     &AccountId::from(path_parts[1]),
                     path_parts[2],
                     &data,
@@ -1121,6 +1129,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
+        epoch_id: &EpochId,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -1131,6 +1140,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             state_update,
             height,
             block_timestamp,
+            epoch_id,
             contract_id,
             method_name,
             args,

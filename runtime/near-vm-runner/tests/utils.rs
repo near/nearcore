@@ -20,6 +20,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         input,
         block_index: 10,
         block_timestamp: 42,
+        epoch_id: Default::default(),
         account_balance: 2u128,
         account_locked_balance: 0,
         storage_usage: 12,

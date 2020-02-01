@@ -23,8 +23,8 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, StateChangeCause, StateChanges,
-    StateRoot, ValidatorStake,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, Nonce, StateChangeCause,
+    StateChanges, StateRoot, ValidatorStake,
 };
 use near_primitives::utils::col::DELAYED_RECEIPT_INDICES;
 use near_primitives::utils::{
@@ -71,6 +71,8 @@ pub struct ApplyState {
     pub block_index: BlockHeight,
     /// Current epoch length.
     pub epoch_length: BlockHeightDelta,
+    /// Current epoch id
+    pub epoch_id: EpochId,
     /// Price for the gas.
     pub gas_price: Balance,
     /// A block timestamp
@@ -1322,6 +1324,7 @@ mod tests {
         let apply_state = ApplyState {
             block_index: 0,
             epoch_length: 3,
+            epoch_id: Default::default(),
             gas_price: GAS_PRICE,
             block_timestamp: 100,
             gas_limit: Some(gas_limit),

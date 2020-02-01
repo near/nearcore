@@ -18,6 +18,7 @@ bs58 = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 near-runtime-fees = { path = "../near-runtime-fees", version = "0.4.3" }
 near-vm-errors = { path = "../near-vm-errors", version = "0.4.3" }
+near-primitives = { path = "../../core/primitives" }
 
 [dev-dependencies]
 serde_json = {version= "1.0", features= ["preserve_order"]}

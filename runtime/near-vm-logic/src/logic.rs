@@ -605,6 +605,16 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_timestamp)
     }
 
+    /// Returns the current epoch id.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes`
+    pub fn epoch_id(&mut self, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.internal_write_register(register_id, self.context.epoch_id.0.into())
+    }
+
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
     /// invocation. This includes:
     /// * The data written with storage_* functions during current and previous execution;

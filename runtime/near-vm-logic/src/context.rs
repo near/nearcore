@@ -1,4 +1,5 @@
 use crate::types::{AccountId, Balance, BlockHeight, Gas, PublicKey, StorageUsage};
+use near_primitives::types::EpochId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -26,6 +27,8 @@ pub struct VMContext {
     pub block_index: BlockHeight,
     /// The current block timestamp.
     pub block_timestamp: u64,
+    /// Current epoch id.
+    pub epoch_id: EpochId,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
