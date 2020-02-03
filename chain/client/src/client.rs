@@ -731,6 +731,9 @@ impl Client {
 
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
+            if let Err(err) = self.chain.clear_old_data() {
+                error!(target: "client", "Can't clear old data, {:?}", err);
+            };
         }
 
         if let Some(bp) = self.block_producer.clone() {

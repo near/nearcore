@@ -41,7 +41,6 @@ use near_primitives::merkle::MerklePath;
 use near_primitives::views::LightClientBlockView;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
-const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
@@ -177,8 +176,6 @@ pub trait ChainStoreAccess {
     fn store(&self) -> &Store;
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;
-    /// The chain tail (as far as chain goes).
-    fn tail(&self) -> Result<Tip, Error>;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
     /// The "sync" head: last header we received from syncing.
@@ -248,14 +245,11 @@ pub trait ChainStoreAccess {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<&LightClientBlockView, Error>;
-    /// Check if we have block header at given height across any chain.
-    /// Returns a hashmap of epoch id -> block hash that we can use to determine whether the block is double signed
-    /// For each epoch id we need to store just one block hash because for the same epoch id the signer of a given
-    /// height must be the same.
-    fn get_any_block_hash_by_height(
+    /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
+    fn get_all_block_hashes_by_height(
         &mut self,
         height: BlockHeight,
-    ) -> Result<&HashMap<EpochId, CryptoHash>, Error>;
+    ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error>;
     /// Check if we saw chunk hash at given height and shard id.
     fn get_any_chunk_hash_by_height_shard(
         &mut self,
@@ -366,7 +360,7 @@ pub struct ChainStore {
     /// Cache with height to hash on the main chain.
     height: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with height to hash on any chain.
-    block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, CryptoHash>>,
+    block_hash_per_height: SizedCache<Vec<u8>, HashMap<EpochId, HashSet<CryptoHash>>>,
     /// Cache with height and shard_id to any chunk hash.
     chunk_hash_per_height_shard: SizedCache<Vec<u8>, ChunkHash>,
     /// Next block hashes for each block on the canonical chain
@@ -565,11 +559,6 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(self.store.get_ser(ColBlockMisc, HEAD_KEY), "HEAD")
     }
 
-    /// The chain tail (as far as chain goes).
-    fn tail(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(ColBlockMisc, TAIL_KEY), "TAIL")
-    }
-
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(ColBlockMisc, SYNC_HEAD_KEY), "SYNC_HEAD")
@@ -741,10 +730,10 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_any_block_hash_by_height(
+    fn get_all_block_hashes_by_height(
         &mut self,
         height: BlockHeight,
-    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
+    ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
@@ -985,13 +974,12 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
-    deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, BlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
-    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, CryptoHash>>,
+    block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
     height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
@@ -1012,7 +1000,6 @@ impl ChainStoreCacheUpdate {
     pub fn new() -> Self {
         Self {
             blocks: Default::default(),
-            deleted_blocks: Default::default(),
             headers: Default::default(),
             block_extras: Default::default(),
             chunk_extras: HashMap::default(),
@@ -1045,7 +1032,6 @@ pub struct ChainStoreUpdate<'a> {
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
-    tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
     largest_approved_height: Option<BlockHeight>,
@@ -1070,7 +1056,6 @@ impl<'a> ChainStoreUpdate<'a> {
             store_updates: vec![],
             chain_store_cache_update: ChainStoreCacheUpdate::new(),
             head: None,
-            tail: None,
             header_head: None,
             sync_head: None,
             largest_approved_height: None,
@@ -1140,15 +1125,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(head.clone())
         } else {
             self.chain_store.head()
-        }
-    }
-
-    /// The chain tail (as far as chain goes).
-    fn tail(&self) -> Result<Tip, Error> {
-        if let Some(tail) = &self.tail {
-            Ok(tail.clone())
-        } else {
-            self.chain_store.tail()
         }
     }
 
@@ -1264,11 +1240,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_block_hash_by_height(height)
     }
 
-    fn get_any_block_hash_by_height(
+    fn get_all_block_hashes_by_height(
         &mut self,
         height: BlockHeight,
-    ) -> Result<&HashMap<EpochId, CryptoHash>, Error> {
-        self.chain_store.get_any_block_hash_by_height(height)
+    ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error> {
+        self.chain_store.get_all_block_hashes_by_height(height)
     }
 
     fn get_any_chunk_hash_by_height_shard(
@@ -1494,11 +1470,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// Update block body tail.
-    pub fn save_body_tail(&mut self, t: &Tip) {
-        self.tail = Some(t.clone());
-    }
-
     fn update_height_if_not_challenged(
         &mut self,
         height: BlockHeight,
@@ -1625,10 +1596,6 @@ impl<'a> ChainStoreUpdate<'a> {
         partial_chunk: PartialEncodedChunk,
     ) {
         self.chain_store_cache_update.partial_chunks.insert(chunk_hash.clone(), partial_chunk);
-    }
-
-    pub fn delete_block(&mut self, hash: &CryptoHash) {
-        self.chain_store_cache_update.deleted_blocks.insert(*hash);
     }
 
     pub fn save_block_header(&mut self, header: BlockHeader) {
@@ -1767,6 +1734,119 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((height, shard_id), chunk_hash);
     }
 
+    pub fn clear_old_data_on_height(&mut self, height: BlockHeight) -> Result<(), Error> {
+        let mut store_update = self.store().store_update();
+        let blocks_current_height = match self.get_all_block_hashes_by_height(height) {
+            Ok(blocks_current_height) => {
+                blocks_current_height.values().flatten().cloned().collect()
+            }
+            _ => vec![],
+        };
+        for block_hash in blocks_current_height {
+            let block = match self.get_block(&block_hash) {
+                Ok(block) => block.clone(),
+                Err(_) => {
+                    // Block data is already cleared
+                    continue;
+                }
+            };
+
+            // 1. Delete shard_id-indexed data (shards, receipts, transactions)
+            for shard_id in 0..block.header.inner_rest.chunk_mask.len() {
+                let shard_id = shard_id as ShardId;
+                // 1a. Delete outgoing receipts (ColOutgoingReceipts)
+                store_update
+                    .delete(ColOutgoingReceipts, &get_block_shard_id(&block_hash, shard_id));
+                self.chain_store
+                    .outgoing_receipts
+                    .cache_remove(&get_block_shard_id(&block_hash, shard_id));
+                // 1b. Delete incoming receipts (ColIncomingReceipts)
+                store_update
+                    .delete(ColIncomingReceipts, &get_block_shard_id(&block_hash, shard_id));
+                self.chain_store
+                    .incoming_receipts
+                    .cache_remove(&get_block_shard_id(&block_hash, shard_id));
+                // 1c. Delete from chunk_hash_per_height_shard (ColChunkPerHeightShard)
+                store_update.delete(ColChunkPerHeightShard, &get_height_shard_id(height, shard_id));
+                self.chain_store
+                    .chunk_hash_per_height_shard
+                    .cache_remove(&get_height_shard_id(height, shard_id));
+                // 1d. Delete from next_block_with_new_chunk (ColNextBlockWithNewChunk)
+                store_update
+                    .delete(ColNextBlockWithNewChunk, &get_block_shard_id(&block_hash, shard_id));
+                self.chain_store
+                    .next_block_with_new_chunk
+                    .cache_remove(&get_block_shard_id(&block_hash, shard_id));
+            }
+            for chunk_header in block.chunks {
+                let (receipts, transactions) = match self.get_chunk_clone_from_header(&chunk_header)
+                {
+                    Ok(chunk) => (chunk.receipts, chunk.transactions),
+                    _ => (vec![], vec![]),
+                };
+                // 1e. Delete from receipt_id_to_shard_id (ColReceiptIdToShardId)
+                for receipt in receipts {
+                    store_update.delete(ColReceiptIdToShardId, receipt.receipt_id.as_ref());
+                    self.chain_store
+                        .receipt_id_to_shard_id
+                        .cache_remove(&receipt.receipt_id.into());
+                }
+                // 1f. Delete from ColTransactions
+                for transaction in transactions {
+                    store_update.delete(ColTransactions, transaction.get_hash().as_ref());
+                    self.chain_store.transactions.cache_remove(&transaction.get_hash().into());
+                }
+
+                // 2. Delete chunk_hash-indexed data
+                // 2a. Delete chunks (ColChunks)
+                store_update.delete(ColChunks, chunk_header.hash.as_ref());
+                self.chain_store.chunks.cache_remove(&chunk_header.hash.clone().into());
+                // 2b. Delete chunk extras (ColChunkExtra)
+                store_update.delete(ColChunkExtra, chunk_header.hash.as_ref());
+                self.chain_store.chunk_extras.cache_remove(&chunk_header.hash.clone().into());
+                // 2c. Delete partial_chunks (ColPartialChunks)
+                store_update.delete(ColPartialChunks, chunk_header.hash.as_ref());
+                self.chain_store.partial_chunks.cache_remove(&chunk_header.hash.clone().into());
+                // 2d. Delete invalid chunks (ColInvalidChunks)
+                store_update.delete(ColInvalidChunks, chunk_header.hash.as_ref());
+                self.chain_store.invalid_chunks.cache_remove(&chunk_header.hash.clone().into());
+            }
+
+            // 3. Delete block_hash-indexed data
+            // 3a. Delete block (ColBlock) if not genesis
+            if height > 0 {
+                store_update.delete(ColBlock, block_hash.as_ref());
+                self.chain_store.blocks.cache_remove(&block_hash.clone().into());
+            }
+            // 3b. Delete block header (ColBlockHeader) - don't do because header sync needs headers
+            // 3c. Delete block extras (ColBlockExtra)
+            store_update.delete(ColBlockExtra, block_hash.as_ref());
+            self.chain_store.block_extras.cache_remove(&block_hash.clone().into());
+            // 3d. Delete from next_block_hashes (ColNextBlockHashes)
+            store_update.delete(ColNextBlockHashes, block_hash.as_ref());
+            self.chain_store.next_block_hashes.cache_remove(&block_hash.clone().into());
+            // 3e. Delete from my_last_approvals (ColMyLastApprovalsPerChain)
+            store_update.delete(ColMyLastApprovalsPerChain, block_hash.as_ref());
+            self.chain_store.my_last_approvals.cache_remove(&block_hash.clone().into());
+            // 3f. Delete from ColChallengedBlocks
+            store_update.delete(ColChallengedBlocks, block_hash.as_ref());
+            // 3g. Delete from ColBlocksToCatchup
+            store_update.delete(ColBlocksToCatchup, block_hash.as_ref());
+        }
+        // 4. Delete height-indexed data
+        // 4a. Delete blocks with current height (ColBlockPerHeight)
+        store_update.delete(ColBlockPerHeight, &index_to_bytes(height));
+        self.chain_store.block_hash_per_height.cache_remove(&index_to_bytes(height));
+        // 4b. Delete from ColBlockHeight if not genesis
+        if height > 0 {
+            store_update.delete(ColBlockHeight, &index_to_bytes(height));
+        }
+
+        self.merge(store_update);
+
+        Ok(())
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -1776,9 +1856,6 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         if let Some(t) = self.head.take() {
             store_update.set_ser(ColBlockMisc, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
-        }
-        if let Some(t) = self.tail.take() {
-            store_update.set_ser(ColBlockMisc, TAIL_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.header_head.take() {
             store_update
@@ -1811,34 +1888,27 @@ impl<'a> ChainStoreUpdate<'a> {
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
+            let mut map = match self
+                .chain_store
+                .get_all_block_hashes_by_height(block.header.inner_lite.height)
+            {
+                Ok(m) => m.clone(),
+                Err(_) => HashMap::new(),
+            };
+            map.entry(block.header.inner_lite.epoch_id.clone())
+                .or_insert_with(|| HashSet::new())
+                .insert(*hash);
+            store_update
+                .set_ser(ColBlockPerHeight, &index_to_bytes(block.header.inner_lite.height), &map)
+                .map_err::<Error, _>(|e| e.into())?;
+            self.chain_store_cache_update
+                .block_hash_per_height
+                .insert(block.header.inner_lite.height, map);
             store_update
                 .set_ser(ColBlock, hash.as_ref(), block)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for hash in self.chain_store_cache_update.deleted_blocks.iter() {
-            store_update.delete(ColBlock, hash.as_ref());
-        }
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
-            let map = match self.chain_store.get_any_block_hash_by_height(header.inner_lite.height)
-            {
-                Ok(m) => {
-                    if !m.contains_key(&header.inner_lite.epoch_id) {
-                        Some(m.clone())
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => Some(HashMap::new()),
-            };
-            if let Some(mut new_map) = map {
-                new_map.insert(header.inner_lite.epoch_id.clone(), *hash);
-                store_update
-                    .set_ser(ColBlockPerHeight, &index_to_bytes(header.inner_lite.height), &new_map)
-                    .map_err::<Error, _>(|e| e.into())?;
-                self.chain_store_cache_update
-                    .block_hash_per_height
-                    .insert(header.inner_lite.height, new_map);
-            }
             store_update
                 .set_ser(ColBlockHeader, hash.as_ref(), header)
                 .map_err::<Error, _>(|e| e.into())?;
@@ -2040,7 +2110,6 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update.commit()?;
         let ChainStoreCacheUpdate {
             blocks,
-            deleted_blocks,
             headers,
             block_extras,
             chunk_extras,
@@ -2064,9 +2133,6 @@ impl<'a> ChainStoreUpdate<'a> {
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.cache_set(hash.into(), block);
-        }
-        for hash in deleted_blocks {
-            self.chain_store.blocks.cache_remove(&hash.into());
         }
         for (hash, header) in headers {
             self.chain_store.headers.cache_set(hash.into(), header);
@@ -2152,6 +2218,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::store::ChainStoreAccess;
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
     use borsh::ser::BorshSerialize;
@@ -2160,7 +2227,7 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::utils::index_to_bytes;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2340,7 +2407,7 @@ mod tests {
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
-        store_update.chain_store_cache_update.headers.insert(block1.hash(), block1.header);
+        store_update.chain_store_cache_update.blocks.insert(block1.header.hash, block1.clone());
         store_update.commit().unwrap();
 
         let block_hash = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2349,7 +2416,7 @@ mod tests {
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
-        store_update.chain_store_cache_update.headers.insert(block2.header.hash, block2.header);
+        store_update.chain_store_cache_update.blocks.insert(block2.header.hash, block2.clone());
         store_update.commit().unwrap();
 
         let block_hash1 = chain.mut_store().height.cache_get(&index_to_bytes(1)).cloned();
@@ -2358,5 +2425,103 @@ mod tests {
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
+    }
+
+    #[test]
+    fn test_clear_old_data_fixed_height() {
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut store_update = chain.mut_store().store_update();
+        let mut prev_block = genesis.clone();
+        let mut blocks = vec![prev_block.clone()];
+        for i in 1..10 {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            blocks.push(block.clone());
+            store_update.save_block(block.clone());
+            store_update.save_block_header(block.header.clone());
+            store_update
+                .chain_store_cache_update
+                .height_to_hashes
+                .insert(i, Some(block.header.hash));
+            store_update.save_next_block_hash(&prev_block.hash(), block.hash());
+            prev_block = block.clone();
+        }
+        store_update.commit().unwrap();
+
+        assert!(chain.get_block(&blocks[4].hash()).is_ok());
+        assert!(chain.get_block(&blocks[5].hash()).is_ok());
+        assert!(chain.get_block(&blocks[6].hash()).is_ok());
+        assert!(chain.get_block_header(&blocks[5].hash()).is_ok());
+        assert_eq!(
+            chain
+                .mut_store()
+                .get_all_block_hashes_by_height(5)
+                .unwrap()
+                .values()
+                .flatten()
+                .collect::<Vec<_>>(),
+            vec![&blocks[5].hash()]
+        );
+        assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
+
+        let mut store_update = chain.mut_store().store_update();
+        assert!(store_update.clear_old_data_on_height(5).is_ok());
+        store_update.commit().unwrap();
+
+        assert!(chain.get_block(&blocks[4].hash()).is_ok());
+        assert!(chain.get_block(&blocks[5].hash()).is_err());
+        assert!(chain.get_block(&blocks[6].hash()).is_ok());
+        // block header should be available
+        assert!(chain.get_block_header(&blocks[5].hash()).is_ok());
+        assert!(chain.mut_store().get_all_block_hashes_by_height(5).is_err());
+        assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_ok());
+        assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_err());
+        assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
+    }
+
+    #[test]
+    fn test_clear_old_data() {
+        let mut chain = get_chain();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let mut store_update = chain.mut_store().store_update();
+        let mut prev_block = genesis.clone();
+        let mut blocks = vec![prev_block.clone()];
+        for i in 1..15 {
+            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            blocks.push(block.clone());
+            store_update.save_block(block.clone());
+            store_update.save_block_header(block.header.clone());
+            store_update
+                .chain_store_cache_update
+                .height_to_hashes
+                .insert(i, Some(block.header.hash));
+            store_update.save_next_block_hash(&prev_block.hash(), block.hash());
+            prev_block = block.clone();
+        }
+        let mut head = store_update.head().unwrap().clone();
+        head.height = 14;
+        store_update.save_body_head(&head).unwrap();
+        store_update.commit().unwrap();
+
+        chain.epoch_length = 1;
+        assert!(chain.clear_old_data().is_ok());
+
+        assert!(chain.get_block(&blocks[0].hash()).is_ok());
+        for i in 1..15 {
+            println!("height = {:?}", i);
+            if i < 9 {
+                assert!(chain.get_block(&blocks[i].hash()).is_err());
+                assert!(chain
+                    .mut_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .is_err());
+            } else {
+                assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+            }
+            assert!(chain.get_block_header(&blocks[i].hash()).is_ok());
+        }
     }
 }

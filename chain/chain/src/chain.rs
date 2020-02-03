@@ -47,6 +47,9 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -62,6 +65,12 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
+/// Number of epochs for which we keep store data
+const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+
+/// Number of heights to clear.
+const HEIGHTS_TO_CLEAR: BlockHeightDelta = 10;
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
@@ -494,6 +503,25 @@ impl Chain {
         });
     }
 
+    pub fn clear_old_data(&mut self) -> Result<(), Error> {
+        let mut chain_store_update = self.store.store_update();
+        let head = chain_store_update.head()?;
+        let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
+        if head.height >= height_diff {
+            let last_height = head.height - height_diff;
+            for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
+                match chain_store_update.clear_old_data_on_height(height) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);
+                    }
+                }
+            }
+        }
+        chain_store_update.commit()?;
+        Ok(())
+    }
+
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header<F>(
         &mut self,
@@ -798,7 +826,6 @@ impl Chain {
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
-        chain_store_update.save_body_tail(&tip);
         chain_store_update.commit()?;
 
         // Check if there are any orphans unlocked by this state sync.
@@ -2171,7 +2198,11 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        for (shard_id, receipt_proofs) in receipt_proofs_by_shard_id {
+        for (shard_id, mut receipt_proofs) in receipt_proofs_by_shard_id {
+            let mut slice = [0u8; 32];
+            slice.copy_from_slice(block.hash().as_ref());
+            let mut rng: StdRng = SeedableRng::from_seed(slice);
+            receipt_proofs.shuffle(&mut rng);
             self.chain_store_update.save_incoming_receipt(&block.hash(), shard_id, receipt_proofs);
         }
 
@@ -2701,16 +2732,18 @@ impl<'a> ChainUpdate<'a> {
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        if let Ok(epoch_id_to_hash) = self
+        if let Ok(epoch_id_to_blocks) = self
             .chain_store_update
-            .get_any_block_hash_by_height(header.inner_lite.height)
+            .get_all_block_hashes_by_height(header.inner_lite.height)
             .map(Clone::clone)
         {
             // Check if there is already known block of the same height that has the same epoch id
-            if let Some(other_hash) = epoch_id_to_hash.get(&header.inner_lite.epoch_id) {
+            if let Some(block_hashes) = epoch_id_to_blocks.get(&header.inner_lite.epoch_id) {
                 // This should be guaranteed but it doesn't hurt to check again
-                if other_hash != &header.hash {
-                    let other_header = self.chain_store_update.get_block_header(&other_hash)?;
+                if !block_hashes.contains(&header.hash) {
+                    let other_header = self
+                        .chain_store_update
+                        .get_block_header(block_hashes.iter().next().unwrap())?;
 
                     on_challenge(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
                         left_block_header: header.try_to_vec().expect("Failed to serialize"),

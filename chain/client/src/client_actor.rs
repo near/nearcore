@@ -148,7 +148,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .client
                     .chain
                     .mut_store()
-                    .get_any_block_hash_by_height(block.header.inner_lite.height);
+                    .get_all_block_hashes_by_height(block.header.inner_lite.height);
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
@@ -171,9 +171,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         .get_epoch_id_from_prev_block(&block.header.prev_hash)
                     {
                         Ok(epoch_id) => {
-                            if Some(&block.header.hash) != blocks_at_height.unwrap().get(&epoch_id)
-                            {
-                                warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                            if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
+                                if !hashes.contains(&block.header.hash) {
+                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                                }
                             }
                         }
                         _ => {}
