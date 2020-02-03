@@ -47,12 +47,3 @@ tmp/
 # Vim tmp files
 *.swp
 rusty-tags.vi
-
-# target dir for building adversarial node for pytests
-pytest/.adversary
-
-# a file indicating that the person understands the risks of running adversarial tests
-pytest/.consent
-
-# a file indicating that the person works on top of adversary branch
-pytest/.adv_on_top

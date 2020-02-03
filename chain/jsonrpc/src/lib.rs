@@ -26,6 +26,7 @@ use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
+use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
@@ -217,7 +218,9 @@ impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let (height, score) = parse_params::<(u64, u64)>(params)?;
         actix::spawn(
-            self.client_addr.send(NetworkClientMessages::AdvSetSyncInfo(height, score)).map(|_| ()),
+            self.view_client_addr
+                .send(NetworkViewClientMessages::AdvSetSyncInfo(height, score))
+                .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
     }
@@ -226,6 +229,9 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr.send(NetworkClientMessages::AdvDisableHeaderSync).map(|_| ()),
+        );
+        actix::spawn(
+            self.view_client_addr.send(NetworkViewClientMessages::AdvDisableHeaderSync).map(|_| ()),
         );
         Ok(Value::String("".to_string()))
     }

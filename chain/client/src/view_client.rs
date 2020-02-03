@@ -46,6 +46,11 @@ const REQUEST_WAIT_TIME: u64 = 1000;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_header_sync: bool,
+    #[cfg(feature = "adversarial")]
+    pub adv_sync_info: Option<(u64, u64)>,
+
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -78,6 +83,10 @@ impl ViewClientActor {
             DoomslugThresholdMode::HalfStake,
         )?;
         Ok(ViewClientActor {
+            #[cfg(feature = "adversarial")]
+            adv_disable_header_sync: false,
+            #[cfg(feature = "adversarial")]
+            adv_sync_info: None,
             chain,
             runtime_adapter,
             network_adapter,
@@ -291,7 +300,7 @@ impl ViewClientActor {
     fn get_height_and_score(&self, head: &Tip) -> (BlockHeight, BlockScore) {
         #[cfg(feature = "adversarial")]
         {
-            if let Some((height, score)) = self.chain.adv_sync_info {
+            if let Some((height, score)) = self.adv_sync_info {
                 return (height, BlockScore::from(score));
             }
         }
@@ -473,6 +482,18 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
+            #[cfg(feature = "adversarial")]
+            NetworkViewClientMessages::AdvSetSyncInfo(height, score) => {
+                info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
+                self.adv_sync_info = Some((height, score));
+                return NetworkViewClientResponses::NoResponse;
+            }
+            #[cfg(feature = "adversarial")]
+            NetworkViewClientMessages::AdvDisableHeaderSync => {
+                info!(target: "adversary", "Blocking header sync");
+                self.adv_disable_header_sync = true;
+                return NetworkViewClientResponses::NoResponse;
+            }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {
                     NetworkViewClientResponses::TxStatus(result)
@@ -553,7 +574,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
                 #[cfg(feature = "adversarial")]
                 {
-                    if self.chain.adv_disable_header_sync {
+                    if self.adv_disable_header_sync {
                         return NetworkViewClientResponses::NoResponse;
                     }
                 }

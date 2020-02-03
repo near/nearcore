@@ -46,6 +46,12 @@ use crate::StatusResponse;
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
 pub struct ClientActor {
+    /// Adversarial controls
+    #[cfg(feature = "adversarial")]
+    pub adv_sync_info: Option<(u64, u64)>,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_header_sync: bool,
+
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
     network_info: NetworkInfo,
@@ -100,6 +106,10 @@ impl ClientActor {
         )?;
 
         Ok(ClientActor {
+            #[cfg(feature = "adversarial")]
+            adv_sync_info: None,
+            #[cfg(feature = "adversarial")]
+            adv_disable_header_sync: false,
             client,
             network_adapter,
             node_id,
@@ -148,15 +158,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
-            NetworkClientMessages::AdvSetSyncInfo(height, score) => {
-                info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
-                self.client.chain.adv_sync_info = Some((height, score));
-                return NetworkClientResponses::NoResponse;
-            }
-            #[cfg(feature = "adversarial")]
             NetworkClientMessages::AdvDisableHeaderSync => {
                 info!(target: "adversary", "Blocking header sync");
-                self.client.chain.adv_disable_header_sync = true;
+                self.adv_disable_header_sync = true;
                 return NetworkClientResponses::NoResponse;
             }
             #[cfg(feature = "adversarial")]
@@ -817,7 +821,7 @@ impl ClientActor {
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if self.client.chain.adv_disable_header_sync {
+            if self.adv_disable_header_sync {
                 return false;
             }
         }

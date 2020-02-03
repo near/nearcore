@@ -1123,8 +1123,6 @@ pub enum NetworkClientMessages {
     AdvDisableHeaderSync,
     #[cfg(feature = "adversarial")]
     AdvGetSavedBlocks,
-    #[cfg(feature = "adversarial")]
-    AdvSetSyncInfo(u64, u64),
 
     /// Received transaction.
     Transaction(SignedTransaction),
@@ -1185,6 +1183,11 @@ impl Message for NetworkClientMessages {
 }
 
 pub enum NetworkViewClientMessages {
+    #[cfg(feature = "adversarial")]
+    AdvDisableHeaderSync,
+    #[cfg(feature = "adversarial")]
+    AdvSetSyncInfo(u64, u64),
+
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
