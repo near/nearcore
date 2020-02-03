@@ -14,6 +14,7 @@ log = "0.4"
 rocksdb = "0.13"
 rand = "0.7"
 sha2 = "0.8"
+sha3 = "0.8"
 lazy_static = "1.4"
 
 borsh = "0.2.10"
