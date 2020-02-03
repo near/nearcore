@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
@@ -16,6 +15,7 @@ use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
+use near_primitives::serialize::to_base64;
 
 pub struct TrieViewer {}
 
@@ -60,14 +60,14 @@ impl TrieViewer {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
-        let mut values = HashMap::default();
+        let mut values: Vec<(String, String)> = Default::default();
         let mut query = prefix_for_data(account_id);
         let acc_sep_len = query.len();
         query.extend_from_slice(prefix);
         state_update.for_keys_with_prefix(&query, |key| {
             // TODO error
             if let Ok(Some(value)) = state_update.get(key) {
-                values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
+                values.push((to_base64(&key[acc_sep_len..]), to_base64(&value)));
             }
         })?;
         Ok(ViewStateResult { values })
@@ -238,16 +238,10 @@ mod tests {
         let state_update = TrieUpdate::new(trie, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-        assert_eq!(
-            result.values,
-            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
-        );
+        assert_eq!(result.values, [("dGVzdDEyMw==".to_string(), "MTIz".to_string())]);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"test321").unwrap();
-        assert_eq!(result.values, [].iter().cloned().collect());
+        assert_eq!(result.values, []);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
-        assert_eq!(
-            result.values,
-            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
-        )
+        assert_eq!(result.values, [("dGVzdDEyMw==".to_string(), "MTIz".to_string())])
     }
 }

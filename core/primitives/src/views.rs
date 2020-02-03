@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
@@ -124,7 +123,7 @@ impl From<AccessKeyView> for AccessKey {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
-    pub values: HashMap<Vec<u8>, Vec<u8>>,
+    pub values: Vec<(String, String)>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
