@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
-use near::GenesisConfig;
+use near::config::GenesisConfigExt;
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 

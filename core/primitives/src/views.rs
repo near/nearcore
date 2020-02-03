@@ -207,6 +207,9 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NearConfigView {}
+
 impl TryFrom<QueryResponse> for AccountView {
     type Error = String;
 

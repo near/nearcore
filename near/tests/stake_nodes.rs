@@ -7,8 +7,9 @@ use futures::{future, FutureExt};
 use rand::Rng;
 use tempdir::TempDir;
 
-use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
+use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near::{load_test_config, start_with_config, NearConfig};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};

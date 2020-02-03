@@ -5,14 +5,15 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near::config::FISHERMEN_THRESHOLD;
-use near::{GenesisConfig, NightshadeRuntime};
+use near::config::{GenesisConfigExt, FISHERMEN_THRESHOLD};
+use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
     RuntimeAdapter,
 };
+use near_chain_configs::GenesisConfig;
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};

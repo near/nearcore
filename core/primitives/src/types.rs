@@ -5,6 +5,7 @@ use near_crypto::PublicKey;
 
 use crate::challenge::ChallengesResult;
 use crate::hash::CryptoHash;
+use crate::serialize::u128_dec_format;
 
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
@@ -43,6 +44,15 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
+
+/// Account info for validators
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct AccountInfo {
+    pub account_id: AccountId,
+    pub public_key: PublicKey,
+    #[serde(with = "u128_dec_format")]
+    pub amount: Balance,
+}
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
 #[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near::{start_with_config, GenesisConfig, NearConfig};
+use near::{start_with_config, NearConfig};
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 

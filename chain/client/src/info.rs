@@ -7,12 +7,13 @@ use serde_json::json;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
+use near_chain_configs::ClientConfig;
 use near_network::types::{NetworkInfo, PeerId};
 use near_primitives::serialize::to_base;
 use near_primitives::types::Version;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::types::{BlockProducer, ClientConfig, ShardSyncStatus, SyncStatus};
+use crate::types::{BlockProducer, ShardSyncStatus, SyncStatus};
 use near_primitives::types::Gas;
 use std::cmp::min;
 

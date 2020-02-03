@@ -10,7 +10,8 @@ use futures::{future, FutureExt, TryFutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
+use near_chain_configs::ClientConfig;
+use near_client::{BlockProducer, ClientActor, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, StopSignal, WaitOrTimeout,

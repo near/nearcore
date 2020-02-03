@@ -1,17 +1,16 @@
 //! Constructs state of token holders from the csv file.
 use chrono::{DateTime, Utc};
 use csv::ReaderBuilder;
-use near::config::AccountInfo;
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
 use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
-use node_runtime::StateRecord;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;

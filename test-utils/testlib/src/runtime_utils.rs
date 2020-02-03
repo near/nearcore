@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
-use near::GenesisConfig;
+
+use near::config::GenesisConfigExt;
+use near_chain_configs::GenesisConfig;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, MerkleHash, StateRoot};
 use near_store::test_utils::create_trie;

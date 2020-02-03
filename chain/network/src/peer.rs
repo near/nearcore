@@ -10,6 +10,7 @@ use actix::{
 };
 use tracing::{debug, error, info, trace, warn};
 
+use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -25,7 +26,6 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    PROTOCOL_VERSION,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
