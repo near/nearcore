@@ -14,7 +14,7 @@ use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, MaybeBlockId, NumBlocks, NumSeats, ShardId,
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, MaybeBlockId, NumSeats, ShardId,
     StateChanges, StateChangesRequest, Version,
 };
 use near_primitives::utils::generate_random_string;
@@ -123,16 +123,10 @@ pub struct ClientConfig {
     pub announce_account_horizon: BlockHeightDelta,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
-    /// Behind this horizon header fetch kicks in.
-    pub block_header_fetch_horizon: BlockHeightDelta,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -174,14 +168,11 @@ impl ClientConfig {
             num_block_producer_seats,
             announce_account_horizon: 5,
             ttl_account_id_router: Duration::from_secs(60 * 60),
-            block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(min_block_prod_time / 2),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),
                 Duration::from_millis(min_block_prod_time / 5),
             ),
-            block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
         }
@@ -256,8 +247,8 @@ pub enum SyncStatus {
     NoSync,
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
-    /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
+    /// State sync with different states of state sync for different shards.
+    StateSync(EpochId, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.

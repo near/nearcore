@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -727,10 +728,7 @@ impl Chain {
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    pub fn check_state_needed(
-        &mut self,
-        block_fetch_horizon: BlockHeightDelta,
-    ) -> Result<(bool, Vec<CryptoHash>), Error> {
+    pub fn check_state_needed(&mut self) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
@@ -740,7 +738,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut oldest_height = 0;
+        let mut epoch_id = EpochId::default();
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.inner_lite.height <= block_head.height {
@@ -749,16 +747,17 @@ impl Chain {
                 }
             }
 
-            oldest_height = header.inner_lite.height;
             hashes.push(header.hash());
+            epoch_id = header.inner_lite.next_epoch_id.clone();
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
         let sync_head = self.sync_head()?;
-        if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
-            return Ok((true, vec![]));
+        // TODO Alex: check this
+        match self.runtime_adapter.compare_epoch_id(&epoch_id, &sync_head.epoch_id) {
+            Ok(Ordering::Less) => Ok((true, vec![])),
+            _ => Ok((false, hashes)),
         }
-        Ok((false, hashes))
     }
 
     /// Returns if given block header on the current chain.
@@ -810,7 +809,7 @@ impl Chain {
     pub fn reset_heads_post_state_sync<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         block_accepted: F,
         block_misses_chunks: F2,
         on_challenge: F3,
@@ -821,7 +820,7 @@ impl Chain {
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
         // Get header we were syncing into.
-        let header = self.get_block_header(&sync_hash)?;
+        let header = self.get_first_block_header_from_next_epoch_id(next_epoch_id)?;
         let hash = header.prev_hash;
         let prev_header = self.get_block_header(&hash)?;
         let tip = Tip::from_header(prev_header);
@@ -849,7 +848,7 @@ impl Chain {
         debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
 
         let state_dl_info = StateSyncInfo {
-            epoch_tail_hash: block.header.hash(),
+            next_epoch_id: block.header.inner_lite.next_epoch_id.clone(),
             shards: shards_to_dl
                 .iter()
                 .map(|shard_id| {
@@ -1155,8 +1154,8 @@ impl Chain {
     pub fn get_state_response_header(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        next_epoch_id: &EpochId,
+    ) -> Result<Option<ShardStateSyncResponseHeader>, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -1164,9 +1163,17 @@ impl Chain {
         //    Let's call it `current`.
         // 2a. `prev_` means we're working with height before current.
         // 3. In inner loops we use all prefixes with no relation to the context described above.
-        let sync_block =
-            self.get_block(&sync_hash).expect("block has already been checked for existence");
-        let sync_block_header = sync_block.header.clone();
+        let sync_block_header = match self.get_first_block_header_from_next_epoch_id(next_epoch_id)
+        {
+            Ok(sync_block_header) => sync_block_header,
+            Err(_) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", "Can't get sync_hash for state request header for epoch_id {:?}", next_epoch_id);
+                return Ok(None);
+            }
+        };
+        let sync_block = self.get_block(&sync_block_header.hash)?;
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
@@ -1192,8 +1199,9 @@ impl Chain {
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
-        let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included)?.clone();
+        let block_header = self
+            .get_header_on_chain_by_height(&sync_block_header.hash, chunk_header.height_included)?
+            .clone();
 
         // Collecting the `prev` state.
         let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
@@ -1239,7 +1247,11 @@ impl Chain {
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
-            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?
+            .get_incoming_receipts_for_shard(
+                shard_id,
+                sync_block_header.hash,
+                prev_chunk_height_included,
+            )?
             .clone();
 
         // Collecting proofs for incoming receipts.
@@ -1283,7 +1295,7 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(&chunk_header.inner.prev_state_root);
 
-        Ok(ShardStateSyncResponseHeader {
+        Ok(Some(ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1291,7 +1303,7 @@ impl Chain {
             incoming_receipts_proofs,
             root_proofs,
             state_root_node,
-        })
+        }))
     }
 
     pub fn get_num_state_parts(memory_usage: u64) -> u64 {
@@ -1306,11 +1318,19 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         part_id: u64,
-        sync_hash: CryptoHash,
-    ) -> Result<Vec<u8>, Error> {
-        let sync_block =
-            self.get_block(&sync_hash).expect("block has already been checked for existence");
-        let sync_block_header = sync_block.header.clone();
+        next_epoch_id: &EpochId,
+    ) -> Result<Option<(u64, Vec<u8>)>, Error> {
+        let sync_block_header = match self.get_first_block_header_from_next_epoch_id(next_epoch_id)
+        {
+            Ok(sync_block_header) => sync_block_header,
+            Err(_) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", "Can't get sync_hash for state request part for epoch_id {:?}, part_id = {:?}", next_epoch_id, part_id);
+                return Ok(None);
+            }
+        };
+        let sync_block = self.get_block(&sync_block_header.hash)?;
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other(
                 "get_syncing_state_root fail: shard_id out of bounds".into(),
@@ -1336,16 +1356,16 @@ impl Chain {
         }
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
-        Ok(state_part)
+        Ok(Some((part_id, state_part)))
     }
 
     pub fn set_state_header(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
-        let sync_block_header = self.get_block_header(&sync_hash)?.clone();
+        let sync_block_header = self.get_first_block_header_from_next_epoch_id(&next_epoch_id)?;
 
         let ShardStateSyncResponseHeader {
             chunk,
@@ -1384,8 +1404,9 @@ impl Chain {
             .into());
         }
 
-        let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk.header.height_included)?.clone();
+        let block_header = self
+            .get_header_on_chain_by_height(&sync_block_header.hash, chunk.header.height_included)?
+            .clone();
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         let prev_chunk_height_included = match prev_chunk_header {
@@ -1425,7 +1446,7 @@ impl Chain {
             byzantine_assert!(false);
             return Err(ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into());
         }
-        let mut hash_to_compare = sync_hash;
+        let mut hash_to_compare = sync_block_header.hash;
         for (i, receipt_response) in incoming_receipts_proofs.iter().enumerate() {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
 
@@ -1512,7 +1533,7 @@ impl Chain {
 
         // Saving the header data.
         let mut store_update = self.store.owned_store().store_update();
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = StateHeaderKey(shard_id, next_epoch_id.clone()).try_to_vec()?;
         store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -1522,9 +1543,9 @@ impl Chain {
     pub fn get_received_state_header(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = StateHeaderKey(shard_id, next_epoch_id.clone()).try_to_vec()?;
         match self.store.owned_store().get_ser(ColStateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
             _ => Err(ErrorKind::Other(
@@ -1537,12 +1558,12 @@ impl Chain {
     pub fn set_state_part(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         part_id: u64,
         num_parts: u64,
         data: &Vec<u8>,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_received_state_header(shard_id, &next_epoch_id)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
@@ -1555,7 +1576,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = StatePartKey(next_epoch_id.clone(), shard_id, part_id).try_to_vec()?;
         store_update.set_ser(ColStateParts, &key, data)?;
         store_update.commit()?;
         Ok(())
@@ -1564,21 +1585,22 @@ impl Chain {
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         num_parts: u64,
     ) -> Result<(), Error> {
-        let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
+        let shard_state_header = self.get_received_state_header(shard_id, next_epoch_id)?;
         let mut height = shard_state_header.chunk.header.height_included;
         let state_root = shard_state_header.chunk.header.inner.prev_state_root.clone();
         let mut parts = vec![];
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = StatePartKey(next_epoch_id.clone(), shard_id, part_id).try_to_vec()?;
             parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
         }
 
         // Confirm that state matches the parts we received
         self.runtime_adapter.confirm_state(&state_root, &parts)?;
 
+        let sync_header = self.get_first_block_header_from_next_epoch_id(next_epoch_id)?;
         // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
@@ -1590,11 +1612,10 @@ impl Chain {
             &self.block_economics_config,
             self.doomslug_threshold_mode,
         );
-        chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+        chain_update.set_state_finalize(shard_id, sync_header.hash, shard_state_header)?;
         chain_update.commit()?;
-
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
+        // Now we should build a chain up to height of `sync_header.hash` block.
         loop {
             height += 1;
             let mut chain_update = ChainUpdate::new(
@@ -1609,7 +1630,7 @@ impl Chain {
             );
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
-            if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+            if chain_update.set_state_finalize_on_height(height, shard_id, sync_header.hash)? {
                 chain_update.commit()?;
             } else {
                 break;
@@ -1621,12 +1642,12 @@ impl Chain {
     pub fn clear_downloaded_parts(
         &mut self,
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         num_parts: u64,
     ) -> Result<(), Error> {
         let mut store_update = self.store.owned_store().store_update();
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = StatePartKey(next_epoch_id.clone(), shard_id, part_id).try_to_vec()?;
             store_update.delete(ColStateParts, &key);
         }
         Ok(store_update.commit()?)
@@ -1636,7 +1657,7 @@ impl Chain {
     pub fn catchup_blocks<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
-        epoch_first_block: &CryptoHash,
+        next_epoch_id: &EpochId,
         block_accepted: F,
         block_misses_chunks: F2,
         on_challenge: F3,
@@ -1646,6 +1667,7 @@ impl Chain {
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
+        let epoch_first_block = self.get_first_block_header_from_next_epoch_id(next_epoch_id)?.hash;
         debug!("Catching up blocks after syncing pre {:?}, me: {:?}", epoch_first_block, me);
 
         let mut affected_blocks: HashSet<CryptoHash> = HashSet::new();
@@ -1671,7 +1693,7 @@ impl Chain {
 
         let first_epoch = block.header.inner_lite.epoch_id.clone();
 
-        let mut queue = vec![*epoch_first_block];
+        let mut queue = vec![epoch_first_block];
         let mut cur = 0;
 
         while cur < queue.len() {
@@ -1720,13 +1742,13 @@ impl Chain {
         // `epoch_first_block` we should only remove the pair with hash = epoch_first_block, while
         // for all the blocks in the queue we can remove all the pairs that have them as `prev_hash`
         // since we processed all the blocks built on top of them above during the BFS
-        chain_store_update.remove_block_to_catchup(block.header.prev_hash, *epoch_first_block);
+        chain_store_update.remove_block_to_catchup(block.header.prev_hash, epoch_first_block);
 
         for block_hash in queue {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
             chain_store_update.remove_prev_block_to_catchup(block_hash);
         }
-        chain_store_update.remove_state_dl_info(*epoch_first_block);
+        chain_store_update.remove_state_dl_info(next_epoch_id);
 
         chain_store_update.commit()?;
 
@@ -2020,6 +2042,20 @@ impl Chain {
     #[inline]
     pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
         self.blocks_with_missing_chunks.contains(hash)
+    }
+
+    #[inline]
+    pub fn get_first_block_header_from_next_epoch_id(
+        &mut self,
+        next_epoch_id: &EpochId,
+    ) -> Result<BlockHeader, Error> {
+        // We rely on fact that next epoch id is always the same as the last block hash of the current epoch
+        let prev_header = self.get_block_header(&next_epoch_id.0)?.clone();
+        let height = prev_header.inner_lite.height + 1;
+        let header = self.get_header_by_height(height)?.clone();
+        assert_eq!(&header.inner_lite.next_epoch_id, next_epoch_id);
+        assert_ne!(header.inner_lite.next_epoch_id, prev_header.inner_lite.next_epoch_id);
+        Ok(header)
     }
 }
 

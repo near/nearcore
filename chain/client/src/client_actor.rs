@@ -153,14 +153,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .mut_store()
                     .get_all_block_hashes_by_height(block.header.inner_lite.height);
                 if was_requested || !blocks_at_height.is_ok() {
-                    if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
-                        if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
+                    if let SyncStatus::StateSync(next_epoch_id, _) = &mut self.client.sync_status {
+                        if let Ok(header) = self
+                            .client
+                            .chain
+                            .get_first_block_header_from_next_epoch_id(&next_epoch_id)
+                        {
                             if block.hash() == header.prev_hash {
                                 if let Err(_) = self.client.chain.save_block(&block) {
                                     error!(target: "client", "Failed to save a block during state sync");
                                 }
                                 return NetworkClientResponses::NoResponse;
-                            } else if &block.hash() == sync_hash {
+                            } else if block.hash() == header.hash {
                                 self.client.chain.save_orphan(&block);
                                 return NetworkClientResponses::NoResponse;
                             }
@@ -199,7 +203,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
-                sync_hash: hash,
+                next_epoch_id,
                 state_response,
             }) => {
                 // Get the download that matches the shard_id and hash
@@ -207,10 +211,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     let mut download: Option<&mut ShardSyncDownload> = None;
 
                     // ... It could be that the state was requested by the state sync
-                    if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                    if let SyncStatus::StateSync(sync_epoch_id, shards_to_download) =
                         &mut self.client.sync_status
                     {
-                        if hash == *sync_hash {
+                        if next_epoch_id == *sync_epoch_id {
                             if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                                 assert!(
                                     download.is_none(),
@@ -226,7 +230,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                     // ... Or one of the catchups
                     if let Some((_, shards_to_download)) =
-                        self.client.catchup_state_syncs.get_mut(&hash)
+                        self.client.catchup_state_syncs.get_mut(&next_epoch_id)
                     {
                         if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
@@ -246,14 +250,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 if !shard_sync_download.downloads[0].done {
                                     match self.client.chain.set_state_header(
                                         shard_id,
-                                        hash,
+                                        &next_epoch_id,
                                         header.clone(),
                                     ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[0].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_header error, shard = {}, next_epoch_id = {:?}: {:?}", shard_id, next_epoch_id, err);
                                             shard_sync_download.downloads[0].error = true;
                                         }
                                     }
@@ -262,7 +266,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 // No header found.
                                 // It may happen because requested node couldn't build state response.
                                 if !shard_sync_download.downloads[0].done {
-                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, next_epoch_id = {:?}", shard_id, next_epoch_id);
                                     shard_sync_download.downloads[0].error = true;
                                 }
                             }
@@ -272,21 +276,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 let num_parts = shard_sync_download.downloads.len() as u64;
                                 let (part_id, data) = part;
                                 if part_id >= num_parts {
-                                    error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                                    error!(target: "sync", "State sync received incorrect part_id # {:?} for next_epoch_id {:?}, potential malicious peer", part_id, next_epoch_id);
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        &next_epoch_id,
+                                        part_id,
+                                        num_parts,
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, next_epoch_id = {:?}: {:?}", shard_id, part_id, next_epoch_id, err);
                                             shard_sync_download.downloads[part_id as usize].error =
                                                 true;
                                         }
@@ -297,7 +303,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         _ => {}
                     }
                 } else {
-                    error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
+                    error!(target: "sync", "State sync received hash of next_epoch_id {:?} that we're not expecting, potential malicious peer", next_epoch_id);
                 }
 
                 NetworkClientResponses::NoResponse
@@ -808,13 +814,10 @@ impl ClientActor {
         self.sync(ctx);
     }
 
-    fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+    fn find_next_epoch_id(&mut self) -> Result<EpochId, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = self.client.chain.get_block_header(&sync_hash)?.prev_hash;
-        }
-        Ok(sync_hash)
+        // TODO Alex: check if is it correct
+        Ok(header_head.epoch_id)
     }
 
     /// Runs catchup on repeat, if this client is a validator.
@@ -916,42 +919,39 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.highest_height_peers
             ));
-            // Only body / state sync if header height is close to the latest.
-            let header_head = unwrap_or_run_later!(self.client.chain.header_head());
 
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
-                _ if header_head.height
-                    >= highest_height
-                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
-                {
-                    unwrap_or_run_later!(self.client.block_sync.run(
-                        &mut self.client.sync_status,
-                        &mut self.client.chain,
-                        highest_height,
-                        &self.network_info.highest_height_peers
-                    ))
-                }
-                _ => false,
+                // TODO Alex check this
+                _ => unwrap_or_run_later!(self.client.block_sync.run(
+                    &mut self.client.sync_status,
+                    &mut self.client.chain,
+                    highest_height,
+                    &self.network_info.highest_height_peers
+                )),
             };
             if sync_state {
-                let (sync_hash, mut new_shard_sync) = match &self.client.sync_status {
-                    SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        (sync_hash.clone(), shard_sync.clone())
+                let (next_epoch_id, mut new_shard_sync) = match &self.client.sync_status {
+                    SyncStatus::StateSync(next_epoch_id, shard_sync) => {
+                        (next_epoch_id.clone(), shard_sync.clone())
                     }
                     _ => {
-                        let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
-                        (sync_hash, HashMap::default())
+                        let next_epoch_id = unwrap_or_run_later!(self.find_next_epoch_id());
+                        (next_epoch_id, HashMap::default())
                     }
                 };
 
                 let me = &self.client.block_producer.as_ref().map(|x| x.account_id.clone());
+                let sync_header = unwrap_or_run_later!(self
+                    .client
+                    .chain
+                    .get_first_block_header_from_next_epoch_id(&next_epoch_id));
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
                     .filter(|x| {
                         self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
                             me.as_ref(),
-                            &sync_hash,
+                            &sync_header.hash,
                             *x,
                             true,
                         )
@@ -959,7 +959,7 @@ impl ClientActor {
                     .collect();
                 match unwrap_or_run_later!(self.client.state_sync.run(
                     me,
-                    sync_hash,
+                    &next_epoch_id,
                     &mut new_shard_sync,
                     &mut self.client.chain,
                     &self.client.runtime_adapter,
@@ -968,15 +968,16 @@ impl ClientActor {
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
-                        self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
+                        self.client.sync_status =
+                            SyncStatus::StateSync(next_epoch_id, new_shard_sync);
                         if let Some(peer_info) =
                             highest_height_peer(&self.network_info.highest_height_peers)
                         {
                             if fetch_block {
-                                if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                                    let prev_hash = header.prev_hash;
-                                    self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
-                                }
+                                self.request_block_by_hash(
+                                    sync_header.prev_hash,
+                                    peer_info.peer_info.id,
+                                );
                             }
                         }
                     }
@@ -989,7 +990,7 @@ impl ClientActor {
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             me,
-                            sync_hash,
+                            &next_epoch_id,
                             |accepted_block| {
                                 accepted_blocks.write().unwrap().push(accepted_block);
                             },

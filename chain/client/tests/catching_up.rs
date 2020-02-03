@@ -22,7 +22,7 @@ mod tests {
     use near_primitives::sharding::ChunkHash;
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId};
     use near_primitives::views::QueryResponseKind::ViewAccount;
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
@@ -80,7 +80,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
     pub struct StateRequestStruct {
         pub shard_id: u64,
-        pub sync_hash: CryptoHash,
+        pub next_epoch_id: EpochId,
         pub part_id: Option<u64>,
         pub target: AccountOrPeerIdOrHash,
     }
@@ -234,14 +234,14 @@ mod tests {
                             }
                             if let NetworkRequests::StateRequestHeader {
                                 shard_id,
-                                sync_hash,
+                                next_epoch_id,
                                 target,
                             } = msg
                             {
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        sync_hash: *sync_hash,
+                                        next_epoch_id: next_epoch_id.clone(),
                                         part_id: None,
                                         target: target.clone(),
                                     };
@@ -256,7 +256,7 @@ mod tests {
                             }
                             if let NetworkRequests::StateRequestPart {
                                 shard_id,
-                                sync_hash,
+                                next_epoch_id,
                                 part_id,
                                 target,
                             } = msg
@@ -264,7 +264,7 @@ mod tests {
                                 if sync_hold {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
-                                        sync_hash: *sync_hash,
+                                        next_epoch_id: next_epoch_id.clone(),
                                         part_id: Some(*part_id),
                                         target: target.clone(),
                                     };

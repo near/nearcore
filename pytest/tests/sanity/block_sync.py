@@ -12,9 +12,8 @@ from cluster import start_cluster
 BLOCKS = 10
 TIMEOUT = 10
 
-consensus_config0 = {"consensus": {"block_fetch_horizon": 30, "block_header_fetch_horizon": 30}}
 consensus_config1 = {"consensus": {"min_block_production_delay": {"secs": 100, "nanos": 0}, "max_block_production_delay": {"secs": 110, "nanos": 0}, "max_block_wait_delay": {"secs": 200, "nanos": 0}}}
-nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100]], {0: consensus_config0, 1: consensus_config1})
+nodes = start_cluster(2, 0, 4, None, [["epoch_length", 100]], {1: consensus_config1})
 time.sleep(3)
 
 node0_height = 0

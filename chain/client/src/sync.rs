@@ -14,7 +14,7 @@ use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
@@ -307,21 +307,15 @@ pub struct BlockSync {
     blocks_requested: NumBlocks,
     receive_timeout: DateTime<Utc>,
     prev_blocks_received: NumBlocks,
-    /// How far to fetch blocks vs fetch state.
-    block_fetch_horizon: BlockHeightDelta,
 }
 
 impl BlockSync {
-    pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
-        block_fetch_horizon: BlockHeightDelta,
-    ) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
         BlockSync {
             network_adapter,
             blocks_requested: 0,
             receive_timeout: Utc::now(),
             prev_blocks_received: 0,
-            block_fetch_horizon,
         }
     }
 
@@ -335,7 +329,7 @@ impl BlockSync {
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.block_sync_due(chain)? {
-            if self.block_sync(chain, highest_height_peers, self.block_fetch_horizon)? {
+            if self.block_sync(chain, highest_height_peers)? {
                 debug!(target: "sync", "Sync: transition to State Sync.");
                 return Ok(true);
             }
@@ -352,9 +346,8 @@ impl BlockSync {
         &mut self,
         chain: &mut Chain,
         highest_height_peers: &[FullPeerInfo],
-        block_fetch_horizon: BlockHeightDelta,
     ) -> Result<bool, near_chain::Error> {
-        let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
+        let (state_needed, mut hashes) = chain.check_state_needed()?;
         if state_needed {
             return Ok(true);
         }
@@ -463,11 +456,12 @@ impl StateSync {
 
     pub fn sync_block_status(
         &mut self,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
+        // TODO
+        let prev_hash = next_epoch_id.0;
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
@@ -493,7 +487,7 @@ impl StateSync {
     pub fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
@@ -531,7 +525,7 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header =
-                            chain.get_received_state_header(shard_id, sync_hash)?;
+                            chain.get_received_state_header(shard_id, &next_epoch_id)?;
                         let state_num_parts = Chain::get_num_state_parts(
                             shard_state_header.state_root_node.memory_usage,
                         );
@@ -594,10 +588,10 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateDownloadFinalize => {
                     let shard_state_header =
-                        chain.get_received_state_header(shard_id, sync_hash)?;
+                        chain.get_received_state_header(shard_id, &next_epoch_id)?;
                     let state_num_parts =
                         Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
-                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
+                    match chain.set_state_finalize(shard_id, next_epoch_id, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
@@ -608,29 +602,33 @@ impl StateSync {
                         Err(e) => {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
-                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
+                            error!(target: "sync", "State sync finalizing error, shard = {}, next_epoch_id = {:?}: {:?}", shard_id, next_epoch_id, e);
                             update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
-                            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                            chain.clear_downloaded_parts(
+                                shard_id,
+                                next_epoch_id,
+                                state_num_parts,
+                            )?;
                         }
                     }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     this_done = true;
                     let shard_state_header =
-                        chain.get_received_state_header(shard_id, sync_hash)?;
+                        chain.get_received_state_header(shard_id, &next_epoch_id)?;
                     let state_num_parts =
                         Chain::get_num_state_parts(shard_state_header.state_root_node.memory_usage);
-                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    chain.clear_downloaded_parts(shard_id, next_epoch_id, state_num_parts)?;
                 }
             }
             all_done &= this_done;
 
             if download_timeout {
                 warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, STATE_SYNC_TIMEOUT);
-                info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
+                info!(target: "sync", "State sync status: me {:?}, next_epoch_id {:?}, phase {}",
                       me,
-                      sync_hash,
+                      next_epoch_id,
                       match shard_sync_download.status {
                           ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
                                                                           Purple.bold().paint(format!("HEADER")),
@@ -662,7 +660,7 @@ impl StateSync {
                     shard_id,
                     chain,
                     runtime_adapter,
-                    sync_hash,
+                    next_epoch_id,
                     shard_sync_download.clone(),
                     highest_height_peers,
                 )?;
@@ -679,19 +677,21 @@ impl StateSync {
         shard_id: ShardId,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         shard_sync_download: ShardSyncDownload,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<ShardSyncDownload, near_chain::Error> {
-        let prev_block_hash =
-            unwrap_or_return!(chain.get_block_header(&sync_hash), Ok(shard_sync_download))
-                .prev_hash;
+        let sync_header = unwrap_or_return!(
+            chain.get_first_block_header_from_next_epoch_id(&next_epoch_id),
+            Ok(shard_sync_download)
+        );
+        let prev_block_hash = sync_header.prev_hash;
         let epoch_hash = unwrap_or_return!(
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash),
             Ok(shard_sync_download)
         );
         let possible_targets = unwrap_or_return!(
-            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash),
+            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_header.hash),
             Ok(shard_sync_download)
         )
         .iter()
@@ -738,7 +738,7 @@ impl StateSync {
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader {
                             shard_id,
-                            sync_hash,
+                            next_epoch_id: next_epoch_id.clone(),
                             target: target.clone(),
                         })
                         .then(move |result| {
@@ -764,7 +764,7 @@ impl StateSync {
                             self.network_adapter
                                 .send(NetworkRequests::StateRequestPart {
                                     shard_id,
-                                    sync_hash,
+                                    next_epoch_id: next_epoch_id.clone(),
                                     part_id: i as u64,
                                     target: target.clone(),
                                 })
@@ -787,7 +787,7 @@ impl StateSync {
     pub fn run(
         &mut self,
         me: &Option<AccountId>,
-        sync_hash: CryptoHash,
+        next_epoch_id: &EpochId,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
@@ -795,7 +795,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let now = Utc::now();
-        let (request_block, have_block) = self.sync_block_status(sync_hash, chain, now)?;
+        let (request_block, have_block) = self.sync_block_status(next_epoch_id, chain, now)?;
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
@@ -810,7 +810,7 @@ impl StateSync {
 
         let (update_sync_status, all_done) = self.sync_shards_status(
             me,
-            sync_hash,
+            next_epoch_id,
             new_shard_sync,
             chain,
             runtime_adapter,

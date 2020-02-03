@@ -49,9 +49,9 @@ pub struct Client {
     pub block_producer: Option<BlockProducer>,
     /// Approvals for which we do not have the block yet
     pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, Approval>>,
-    /// A mapping from a block for which a state sync is underway for the next epoch, and the object
+    /// A mapping from a next epoch for which a state sync is underway, and the object
     /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    pub catchup_state_syncs: HashMap<EpochId, (StateSync, HashMap<u64, ShardSyncDownload>)>,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -98,7 +98,7 @@ impl Client {
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
         );
-        let block_sync = BlockSync::new(network_adapter.clone(), config.block_fetch_horizon);
+        let block_sync = BlockSync::new(network_adapter.clone());
         let state_sync = StateSync::new(network_adapter.clone());
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
@@ -373,11 +373,8 @@ impl Client {
             let prev_prev_hash = self.chain.get_block_header(&prev_block_hash)?.prev_hash;
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
-                debug!(target: "client", "Produce chunk: prev block is not caught up");
-                return Err(Error::ChunkProducer(
-                    "State for the epoch is not downloaded yet, skipping chunk production"
-                        .to_string(),
-                ));
+                info!(target: "client", "State for the epoch is not downloaded yet, skipping chunk production");
+                return Ok(None);
             }
         }
 
@@ -1123,23 +1120,23 @@ impl Client {
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
-        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
-            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+        for (next_epoch_id, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+            assert_eq!(next_epoch_id, state_sync_info.next_epoch_id);
             let network_adapter1 = self.network_adapter.clone();
 
             let (state_sync, new_shard_sync) = self
                 .catchup_state_syncs
-                .entry(sync_hash)
+                .entry(next_epoch_id.clone())
                 .or_insert_with(|| (StateSync::new(network_adapter1), HashMap::new()));
 
             debug!(
                 target: "client",
-                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
+                "Catchup me: {:?}: next_epoch_id: {:?}, sync_info: {:?}", me, next_epoch_id, new_shard_sync
             );
 
             match state_sync.run(
                 me,
-                sync_hash,
+                &next_epoch_id,
                 new_shard_sync,
                 &mut self.chain,
                 &self.runtime_adapter,
@@ -1157,7 +1154,7 @@ impl Client {
 
                     self.chain.catchup_blocks(
                         me,
-                        &sync_hash,
+                        &next_epoch_id,
                         |accepted_block| {
                             accepted_blocks.write().unwrap().push(accepted_block);
                         },

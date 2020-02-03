@@ -321,8 +321,8 @@ pub enum RoutedMessageBody {
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
+    StateRequestHeader(ShardId, EpochId),
+    StateRequestPart(ShardId, EpochId, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -1069,13 +1069,13 @@ pub enum NetworkRequests {
     /// Request state header for given shard at given state root.
     StateRequestHeader {
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: EpochId,
         target: AccountOrPeerIdOrHash,
     },
     /// Request state part for given shard at given state root.
     StateRequestPart {
         shard_id: ShardId,
-        sync_hash: CryptoHash,
+        next_epoch_id: EpochId,
         part_id: u64,
         target: AccountOrPeerIdOrHash,
     },
@@ -1219,7 +1219,7 @@ impl Message for NetworkRequests {
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
+    pub next_epoch_id: EpochId,
     pub state_response: ShardStateSyncResponse,
 }
 
@@ -1301,9 +1301,9 @@ pub enum NetworkViewClientMessages {
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// State request header.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    StateRequestHeader { shard_id: ShardId, next_epoch_id: EpochId },
     /// State request part.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    StateRequestPart { shard_id: ShardId, next_epoch_id: EpochId, part_id: u64 },
     /// Get Chain information from Client.
     GetChainInfo,
     /// Account announcements that needs to be validated before being processed.

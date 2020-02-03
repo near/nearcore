@@ -861,22 +861,22 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
+            NetworkRequests::StateRequestHeader { shard_id, next_epoch_id, target } => {
                 if self.send_message_to_account_or_peer_or_hash(
                     ctx,
                     &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+                    RoutedMessageBody::StateRequestHeader(shard_id, next_epoch_id),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
+            NetworkRequests::StateRequestPart { shard_id, next_epoch_id, part_id, target } => {
                 if self.send_message_to_account_or_peer_or_hash(
                     ctx,
                     &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
+                    RoutedMessageBody::StateRequestPart(shard_id, next_epoch_id, part_id),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

@@ -230,8 +230,6 @@ fn sync_empty_state() {
 
         let (port1, port2) = (open_port(), open_port());
         let state_sync_horizon = 10;
-        let block_header_fetch_horizon = 1;
-        let block_fetch_horizon = 1;
 
         let mut near1 = load_test_config("test1", port1, &genesis_config);
         near1.client_config.min_num_peers = 0;
@@ -267,10 +265,6 @@ fn sync_empty_state() {
                                         Duration::from_millis(200);
                                     near2.client_config.max_block_production_delay =
                                         Duration::from_millis(400);
-                                    near2.client_config.state_fetch_horizon = state_sync_horizon;
-                                    near2.client_config.block_header_fetch_horizon =
-                                        block_header_fetch_horizon;
-                                    near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                     near2.client_config.tracked_shards = vec![0, 1, 2, 3];
 
                                     let (_, view_client2) = start_with_config(dir2.path(), near2);

@@ -493,7 +493,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::StateRequestHeader {
                             shard_id,
-                            sync_hash,
+                            next_epoch_id,
                             target: target_account_id,
                         } => {
                             let target_account_id = match target_account_id {
@@ -508,7 +508,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
+                                                next_epoch_id: next_epoch_id.clone(),
                                             })
                                             .then(move |response| {
                                                 let response = response.unwrap();
@@ -535,7 +535,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::StateRequestPart {
                             shard_id,
-                            sync_hash,
+                            next_epoch_id,
                             part_id,
                             target: target_account_id,
                         } => {
@@ -551,7 +551,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestPart {
                                                 shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
+                                                next_epoch_id: next_epoch_id.clone(),
                                                 part_id: *part_id,
                                             })
                                             .then(move |response| {

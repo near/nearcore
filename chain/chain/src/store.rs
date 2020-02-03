@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
@@ -73,8 +72,8 @@ fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
 /// Contains the information that is used to sync state for shards as epochs switch
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
+    /// The epoch for which syncing is happening
+    pub next_epoch_id: EpochId,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
 }
@@ -436,12 +435,12 @@ impl ChainStore {
         ChainStoreUpdate::new(self)
     }
 
-    pub fn iterate_state_sync_infos(&self) -> Vec<(CryptoHash, StateSyncInfo)> {
+    pub fn iterate_state_sync_infos(&self) -> Vec<(EpochId, StateSyncInfo)> {
         self.store
             .iter(ColStateDlInfos)
             .map(|(k, v)| {
                 (
-                    CryptoHash::try_from(k.as_ref()).unwrap(),
+                    EpochId::try_from_slice(k.as_ref()).unwrap(),
                     StateSyncInfo::try_from_slice(v.as_ref()).unwrap(),
                 )
             })
@@ -1045,7 +1044,7 @@ pub struct ChainStoreUpdate<'a> {
     // A prev_hash to be removed with all the hashes associated with it
     remove_prev_blocks_to_catchup: Vec<CryptoHash>,
     add_state_dl_infos: Vec<StateSyncInfo>,
-    remove_state_dl_infos: Vec<CryptoHash>,
+    remove_state_dl_infos: Vec<EpochId>,
     challenged_blocks: HashSet<CryptoHash>,
 }
 
@@ -1698,8 +1697,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.add_state_dl_infos.push(info);
     }
 
-    pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
-        self.remove_state_dl_infos.push(hash);
+    pub fn remove_state_dl_info(&mut self, next_epoch_id: &EpochId) {
+        self.remove_state_dl_infos.push(next_epoch_id.clone());
     }
 
     pub fn save_challenged_block(&mut self, hash: CryptoHash) {
@@ -2086,7 +2085,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for state_dl_info in self.add_state_dl_infos.drain(..) {
             store_update.set_ser(
                 ColStateDlInfos,
-                state_dl_info.epoch_tail_hash.as_ref(),
+                state_dl_info.next_epoch_id.as_ref(),
                 &state_dl_info,
             )?;
         }

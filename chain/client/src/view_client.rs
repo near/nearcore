@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
-use log::{error, info, warn};
+use log::{error, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
@@ -546,57 +546,38 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::NoResponse
                 }
             },
-            NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
-                let state_response = match self.chain.get_block(&sync_hash) {
-                    Ok(_) => {
-                        let header = match self.chain.get_state_response_header(shard_id, sync_hash)
-                        {
-                            Ok(header) => Some(header),
-                            Err(e) => {
-                                error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                                None
-                            }
-                        };
-                        ShardStateSyncResponse { header, part: None }
-                    }
-                    Err(_) => {
-                        // This case may appear in case of latency in epoch switching.
-                        // Request sender is ready to sync but we still didn't get the block.
-                        info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
+            NetworkViewClientMessages::StateRequestHeader { shard_id, next_epoch_id } => {
+                let state_response = match self
+                    .chain
+                    .get_state_response_header(shard_id, &next_epoch_id)
+                {
+                    Ok(header) => ShardStateSyncResponse { header, part: None },
+                    Err(e) => {
+                        error!(target: "sync", "get_state_response_header failed on next_epoch_id = {:?}: {:?}", next_epoch_id, e);
                         ShardStateSyncResponse { header: None, part: None }
                     }
                 };
                 NetworkViewClientResponses::StateResponse(StateResponseInfo {
                     shard_id,
-                    sync_hash,
+                    next_epoch_id,
                     state_response,
                 })
             }
-            NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
-                let state_response = match self.chain.get_block(&sync_hash) {
-                    Ok(_) => {
-                        let part = match self
-                            .chain
-                            .get_state_response_part(shard_id, part_id, sync_hash)
-                        {
-                            Ok(part) => Some((part_id, part)),
-                            Err(e) => {
-                                error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
-                                None
-                            }
-                        };
-                        ShardStateSyncResponse { header: None, part }
-                    }
-                    Err(_) => {
-                        // This case may appear in case of latency in epoch switching.
-                        // Request sender is ready to sync but we still didn't get the block.
-                        info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
+            NetworkViewClientMessages::StateRequestPart { shard_id, next_epoch_id, part_id } => {
+                let state_response = match self.chain.get_state_response_part(
+                    shard_id,
+                    part_id,
+                    &next_epoch_id,
+                ) {
+                    Ok(part) => ShardStateSyncResponse { header: None, part },
+                    Err(e) => {
+                        error!(target: "sync", "get_state_response_part failed on next_epoch_id = {:?}, part_id = {:?}: {}", next_epoch_id, part_id, e);
                         ShardStateSyncResponse { header: None, part: None }
                     }
                 };
                 NetworkViewClientResponses::StateResponse(StateResponseInfo {
                     shard_id,
-                    sync_hash,
+                    next_epoch_id,
                     state_response,
                 })
             }
