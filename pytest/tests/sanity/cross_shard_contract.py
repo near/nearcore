@@ -169,7 +169,7 @@ nonce = 10
 contract_name = 'cross_contract'
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
-tx = create_account_tx(nodes[0].signer_key, contract_name, 10000000, nonce, hash_)
+tx = create_account_tx(nodes[0].signer_key, contract_name, 1050010022916497818510000, nonce, hash_)
 res = nodes[0].send_tx_and_wait(tx, 10)
 print('')
 pprint(res)
@@ -198,8 +198,8 @@ def deploy_status_message_contract():
     pprint(res)
 
     time.sleep(5)
-    a = nodes[0].get_account('status_message')
-    line = t.getline(f'account status_message in shard')
+    a = nodes[0].get_account(contract_name)
+    line = t.getline(f'account {contract_name} in shard')
     shard = int(line.split('shard ')[-1].strip())
     print(f'shard {shard}')
     return contract_name, shard
@@ -213,6 +213,7 @@ while True:
         break
 
 # Simple cross contract call from cross_contract
+time.sleep(3)
 nonce += 10
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
@@ -222,6 +223,7 @@ res = nodes[0].send_tx_and_wait(tx, 10)
 pprint(res)
 
 # Verify state change in status_message
+time.sleep(3)
 nonce += 10
 status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
