@@ -26,6 +26,7 @@ use near_crypto::PublicKey;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
+#[cfg(feature = "adversarial")]
 use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
