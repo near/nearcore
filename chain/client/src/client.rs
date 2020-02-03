@@ -198,38 +198,34 @@ impl Client {
     }
 
     /// Check that this block height is not known yet.
-    fn check_block_height(
-        &mut self,
-        next_height: BlockHeight,
-    ) -> Result<Option<Option<Block>>, Error> {
+    fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
         #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks {
-                return Ok(None);
+                return false;
             }
         }
 
-        if next_height <= self.chain.mut_store().get_latest_known()?.height {
-            Ok(Some(None))
-        } else {
-            Ok(None)
-        }
+        next_height <= known_height
     }
 
-    /// Check that we are next block proposer
-    fn no_block_producer(
+    /// Check that we are next block producer.
+    fn is_me_block_producer(
         &self,
         block_producer: &BlockProducer,
         next_block_proposer: &AccountId,
     ) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if self.adv_produce_blocks && !self.adv_produce_blocks_only_valid {
-                return false;
+            if self.adv_produce_blocks_only_valid {
+                return &block_producer.account_id == next_block_proposer;
+            }
+            if self.adv_produce_blocks {
+                return true;
             }
         }
 
-        &block_producer.account_id != next_block_proposer
+        &block_producer.account_id == next_block_proposer
     }
 
     fn should_reschedule_block(
@@ -265,8 +261,9 @@ impl Client {
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        if let Some(res) = self.check_block_height(next_height)? {
-            return Ok(res);
+        let known_height = self.chain.mut_store().get_latest_known()?.height;
+        if self.known_block_height(next_height, known_height) {
+            return Ok(None);
         }
 
         let validator_signer = self
@@ -286,7 +283,7 @@ impl Client {
             next_height,
         )?;
 
-        if self.no_block_producer(&block_producer, &next_block_proposer) {
+        if !self.is_me_block_producer(&block_producer, &next_block_proposer) {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(None);
         }
