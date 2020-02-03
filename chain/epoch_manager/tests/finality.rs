@@ -1,6 +1,11 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use protocol_defining_rand::seq::SliceRandom;
+    use protocol_defining_rand::Rng;
+
     use near_chain::test_utils::setup;
     use near_chain::{create_light_client_block_view, FinalityGadget};
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -12,9 +17,6 @@ mod tests {
     use near_primitives::merkle::combine_hash;
     use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
     use near_primitives::views::ValidatorStakeView;
-    use rand::seq::SliceRandom;
-    use rand::Rng;
-    use std::collections::{HashMap, HashSet};
 
     fn create_block(
         em: &mut EpochManager,
@@ -289,9 +291,9 @@ mod tests {
                 let mut epoch_to_stakes = HashMap::new();
 
                 for iter in 0..num_iters {
-                    let likelihood_random = rand::thread_rng().gen_range(1, 3);
-                    let likelihood_heavy = rand::thread_rng().gen_range(1, 11);
-                    let likelihood_last = rand::thread_rng().gen_range(1, 11);
+                    let likelihood_random = protocol_defining_rand::thread_rng().gen_range(1, 3);
+                    let likelihood_heavy = protocol_defining_rand::thread_rng().gen_range(1, 11);
+                    let likelihood_last = protocol_defining_rand::thread_rng().gen_range(1, 11);
 
                     println!(
                         "Starting iteration {} at complexity {} and likelihoods {}, {}, {}",
@@ -337,17 +339,21 @@ mod tests {
                             .iter()
                             .filter(|block| block.header.inner_rest.score == max_score)
                             .collect::<Vec<_>>()
-                            .choose(&mut rand::thread_rng())
+                            .choose(&mut protocol_defining_rand::thread_rng())
                             .unwrap()
                             .clone()
                             .clone();
                         let last_block = all_blocks.last().unwrap().clone();
                         let prev_block = (0..likelihood_random)
-                            .map(|_| all_blocks.choose(&mut rand::thread_rng()).unwrap())
+                            .map(|_| {
+                                all_blocks
+                                    .choose(&mut protocol_defining_rand::thread_rng())
+                                    .unwrap()
+                            })
                             .chain((0..likelihood_heavy).map(|_| &random_max_score_block))
                             .chain((0..likelihood_last).map(|_| &last_block))
                             .collect::<Vec<_>>()
-                            .choose(&mut rand::thread_rng())
+                            .choose(&mut protocol_defining_rand::thread_rng())
                             .unwrap()
                             .clone();
                         let mut last_approvals_entry = last_approvals
@@ -360,7 +366,7 @@ mod tests {
                             .entry(prev_block.header.inner_lite.epoch_id.0)
                             .or_insert_with(|| {
                                 vec![block_producers1.clone(), block_producers2.clone()]
-                                    .choose(&mut rand::thread_rng())
+                                    .choose(&mut protocol_defining_rand::thread_rng())
                                     .unwrap()
                                     .clone()
                             });
@@ -368,14 +374,15 @@ mod tests {
                         let stakes = epoch_to_stakes
                             .entry(prev_block.header.inner_lite.epoch_id.0)
                             .or_insert_with(|| {
-                                if rand::thread_rng().gen() {
+                                if protocol_defining_rand::thread_rng().gen() {
                                     block_producers
                                         .iter()
                                         .map(|account_id| {
                                             ValidatorStake::new(
                                                 account_id.clone(),
                                                 PublicKey::empty(KeyType::ED25519),
-                                                rand::thread_rng().gen_range(100, 300),
+                                                protocol_defining_rand::thread_rng()
+                                                    .gen_range(100, 300),
                                             )
                                         })
                                         .collect::<Vec<_>>()
@@ -394,7 +401,7 @@ mod tests {
                             });
 
                         for (i, block_producer) in block_producers.iter().enumerate() {
-                            if rand::thread_rng().gen::<bool>() {
+                            if protocol_defining_rand::thread_rng().gen::<bool>() {
                                 continue;
                             }
 
@@ -424,7 +431,10 @@ mod tests {
                                     }
                                 }
 
-                                possible_references.choose(&mut rand::thread_rng()).unwrap().clone()
+                                possible_references
+                                    .choose(&mut protocol_defining_rand::thread_rng())
+                                    .unwrap()
+                                    .clone()
                             } else {
                                 // honest
                                 let old_largest_height =
