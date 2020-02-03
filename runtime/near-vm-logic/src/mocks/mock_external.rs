@@ -2,10 +2,10 @@ use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
+use sha3::{Keccak256, Keccak512};
 use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
-use sha3::{Keccak256, Keccak512};
 
 /// Encapsulates fake iterator. Optionally stores, if this iterator is built from prefix.
 struct FakeIterator {
