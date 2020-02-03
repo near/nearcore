@@ -748,7 +748,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
     pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -766,7 +766,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
     pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
