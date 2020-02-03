@@ -5,7 +5,8 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig};
+use near::{config::GenesisConfigExt, load_test_config, start_with_config};
+use near_chain_configs::GenesisConfig;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};

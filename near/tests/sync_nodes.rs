@@ -6,9 +6,10 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::config::TESTING_INIT_STAKE;
-use near::{load_test_config, start_with_config, GenesisConfig};
+use near::config::{GenesisConfigExt, TESTING_INIT_STAKE};
+use near::{load_test_config, start_with_config};
 use near_chain::{Block, Chain};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};

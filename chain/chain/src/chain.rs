@@ -7,6 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, error, info};
 
+use near_chain_configs::GenesisConfig;
 use near_primitives::block::{genesis_chunks, Approval};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -206,6 +207,21 @@ impl ChainGenesis {
             transaction_validity_period,
             epoch_length,
         }
+    }
+}
+
+impl From<GenesisConfig> for ChainGenesis {
+    fn from(genesis_config: GenesisConfig) -> Self {
+        ChainGenesis::new(
+            genesis_config.genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.min_gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+            genesis_config.transaction_validity_period,
+            genesis_config.epoch_length,
+        )
     }
 }
 

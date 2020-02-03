@@ -8,8 +8,10 @@ edition = "2018"
 
 [workspace]
 members = [
+    "core/chain-configs",
     "core/crypto",
     "core/primitives",
+    "core/runtime-configs",
     "core/store",
     "core/metrics",
     "runtime/runtime",
@@ -47,6 +49,7 @@ serde_json = "1.0.0"
 reqwest = "0.10"
 futures = "0.3"
 
+near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }

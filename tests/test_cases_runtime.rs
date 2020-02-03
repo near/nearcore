@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test {
-    use near::config::TESTING_INIT_BALANCE;
-    use near::GenesisConfig;
+    use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE};
+    use near_chain_configs::GenesisConfig;
     use near_primitives::serialize::to_base64;
+    use near_primitives::state_record::StateRecord;
     use near_primitives::utils::key_for_data;
-    use node_runtime::StateRecord;
     use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::{alice_account, bob_account};
+    use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
@@ -20,12 +20,15 @@ mod test {
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
         let mut genesis_config =
             GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        add_test_contract(&mut genesis_config, &bob_account());
         // Set expensive state rent and add alice more money.
         genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
             StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
-            _ => {}
+            _ => {
+                panic!("the first record is expected to be alice account creation!");
+            }
         }
         genesis_config.records.push(StateRecord::Data {
             key: to_base64(&key_for_data(&bob_account(), b"test")),

@@ -11,6 +11,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
@@ -21,7 +22,6 @@ use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
 };
 use near_vm_logic::types::Balance;
-use node_runtime::StateRecord;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashSet;
