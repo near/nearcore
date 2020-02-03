@@ -1310,8 +1310,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter
             .pay_action_base(&self.fees_config.action_creation_config.stake_cost, sir)?;
 
-        self.deduct_balance(amount)?;
-
         self.ext.append_action_stake(receipt_idx, amount, public_key)?;
         Ok(())
     }
