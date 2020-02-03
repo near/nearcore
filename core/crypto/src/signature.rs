@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -9,7 +10,6 @@ use rand::SeedableRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use std::hash::{Hash, Hasher};
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -325,15 +325,13 @@ impl SecretKey {
     }
 
     pub fn from_random(key_type: KeyType) -> SecretKey {
+        let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
         match key_type {
             KeyType::ED25519 => {
-                // let mut csprng = OsRng::new().unwrap();
-                let mut csprng = StdRng::from_rng(OsRng::default()).unwrap();
-                let keypair = ed25519_dalek::Keypair::generate(&mut csprng);
+                let keypair = ed25519_dalek::Keypair::generate(&mut rng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
-                let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
                 SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut rng))
             }
         }
