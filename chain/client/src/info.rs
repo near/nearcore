@@ -97,7 +97,7 @@ impl InfoHelper {
         info!(target: "stats", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
-              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
+              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))

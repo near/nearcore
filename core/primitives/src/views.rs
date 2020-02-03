@@ -266,10 +266,7 @@ pub struct BlockHeaderView {
     pub chunks_included: u64,
     pub challenges_root: CryptoHash,
     pub timestamp: u64,
-    #[serde(with = "u128_dec_format")]
-    pub total_weight: u128,
-    #[serde(with = "u128_dec_format")]
-    pub score: u128,
+    pub score: u64,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     #[serde(with = "u128_dec_format")]
@@ -283,8 +280,9 @@ pub struct BlockHeaderView {
     pub challenges_result: ChallengesResult,
     pub last_quorum_pre_vote: CryptoHash,
     pub last_quorum_pre_commit: CryptoHash,
+    pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
-    pub approvals: Vec<(AccountId, CryptoHash, CryptoHash, Signature)>,
+    pub approvals: Vec<(AccountId, CryptoHash, Option<CryptoHash>, BlockHeight, bool, Signature)>,
     pub signature: Signature,
 }
 
@@ -304,7 +302,6 @@ impl From<BlockHeader> for BlockHeaderView {
             challenges_root: header.inner_rest.challenges_root,
             outcome_root: header.inner_lite.outcome_root,
             timestamp: header.inner_lite.timestamp,
-            total_weight: header.inner_rest.total_weight.to_num(),
             score: header.inner_rest.score.to_num(),
             validator_proposals: header
                 .inner_rest
@@ -320,12 +317,22 @@ impl From<BlockHeader> for BlockHeaderView {
             challenges_result: header.inner_rest.challenges_result,
             last_quorum_pre_vote: header.inner_rest.last_quorum_pre_vote,
             last_quorum_pre_commit: header.inner_rest.last_quorum_pre_commit,
+            last_ds_final_block: header.inner_rest.last_ds_final_block,
             next_bp_hash: header.inner_lite.next_bp_hash,
             approvals: header
                 .inner_rest
                 .approvals
                 .into_iter()
-                .map(|x| (x.account_id, x.parent_hash, x.reference_hash, x.signature))
+                .map(|x| {
+                    (
+                        x.account_id,
+                        x.parent_hash,
+                        x.reference_hash,
+                        x.target_height,
+                        x.is_endorsement,
+                        x.signature,
+                    )
+                })
                 .collect(),
             signature: header.signature,
         }
@@ -351,7 +358,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 chunk_tx_root: view.chunk_tx_root,
                 chunks_included: view.chunks_included,
                 challenges_root: view.challenges_root,
-                total_weight: view.total_weight.into(),
                 score: view.score.into(),
                 validator_proposals: view
                     .validator_proposals
@@ -366,15 +372,29 @@ impl From<BlockHeaderView> for BlockHeader {
                 validator_reward: view.validator_reward,
                 last_quorum_pre_vote: view.last_quorum_pre_vote,
                 last_quorum_pre_commit: view.last_quorum_pre_commit,
+                last_ds_final_block: view.last_ds_final_block,
                 approvals: view
                     .approvals
                     .into_iter()
-                    .map(|(account_id, parent_hash, reference_hash, signature)| Approval {
-                        account_id,
-                        parent_hash,
-                        reference_hash,
-                        signature,
-                    })
+                    .map(
+                        |(
+                            account_id,
+                            parent_hash,
+                            reference_hash,
+                            target_height,
+                            is_endorsement,
+                            signature,
+                        )| {
+                            Approval {
+                                account_id,
+                                parent_hash,
+                                reference_hash,
+                                target_height,
+                                is_endorsement,
+                                signature,
+                            }
+                        },
+                    )
                     .collect(),
             },
             signature: view.signature,

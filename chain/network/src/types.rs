@@ -16,11 +16,11 @@ use futures::{future::BoxFuture, FutureExt};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::{ShardStateSyncResponse, StateRequestParts};
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
-use near_primitives::block::{Approval, ApprovalMessage, GenesisId, WeightAndScore};
+use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -179,10 +179,16 @@ pub struct PeerChainInfo {
     pub genesis_id: GenesisId,
     /// Last known chain height of the peer.
     pub height: BlockHeight,
-    /// Last known chain weight/score of the peer.
-    pub weight_and_score: WeightAndScore,
+    /// Last known chain score of the peer.
+    pub score: BlockScore,
     /// Shards that the peer is tracking
     pub tracked_shards: Vec<ShardId>,
+}
+
+impl PeerChainInfo {
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.score, height: self.height }
+    }
 }
 
 /// Peer type.
@@ -315,7 +321,8 @@ pub enum RoutedMessageBody {
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
-    StateRequest(ShardId, CryptoHash, bool, StateRequestParts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunk(PartialEncodedChunk),
@@ -422,7 +429,8 @@ impl RoutedMessage {
         match self.body {
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::StateRequest(_, _, _, _)
+            | RoutedMessageBody::StateRequestHeader(_, _)
+            | RoutedMessageBody::StateRequestPart(_, _, _)
             | RoutedMessageBody::PartialEncodedChunkRequest(_)
             | RoutedMessageBody::QueryRequest { .. }
             | RoutedMessageBody::ReceiptOutcomeRequest(_) => true,
@@ -527,7 +535,8 @@ impl fmt::Display for PeerMessage {
                 }
                 RoutedMessageBody::QueryRequest { .. } => f.write_str("Query request"),
                 RoutedMessageBody::QueryResponse { .. } => f.write_str("Query response"),
-                RoutedMessageBody::StateRequest(_, _, _, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::StateRequestHeader(_, _) => f.write_str("StateResponseHeader"),
+                RoutedMessageBody::StateRequestPart(_, _, _) => f.write_str("StateResponsePart"),
                 RoutedMessageBody::StateResponse(_) => f.write_str("StateResponse"),
                 RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                     f.write_str("Receipt outcome request")
@@ -683,10 +692,17 @@ impl PeerMessage {
                         size as i64,
                     );
                 }
-                RoutedMessageBody::StateRequest(_, _, _, _) => {
-                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_RECEIVED_TOTAL);
+                RoutedMessageBody::StateRequestHeader(_, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_TOTAL);
                     near_metrics::inc_counter_by(
-                        &metrics::ROUTED_STATE_REQUEST_RECEIVED_BYTES,
+                        &metrics::ROUTED_STATE_REQUEST_HEADER_RECEIVED_BYTES,
+                        size as i64,
+                    );
+                }
+                RoutedMessageBody::StateRequestPart(_, _, _) => {
+                    near_metrics::inc_counter(&metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_TOTAL);
+                    near_metrics::inc_counter_by(
+                        &metrics::ROUTED_STATE_REQUEST_PART_RECEIVED_BYTES,
                         size as i64,
                     );
                 }
@@ -761,7 +777,8 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
                 | RoutedMessageBody::ReceiptOutComeResponse(_)
-                | RoutedMessageBody::StateRequest(_, _, _, _) => true,
+                | RoutedMessageBody::StateRequestHeader(_, _)
+                | RoutedMessageBody::StateRequestPart(_, _, _) => true,
                 _ => false,
             },
             PeerMessage::BlockHeadersRequest(_) => true,
@@ -805,10 +822,10 @@ pub struct NetworkConfig {
     pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Weight horizon for most weighted peers, measured in stake seconds.
-    /// For example if one peer is 1 stake second away from max weight peer,
+    /// Height horizon for highest height peers
+    /// For example if one peer is 1 height away from max height peer,
     /// we still want to use the rest to query for state/headers/blocks.
-    pub most_weighted_peer_horizon: u128,
+    pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
     /// Peers on blacklist by IP:Port.
@@ -1049,12 +1066,17 @@ pub enum NetworkRequests {
         hashes: Vec<CryptoHash>,
         peer_id: PeerId,
     },
-    /// Request state for given shard at given state root.
-    StateRequest {
+    /// Request state header for given shard at given state root.
+    StateRequestHeader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
+        target: AccountOrPeerIdOrHash,
+    },
+    /// Request state part for given shard at given state root.
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id: u64,
         target: AccountOrPeerIdOrHash,
     },
     /// Response to state request.
@@ -1149,7 +1171,7 @@ pub struct NetworkInfo {
     pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
@@ -1198,7 +1220,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub shard_state: ShardStateSyncResponse,
+    pub state_response: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]
@@ -1278,13 +1300,10 @@ pub enum NetworkViewClientMessages {
     BlockRequest(CryptoHash),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
-    /// State request.
-    StateRequest {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        need_header: bool,
-        parts: StateRequestParts,
-    },
+    /// State request header.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// State request part.
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
     /// Get Chain information from Client.
     GetChainInfo,
     /// Account announcements that needs to be validated before being processed.
@@ -1308,7 +1327,7 @@ pub enum NetworkViewClientResponses {
     ChainInfo {
         genesis_id: GenesisId,
         height: BlockHeight,
-        weight_and_score: WeightAndScore,
+        score: BlockScore,
         tracked_shards: Vec<ShardId>,
     },
     /// Response to state request.

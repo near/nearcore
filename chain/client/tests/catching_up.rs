@@ -1,10 +1,15 @@
 #[cfg(test)]
+#[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::hash_map::Entry;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, RwLock};
+
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
+
     use near_chain::test_utils::account_id_to_shard_id;
-    use near_chain::types::StateRequestParts;
     use near_client::sync::STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
@@ -15,13 +20,10 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
-    use near_primitives::test_utils::{init_integration_logger, init_test_logger};
+    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
     use near_primitives::views::QueryResponseKind::ViewAccount;
-    use std::collections::hash_map::Entry;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, RwLock};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![
@@ -79,14 +81,12 @@ mod tests {
     pub struct StateRequestStruct {
         pub shard_id: u64,
         pub sync_hash: CryptoHash,
-        pub need_header: bool,
-        pub parts: StateRequestParts,
+        pub part_id: Option<u64>,
         pub target: AccountOrPeerIdOrHash,
     }
 
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_third_epoch() {
         test_catchup_receipts_sync_common(13, 1, false)
     }
@@ -99,19 +99,16 @@ mod tests {
     /// The reason of increasing block_prod_time in the test is to allow syncing complete.
     /// Otherwise epochs will be changing faster than state sync happen.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_hold() {
         test_catchup_receipts_sync_common(13, 1, true)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_last_block() {
         test_catchup_receipts_sync_common(13, 5, false)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_distant_epoch() {
         test_catchup_receipts_sync_common(35, 1, false)
     }
@@ -143,6 +140,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -234,11 +232,9 @@ mod tests {
                                 //    being included in the block
                                 return (NetworkResponses::NoResponse, false);
                             }
-                            if let NetworkRequests::StateRequest {
+                            if let NetworkRequests::StateRequestHeader {
                                 shard_id,
                                 sync_hash,
-                                need_header,
-                                parts,
                                 target,
                             } = msg
                             {
@@ -246,8 +242,30 @@ mod tests {
                                     let srs = StateRequestStruct {
                                         shard_id: *shard_id,
                                         sync_hash: *sync_hash,
-                                        need_header: *need_header,
-                                        parts: parts.clone(),
+                                        part_id: None,
+                                        target: target.clone(),
+                                    };
+                                    if !seen_hashes_with_state
+                                        .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    {
+                                        seen_hashes_with_state
+                                            .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        return (NetworkResponses::NoResponse, false);
+                                    }
+                                }
+                            }
+                            if let NetworkRequests::StateRequestPart {
+                                shard_id,
+                                sync_hash,
+                                part_id,
+                                target,
+                            } = msg
+                            {
+                                if sync_hold {
+                                    let srs = StateRequestStruct {
+                                        shard_id: *shard_id,
+                                        sync_hash: *sync_hash,
+                                        part_id: Some(*part_id),
                                         target: target.clone(),
                                     };
                                     if !seen_hashes_with_state
@@ -338,7 +356,6 @@ mod tests {
     /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
     /// been incorrect due to wrong receipts applied during the third epoch.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync() {
         test_catchup_random_single_part_sync_common(false, false, 13)
     }
@@ -348,27 +365,23 @@ mod tests {
     // It tests that the incoming receipts are property synced through epochs
     #[test]
     #[ignore]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_skip_15() {
         test_catchup_random_single_part_sync_common(true, false, 13)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_send_15() {
         test_catchup_random_single_part_sync_common(false, false, 15)
     }
 
     // Make sure that transactions are at least applied.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_non_zero_amounts() {
         test_catchup_random_single_part_sync_common(false, true, 13)
     }
 
     // Use another height to send txs.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_height_6() {
         test_catchup_random_single_part_sync_common(false, false, 6)
     }
@@ -417,6 +430,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
@@ -591,10 +605,9 @@ mod tests {
     /// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
     /// This ensures that at no point validators get stuck with state sync
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -624,6 +637,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -643,13 +657,86 @@ mod tests {
         .unwrap();
     }
 
+    /// Similar to `test_catchup_sanity_blocks_produced`, but
+    ///  a) Enables doomslug,
+    ///  b) Doesn't allow the propagation of some heights
+    /// Ensures that the block production doesn't get stuck.
+    #[test]
+    fn test_catchup_sanity_blocks_produced_doomslug() {
+        let validator_groups = 2;
+        init_integration_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let heights = Arc::new(RwLock::new(HashMap::new()));
+            let heights1 = heights.clone();
+
+            let check_height =
+                move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone())
+                {
+                    Entry::Occupied(entry) => {
+                        assert_eq!(*entry.get(), height);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(height);
+                    }
+                };
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+
+            let (_, conn) = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                400,
+                false,
+                false,
+                5,
+                true,
+                Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+                    let propagate = if let NetworkRequests::Block { block } = msg {
+                        check_height(block.hash(), block.header.inner_lite.height);
+
+                        if block.header.inner_lite.height % 10 == 5 {
+                            check_height(
+                                block.header.prev_hash,
+                                block.header.inner_lite.height - 2,
+                            );
+                        } else {
+                            check_height(
+                                block.header.prev_hash,
+                                block.header.inner_lite.height - 1,
+                            );
+                        }
+
+                        if block.header.inner_lite.height >= 25 {
+                            System::current().stop();
+                        }
+
+                        // Do not propagate blocks at heights %10=4
+                        block.header.inner_lite.height % 10 != 4
+                    } else {
+                        true
+                    };
+
+                    (NetworkResponses::NoResponse, propagate)
+                })),
+            );
+            *connectors.write().unwrap() = conn;
+
+            near_network::test_utils::wait_or_panic(30000);
+        })
+        .unwrap();
+    }
+
     enum ChunkGrievingPhases {
         FirstAttack,
         SecondAttack,
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
@@ -677,6 +764,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
                     let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
@@ -792,24 +880,16 @@ mod tests {
     }
 
     #[test]
-    fn test_all_chunks_accepted_10() {
-        test_all_chunks_accepted_common(10, 1000, 5)
-    }
-
-    #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000() {
-        test_all_chunks_accepted_common(1000, 1000, 5)
+        test_all_chunks_accepted_common(1000, 2000, 5)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_slow() {
-        test_all_chunks_accepted_common(1000, 3000, 5)
+        test_all_chunks_accepted_common(1000, 4000, 5)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_rare_epoch_changing() {
         test_all_chunks_accepted_common(1000, 1000, 100)
     }
@@ -844,6 +924,7 @@ mod tests {
                 false,
                 false,
                 epoch_length,
+                false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
                     let mut requested = requested.write().unwrap();

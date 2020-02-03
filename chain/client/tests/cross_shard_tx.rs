@@ -33,6 +33,7 @@ fn test_keyvalue_runtime_balances() {
             false,
             false,
             5,
+            false,
             Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             })),
@@ -346,7 +347,12 @@ mod tests {
         }
     }
 
-    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool, drop_chunks: bool) {
+    fn test_cross_shard_tx_common(
+        num_iters: usize,
+        rotate_validators: bool,
+        drop_chunks: bool,
+        test_doomslug: bool,
+    ) {
         if !cfg!(feature = "expensive_tests") {
             return;
         }
@@ -396,8 +402,9 @@ mod tests {
                 true,
                 if drop_chunks || rotate_validators { 150 } else { 100 },
                 drop_chunks,
-                true,
+                !test_doomslug,
                 20,
+                test_doomslug,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -462,26 +469,31 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(64, false, false);
+        test_cross_shard_tx_common(64, false, false, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_doomslug() {
+        test_cross_shard_tx_common(64, false, false, true);
     }
 
     #[test]
     fn test_cross_shard_tx_drop_chunks() {
-        test_cross_shard_tx_common(64, false, true);
+        test_cross_shard_tx_common(64, false, true, false);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations() {
-        test_cross_shard_tx_common(8, false, false);
+        test_cross_shard_tx_common(8, false, false, false);
     }
 
     #[test]
     fn test_cross_shard_tx_8_iterations_drop_chunks() {
-        test_cross_shard_tx_common(8, false, true);
+        test_cross_shard_tx_common(8, false, true, false);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation() {
-        test_cross_shard_tx_common(64, true, false);
+        test_cross_shard_tx_common(64, true, false, false);
     }
 }

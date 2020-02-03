@@ -99,8 +99,6 @@ pub struct ClientConfig {
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
-    /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
     /// How much time to wait after initial header sync
@@ -110,7 +108,7 @@ pub struct ClientConfig {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
-    pub header_sync_expected_weight_per_second: u128,
+    pub header_sync_expected_height_per_second: u64,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -164,12 +162,11 @@ impl ClientConfig {
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
-            sync_weight_threshold: 0,
             sync_height_threshold: 1,
             header_sync_initial_timeout: Duration::from_secs(10),
             header_sync_progress_timeout: Duration::from_secs(2),
             header_sync_stall_ban_timeout: Duration::from_secs(30),
-            header_sync_expected_weight_per_second: 1_000_000_000,
+            header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,

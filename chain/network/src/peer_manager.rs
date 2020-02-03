@@ -328,30 +328,25 @@ impl PeerManagerActor {
         self.active_peers.len() + self.outgoing_peers.len() < self.config.max_peer as usize
     }
 
-    /// Returns single random peer with the most weight.
-    fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
-        // This finds max of weight and height and returns such peer.
-        let max_weight_and_score = match self
+    /// Returns single random peer with the highest score/height
+    fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
+        // This finds max of score and height and returns such peer.
+        let max_score_and_height = match self
             .active_peers
             .values()
-            .map(|active_peers| {
-                (
-                    active_peers.full_peer_info.chain_info.weight_and_score,
-                    active_peers.full_peer_info.chain_info.height,
-                )
-            })
+            .map(|active_peers| active_peers.full_peer_info.chain_info.score_and_height())
             .max()
         {
-            Some((weight_and_score, _)) => weight_and_score,
+            Some(score_and_height) => score_and_height,
             None => return vec![],
         };
-        // Find all peers whose height is within `most_weighted_peer_horizon` from max weight peer(s).
+        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
         self.active_peers
             .values()
             .filter_map(|active_peer| {
-                if max_weight_and_score.beyond_threshold(
-                    &active_peer.full_peer_info.chain_info.weight_and_score,
-                    self.config.most_weighted_peer_horizon,
+                if max_score_and_height.beyond_threshold(
+                    &active_peer.full_peer_info.chain_info.score_and_height(),
+                    self.config.highest_peer_horizon,
                 ) {
                     None
                 } else {
@@ -744,7 +739,7 @@ impl PeerManagerActor {
                 .collect::<Vec<_>>(),
             num_active_peers: self.num_active_peers(),
             peer_max_count: self.config.max_peer,
-            most_weight_peers: self.most_weight_peers(),
+            highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec,
             received_bytes_per_sec,
             known_producers: self
@@ -866,11 +861,22 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequest { shard_id, sync_hash, need_header, parts, target } => {
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
                 if self.send_message_to_account_or_peer_or_hash(
                     ctx,
                     &target,
-                    RoutedMessageBody::StateRequest(shard_id, sync_hash, need_header, parts),
+                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
+                if self.send_message_to_account_or_peer_or_hash(
+                    ctx,
+                    &target,
+                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
