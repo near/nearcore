@@ -1,6 +1,11 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+
     use near_chain::test_utils::setup;
     use near_chain::{create_light_client_block_view, FinalityGadget};
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -12,9 +17,6 @@ mod tests {
     use near_primitives::merkle::combine_hash;
     use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
     use near_primitives::views::ValidatorStakeView;
-    use rand::seq::SliceRandom;
-    use rand::Rng;
-    use std::collections::{HashMap, HashSet};
 
     fn create_block(
         em: &mut EpochManager,
