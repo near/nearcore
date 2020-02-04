@@ -852,17 +852,26 @@ impl ClientActor {
 
         let approvals = self.client.doomslug.process_timer(Instant::now());
 
-        // Important to save the largest skipped height before sending approvals, so that if the
-        // node crashes in the meantime, we cannot get slashed on recovery
+        // Important to save the largest skipped and endorsed heights before sending approvals, so
+        // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
             .save_largest_skipped_height(&self.client.doomslug.get_largest_skipped_height());
+        chain_store_update
+            .save_largest_endorsed_height(&self.client.doomslug.get_largest_endorsed_height());
 
         match chain_store_update.commit() {
             Ok(_) => {
                 for approval in approvals {
-                    if let Err(e) = self.client.send_approval(approval) {
-                        error!("Error while sending an approval {:?}", e);
+                    // `Chain::process_approval` updates metrics related to the finality gadget.
+                    // Don't send the approval if such an update failed
+                    if let Ok(_) = self.client.chain.process_approval(
+                        &self.client.block_producer.as_ref().map(|x| x.account_id.clone()),
+                        &approval,
+                    ) {
+                        if let Err(e) = self.client.send_approval(approval) {
+                            error!("Error while sending an approval {:?}", e);
+                        }
                     }
                 }
             }
