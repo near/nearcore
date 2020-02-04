@@ -1,3 +1,7 @@
+use std::borrow::Borrow;
+use std::convert::{identity, TryFrom};
+use std::fmt::{self, Debug, Display, Formatter};
+
 use blake2::{Blake2b, VarBlake2b};
 use bs58;
 use curve25519_dalek::constants::{
@@ -7,12 +11,9 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
-use rand_core::{CryptoRng, RngCore};
+use rand::{CryptoRng, RngCore};
 use serde::de::{Error as _, Unexpected};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::borrow::Borrow;
-use std::convert::{identity, TryFrom};
-use std::fmt::{self, Debug, Display, Formatter};
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
@@ -327,9 +328,10 @@ traits_v!(Proof, 64);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::rngs::OsRng;
     use serde_json::{from_str, to_string};
+
+    use super::*;
 
     #[test]
     fn test_conversion() {

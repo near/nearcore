@@ -44,10 +44,8 @@ pub struct BlockHeaderInnerRest {
     pub chunks_included: u64,
     /// Root hash of the challenges in the given block.
     pub challenges_root: MerkleHash,
-    /// Total weight.
-    pub total_weight: Weight,
     /// Score.
-    pub score: Weight,
+    pub score: BlockScore,
     /// Validator proposals.
     pub validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
@@ -67,6 +65,8 @@ pub struct BlockHeaderInnerRest {
     pub last_quorum_pre_vote: CryptoHash,
     /// Last block that has a quorum pre-commit on this chain
     pub last_quorum_pre_commit: CryptoHash,
+    /// Last block that has doomslug finality
+    pub last_ds_final_block: CryptoHash,
 
     /// All the approvals included in this block
     pub approvals: Vec<Approval>,
@@ -105,8 +105,7 @@ impl BlockHeaderInnerRest {
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
         challenges_root: MerkleHash,
-        total_weight: Weight,
-        score: Weight,
+        score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         gas_price: Balance,
@@ -116,6 +115,7 @@ impl BlockHeaderInnerRest {
         challenges_result: ChallengesResult,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         approvals: Vec<Approval>,
     ) -> Self {
         Self {
@@ -124,7 +124,6 @@ impl BlockHeaderInnerRest {
             chunk_tx_root,
             chunks_included,
             challenges_root,
-            total_weight,
             score,
             validator_proposals,
             chunk_mask,
@@ -135,12 +134,9 @@ impl BlockHeaderInnerRest {
             challenges_result,
             last_quorum_pre_vote,
             last_quorum_pre_commit,
+            last_ds_final_block,
             approvals,
         }
-    }
-
-    pub fn weight_and_score(&self) -> WeightAndScore {
-        WeightAndScore { weight: self.total_weight, score: self.score }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -152,7 +148,9 @@ impl BlockHeaderInnerRest {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
     pub parent_hash: CryptoHash,
-    pub reference_hash: CryptoHash,
+    pub reference_hash: Option<CryptoHash>,
+    pub target_height: BlockHeight,
+    pub is_endorsement: bool,
     pub signature: Signature,
     pub account_id: AccountId,
 }
@@ -167,32 +165,51 @@ pub struct ApprovalMessage {
 impl Approval {
     pub fn new(
         parent_hash: CryptoHash,
-        reference_hash: CryptoHash,
+        reference_hash: Option<CryptoHash>,
+        target_height: BlockHeight,
+        is_endorsement: bool,
         signer: &dyn Signer,
         account_id: AccountId,
     ) -> Self {
-        let signature =
-            signer.sign(Approval::get_data_for_sig(&parent_hash, &reference_hash).as_ref());
-        Approval { parent_hash, reference_hash, signature, account_id }
+        let signature = signer.sign(
+            Approval::get_data_for_sig(
+                &parent_hash,
+                &reference_hash,
+                target_height,
+                is_endorsement,
+            )
+            .as_ref(),
+        );
+        Approval {
+            parent_hash,
+            reference_hash,
+            target_height,
+            is_endorsement,
+            signature,
+            account_id,
+        }
     }
 
-    pub fn get_data_for_sig(parent_hash: &CryptoHash, reference_hash: &CryptoHash) -> Vec<u8> {
-        let mut res = Vec::with_capacity(64);
+    pub fn get_data_for_sig(
+        parent_hash: &CryptoHash,
+        reference_hash: &Option<CryptoHash>,
+        target_height: BlockHeight,
+        is_endorsement: bool,
+    ) -> Vec<u8> {
+        let mut res = Vec::with_capacity(73);
         res.extend_from_slice(parent_hash.as_ref());
-        res.extend_from_slice(reference_hash.as_ref());
+        res.extend_from_slice(match reference_hash {
+            Some(x) => x.as_ref(),
+            None => [0; 32].as_ref(),
+        });
+        res.extend_from_slice(target_height.to_be_bytes().as_ref());
+        res.extend_from_slice(if is_endorsement { &[1] } else { &[0] });
         res
     }
 }
 
 impl ApprovalMessage {
-    pub fn new(
-        parent_hash: CryptoHash,
-        reference_hash: CryptoHash,
-        signer: &dyn Signer,
-        account_id: AccountId,
-        target: AccountId,
-    ) -> Self {
-        let approval = Approval::new(parent_hash, reference_hash, signer, account_id);
+    pub fn new(approval: Approval, target: AccountId) -> Self {
         ApprovalMessage { approval, target }
     }
 }
@@ -250,8 +267,7 @@ impl BlockHeader {
         timestamp: u64,
         chunks_included: u64,
         challenges_root: MerkleHash,
-        total_weight: Weight,
-        score: Weight,
+        score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         epoch_id: EpochId,
@@ -264,6 +280,7 @@ impl BlockHeader {
         signer: &dyn Signer,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         approvals: Vec<Approval>,
         next_bp_hash: CryptoHash,
     ) -> Self {
@@ -282,7 +299,6 @@ impl BlockHeader {
             chunk_tx_root,
             chunks_included,
             challenges_root,
-            total_weight,
             score,
             validator_proposals,
             chunk_mask,
@@ -293,6 +309,7 @@ impl BlockHeader {
             challenges_result,
             last_quorum_pre_vote,
             last_quorum_pre_commit,
+            last_ds_final_block,
             approvals,
         );
         let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
@@ -327,7 +344,6 @@ impl BlockHeader {
             chunks_included,
             challenges_root,
             0.into(),
-            0.into(),
             vec![],
             vec![],
             initial_gas_price,
@@ -335,6 +351,7 @@ impl BlockHeader {
             0,
             initial_total_supply,
             vec![],
+            CryptoHash::default(),
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
@@ -364,6 +381,10 @@ impl BlockHeader {
 
     pub fn num_approvals(&self) -> u64 {
         self.inner_rest.approvals.len() as u64
+    }
+
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.inner_rest.score, height: self.inner_lite.height }
     }
 }
 
@@ -451,11 +472,10 @@ impl Block {
         challenges_result: ChallengesResult,
         challenges: Challenges,
         signer: &dyn Signer,
-        time_delta: u128,
-        weight_delta: u128,
-        score: Weight,
+        score: BlockScore,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
+        last_ds_final_block: CryptoHash,
         next_bp_hash: CryptoHash,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
@@ -494,9 +514,6 @@ impl Block {
         let now = to_timestamp(Utc::now());
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
-        let time_delta = std::cmp::max(time_delta, 1);
-
-        let total_weight = prev.inner_rest.total_weight.next(weight_delta * time_delta);
 
         Block {
             header: BlockHeader::new(
@@ -510,7 +527,6 @@ impl Block {
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 Block::compute_challenges_root(&challenges),
-                total_weight,
                 score,
                 validator_proposals,
                 chunk_mask,
@@ -524,6 +540,7 @@ impl Block {
                 signer,
                 last_quorum_pre_vote,
                 last_quorum_pre_commit,
+                last_ds_final_block,
                 approvals,
                 next_bp_hash,
             ),
@@ -689,7 +706,8 @@ impl Block {
     }
 }
 
-/// The weight is defined as the number of unique validators approving this fork.
+/// The score is defined as the height of the last block with quorum pre-vote
+/// We have a separate type to ensure that the height is never assigned to score and vice versa
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -703,70 +721,66 @@ impl Block {
     Ord,
     Default,
 )]
-pub struct Weight {
-    num: u128,
+pub struct BlockScore {
+    num: u64,
 }
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default,
 )]
-pub struct WeightAndScore {
-    pub weight: Weight,
-    pub score: Weight,
+pub struct ScoreAndHeight {
+    pub score: BlockScore,
+    pub height: BlockHeight,
 }
 
-impl Weight {
-    pub fn to_num(self) -> u128 {
+impl BlockScore {
+    pub fn to_num(self) -> u64 {
         self.num
     }
+}
 
-    pub fn next(self, num: u128) -> Self {
-        Weight { num: self.num + num }
+impl From<u64> for BlockScore {
+    fn from(num: u64) -> Self {
+        BlockScore { num }
     }
 }
 
-impl From<u128> for Weight {
-    fn from(num: u128) -> Self {
-        Weight { num }
-    }
-}
-
-impl std::fmt::Display for Weight {
+impl std::fmt::Display for BlockScore {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.num)
     }
 }
 
-impl WeightAndScore {
-    pub fn from_ints(weight: u128, score: u128) -> Self {
-        Self { weight: weight.into(), score: score.into() }
+impl ScoreAndHeight {
+    pub fn from_ints(score: u64, height: u64) -> Self {
+        Self { score: score.into(), height: height }
     }
 
-    /// Returns whether one chain is `threshold` weight ahead of the other, where "ahead" is loosely
+    /// Returns whether one chain is `threshold` heights ahead of the other, where "ahead" is loosely
     /// defined as either having the score exceeding by the `threshold` (finality gadget is working
     /// fine, and the last reported final block is way ahead of the last known to us), or having the
-    /// same score, but the weight exceeding by the `threshold` (finality gadget is down, and the
-    /// canonical chain is has significantly higher weight)
-    pub fn beyond_threshold(&self, other: &WeightAndScore, threshold: u128) -> bool {
+    /// same score, but the height exceeding by the `threshold` (finality gadget is down, and the
+    /// canonical chain is has significantly higher height)
+    pub fn beyond_threshold(&self, other: &ScoreAndHeight, threshold: u64) -> bool {
         if self.score == other.score {
-            self.weight.to_num() > other.weight.to_num() + threshold
+            self.height > other.height + threshold
         } else {
             self.score.to_num() > other.score.to_num() + threshold
         }
     }
 }
 
-impl PartialOrd for WeightAndScore {
-    fn partial_cmp(&self, other: &WeightAndScore) -> Option<Ordering> {
+impl PartialOrd for ScoreAndHeight {
+    fn partial_cmp(&self, other: &ScoreAndHeight) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for WeightAndScore {
-    fn cmp(&self, other: &WeightAndScore) -> Ordering {
+impl Ord for ScoreAndHeight {
+    fn cmp(&self, other: &ScoreAndHeight) -> Ordering {
         match self.score.cmp(&other.score) {
             v @ Ordering::Less | v @ Ordering::Greater => v,
-            Ordering::Equal => self.weight.cmp(&other.weight),
+            Ordering::Equal => self.height.cmp(&other.height),
         }
     }
 }

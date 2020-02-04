@@ -12,6 +12,7 @@ ed25519 = "*"
 base58 = "*"
 python-rc = "==0.1.7"
 tqdm = "*"
+deepdiff = "*"
 
 [dev-packages]
 

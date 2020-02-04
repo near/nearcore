@@ -91,11 +91,15 @@ pub fn create_light_client_block_view(
         let next_block_header = chain_store.get_block_header(&next_block_hash)?;
 
         for approval in next_block_header.inner_rest.approvals.iter() {
-            if !seen_hashes.contains(&approval.reference_hash) {
+            let reference_hash = match approval.reference_hash {
+                Some(reference_hash) => reference_hash,
+                None => continue,
+            };
+            if !seen_hashes.contains(&reference_hash) {
                 if let Some(validator_ord) = validator_ords.get(&approval.account_id) {
                     let light_approval = LightClientApprovalView {
                         parent_hash: approval.parent_hash,
-                        reference_hash: approval.reference_hash,
+                        reference_hash: reference_hash,
                         signature: approval.signature.clone(),
                     };
                     if found_qv {

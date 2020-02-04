@@ -115,10 +115,11 @@ class BaseNode(object):
 
         return list(reversed(heights))
 
+    def get_validators(self):
+        return self.json_rpc('validators', [None])
+
     def get_account(self, acc):
         print(f'get account {acc}')
-        # if acc == 'test2':
-        #     input('pause')
         return self.json_rpc('query', ["account/%s" % acc, ""])
 
     def get_block(self, block_hash):
@@ -137,6 +138,10 @@ class RpcNode(BaseNode):
     
     def rpc_addr(self):
         return (self.host, self.rpc_port)
+
+
+    def get_changes(self, block_hash, state_changes_request):
+        return self.json_rpc('changes', [block_hash, state_changes_request])
 
 
 class LocalNode(BaseNode):
@@ -343,6 +348,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr, blac
         print(f"node {ordinal} machine created")
 
     node.start(boot_key, boot_addr)
+    time.sleep(3)
     print(f"node {ordinal} started")
     return node
 
@@ -363,8 +369,8 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     assert 0 == process.returncode, err
 
     node_dirs = [line.split()[-1]
-                 for line in err.decode('utf8').split('\n') if '/test' in line]
-    assert len(node_dirs) == num_nodes + num_observers
+                 for line in out.decode('utf8').split('\n') if '/test' in line]
+    assert len(node_dirs) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (len(node_dirs), num_nodes, num_observers)
 
     # apply config changes
     for i, node_dir in enumerate(node_dirs):

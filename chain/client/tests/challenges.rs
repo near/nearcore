@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -11,7 +10,8 @@ use near::{GenesisConfig, NightshadeRuntime};
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, ChainGenesis, ChainStoreAccess, Error, ErrorKind, Provenance, RuntimeAdapter,
+    Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
+    RuntimeAdapter,
 };
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
@@ -36,7 +36,7 @@ fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
+    let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);
 
@@ -54,9 +54,8 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        1,
-        1,
         0.into(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         b1.header.inner_lite.next_bp_hash.clone(),
@@ -104,7 +103,7 @@ fn test_verify_block_double_sign_challenge() {
         transaction_validity_period,
     )
     .is_err());
-    let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
+    let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: b1.header.try_to_vec().unwrap(),
@@ -126,7 +125,6 @@ fn test_verify_block_double_sign_challenge() {
     .is_err());
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
-    let _ = env.network_adapters[0].pop();
     assert!(result.is_ok());
     let last_message = env.network_adapters[0].pop().unwrap();
     if let NetworkRequests::Challenge(network_challenge) = last_message {
@@ -160,7 +158,6 @@ fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
-    let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
@@ -224,10 +221,9 @@ fn create_chunk(
         vec![],
         vec![],
         &*client.block_producer.as_ref().unwrap().signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
         0.into(),
         last_block.header.prev_hash,
+        CryptoHash::default(),
         CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
@@ -442,7 +438,6 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let prev_timestamp = env.clients[0].chain.head().unwrap().prev_timestamp;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
     let prev_to_last_block =
         env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
@@ -500,11 +495,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
-        prev_to_last_block.header.inner_rest.total_weight,
+        prev_to_last_block.header.inner_lite.height.into(),
         last_block.header.prev_hash,
         prev_to_last_block.header.prev_hash,
+        last_block.header.inner_rest.last_ds_final_block,
         last_block.header.inner_lite.next_bp_hash,
     );
 
@@ -524,6 +518,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             validity_period,
             epoch_length,
             &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
+            DoomslugThresholdMode::NoApprovals,
         );
 
         chain_update
@@ -539,17 +534,18 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 20, 155, 199, 55, 40, 218, 150, 222, 64, 132, 213, 252, 78, 132, 13,
-                    31, 108, 106, 36, 32, 241, 213, 207, 255, 230, 98, 36, 34, 59, 131, 51, 40, 83,
-                    252, 63, 177, 215, 80, 204, 201, 233, 89, 151, 192, 80, 3, 13, 123, 166, 78,
-                    235, 195, 174, 220, 16, 53, 121, 47, 85, 152, 199, 25, 129, 208, 171, 30, 7,
-                    228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148, 128,
-                    55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 83, 135, 2, 0, 0, 0, 0, 0
+                    1, 7, 0, 92, 241, 96, 67, 27, 175, 62, 116, 3, 39, 175, 167, 179, 91, 63, 212,
+                    212, 75, 174, 160, 30, 148, 184, 11, 249, 27, 202, 188, 201, 221, 145, 255,
+                    115, 118, 86, 148, 43, 154, 46, 88, 27, 131, 172, 99, 25, 223, 149, 122, 104,
+                    247, 21, 42, 198, 205, 43, 239, 65, 133, 166, 38, 174, 254, 133, 217, 171, 30,
+                    7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
+                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 143, 134, 2, 0, 0, 0,
+                    0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 30, 154, 189, 77, 49, 215, 102, 143, 121, 33, 102, 196, 53,
-                    104, 108, 227, 91, 238, 36, 249, 118, 30, 237, 85, 140, 16, 179, 219, 180, 118,
-                    20, 226, 135, 135, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 87, 105, 4, 75, 116, 102, 206, 154, 70, 99, 176, 15, 235,
+                    33, 252, 102, 42, 183, 44, 211, 10, 91, 215, 11, 231, 16, 255, 52, 90, 26, 233,
+                    136, 195, 134, 2, 0, 0, 0, 0, 0
                 ]
             ],
         );
@@ -775,19 +771,17 @@ fn test_challenge_in_different_epoch() {
         TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
     let mut fork_blocks = vec![];
     for i in 1..5 {
-        let block1 =
-            env.clients[0].produce_block(2 * i - 1, Duration::from_millis(100)).unwrap().unwrap();
+        let block1 = env.clients[0].produce_block(2 * i - 1).unwrap().unwrap();
         env.process_block(0, block1, Provenance::PRODUCED);
 
-        let block2 =
-            env.clients[1].produce_block(2 * i, Duration::from_millis(100)).unwrap().unwrap();
+        let block2 = env.clients[1].produce_block(2 * i).unwrap().unwrap();
         env.process_block(1, block2.clone(), Provenance::PRODUCED);
         fork_blocks.push(block2);
     }
 
-    let fork1_block = env.clients[0].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(9).unwrap().unwrap();
     env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    let fork2_block = env.clients[1].produce_block(9).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header.inner_lite.height;

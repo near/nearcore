@@ -4,7 +4,7 @@ use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
 use serde_json::json;
-use sysinfo::{get_current_pid, Pid, ProcessExt, System, SystemExt};
+use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
 use near_network::types::{NetworkInfo, PeerId};
@@ -44,6 +44,7 @@ impl InfoHelper {
         client_config: &ClientConfig,
         block_producer: Option<BlockProducer>,
     ) -> Self {
+        set_open_files_limit(0);
         InfoHelper {
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
@@ -96,7 +97,7 @@ impl InfoHelper {
         info!(target: "stats", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else if is_fisherman { "F" } else { "-" }, num_validators)),
-              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
+              Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.highest_height_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory_usage * 1024)))
@@ -156,7 +157,7 @@ fn try_sign_json(
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
+        SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
             let percent = if *highest_height == 0 {
                 0

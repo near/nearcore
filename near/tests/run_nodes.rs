@@ -27,12 +27,7 @@ fn run_nodes(
         Box::new(move |_ctx| {
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
-                    Ok(Ok(b))
-                        if b.header.height > num_blocks
-                            && b.header.total_weight > num_blocks as u128 =>
-                    {
-                        System::current().stop()
-                    }
+                    Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
                     Err(_) => return future::ready(()),
                     _ => {}
                 };

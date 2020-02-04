@@ -24,7 +24,7 @@ fn compute_quorums_slow(
     let mut all_heights_and_hashes = vec![];
 
     let account_id_to_stake =
-        stakes.iter().map(|x| (&x.account_id, x.amount)).collect::<HashMap<_, _>>();
+        stakes.iter().map(|x| (&x.account_id, x.stake)).collect::<HashMap<_, _>>();
     assert!(account_id_to_stake.len() == stakes.len());
     let threshold = account_id_to_stake.values().sum::<u128>() * 2u128 / 3u128;
 
@@ -40,8 +40,11 @@ fn compute_quorums_slow(
     let all_approvals = all_approvals
         .into_iter()
         .map(|approval| {
-            let reference_height =
-                chain_store.get_block_header(&approval.reference_hash).unwrap().inner_lite.height;
+            let reference_height = chain_store
+                .get_block_header(&approval.reference_hash.unwrap())
+                .unwrap()
+                .inner_lite
+                .height;
             let parent_height =
                 chain_store.get_block_header(&approval.parent_hash).unwrap().inner_lite.height;
 
@@ -117,7 +120,6 @@ fn create_block(
     let mut block = Block::empty(prev, signer);
     block.header.inner_rest.approvals = approvals.clone();
     block.header.inner_lite.height = height;
-    block.header.inner_rest.total_weight = (height as u128).into();
 
     /*println!(
         "Creating block at height {} with parent {:?} and approvals {:?}",
@@ -148,8 +150,9 @@ fn create_block(
         chain_store
             .get_block_header(&fast_quorums.last_quorum_pre_vote)
             .unwrap()
-            .inner_rest
-            .total_weight
+            .inner_lite
+            .height
+            .into()
     };
 
     block.header.init();
@@ -165,7 +168,14 @@ fn create_block(
 }
 
 fn apr(account_id: AccountId, reference_hash: CryptoHash, parent_hash: CryptoHash) -> Approval {
-    Approval { account_id, reference_hash, parent_hash, signature: Signature::default() }
+    Approval {
+        account_id,
+        reference_hash: Some(reference_hash),
+        is_endorsement: true,
+        target_height: 0,
+        parent_hash,
+        signature: Signature::default(),
+    }
 }
 
 fn gen_stakes(n: usize) -> Vec<ValidatorStake> {
@@ -300,7 +310,7 @@ fn test_finality_basic() {
 fn test_finality_weight() {
     let (mut chain, _, signer) = setup();
     let mut stakes = gen_stakes(4);
-    stakes[0].amount = 8;
+    stakes[0].stake = 8;
 
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
@@ -528,7 +538,14 @@ fn test_my_approvals() {
             FinalityGadget::get_my_approval_reference_hash(block.hash(), chain.mut_store())
                 .unwrap();
         assert_eq!(reference_hash, expected_reference);
-        let approval = Approval::new(block.hash(), reference_hash, &*signer, account_id.clone());
+        let approval = Approval::new(
+            block.hash(),
+            Some(reference_hash),
+            0,
+            true,
+            &*signer,
+            account_id.clone(),
+        );
         let mut chain_store_update = ChainStoreUpdate::new(chain.mut_store());
         FinalityGadget::process_approval(
             &Some(account_id.clone()),
@@ -575,7 +592,7 @@ fn test_fuzzy_finality() {
                     }
                     let prev_reference =
                         if let Some(prev_approval) = last_approvals_entry.get(block_producer) {
-                            prev_approval.reference_hash
+                            prev_approval.reference_hash.unwrap()
                         } else {
                             genesis_block.hash().clone()
                         };

@@ -28,3 +28,4 @@ near-pool = { path = "../pool" }
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
+expensive_tests = []
