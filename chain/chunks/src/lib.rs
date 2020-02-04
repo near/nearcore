@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use log::{debug, error, error, warn};
+use log::{debug, error, info, warn};
 use rand::seq::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
