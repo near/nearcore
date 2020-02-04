@@ -1,8 +1,14 @@
 #[cfg(test)]
+#[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::hash_map::Entry;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, RwLock};
+
     use actix::{Addr, System};
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
+
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::sync::STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
@@ -17,10 +23,7 @@ mod tests {
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
-    use near_primitives::views::QueryResponseKind::ViewAccount;
-    use std::collections::hash_map::Entry;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, RwLock};
+    use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![
@@ -84,7 +87,6 @@ mod tests {
 
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_third_epoch() {
         test_catchup_receipts_sync_common(13, 1, false)
     }
@@ -97,19 +99,16 @@ mod tests {
     /// The reason of increasing block_prod_time in the test is to allow syncing complete.
     /// Otherwise epochs will be changing faster than state sync happen.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_hold() {
         test_catchup_receipts_sync_common(13, 1, true)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_last_block() {
         test_catchup_receipts_sync_common(13, 5, false)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_receipts_sync_distant_epoch() {
         test_catchup_receipts_sync_common(35, 1, false)
     }
@@ -308,8 +307,10 @@ mod tests {
                                             connectors1.write().unwrap()[i]
                                                 .1
                                                 .send(Query::new(
-                                                    "account/".to_string() + &account_to,
-                                                    vec![],
+                                                    None,
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: account_to.clone(),
+                                                    },
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
@@ -357,7 +358,6 @@ mod tests {
     /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
     /// been incorrect due to wrong receipts applied during the third epoch.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync() {
         test_catchup_random_single_part_sync_common(false, false, 13)
     }
@@ -367,27 +367,23 @@ mod tests {
     // It tests that the incoming receipts are property synced through epochs
     #[test]
     #[ignore]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_skip_15() {
         test_catchup_random_single_part_sync_common(true, false, 13)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_send_15() {
         test_catchup_random_single_part_sync_common(false, false, 15)
     }
 
     // Make sure that transactions are at least applied.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_non_zero_amounts() {
         test_catchup_random_single_part_sync_common(false, true, 13)
     }
 
     // Use another height to send txs.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_random_single_part_sync_height_6() {
         test_catchup_random_single_part_sync_common(false, false, 6)
     }
@@ -502,8 +498,11 @@ mod tests {
                                                 connectors1.write().unwrap()[i]
                                                     .1
                                                     .send(Query::new(
-                                                        "account/".to_string() + flat_validators[j],
-                                                        vec![],
+                                                        None,
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: flat_validators[j]
+                                                                .to_string(),
+                                                        },
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
@@ -611,7 +610,6 @@ mod tests {
     /// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
     /// This ensures that at no point validators get stuck with state sync
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
         init_integration_logger();
@@ -669,7 +667,6 @@ mod tests {
     ///  b) Doesn't allow the propagation of some heights
     /// Ensures that the block production doesn't get stuck.
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_catchup_sanity_blocks_produced_doomslug() {
         let validator_groups = 2;
         init_integration_logger();
@@ -745,7 +742,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
@@ -889,24 +885,16 @@ mod tests {
     }
 
     #[test]
-    fn test_all_chunks_accepted_10() {
-        test_all_chunks_accepted_common(10, 2000, 5)
-    }
-
-    #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000() {
         test_all_chunks_accepted_common(1000, 2000, 5)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_slow() {
         test_all_chunks_accepted_common(1000, 4000, 5)
     }
 
     #[test]
-    #[cfg(feature = "expensive_tests")]
     fn test_all_chunks_accepted_1000_rare_epoch_changing() {
         test_all_chunks_accepted_common(1000, 1000, 100)
     }
