@@ -756,7 +756,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut oldest_height = 0;
+        let mut oldest_height = header_head.height;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.inner_lite.height <= block_head.height {
