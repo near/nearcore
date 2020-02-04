@@ -124,7 +124,10 @@ fn test_verify_block_double_sign_challenge() {
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(result.is_ok());
-    let last_message = env.network_adapters[0].pop().unwrap();
+    let mut last_message = env.network_adapters[0].pop().unwrap();
+    if let NetworkRequests::BlockHeaderAnnounce { .. } = last_message {
+        last_message = env.network_adapters[0].pop().unwrap();
+    }
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(network_challenge, valid_challenge);
     } else {
@@ -222,7 +225,7 @@ fn create_chunk(
         vec![],
         &*client.validator_signer.as_ref().unwrap().clone(),
         0.into(),
-        last_block.header.prev_hash,
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
@@ -439,8 +442,6 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
-    let prev_to_last_block =
-        env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
@@ -495,10 +496,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &validator_signer,
-        prev_to_last_block.header.inner_lite.height.into(),
-        last_block.header.prev_hash,
-        prev_to_last_block.header.prev_hash,
-        last_block.header.inner_rest.last_ds_final_block,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
 

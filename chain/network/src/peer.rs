@@ -284,11 +284,11 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { path, data, id } => {
-                        NetworkViewClientMessages::Query { path, data, id }
+                    RoutedMessageBody::QueryRequest { query_id, block_id, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_id, request }
                     }
-                    RoutedMessageBody::QueryResponse { response, id } => {
-                        NetworkViewClientMessages::QueryResponse { response, id }
+                    RoutedMessageBody::QueryResponse { query_id, response } => {
+                        NetworkViewClientMessages::QueryResponse { query_id, response }
                     }
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
@@ -338,8 +338,8 @@ impl Peer {
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
-                    Ok(NetworkViewClientResponses::QueryResponse { response, id }) => {
-                        let body = RoutedMessageBody::QueryResponse { response, id };
+                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
+                        let body = RoutedMessageBody::QueryResponse { query_id, response };
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }

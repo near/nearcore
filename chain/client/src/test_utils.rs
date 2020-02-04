@@ -726,13 +726,7 @@ pub fn setup_mock_all_validators(
                 account_id,
                 skip_sync_wait,
                 block_prod_time,
-                // When we tamper with fg, some blocks will have enough approvals, some will not,
-                //     and the `block_prod_timeout` is carefully chosen to get enough forkfulness,
-                //     but not to break the synchrony assumption, so we can't allow the timeout to
-                //     be too different for blocks with and without enough approvals.
-                // When not tampering with fg, make the relationship between constants closer to the
-                //     actual relationship.
-                if tamper_with_fg { block_prod_time } else { block_prod_time * 2 },
+                block_prod_time * 3,
                 enable_doomslug,
                 Arc::new(network_adapter),
                 10000,

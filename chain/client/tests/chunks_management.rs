@@ -24,21 +24,21 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(1, false, 3000);
+        chunks_produced_and_distributed_common(1, false, 1500);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, false, 3000);
+        chunks_produced_and_distributed_common(2, false, 1500);
     });
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, false, 3000);
+        chunks_produced_and_distributed_common(4, false, 1500);
     });
 }
 
@@ -50,7 +50,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(2, true, 3000);
+        chunks_produced_and_distributed_common(2, true, 1500);
     });
 }
 
@@ -62,7 +62,7 @@ fn chunks_recovered_from_others() {
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 3000);
+        chunks_produced_and_distributed_common(4, true, 1500);
     });
 }
 
@@ -71,7 +71,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
-        chunks_produced_and_distributed_common(4, true, 8000);
+        chunks_produced_and_distributed_common(4, true, 4000);
     });
 }
 
@@ -118,7 +118,7 @@ fn chunks_produced_and_distributed_common(
             false,
             false,
             5,
-            false,
+            true,
             Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -129,7 +129,7 @@ fn chunks_produced_and_distributed_common(
                         height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
                             block.header.inner_lite.height,
@@ -139,6 +139,7 @@ fn chunks_produced_and_distributed_common(
                             block.chunks[3].inner.height_created,
                             block.header.inner_rest.last_quorum_pre_vote,
                             block.header.inner_rest.last_quorum_pre_commit,
+                            block.header.inner_rest.approvals,
                         );
 
                         // Make sure blocks are finalized. 6 is the epoch boundary.

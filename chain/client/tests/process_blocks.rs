@@ -123,6 +123,9 @@ fn produce_blocks_with_tx() {
 fn receive_network_block() {
     init_test_logger();
     System::run(|| {
+        // The first header announce will be when the block is received. We don't immediately endorse
+        // it. The second header announce will happen with the endorsement a little later.
+        let first_header_announce = Arc::new(RwLock::new(true));
         let (client, view_client) = setup_mock(
             vec!["test2", "test1", "test3"],
             "test2",
@@ -130,8 +133,13 @@ fn receive_network_block() {
             false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockHeaderAnnounce { approval_message, .. } = msg {
-                    assert!(approval_message.is_some());
-                    System::current().stop();
+                    let mut first_header_announce = first_header_announce.write().unwrap();
+                    if *first_header_announce {
+                        *first_header_announce = false;
+                    } else {
+                        assert!(approval_message.is_some());
+                        System::current().stop();
+                    }
                 }
                 NetworkResponses::NoResponse
             }),

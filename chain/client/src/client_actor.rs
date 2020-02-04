@@ -153,7 +153,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     .client
                     .chain
                     .mut_store()
-                    .get_any_block_hash_by_height(block.header.inner_lite.height);
+                    .get_all_block_hashes_by_height(block.header.inner_lite.height);
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
                         if let Ok(header) = self.client.chain.get_block_header(sync_hash) {
@@ -176,9 +176,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         .get_epoch_id_from_prev_block(&block.header.prev_hash)
                     {
                         Ok(epoch_id) => {
-                            if Some(&block.header.hash) != blocks_at_height.unwrap().get(&epoch_id)
-                            {
-                                warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                            if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
+                                if !hashes.contains(&block.header.hash) {
+                                    warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header.hash, block.header.inner_lite.height);
+                                }
                             }
                         }
                         _ => {}
@@ -851,17 +852,26 @@ impl ClientActor {
 
         let approvals = self.client.doomslug.process_timer(Instant::now());
 
-        // Important to save the largest skipped height before sending approvals, so that if the
-        // node crashes in the meantime, we cannot get slashed on recovery
+        // Important to save the largest skipped and endorsed heights before sending approvals, so
+        // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
             .save_largest_skipped_height(&self.client.doomslug.get_largest_skipped_height());
+        chain_store_update
+            .save_largest_endorsed_height(&self.client.doomslug.get_largest_endorsed_height());
 
         match chain_store_update.commit() {
             Ok(_) => {
                 for approval in approvals {
-                    if let Err(e) = self.client.send_approval(approval) {
-                        error!("Error while sending an approval {:?}", e);
+                    // `Chain::process_approval` updates metrics related to the finality gadget.
+                    // Don't send the approval if such an update failed
+                    if let Ok(_) = self.client.chain.process_approval(
+                        &self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+                        &approval,
+                    ) {
+                        if let Err(e) = self.client.send_approval(approval) {
+                            error!("Error while sending an approval {:?}", e);
+                        }
                     }
                 }
             }

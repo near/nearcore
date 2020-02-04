@@ -19,7 +19,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges,
     StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse};
+use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -385,8 +385,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
-        path_parts: Vec<&str>,
-        data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;

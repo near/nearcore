@@ -109,8 +109,9 @@ impl Client {
             chain.store().largest_skipped_height()?,
             chain.store().largest_endorsed_height()?,
             config.min_block_production_delay,
-            config.min_block_production_delay / 10,
             config.max_block_production_delay,
+            config.max_block_production_delay / 10,
+            config.max_block_wait_delay,
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
@@ -633,8 +634,7 @@ impl Client {
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
-    /// Returns true if a block header announcement was sent
-    pub fn check_and_update_doomslug_tip(&mut self) -> Result<bool, Error> {
+    pub fn check_and_update_doomslug_tip(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
 
         if tip.last_block_hash != self.doomslug.get_tip().0 {
@@ -647,35 +647,16 @@ impl Client {
                 self.chain.get_block_header(&last_ds_final_hash)?.inner_lite.height
             };
 
-            let may_be_approval = self.doomslug.set_tip(
+            self.doomslug.set_tip(
                 Instant::now(),
                 tip.last_block_hash,
                 self.chain.get_my_approval_reference_hash(tip.last_block_hash),
                 tip.height,
                 last_ds_final_height,
             );
-
-            if let Some(approval) = may_be_approval {
-                self.chain.process_approval(
-                    &self.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-                    &approval,
-                )?;
-
-                self.collect_block_approval(&approval, true);
-
-                // Important to update the last endorsed height before sending the approval
-                let mut chain_store_update = self.chain.mut_store().store_update();
-                chain_store_update
-                    .save_largest_endorsed_height(&self.doomslug.get_largest_endorsed_height());
-                chain_store_update.commit()?;
-
-                self.send_approval(approval)?;
-
-                return Ok(true);
-            }
         }
 
-        Ok(false)
+        Ok(())
     }
 
     pub fn send_approval(&mut self, approval: Approval) -> Result<(), Error> {
@@ -712,6 +693,8 @@ impl Client {
             }
         };
 
+        let _ = self.check_and_update_doomslug_tip();
+
         // If we produced the block, then it should have already been broadcasted.
         // If received the block from another node then broadcast "header first" to minimise network traffic.
         if provenance == Provenance::NONE {
@@ -722,16 +705,17 @@ impl Client {
                 }
             }
 
-            if !self.check_and_update_doomslug_tip().unwrap_or(false) {
-                self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                    header: block.header.clone(),
-                    approval_message: None,
-                });
-            }
+            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
+                header: block.header.clone(),
+                approval_message: None,
+            });
         }
 
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
+            if let Err(err) = self.chain.clear_old_data() {
+                error!(target: "client", "Can't clear old data, {:?}", err);
+            };
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
