@@ -689,7 +689,8 @@ impl<'a> VMLogic<'a> {
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
+        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
+        self.gas_counter.deduct_gas(value, value)
     }
 
     // ################
