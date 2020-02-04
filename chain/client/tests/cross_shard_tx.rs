@@ -8,7 +8,7 @@ use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::QueryResponseKind::ViewAccount;
+use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -49,7 +49,10 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query::new("account/".to_string() + flat_validators[i], vec![]))
+                    .send(Query::new(
+                        None,
+                        QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
+                    ))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
@@ -89,8 +92,8 @@ mod tests {
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use near_primitives::views::QueryResponse;
     use near_primitives::views::QueryResponseKind::ViewAccount;
+    use near_primitives::views::{QueryRequest, QueryResponse};
 
     fn send_tx(
         num_validators: usize,
@@ -186,7 +189,10 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_owned() + &account_id, vec![]))
+                        .send(Query::new(
+                            None,
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -275,8 +281,10 @@ mod tests {
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query::new(
-                                    "account/".to_string() + validators[i].clone(),
-                                    vec![],
+                                    None,
+                                    QueryRequest::ViewAccount {
+                                        account_id: validators[i].to_string(),
+                                    },
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -323,7 +331,10 @@ mod tests {
                     connectors_[account_id_to_shard_id(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
-                        .send(Query::new("account/".to_string() + &account_id, vec![]))
+                        .send(Query::new(
+                            None,
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
@@ -434,8 +445,10 @@ mod tests {
                     connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
-                            "account/".to_string() + flat_validators[i].clone(),
-                            vec![],
+                            None,
+                            QueryRequest::ViewAccount {
+                                account_id: flat_validators[i].to_string(),
+                            },
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(

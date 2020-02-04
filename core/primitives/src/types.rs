@@ -54,6 +54,36 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct StoreKey(Vec<u8>);
+
+impl AsRef<[u8]> for StoreKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<Vec<u8>> for StoreKey {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct FunctionArgs(Vec<u8>);
+
+impl AsRef<[u8]> for FunctionArgs {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<Vec<u8>> for FunctionArgs {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
 /// A structure used to index state changes due to transaction/receipt processing and other things.
 #[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub enum StateChangeCause {
@@ -212,7 +242,7 @@ pub struct Version {
     pub build: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),

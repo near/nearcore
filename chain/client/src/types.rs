@@ -17,7 +17,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryResponse,
+    LightClientBlockView, QueryRequest, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -184,16 +184,16 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Clone)]
+#[derive(Deserialize, Clone)]
 pub struct Query {
-    pub path: String,
-    pub data: Vec<u8>,
-    pub id: String,
+    pub query_id: String,
+    pub block_id: MaybeBlockId,
+    pub request: QueryRequest,
 }
 
 impl Query {
-    pub fn new(path: String, data: Vec<u8>) -> Self {
-        Query { path, data, id: generate_random_string(10) }
+    pub fn new(block_id: MaybeBlockId, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id, request }
     }
 }
 

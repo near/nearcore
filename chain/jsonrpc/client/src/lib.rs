@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -178,7 +179,6 @@ macro_rules! jsonrpc_client {
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
@@ -188,6 +188,18 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
+
+impl JsonRpcClient {
+    /// This is a soft-deprecated method to do query RPC request with a path and data positional
+    /// parameters.
+    pub fn query_by_path(&mut self, path: String, data: String) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", [path, data])
+    }
+
+    pub fn query(&mut self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", request)
+    }
+}
 
 fn create_client() -> Client {
     Client::build()

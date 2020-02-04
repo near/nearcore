@@ -27,9 +27,9 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
@@ -310,13 +310,13 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        query_id: String,
+        block_id: MaybeBlockId,
+        request: QueryRequest,
     },
     QueryResponse {
+        query_id: String,
         response: Result<QueryResponse, String>,
-        id: String,
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
@@ -1113,10 +1113,10 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// General query
     Query {
+        query_id: String,
         account_id: AccountId,
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        block_id: MaybeBlockId,
+        request: QueryRequest,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1288,9 +1288,9 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { path: String, data: Vec<u8>, id: String },
+    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
     /// Query response
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
@@ -1315,7 +1315,7 @@ pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(FinalExecutionOutcomeView),
     /// Response to general queries
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
     /// Block response.
