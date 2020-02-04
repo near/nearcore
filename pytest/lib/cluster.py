@@ -17,6 +17,8 @@ from rc import gcloud
 import uuid
 import network
 
+os.environ["ADVERSARY_CONSENT"] = "1"
+
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
