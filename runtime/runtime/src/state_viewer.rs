@@ -6,16 +6,16 @@ use borsh::BorshSerialize;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
-use near_primitives::views::ViewStateResult;
+use near_primitives::views::{StateItem, ViewStateResult};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{ReturnData, VMConfig, VMContext};
 
 use crate::actions::get_code_with_cache;
 use crate::ext::RuntimeExt;
-use near_primitives::serialize::to_base64;
 
 pub struct TrieViewer {}
 
@@ -60,17 +60,25 @@ impl TrieViewer {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
-        let mut values: Vec<(String, String)> = Default::default();
+        let mut values = vec![];
         let mut query = prefix_for_data(account_id);
         let acc_sep_len = query.len();
         query.extend_from_slice(prefix);
-        state_update.for_keys_with_prefix(&query, |key| {
-            // TODO error
-            if let Ok(Some(value)) = state_update.get(key) {
-                values.push((to_base64(&key[acc_sep_len..]), to_base64(&value)));
+        let mut iter = state_update.trie.iter(&state_update.root)?;
+        iter.seek(&query)?;
+        for item in iter {
+            let (key, value) = item?;
+            if !key.starts_with(&query) {
+                break;
             }
-        })?;
-        Ok(ViewStateResult { values })
+            values.push(StateItem {
+                key: to_base64(&key[acc_sep_len..]),
+                value: to_base64(&value),
+                proof: vec![],
+            });
+        }
+        // TODO(2076): Add proofs for the storage items.
+        Ok(ViewStateResult { values, proof: vec![] })
     }
 
     pub fn call_function(
@@ -165,6 +173,7 @@ impl TrieViewer {
 #[cfg(test)]
 mod tests {
     use near_primitives::utils::key_for_data;
+    use near_primitives::views::StateItem;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -232,16 +241,41 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update.set(key_for_data(&alice_account(), b"test123"), b"123".to_vec());
+        state_update.set(key_for_data(&alice_account(), b"test321"), b"321".to_vec());
+        state_update.set(key_for_data(&"alina".to_string(), b"qqq"), b"321".to_vec());
+        state_update.set(key_for_data(&"alex".to_string(), b"qqq"), b"321".to_vec());
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
         let trie_viewer = TrieViewer::new();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-        assert_eq!(result.values, [("dGVzdDEyMw==".to_string(), "MTIz".to_string())]);
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"test321").unwrap();
+        assert_eq!(result.proof, Vec::<String>::new());
+        assert_eq!(
+            result.values,
+            [
+                StateItem {
+                    key: "dGVzdDEyMw==".to_string(),
+                    value: "MTIz".to_string(),
+                    proof: vec![]
+                },
+                StateItem {
+                    key: "dGVzdDMyMQ==".to_string(),
+                    value: "MzIx".to_string(),
+                    proof: vec![]
+                }
+            ]
+        );
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"xyz").unwrap();
         assert_eq!(result.values, []);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
-        assert_eq!(result.values, [("dGVzdDEyMw==".to_string(), "MTIz".to_string())])
+        assert_eq!(
+            result.values,
+            [StateItem {
+                key: "dGVzdDEyMw==".to_string(),
+                value: "MTIz".to_string(),
+                proof: vec![]
+            }]
+        );
     }
 }

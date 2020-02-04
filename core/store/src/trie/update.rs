@@ -12,7 +12,7 @@ use crate::StorageError;
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Arc<Trie>,
-    root: CryptoHash,
+    pub root: CryptoHash,
     committed: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     prospective: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
