@@ -317,7 +317,7 @@ fn test_rpc_routing() {
                         let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
-                                .query("account/near.2".to_string(), "".to_string())
+                                .query_by_path("account/near.2".to_string(), "".to_string())
                                 .map_err(|err| {
                                     println!("Error retrieving account: {:?}", err);
                                 })
@@ -364,7 +364,7 @@ fn test_rpc_routing_error() {
                         let mut client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
                         actix::spawn(
                             client
-                                .query("account/nonexistent".to_string(), "".to_string())
+                                .query_by_path("account/nonexistent".to_string(), "".to_string())
                                 .map_err(|err| {
                                     println!("error: {}", err.to_string());
                                     System::current().stop();
