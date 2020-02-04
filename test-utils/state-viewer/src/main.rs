@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use clap::{App, Arg, SubCommand};
 
 use ansi_term::Color::Red;
@@ -18,9 +18,11 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
-use near_store::{create_store, Store, TrieIterator};
+use near_store::{create_store, ColState, Store, TrieIterator};
 use node_runtime::StateRecord;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -141,6 +143,33 @@ fn load_trie(
         state_roots.push(chunk.inner.prev_state_root.clone());
     }
     (runtime, state_roots, last_block.header.inner_lite.height)
+}
+
+/// Dump state in binary format. Also write state roots to a separate file.
+fn dump_state(home_dir: &PathBuf, store: Arc<Store>, mut near_config: NearConfig) {
+    // Step 1: dumping state roots.
+    let mut chain_store = ChainStore::new(store.clone());
+    let head = chain_store.head().unwrap();
+    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    let mut state_roots = vec![];
+    for chunk in last_block.chunks.iter() {
+        state_roots.push(chunk.inner.prev_state_root.clone());
+    }
+    println!("Saving state at {:?} @ {}", state_roots, head.height);
+    let mut roots_files = home_dir.clone();
+    roots_files.push("genesis_roots_dump");
+    let mut file = File::create(roots_files).unwrap();
+    let data = state_roots.try_to_vec().unwrap();
+    file.write_all(&data).unwrap();
+    // Step 2: dumping state.
+    let mut dump_path = home_dir.clone();
+    dump_path.push("state_dump");
+    store.save_to_file(ColState, dump_path.as_path()).unwrap();
+    // Step 3: dumping genesis config
+    let mut genesis_file = home_dir.clone();
+    genesis_file.push("genesis_config.json");
+    near_config.genesis_config.records = vec![];
+    near_config.genesis_config.write_to_file(&genesis_file);
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -268,15 +297,7 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
-        .subcommand(
-            SubCommand::with_name("dump_state").arg(
-                Arg::with_name("output")
-                    .long("output")
-                    .required(true)
-                    .help("Output path for new genesis given current blockchain state")
-                    .takes_value(true),
-            ),
-        )
+        .subcommand(SubCommand::with_name("dump_state"))
         .subcommand(
             SubCommand::with_name("chain")
                 .arg(
@@ -316,7 +337,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let mut near_config = load_config(home_dir);
+    let near_config = load_config(home_dir);
 
     let store = create_store(&get_store_path(&home_dir));
 
@@ -338,26 +359,8 @@ fn main() {
                 }
             }
         }
-        ("dump_state", Some(args)) => {
-            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
-            let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
-            println!(
-                "Saving state at {:?} @ {} into {}",
-                state_roots,
-                height,
-                output_path.display()
-            );
-            near_config.genesis_config.records = vec![];
-            for state_root in state_roots {
-                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-                for item in trie {
-                    let (key, value) = item.unwrap();
-                    if let Some(sr) = kv_to_state_record(key, value) {
-                        near_config.genesis_config.records.push(sr);
-                    }
-                }
-            }
-            near_config.genesis_config.write_to_file(&output_path);
+        ("dump_state", _) => {
+            dump_state(&PathBuf::from(home_dir), store, near_config);
         }
         ("chain", Some(args)) => {
             let start_index =
