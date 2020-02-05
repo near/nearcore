@@ -34,8 +34,5 @@ near-pool = { path = "../pool" }
 near-jsonrpc-client = { path = "client" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
-[build-dependencies]
-_rand = { package = "rand", version = "0.6.5" }
-
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

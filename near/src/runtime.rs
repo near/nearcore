@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryResponse,
+    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryError, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
 };
 use near_store::{
@@ -905,30 +905,28 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
-        path_parts: Vec<&str>,
-        data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        if path_parts.is_empty() {
-            return Err("Path must contain at least single token".into());
-        }
-        match path_parts[0] {
-            "account" => match self.view_account(*state_root, &AccountId::from(path_parts[1])) {
-                Ok(r) => Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewAccount(r.into()),
-                    block_height,
-                    block_hash: *block_hash,
-                }),
-                Err(e) => Err(e),
-            },
-            "call" => {
+        match request {
+            QueryRequest::ViewAccount { account_id } => {
+                match self.view_account(*state_root, account_id) {
+                    Ok(r) => Ok(QueryResponse {
+                        kind: QueryResponseKind::ViewAccount(r.into()),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                    Err(e) => Err(e),
+                }
+            }
+            QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
                 match self.call_function(
                     *state_root,
                     block_height,
                     block_timestamp,
-                    &AccountId::from(path_parts[1]),
-                    path_parts[2],
-                    &data,
+                    account_id,
+                    method_name,
+                    args.as_ref(),
                     &mut logs,
                 ) {
                     Ok(result) => Ok(QueryResponse {
@@ -943,8 +941,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }),
                 }
             }
-            "contract" => {
-                match self.view_state(*state_root, &AccountId::from(path_parts[1]), data) {
+            QueryRequest::ViewState { account_id, prefix } => {
+                match self.view_state(*state_root, account_id, prefix.as_ref()) {
                     Ok(result) => Ok(QueryResponse {
                         kind: QueryResponseKind::ViewState(result),
                         block_height,
@@ -960,36 +958,21 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }),
                 }
             }
-            "access_key" => {
-                let result = if path_parts.len() == 2 {
-                    self.view_access_keys(*state_root, &AccountId::from(path_parts[1])).map(|r| {
-                        QueryResponse {
-                            kind: QueryResponseKind::AccessKeyList(
-                                r.into_iter()
-                                    .map(|(public_key, access_key)| AccessKeyInfoView {
-                                        public_key,
-                                        access_key: access_key.into(),
-                                    })
-                                    .collect(),
-                            ),
-                            block_height,
-                            block_hash: *block_hash,
-                        }
-                    })
-                } else {
-                    self.view_access_key(
-                        *state_root,
-                        &AccountId::from(path_parts[1]),
-                        &PublicKey::try_from(path_parts[2])?,
-                    )
-                    .map(|access_key| QueryResponse {
-                        kind: QueryResponseKind::AccessKey(access_key.into()),
+            QueryRequest::ViewAccessKeyList { account_id } => {
+                match self.view_access_keys(*state_root, account_id) {
+                    Ok(result) => Ok(QueryResponse {
+                        kind: QueryResponseKind::AccessKeyList(
+                            result
+                                .into_iter()
+                                .map(|(public_key, access_key)| AccessKeyInfoView {
+                                    public_key,
+                                    access_key: access_key.into(),
+                                })
+                                .collect(),
+                        ),
                         block_height,
                         block_hash: *block_hash,
-                    })
-                };
-                match result {
-                    Ok(result) => Ok(result),
+                    }),
                     Err(err) => Ok(QueryResponse {
                         kind: QueryResponseKind::Error(QueryError {
                             error: err.to_string(),
@@ -1000,7 +983,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }),
                 }
             }
-            _ => Err(format!("Unknown path {}", path_parts[0]).into()),
+            QueryRequest::ViewAccessKey { account_id, public_key } => {
+                match self.view_access_key(*state_root, account_id, public_key) {
+                    Ok(access_key) => Ok(QueryResponse {
+                        kind: QueryResponseKind::AccessKey(access_key.into()),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                    Err(err) => Ok(QueryResponse {
+                        kind: QueryResponseKind::Error(QueryError {
+                            error: err.to_string(),
+                            logs: vec![],
+                        }),
+                        block_height,
+                        block_hash: *block_hash,
+                    }),
+                }
+            }
         }
     }
 
