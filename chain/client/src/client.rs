@@ -233,7 +233,20 @@ impl Client {
         head: &Tip,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
+        next_height: BlockHeight,
+        known_height: BlockHeight,
+        block_producer: &BlockProducer,
+        next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
+        if self.known_block_height(next_height, known_height) {
+            return Ok(true);
+        }
+
+        if !self.is_me_block_producer(&block_producer, &next_block_proposer) {
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+            return Ok(true);
+        }
+
         #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks {
@@ -262,9 +275,6 @@ impl Client {
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
         let known_height = self.chain.mut_store().get_latest_known()?.height;
-        if self.known_block_height(next_height, known_height) {
-            return Ok(None);
-        }
 
         let validator_signer = self
             .validator_signer
@@ -283,11 +293,6 @@ impl Client {
             next_height,
         )?;
 
-        if !self.is_me_block_producer(&block_producer, &next_block_proposer) {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-            return Ok(None);
-        }
-
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.prev_hash;
@@ -299,11 +304,19 @@ impl Client {
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
 
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
-
-        if self.should_reschedule_block(&head, &prev_hash, &prev_prev_hash)? {
+        if self.should_reschedule_block(
+            &head,
+            &prev_hash,
+            &prev_prev_hash,
+            next_height,
+            known_height,
+            &block_producer,
+            &next_block_proposer,
+        )? {
             return Ok(None);
         }
+
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
