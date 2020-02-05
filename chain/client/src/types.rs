@@ -8,7 +8,6 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, Signer};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
@@ -185,25 +184,6 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
         }
-    }
-}
-
-/// Required information to produce blocks.
-#[derive(Clone)]
-pub struct BlockProducer {
-    pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
-}
-
-impl From<InMemorySigner> for BlockProducer {
-    fn from(signer: InMemorySigner) -> Self {
-        BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
-    }
-}
-
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
-        BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
 

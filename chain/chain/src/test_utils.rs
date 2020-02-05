@@ -8,7 +8,7 @@ use chrono::Utc;
 use log::debug;
 use serde::Serialize;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, Block};
@@ -26,6 +26,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
     StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -888,13 +889,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
@@ -904,7 +905,7 @@ pub fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }
 
@@ -914,11 +915,11 @@ pub fn setup_with_validators(
     num_shards: ShardId,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemorySigner>>) {
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers = validators
         .iter()
-        .map(|x| Arc::new(InMemorySigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -1063,19 +1064,14 @@ pub fn new_block_no_epoch_switches(
     prev_block: &Block,
     height: BlockHeight,
     approvals: Vec<&str>,
-    signer: &InMemorySigner,
+    signer: &InMemoryValidatorSigner,
 ) -> Block {
     let approvals = approvals
         .into_iter()
-        .map(|x| {
-            Approval::new(
-                prev_block.hash(),
-                Some(prev_block.hash()),
-                height,
-                true,
-                signer,
-                x.to_string(),
-            )
+        .map(|account_id| {
+            let signer =
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
+            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
         })
         .collect();
     let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {

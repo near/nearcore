@@ -13,6 +13,7 @@ use tracing::{debug, error, info, trace, warn};
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::{ser, DisplayOption};
 
@@ -22,7 +23,7 @@ use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
+    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
     PROTOCOL_VERSION,

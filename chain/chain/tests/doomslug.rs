@@ -1,15 +1,18 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
-    use near_chain::{Doomslug, DoomslugThresholdMode};
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
-    use near_primitives::block::Approval;
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{BlockHeight, ValidatorStake};
-    use rand::{thread_rng, Rng};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+
+    use rand::{thread_rng, Rng};
+
+    use near_chain::{Doomslug, DoomslugThresholdMode};
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::{BlockHeight, ValidatorStake};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     fn block_hash(height: BlockHeight) -> CryptoHash {
         hash(height.to_le_bytes().as_ref())
@@ -48,15 +51,17 @@ mod tests {
         let signers = account_ids
             .iter()
             .map(|account_id| {
-                Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id))
+                Arc::new(InMemoryValidatorSigner::from_seed(
+                    account_id,
+                    KeyType::ED25519,
+                    account_id,
+                ))
             })
             .collect::<Vec<_>>();
-        let mut doomslugs = account_ids
+        let mut doomslugs = signers
             .iter()
-            .zip(signers.iter())
-            .map(|(account_id, signer)| {
+            .map(|signer| {
                 Doomslug::new(
-                    Some(account_id.to_string()),
                     0,
                     0,
                     Duration::from_millis(200),

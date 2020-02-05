@@ -1,11 +1,12 @@
-use near_crypto::Signer;
-use near_primitives::block::Approval;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use near_primitives::block::Approval;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
+use near_primitives::validator_signer::ValidatorSigner;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -94,7 +95,6 @@ struct DoomslugApprovalsTrackersAtHeight {
 /// happens via `PersistentDoomslug` struct. The split is to simplify testing of the logic separate
 /// from the chain.
 pub struct Doomslug {
-    me: Option<AccountId>,
     approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest height that we promised to skip
     largest_promised_skip_height: BlockHeight,
@@ -110,7 +110,7 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<dyn Signer>>,
+    signer: Option<Arc<dyn ValidatorSigner>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -300,19 +300,16 @@ impl DoomslugApprovalsTrackersAtHeight {
 
 impl Doomslug {
     pub fn new(
-        me: Option<AccountId>,
         largest_previously_skipped_height: BlockHeight,
         largest_previously_endorsed_height: BlockHeight,
         endorsement_delay: Duration,
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<dyn Signer>>,
+        signer: Option<Arc<dyn ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        assert_eq!(me.is_some(), signer.is_some());
         Doomslug {
-            me,
             approval_tracking: HashMap::new(),
             largest_promised_skip_height: largest_previously_skipped_height,
             largest_endorsed_height: largest_previously_endorsed_height,
@@ -442,14 +439,13 @@ impl Doomslug {
         target_height: BlockHeight,
         is_endorsement: bool,
     ) -> Option<Approval> {
-        self.me.as_ref().map(|me| {
+        self.signer.as_ref().map(|signer| {
             Approval::new(
                 self.tip.block_hash,
                 self.tip.reference_hash,
                 target_height,
                 is_endorsement,
-                &**self.signer.as_ref().unwrap(),
-                me.clone(),
+                &**signer,
             )
         })
     }
@@ -694,30 +690,32 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
+    use near_primitives::hash::hash;
+    use near_primitives::types::ValidatorStake;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
     };
     use crate::Doomslug;
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
-    use near_primitives::block::Approval;
-    use near_primitives::hash::hash;
-    use near_primitives::types::ValidatorStake;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_endorsements_and_skips_basic() {
         let mut now = Instant::now(); // For the test purposes the absolute value of the initial instant doesn't matter
 
         let mut ds = Doomslug::new(
-            Some("test".to_string()),
             0,
             0,
             Duration::from_millis(400),
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"))),
+            Some(Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"))),
             DoomslugThresholdMode::HalfStake,
         );
 
@@ -862,18 +860,25 @@ mod tests {
 
     #[test]
     fn test_doomslug_approvals() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
-            .into_iter()
+        let accounts: Vec<(&str, u128)> =
+            vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let stakes = accounts
+            .iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
-                stake,
+                stake: *stake,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+            })
+            .collect::<Vec<_>>();
 
-        let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
         let mut ds = Doomslug::new(
-            Some("test".to_string()),
             0,
             0,
             Duration::from_millis(400),
@@ -894,7 +899,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -904,7 +909,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test3".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[2]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -914,7 +919,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -924,7 +929,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now + Duration::from_millis(100),
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -934,7 +939,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test4".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::ReadyToProduce(now),
@@ -944,7 +949,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test4".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -956,7 +961,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test2".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -966,7 +971,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[2]), None, 4, true, &*signer, "test2".to_string()),
+                &Approval::new(hash(&[2]), None, 4, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -975,7 +980,14 @@ mod tests {
 
     #[test]
     fn test_doomslug_one_approval_per_target_height() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
+        let accounts = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+            })
+            .collect::<Vec<_>>();
+        let stakes = accounts
             .into_iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
@@ -983,16 +995,15 @@ mod tests {
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
-        let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new();
 
-        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string());
-        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &*signer, "test2".to_string());
-        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &*signer, "test3".to_string());
+        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &signers[0]);
+        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &signers[1]);
+        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &signers[2]);
 
-        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &*signer, "test1".to_string());
-        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &*signer, "test2".to_string());
-        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &*signer, "test3".to_string());
+        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &signers[0]);
+        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &signers[1]);
+        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &signers[2]);
 
         // Process first approval, and then process it again and make sure it works
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::HalfStake);
