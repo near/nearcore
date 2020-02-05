@@ -1183,6 +1183,7 @@ impl Chain {
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
+        let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
@@ -1190,6 +1191,12 @@ impl Chain {
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
+        if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
+            return Err(ErrorKind::Other(
+                "Invalid request: sync_hash is not the first hash of the epoch".into(),
+            )
+            .into());
+        }
         if shard_id as usize >= sync_prev_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
@@ -1327,6 +1334,7 @@ impl Chain {
         let sync_block =
             self.get_block(&sync_hash).expect("block has already been checked for existence");
         let sync_block_header = sync_block.header.clone();
+        let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other(
                 "get_syncing_state_root fail: shard_id out of bounds".into(),
@@ -1334,6 +1342,12 @@ impl Chain {
             .into());
         }
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
+        if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
+            return Err(ErrorKind::Other(
+                "Invalid request: sync_hash is not the first hash of the epoch".into(),
+            )
+            .into());
+        }
         if shard_id as usize >= sync_prev_block.chunks.len() {
             return Err(ErrorKind::Other(
                 "get_syncing_state_root fail: shard_id out of bounds".into(),
