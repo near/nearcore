@@ -27,7 +27,8 @@ use near_primitives::types::{
     StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, EpochValidatorInfo, QueryResponse, QueryResponseKind,
+    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -665,31 +666,27 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         _block_timestamp: u64,
         block_hash: &CryptoHash,
-        path: Vec<&str>,
-        _data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        match path[0] {
-            "account" => {
-                let account_id = path[1].to_string();
-                Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewAccount(
-                        Account {
-                            amount: self.state.read().unwrap().get(&state_root).map_or_else(
-                                || 0,
-                                |state| *state.amounts.get(&account_id).unwrap_or(&0),
-                            ),
-                            locked: 0,
-                            code_hash: CryptoHash::default(),
-                            storage_usage: 0,
-                            storage_paid_at: 0,
-                        }
-                        .into(),
-                    ),
-                    block_height,
-                    block_hash: *block_hash,
-                })
-            }
-            "access_key" if path.len() == 2 => Ok(QueryResponse {
+        match request {
+            QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewAccount(
+                    Account {
+                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                            || 0,
+                            |state| *state.amounts.get(account_id).unwrap_or(&0),
+                        ),
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                        storage_paid_at: 0,
+                    }
+                    .into(),
+                ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKeyList(AccessKeyList {
                     keys: vec![AccessKeyInfoView {
                         public_key: PublicKey::empty(KeyType::ED25519),
@@ -699,14 +696,24 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_height,
                 block_hash: *block_hash,
             }),
-            "access_key" if path.len() == 3 => Ok(QueryResponse {
+            QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
                 block_height,
                 block_hash: *block_hash,
             }),
-            _ => {
-                panic!("RuntimeAdapter.query mockup received unexpected query: {:?}", path);
-            }
+            QueryRequest::ViewState { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewState(ViewStateResult { values: Default::default() }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::CallFunction { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::CallResult(CallResult {
+                    result: Default::default(),
+                    logs: Default::default(),
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
         }
     }
 

@@ -215,6 +215,7 @@ fn test_promise_batch_action_transfer() {
 #[test]
 fn test_promise_batch_action_stake() {
     let mut context = get_context(vec![], false);
+    // And there are 10N in attached balance to the transaction.
     context.account_balance = 100;
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
@@ -249,15 +250,7 @@ fn test_promise_batch_action_stake() {
             key.as_ptr() as _,
         )
         .expect("should add an action to stake");
-    logic
-        .promise_batch_action_stake(
-            index,
-            1u128.to_le_bytes().as_ptr() as _,
-            key.len() as u64,
-            key.as_ptr() as _,
-        )
-        .expect_err("not enough money to stake");
-    assert_eq!(logic.used_gas().unwrap(), 4605311073377);
+    assert_eq!(logic.used_gas().unwrap(), 4601917690513);
     let expected = serde_json::json!([
         {
             "receipt_indices": [],
