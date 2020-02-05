@@ -74,6 +74,36 @@ fn test_simple_contract() {
     );
 }
 
+fn simple_contract_start_out_of_gas() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (start $start)
+              (func $start
+                i32.const 0
+                i32.const 6
+                i32.add
+                drop)
+               (func $hello)
+               (export "hello" (func $hello))
+            )"#,
+    )
+    .unwrap()
+}
+
+/// Checks whether "out of gas" in the start function leads to a `HostError::GasExceeded`
+/// but not to `WasmerInstantiateError` (see https://github.com/nearprotocol/nearcore/issues/1335)
+#[test]
+fn test_simple_contract_start_out_of_gas() {
+    assert_eq!(
+        make_simple_contract_call_with_gas(&simple_contract_start_out_of_gas(), b"hello", 0),
+        (
+            Some(vm_outcome_with_gas(0)),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
+        )
+    );
+}
+
 #[test]
 fn test_export_not_found() {
     assert_eq!(
@@ -357,7 +387,7 @@ fn test_bad_import_3() {
         make_simple_contract_call(&bad_import_global("env"), b"hello"),
         (
             Some(vm_outcome_with_gas(0)),
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError{
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError {
                 msg: "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function".to_string()
             }))
         )
