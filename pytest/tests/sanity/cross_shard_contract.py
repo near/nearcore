@@ -229,5 +229,5 @@ status = nodes[0].get_status()
 hash_ = base58.b58decode(status['sync_info']['latest_block_hash'])
 tx = sign_function_call_tx(nodes[0].signer_key, 'get_status', contract_fn_args(account_id='test0'),
                            10000000000000000000, 10000000000000000000, nonce, hash_, status_message_contract)
-res = nodes[0].send_tx_and_wait(tx, 10)
+res = nodes[0].send_tx_and_wait(tx, 480)
 pprint(res)
