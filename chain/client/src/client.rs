@@ -233,11 +233,11 @@ impl Client {
         head: &Tip,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
-    ) -> Result<Option<Option<Block>>, Error> {
+    ) -> Result<bool, Error> {
         #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks {
-                return Ok(None);
+                return Ok(false);
             }
         }
 
@@ -251,11 +251,11 @@ impl Client {
                 // block, which is the current epoch for this block, so this block cannot be applied
                 // at all yet, block production must to be rescheduled
                 debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(Some(None));
+                return Ok(true);
             }
         }
 
-        Ok(None)
+        Ok(false)
     }
 
     /// Produce block if we are block producer for given `next_height` block height.
@@ -301,8 +301,8 @@ impl Client {
 
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
-        if let Some(res) = self.should_reschedule_block(&head, &prev_hash, &prev_prev_hash)? {
-            return Ok(res);
+        if self.should_reschedule_block(&head, &prev_hash, &prev_prev_hash)? {
+            return Ok(None);
         }
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
