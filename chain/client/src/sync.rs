@@ -16,9 +16,9 @@ use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::to_timestamp;
 
 use crate::types::{DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus};
-use near_primitives::utils::to_timestamp;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -835,18 +835,20 @@ impl StateSync {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::thread;
 
     use near_chain::test_utils::{new_block_no_epoch_switches, setup, setup_with_validators};
     use near_chain::Provenance;
-    use near_network::types::{PeerChainInfo, PeerId};
-    use near_network::PeerInfo;
-    use near_primitives::block::{Block, GenesisId};
-
-    use super::*;
-    use crate::test_utils::MockNetworkAdapter;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
-    use std::thread;
+    use near_network::types::PeerChainInfo;
+    use near_network::PeerInfo;
+    use near_primitives::block::{Block, GenesisId};
+    use near_primitives::network::PeerId;
+
+    use crate::test_utils::MockNetworkAdapter;
+
+    use super::*;
 
     #[test]
     fn test_get_locator_heights() {

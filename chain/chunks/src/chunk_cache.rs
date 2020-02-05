@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cached::{Cached, SizedCache};
+
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
@@ -180,17 +181,20 @@ impl EncodedChunksCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::chunk_cache::EncodedChunksCache;
-    use crate::ChunkRequestInfo;
-    use near_crypto::{InMemorySigner, KeyType};
+    use std::collections::HashMap;
+
+    use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
-    use std::collections::HashMap;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+
+    use crate::chunk_cache::EncodedChunksCache;
+    use crate::ChunkRequestInfo;
 
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
+        let signer = InMemoryValidatorSigner::from_random("test".to_string(), KeyType::ED25519);
         let partial_encoded_chunk = PartialEncodedChunk {
             shard_id: 0,
             chunk_hash: Default::default(),

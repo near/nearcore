@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
+use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::RwLock;
@@ -24,11 +22,12 @@ use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, S
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
@@ -40,64 +39,6 @@ pub const PROTOCOL_VERSION: u32 = 4;
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
 pub const ROUTED_MESSAGE_TTL: u8 = 100;
-
-/// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PeerId(PublicKey);
-
-impl PeerId {
-    pub fn new(key: PublicKey) -> Self {
-        Self(key)
-    }
-
-    pub fn public_key(&self) -> PublicKey {
-        self.0.clone()
-    }
-}
-
-impl From<PeerId> for Vec<u8> {
-    fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().unwrap()
-    }
-}
-
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
-        PeerId(public_key)
-    }
-}
-
-impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
-    }
-}
-
-impl Hash for PeerId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0.try_to_vec().unwrap());
-    }
-}
-
-impl PartialEq for PeerId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl fmt::Display for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for PeerId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -236,51 +177,12 @@ impl Handshake {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize)]
-struct AnnounceAccountRouteHeader {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub epoch_id: EpochId,
-}
-
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
-}
-
-/// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccount {
-    /// AccountId to be announced.
-    pub account_id: AccountId,
-    /// PeerId from the owner of the account.
-    pub peer_id: PeerId,
-    /// This announcement is only valid for this `epoch`.
-    pub epoch_id: EpochId,
-    /// Signature using AccountId associated secret key.
-    pub signature: Signature,
-}
-
-impl AnnounceAccount {
-    pub fn build_header_hash(
-        account_id: &AccountId,
-        peer_id: &PeerId,
-        epoch_id: &EpochId,
-    ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader {
-            account_id: account_id.clone(),
-            peer_id: peer_id.clone(),
-            epoch_id: epoch_id.clone(),
-        };
-        hash(&header.try_to_vec().unwrap())
-    }
-
-    pub fn hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
@@ -311,13 +213,13 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
     QueryRequest {
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        query_id: String,
+        block_id: MaybeBlockId,
+        request: QueryRequest,
     },
     QueryResponse {
+        query_id: String,
         response: Result<QueryResponse, String>,
-        id: String,
     },
     ReceiptOutcomeRequest(CryptoHash),
     ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
@@ -1114,10 +1016,10 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// General query
     Query {
+        query_id: String,
         account_id: AccountId,
-        path: String,
-        data: Vec<u8>,
-        id: String,
+        block_id: MaybeBlockId,
+        request: QueryRequest,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1289,9 +1191,9 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { path: String, data: Vec<u8>, id: String },
+    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
     /// Query response
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
     ReceiptOutcomeRequest(CryptoHash),
     /// Receipt outcome response
@@ -1316,7 +1218,7 @@ pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(FinalExecutionOutcomeView),
     /// Response to general queries
-    QueryResponse { response: Result<QueryResponse, String>, id: String },
+    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
     ReceiptOutcomeResponse(ExecutionOutcomeWithIdAndProof),
     /// Block response.

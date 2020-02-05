@@ -50,7 +50,9 @@ impl RpcUser {
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
         let data = to_base(data);
-        self.actix(move |mut client| client.query(path, data).map_err(|err| err.to_string()))
+        self.actix(move |mut client| {
+            client.query_by_path(path, data).map_err(|err| err.to_string())
+        })
     }
 
     pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {

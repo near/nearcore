@@ -1,6 +1,7 @@
 #!/bin/bash
 set -ex
 
+export RUST_BACKTRACE=full
 ./scripts/start_unittest.py --local &
 export NEAR_PID=$!
 trap 'pkill -15 -P $NEAR_PID' 0

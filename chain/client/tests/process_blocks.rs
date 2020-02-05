@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::System;
-use borsh::BorshSerialize;
 use futures::{future, FutureExt};
 
 use near_chain::{Block, ChainGenesis, ErrorKind, Provenance};
@@ -26,6 +25,7 @@ use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
 use near_primitives::utils::to_timestamp;
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -123,6 +123,9 @@ fn produce_blocks_with_tx() {
 fn receive_network_block() {
     init_test_logger();
     System::run(|| {
+        // The first header announce will be when the block is received. We don't immediately endorse
+        // it. The second header announce will happen with the endorsement a little later.
+        let first_header_announce = Arc::new(RwLock::new(true));
         let (client, view_client) = setup_mock(
             vec!["test2", "test1", "test3"],
             "test2",
@@ -130,15 +133,20 @@ fn receive_network_block() {
             false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockHeaderAnnounce { approval_message, .. } = msg {
-                    assert!(approval_message.is_some());
-                    System::current().stop();
+                    let mut first_header_announce = first_header_announce.write().unwrap();
+                    if *first_header_announce {
+                        *first_header_announce = false;
+                    } else {
+                        assert!(approval_message.is_some());
+                        System::current().stop();
+                    }
                 }
                 NetworkResponses::NoResponse
             }),
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+            let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -202,7 +210,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -284,7 +292,7 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
+            let signer1 = InMemoryValidatorSigner::from_seed("test2", KeyType::ED25519, "test2");
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -310,14 +318,13 @@ fn produce_block_with_approvals() {
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = InMemorySigner::from_seed(&s, KeyType::ED25519, &s);
+                let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
                 let approval = Approval::new(
                     block.hash(),
                     Some(block.hash()),
                     10, // the height at which "test1" is producing
                     false,
                     &signer,
-                    s.to_string(),
                 );
                 client
                     .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
@@ -359,7 +366,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = InMemorySigner::from_seed("test", KeyType::ED25519, "test");
+            let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
@@ -608,14 +615,19 @@ fn test_time_attack() {
         network_adapter,
         chain_genesis,
     );
-    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner_lite.timestamp =
         to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
-    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
+    let (hash, signature) = signer.sign_block_header_parts(
+        b1.header.prev_hash,
+        &b1.header.inner_lite,
+        &b1.header.inner_rest,
+    );
     b1.header.hash = hash;
-    b1.header.signature = signer.sign(hash.as_ref());
+    b1.header.signature = signature;
+
     let _ = client.process_block(b1, Provenance::NONE);
 
     let b2 = client.produce_block(2).unwrap().unwrap();
@@ -640,7 +652,7 @@ fn test_invalid_approvals() {
         network_adapter,
         chain_genesis,
     );
-    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner_rest.approvals = (0..100)
@@ -650,20 +662,21 @@ fn test_invalid_approvals() {
             parent_hash: genesis.hash(),
             target_height: 1,
             is_endorsement: true,
-            signature: InMemorySigner::from_seed(
+            signature: InMemoryValidatorSigner::from_seed(
                 &format!("test{}", i),
                 KeyType::ED25519,
                 &format!("test{}", i),
             )
-            .sign(
-                Approval::get_data_for_sig(&genesis.hash(), &Some(genesis.hash()), 1, true)
-                    .as_ref(),
-            ),
+            .sign_approval(&genesis.hash(), &Some(genesis.hash()), 1, true),
         })
         .collect();
-    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
+    let (hash, signature) = signer.sign_block_header_parts(
+        b1.header.prev_hash,
+        &b1.header.inner_lite,
+        &b1.header.inner_rest,
+    );
     b1.header.hash = hash;
-    b1.header.signature = signer.sign(hash.as_ref());
+    b1.header.signature = signature;
     let (_, tip) = client.process_block(b1, Provenance::NONE);
     match tip {
         Err(e) => match e.kind() {
@@ -699,13 +712,17 @@ fn test_invalid_gas_price() {
         network_adapter,
         chain_genesis,
     );
-    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let signer = InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, &signer);
     b1.header.inner_rest.gas_price = 0;
-    let hash = hash(&b1.header.inner_rest.try_to_vec().expect("Failed to serialize"));
+    let (hash, signature) = signer.sign_block_header_parts(
+        b1.header.prev_hash,
+        &b1.header.inner_lite,
+        &b1.header.inner_rest,
+    );
     b1.header.hash = hash;
-    b1.header.signature = signer.sign(hash.as_ref());
+    b1.header.signature = signature;
 
     let (_, result) = client.process_block(b1, Provenance::NONE);
     match result {
@@ -722,7 +739,7 @@ fn test_invalid_height() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block(b1.clone(), Provenance::PRODUCED);
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, std::u64::MAX, &signer);
     let (_, tip) = env.clients[0].process_block(b2, Provenance::NONE);
     match tip {

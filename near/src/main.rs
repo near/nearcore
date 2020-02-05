@@ -6,13 +6,13 @@ use std::path::Path;
 use actix::System;
 use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 use log::info;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
 use near::config::init_testnet_configs;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::EnvFilter;
 
 fn init_logging(verbose: Option<&str>) {
     let mut env_filter = EnvFilter::new("tokio_reactor=info,near=info,stats=info");
