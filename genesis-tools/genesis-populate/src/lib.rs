@@ -37,7 +37,7 @@ pub struct GenesisBuilder {
     // We hold this temporary directory to avoid deletion through deallocation.
     #[allow(dead_code)]
     tmpdir: TempDir,
-    config: GenesisConfig,
+    config: Arc<GenesisConfig>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
@@ -56,14 +56,14 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(
         home_dir: &Path,
-        config: GenesisConfig,
+        config: Arc<GenesisConfig>,
         store: Arc<Store>,
     ) -> Self {
         let tmpdir = TempDir::new("storage").unwrap();
         let runtime = NightshadeRuntime::new(
             tmpdir.path(),
             store.clone(),
-            config.clone(),
+            Arc::clone(&config),
             // Since we are not using runtime as an actor
             // there is no reason to track accounts or shards.
             vec![],
@@ -86,14 +86,14 @@ impl GenesisBuilder {
         }
     }
 
+    pub fn from_config(home_dir: &Path, config: Arc<GenesisConfig>) -> Self {
+        let store = create_store(&get_store_path(home_dir));
+        Self::from_config_and_store(home_dir, config, store)
+    }
+
     pub fn print_progress(mut self) -> Self {
         self.print_progress = true;
         self
-    }
-
-    pub fn from_config(home_dir: &Path, config: GenesisConfig) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, config, store)
     }
 
     pub fn add_additional_accounts(mut self, num: u64) -> Self {

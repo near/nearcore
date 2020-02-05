@@ -1,13 +1,15 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
+use ansi_term::Color::Red;
 use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
-use ansi_term::Color::Red;
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain_configs::GenesisConfig;
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
@@ -20,7 +22,6 @@ use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -317,7 +318,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let mut near_config = load_config(home_dir);
+    let near_config = load_config(home_dir);
 
     let store = create_store(&get_store_path(&home_dir));
 
@@ -348,17 +349,18 @@ fn main() {
                 height,
                 output_path.display()
             );
-            near_config.genesis_config.records = vec![];
+            let mut records = vec![];
             for state_root in state_roots {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
                     if let Some(sr) = kv_to_state_record(key, value) {
-                        near_config.genesis_config.records.push(sr);
+                        records.push(sr);
                     }
                 }
             }
-            near_config.genesis_config.write_to_file(&output_path);
+            let genesis_config = GenesisConfig { records, ..(*near_config.genesis_config).clone() };
+            genesis_config.write_to_file(&output_path);
         }
         ("chain", Some(args)) => {
             let start_index =

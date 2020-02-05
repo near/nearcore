@@ -3,7 +3,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -376,14 +375,14 @@ pub struct NearConfig {
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
     pub telemetry_config: TelemetryConfig,
+    pub genesis_config: Arc<GenesisConfig>,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    pub genesis_config: GenesisConfig,
 }
 
 impl NearConfig {
     pub fn new(
         config: Config,
-        genesis_config: &GenesisConfig,
+        genesis_config: Arc<GenesisConfig>,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -461,7 +460,7 @@ impl NearConfig {
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
-            genesis_config: genesis_config.clone(),
+            genesis_config,
             validator_signer,
         }
     }
@@ -534,10 +533,7 @@ fn state_records_account_with_key(
 
 /// Official TestNet configuration.
 pub fn testnet_genesis() -> GenesisConfig {
-    let genesis_config_bytes = include_bytes!("../res/testnet.json");
-    GenesisConfig::from(
-        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
-    )
+    GenesisConfig::from(include_str!("../res/testnet.json"))
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -775,10 +771,10 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, (&network_signer).into(), validator_signer)
+    NearConfig::new(config, Arc::new(genesis_config), (&network_signer).into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis_config: Arc<GenesisConfig>) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
@@ -796,7 +792,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
                 as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, &genesis_config, signer.into(), validator_signer)
+    NearConfig::new(config, genesis_config, signer.into(), validator_signer)
 }
 
 #[cfg(test)]

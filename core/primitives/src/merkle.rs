@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 use crate::hash::hash;
 use crate::types::MerkleHash;

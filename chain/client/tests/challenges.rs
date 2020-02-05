@@ -421,7 +421,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         store1,
-        genesis_config,
+        Arc::new(genesis_config),
         vec![],
         vec![],
     ))];
@@ -685,11 +685,12 @@ fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis_config = GenesisConfig::test(vec!["test0", "test1", "test2"], 1);
     genesis_config.epoch_length = 5;
+    let genesis_config = Arc::new(genesis_config);
     let create_runtime = || -> Arc<NightshadeRuntime> {
         Arc::new(near::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
-            genesis_config.clone(),
+            Arc::clone(&genesis_config),
             vec![],
             vec![],
         ))
@@ -744,12 +745,13 @@ fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis_config = GenesisConfig::test(vec!["test0", "test1"], 2);
     genesis_config.epoch_length = 2;
+    let genesis_config = Arc::new(genesis_config);
     //    genesis_config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(near::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
-        genesis_config.clone(),
+        Arc::clone(&genesis_config),
         vec![],
         vec![],
     ));

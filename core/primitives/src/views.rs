@@ -1,10 +1,12 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
-use chrono::{DateTime, Utc};
-
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
@@ -15,10 +17,12 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
+use crate::rpc::RpcPagination;
 use crate::serialize::{
     from_base64, option_base64_format, option_u128_dec_format, to_base64, u128_dec_format,
 };
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
+use crate::state_record::StateRecord;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
@@ -120,6 +124,12 @@ impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GenesisRecordsView<'a> {
+    pub pagination: RpcPagination,
+    pub records: Cow<'a, [StateRecord]>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

@@ -23,51 +23,31 @@ pub mod test_helpers;
 pub mod user;
 
 /// Compute genesis hash from genesis config.
-pub fn genesis_hash(genesis_config: &GenesisConfig) -> CryptoHash {
-    genesis_header(&genesis_config).hash
+pub fn genesis_hash(genesis_config: Arc<GenesisConfig>) -> CryptoHash {
+    genesis_header(genesis_config).hash
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
+pub fn genesis_header(genesis_config: Arc<GenesisConfig>) -> BlockHeader {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
-    let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(
-        dir.path(),
-        store.clone(),
-        genesis_config.clone(),
-        vec![],
-        vec![],
-    ));
-    let chain_genesis = ChainGenesis::new(
-        genesis_time,
-        genesis_config.gas_limit,
-        genesis_config.min_gas_price,
-        genesis_config.total_supply,
-        genesis_config.max_inflation_rate,
-        genesis_config.gas_price_adjustment_rate,
-        genesis_config.transaction_validity_period,
-        genesis_config.epoch_length,
-    );
+    let chain_genesis = ChainGenesis::from(&genesis_config);
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config, vec![], vec![]));
     let chain =
         Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.genesis().clone()
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
+pub fn genesis_block(genesis_config: Arc<GenesisConfig>) -> Block {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
-    let runtime = Arc::new(NightshadeRuntime::new(
-        dir.path(),
-        store.clone(),
-        genesis_config.clone(),
-        vec![],
-        vec![],
-    ));
+    let chain_genesis = ChainGenesis::from(&genesis_config);
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config, vec![], vec![]));
     let mut chain =
-        Chain::new(store, runtime, &genesis_config.into(), DoomslugThresholdMode::HalfStake)
-            .unwrap();
+        Chain::new(store, runtime, &chain_genesis, DoomslugThresholdMode::HalfStake).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
@@ -77,7 +57,7 @@ pub fn start_nodes(
     num_validator_seats: NumSeats,
     num_lightclient: usize,
     epoch_length: BlockHeightDelta,
-) -> (GenesisConfig, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
+) -> (Arc<GenesisConfig>, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     init_integration_logger();
 
     let num_nodes = dirs.len();
@@ -89,6 +69,7 @@ pub fn start_nodes(
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
     genesis_config.epoch_length = epoch_length;
+    let genesis_config = Arc::new(genesis_config);
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
@@ -98,7 +79,7 @@ pub fn start_nodes(
         let mut near_config = load_test_config(
             if i < num_validator_seats as usize { &validators[i] } else { "" },
             if i == 0 { first_node } else { open_port() },
-            &genesis_config,
+            Arc::clone(&genesis_config),
         );
         rpc_addrs.push(near_config.rpc_config.addr.clone());
         near_config.client_config.min_num_peers = num_nodes - 1;

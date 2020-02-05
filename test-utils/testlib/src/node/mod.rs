@@ -130,11 +130,12 @@ fn near_configs_to_node_configs(
     network_signers: Vec<InMemorySigner>,
     genesis_config: GenesisConfig,
 ) -> Vec<NodeConfig> {
+    let genesis_config = Arc::new(genesis_config);
     let mut result = vec![];
     for i in 0..configs.len() {
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
-            &genesis_config,
+            Arc::clone(&genesis_config),
             (&network_signers[i]).into(),
             Some(Arc::new(validator_signers[i].clone())),
         )))

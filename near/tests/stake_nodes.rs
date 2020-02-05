@@ -51,13 +51,14 @@ fn init_test_staking(
         genesis_config.max_inflation_rate = 0;
         genesis_config.min_gas_price = 0;
     }
+    let genesis_config = Arc::new(genesis_config);
     let first_node = open_port();
 
     let configs = (0..num_node_seats).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
-            &genesis_config,
+            Arc::clone(&genesis_config),
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
@@ -68,7 +69,7 @@ fn init_test_staking(
     configs
         .enumerate()
         .map(|(i, config)| {
-            let genesis_hash = genesis_hash(&config.genesis_config);
+            let genesis_hash = genesis_hash(Arc::clone(&config.genesis_config));
             let (client, view_client) = start_with_config(paths[i], config.clone());
             let account_id = format!("near.{}", i);
             let signer =

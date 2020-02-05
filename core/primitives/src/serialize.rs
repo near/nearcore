@@ -168,9 +168,8 @@ pub mod vec_base_format {
     use serde::de;
     use serde::de::{SeqAccess, Visitor};
     use serde::export::PhantomData;
+    use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
-
-    use crate::serde::ser::SerializeSeq;
 
     use super::{BaseDecode, BaseEncode};
 
@@ -288,6 +287,34 @@ pub mod u128_dec_format {
     {
         let s = String::deserialize(deserializer)?;
         u128::from_str_radix(&s, 10).map_err(de::Error::custom)
+    }
+}
+
+pub mod u128_dec_format_compatible {
+    //! This in an extension to `u128_dec_format` that serves a compatibility layer role to
+    //! deserialize u128 from a "small" JSON number (u64).
+    //!
+    //! It is unfortunate that we cannot enable "arbitrary_precision" feature in serde_json due to
+    //! a bug: https://github.com/serde-rs/json/issues/505
+    use serde::{de, Deserialize, Deserializer};
+
+    pub use super::u128_dec_format::serialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum U128 {
+        Number(u64),
+        String(String),
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match U128::deserialize(deserializer)? {
+            U128::Number(value) => Ok(u128::from(value)),
+            U128::String(value) => u128::from_str_radix(&value, 10).map_err(de::Error::custom),
+        }
     }
 }
 

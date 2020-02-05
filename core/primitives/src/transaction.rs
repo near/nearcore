@@ -1,7 +1,9 @@
+use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
 
 use near_crypto::{PublicKey, Signature, Signer};
 
@@ -11,7 +13,6 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use std::borrow::Borrow;
 
 pub type LogEntry = String;
 

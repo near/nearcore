@@ -92,13 +92,14 @@ fn sync_nodes() {
 
         let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
-        let genesis_block = genesis_block(genesis_config.clone());
+        let genesis_config = Arc::new(genesis_config);
+        let genesis_block = genesis_block(Arc::clone(&genesis_config));
 
         let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis_config));
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 1;
-        let mut near2 = load_test_config("test2", port2, &genesis_config);
+        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis_config));
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_num_peers = 1;
 
@@ -141,13 +142,14 @@ fn sync_after_sync_nodes() {
 
         let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
-        let genesis_block = genesis_block(genesis_config.clone());
+        let genesis_config = Arc::new(genesis_config);
+        let genesis_block = genesis_block(Arc::clone(&genesis_config));
 
         let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis_config));
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 1;
-        let mut near2 = load_test_config("test2", port2, &genesis_config);
+        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis_config));
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_num_peers = 1;
 
@@ -213,13 +215,14 @@ fn sync_state_stake_change() {
         let mut genesis_config = GenesisConfig::test(vec!["test1"], 1);
         genesis_config.epoch_length = 5;
         genesis_config.block_producer_kickout_threshold = 80;
+        let genesis_config = Arc::new(genesis_config);
 
         let (port1, port2) = (open_port(), open_port());
-        let mut near1 = load_test_config("test1", port1, &genesis_config);
+        let mut near1 = load_test_config("test1", port1, Arc::clone(&genesis_config));
         near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
-        let mut near2 = load_test_config("test2", port2, &genesis_config);
+        let mut near2 = load_test_config("test2", port2, Arc::clone(&genesis_config));
         near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;

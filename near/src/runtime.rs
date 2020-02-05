@@ -53,7 +53,7 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
-    genesis_config: GenesisConfig,
+    genesis_config: Arc<GenesisConfig>,
     home_dir: PathBuf,
 
     store: Arc<Store>,
@@ -68,7 +68,7 @@ impl NightshadeRuntime {
     pub fn new(
         home_dir: &Path,
         store: Arc<Store>,
-        genesis_config: GenesisConfig,
+        genesis_config: Arc<GenesisConfig>,
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
     ) -> Self {
@@ -1322,10 +1322,11 @@ mod test {
             if !has_reward {
                 genesis_config.max_inflation_rate = 0;
             }
+            let genesis_total_supply = genesis_config.total_supply;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,
-                genesis_config.clone(),
+                Arc::new(genesis_config),
                 initial_tracked_accounts,
                 initial_tracked_shards,
             );
@@ -1344,7 +1345,7 @@ mod test {
                     vec![],
                     0,
                     0,
-                    genesis_config.total_supply,
+                    genesis_total_supply,
                 )
                 .unwrap();
             Self {

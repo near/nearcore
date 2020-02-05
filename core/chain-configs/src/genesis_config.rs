@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
-use near_primitives::serialize::u128_dec_format;
+use near_primitives::serialize::{u128_dec_format, u128_dec_format_compatible};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats,
@@ -49,6 +49,7 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
+    #[serde(with = "u128_dec_format_compatible")]
     pub min_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -71,9 +72,10 @@ pub struct GenesisConfig {
     /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
     pub max_inflation_rate: u8,
     /// Total supply of tokens at genesis.
-    pub total_supply: u128,
+    #[serde(with = "u128_dec_format", skip_deserializing)]
+    pub total_supply: Balance,
     /// Expected number of blocks per year
-    pub num_blocks_per_year: u64,
+    pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.

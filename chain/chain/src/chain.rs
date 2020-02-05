@@ -210,8 +210,12 @@ impl ChainGenesis {
     }
 }
 
-impl From<GenesisConfig> for ChainGenesis {
-    fn from(genesis_config: GenesisConfig) -> Self {
+impl<T> From<T> for ChainGenesis
+where
+    T: AsRef<GenesisConfig>,
+{
+    fn from(genesis_config: T) -> Self {
+        let genesis_config = genesis_config.as_ref();
         ChainGenesis::new(
             genesis_config.genesis_time,
             genesis_config.gas_limit,
