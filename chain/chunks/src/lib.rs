@@ -35,7 +35,7 @@ use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
 use cached::{Cached, SizedCache};
-use near_primitives::block::BlockHeader;
+use near_primitives::block::{BlockHeader, HoneypotShardId};
 use near_primitives::utils::num_leading_zeros;
 use std::cmp::{max, min};
 
@@ -961,12 +961,20 @@ impl ShardsManager {
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(header))
     }
 
-    pub fn honeypot_shard_id(&mut self, prev_block_hash: &CryptoHash) -> Option<Option<ShardId>> {
-        let (shard_id, num_shards) = self
+    pub fn honeypot_shard_id(
+        &mut self,
+        prev_block_header: &BlockHeader,
+    ) -> Option<HoneypotShardId> {
+        let num_chunks_included = prev_block_header
+            .inner_rest
+            .chunk_mask
+            .iter()
+            .fold(0, |acc, x| if *x { acc + 1 } else { acc });
+        let (shard_id, num_shards_with_parts) = self
             .block_hash_to_honeypot_shard_id
-            .cache_get(prev_block_hash)
+            .cache_get(&prev_block_header.hash)
             .unwrap_or_else(|| &(None, 0));
-        if *num_shards == self.runtime_adapter.num_shards() {
+        if *num_shards_with_parts == num_chunks_included {
             Some(shard_id.clone())
         } else {
             None

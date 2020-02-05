@@ -850,25 +850,33 @@ impl ClientActor {
         let _ = self.client.check_and_update_doomslug_tip();
 
         let (doomslug_tip, _) = self.client.doomslug.get_tip();
-        let honeypot_shard_id = self.client.shards_mgr.honeypot_shard_id(&doomslug_tip);
-        let approvals = self.client.doomslug.process_timer(Instant::now(), honeypot_shard_id);
+        match self.client.chain.get_block_header(&doomslug_tip) {
+            Ok(header) => {
+                let honeypot_shard_id = self.client.shards_mgr.honeypot_shard_id(&header);
+                if let Some(honeypot_shard_id) = honeypot_shard_id {
+                    let approvals =
+                        self.client.doomslug.process_timer(Instant::now(), honeypot_shard_id);
+                    // Important to save the largest skipped height before sending approvals, so that if the
+                    // node crashes in the meantime, we cannot get slashed on recovery
+                    let mut chain_store_update = self.client.chain.mut_store().store_update();
+                    chain_store_update.save_largest_skipped_height(
+                        &self.client.doomslug.get_largest_skipped_height(),
+                    );
 
-        // Important to save the largest skipped height before sending approvals, so that if the
-        // node crashes in the meantime, we cannot get slashed on recovery
-        let mut chain_store_update = self.client.chain.mut_store().store_update();
-        chain_store_update
-            .save_largest_skipped_height(&self.client.doomslug.get_largest_skipped_height());
-
-        match chain_store_update.commit() {
-            Ok(_) => {
-                for approval in approvals {
-                    if let Err(e) = self.client.send_approval(approval) {
-                        error!("Error while sending an approval {:?}", e);
-                    }
+                    match chain_store_update.commit() {
+                        Ok(_) => {
+                            for approval in approvals {
+                                if let Err(e) = self.client.send_approval(approval) {
+                                    error!("Error while sending an approval {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => error!("Error while committing largest skipped height {}", e),
+                    };
                 }
             }
-            Err(e) => error!("Error while committing largest skipped height {:?}", e),
-        };
+            Err(e) => error!("Failed to get doomslug tip block header: {}", e),
+        }
 
         ctx.run_later(Duration::from_millis(50), move |act, ctx| {
             act.doomslug_timer(ctx);

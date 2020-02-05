@@ -653,8 +653,9 @@ impl Client {
                 self.chain.get_block_header(&last_ds_final_hash)?.inner_lite.height
             };
 
+            let last_block_header = self.chain.get_block_header(&tip.last_block_hash)?;
             let may_be_approval = if let Some(honeypot_shard_id) =
-                self.shards_mgr.honeypot_shard_id(&tip.last_block_hash)
+                self.shards_mgr.honeypot_shard_id(&last_block_header)
             {
                 self.doomslug.set_tip(
                     Instant::now(),

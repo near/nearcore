@@ -376,7 +376,7 @@ impl Doomslug {
     pub fn process_timer(
         &mut self,
         cur_time: Instant,
-        honeypot_shard_id: Option<HoneypotShardId>,
+        honeypot_shard_id: HoneypotShardId,
     ) -> Vec<Approval> {
         let mut ret = vec![];
         for _ in 0..MAX_TIMER_ITERS {
@@ -389,12 +389,10 @@ impl Doomslug {
                 {
                     self.largest_promised_skip_height =
                         std::cmp::max(self.timer.height, self.largest_promised_skip_height);
-                    if let Some(honeypot_shard_id) = honeypot_shard_id {
-                        if let Some(approval) =
-                            self.create_approval(self.timer.height + 1, false, honeypot_shard_id)
-                        {
-                            ret.push(approval);
-                        }
+                    if let Some(approval) =
+                        self.create_approval(self.timer.height + 1, false, honeypot_shard_id)
+                    {
+                        ret.push(approval);
                     }
                 }
 
