@@ -66,10 +66,16 @@ impl FlatKVState {
 
         for item in self.store.iter_prefix_ser::<Option<ValueRef>>(ColFlatState, &key_prefix) {
             let (key_tuple, value) = item.expect("storage internal error"); //.map_err(|_| StorageError::StorageInternalError)?;
-            let KeyTuple(shard_id, key, block_height, block_hash) =
+            let KeyTuple(shard_id, key2, block_height, block_hash) =
                 KeyTuple::try_from_slice(&key_tuple).expect("storage internal error"); //.map_err(|_| StorageError::StorageInternalError)?;
+            debug_assert_eq!(key, &key2[..]);
             if block_height > self.block_height
-                || !self.forks_manager.is_same_chain(block_hash, self.block_hash)
+                || !self.forks_manager.is_same_chain(
+                    block_height,
+                    block_hash,
+                    self.block_height,
+                    self.block_hash,
+                )
             {
                 continue;
             }
