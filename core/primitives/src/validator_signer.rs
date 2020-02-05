@@ -10,6 +10,7 @@ use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::{ChunkHash, ShardChunkHeaderInner};
+use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
 /// Validator signer that is used to sign blocks and approvals.
@@ -20,8 +21,8 @@ pub trait ValidatorSigner: Sync + Send {
     /// Public key that identifies this validator.
     fn public_key(&self) -> PublicKey;
 
-    /// Sign json (used for info).
-    fn sign_json(&self, json: String) -> Signature;
+    /// Serializes telemetry info to JSON and signs it, returning JSON with "signature" field.
+    fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value;
 
     /// Signs given parts of the header.
     fn sign_block_header_parts(
@@ -61,6 +62,8 @@ pub trait ValidatorSigner: Sync + Send {
     fn write_to_file(&self, path: &Path);
 }
 
+/// Test-only signer that "signs" everything with 0s.
+/// Don't use in any production or code that requires signature verification.
 #[derive(Default)]
 pub struct EmptyValidatorSigner {
     account_id: AccountId,
@@ -75,8 +78,8 @@ impl ValidatorSigner for EmptyValidatorSigner {
         PublicKey::empty(KeyType::ED25519)
     }
 
-    fn sign_json(&self, _json: String) -> Signature {
-        Signature::default()
+    fn sign_telemetry(&self, _info: &TelemetryInfo) -> serde_json::Value {
+        serde_json::Value::default()
     }
 
     fn sign_block_header_parts(
@@ -126,6 +129,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 }
 
+/// Signer that keeps secret key in memory and signs locally.
 #[derive(Clone)]
 pub struct InMemoryValidatorSigner {
     account_id: AccountId,
@@ -133,10 +137,6 @@ pub struct InMemoryValidatorSigner {
 }
 
 impl InMemoryValidatorSigner {
-    pub fn new(account_id: AccountId, signer: Arc<dyn Signer>) -> Self {
-        Self { account_id, signer }
-    }
-
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
         Self {
             account_id: account_id.clone(),
@@ -170,8 +170,11 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         self.signer.public_key()
     }
 
-    fn sign_json(&self, json: String) -> Signature {
-        self.signer.sign(json.as_bytes())
+    fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value {
+        let mut value = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
+        let content = serde_json::to_string(&value).expect("Telemetry must serialize to JSON");
+        value["signature"] = format!("{}", self.signer.sign(content.as_bytes())).into();
+        value
     }
 
     fn sign_block_header_parts(

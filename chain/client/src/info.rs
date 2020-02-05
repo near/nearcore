@@ -5,7 +5,6 @@ use std::time::Instant;
 use actix::Addr;
 use ansi_term::Color::{Blue, Cyan, Green, White, Yellow};
 use log::info;
-use serde_json::json;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
@@ -18,6 +17,9 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::types::{ClientConfig, ShardSyncStatus, SyncStatus};
+use near_primitives::telemetry::{
+    TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
+};
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
@@ -111,50 +113,40 @@ impl InfoHelper {
         self.gas_used = 0;
         self.gas_limit = 0;
 
-        telemetry(
-            &self.telemetry_actor,
-            try_sign_json(
-                json!({
-                    "agent": {
-                        "name": "near-rs",
-                        "version": self.nearcore_version.version,
-                        "build": self.nearcore_version.build,
-                    },
-                    "system": {
-                        "bandwidth_download": network_info.received_bytes_per_sec,
-                        "bandwidth_upload": network_info.sent_bytes_per_sec,
-                        "cpu_usage": cpu_usage,
-                        "memory_usage": memory_usage,
-                    },
-                    "chain": {
-                        "node_id": node_id.to_string(),
-                        "account_id": self.validator_signer.clone().map(|bp| bp.validator_id().clone()).unwrap_or("".to_string()),
-                        "is_validator": is_validator,
-                        "status": sync_status.as_variant_name(),
-                        "latest_block_hash": to_base(&head.last_block_hash),
-                        "latest_block_height": head.height,
-                        "num_peers":  network_info.num_active_peers,
-                    }
-                }),
-                &self.validator_signer,
-            ),
-        );
+        let info = TelemetryInfo {
+            agent: TelemetryAgentInfo {
+                name: "near-rs".to_string(),
+                version: self.nearcore_version.version.clone(),
+                build: self.nearcore_version.build.clone(),
+            },
+            system: TelemetrySystemInfo {
+                bandwidth_download: network_info.received_bytes_per_sec,
+                bandwidth_upload: network_info.sent_bytes_per_sec,
+                cpu_usage,
+                memory_usage,
+            },
+            chain: TelemetryChainInfo {
+                node_id: node_id.to_string(),
+                account_id: self
+                    .validator_signer
+                    .clone()
+                    .map(|bp| bp.validator_id().clone())
+                    .unwrap_or("".to_string()),
+                is_validator,
+                status: sync_status.as_variant_name().to_string(),
+                latest_block_hash: to_base(&head.last_block_hash),
+                latest_block_height: head.height,
+                num_peers: network_info.num_active_peers,
+            },
+        };
+        // Sign telemetry if there is a signer present.
+        let content = if let Some(vs) = self.validator_signer.as_ref() {
+            vs.sign_telemetry(&info)
+        } else {
+            serde_json::to_value(&info).expect("Telemetry must serialize to json")
+        };
+        telemetry(&self.telemetry_actor, content);
     }
-}
-
-/// Tries to sign given JSON with block producer if it's present and all succeeds.
-fn try_sign_json(
-    mut value: serde_json::Value,
-    validator_signer: &Option<Arc<dyn ValidatorSigner>>,
-) -> serde_json::Value {
-    let mut signature = "".to_string();
-    if let Some(vs) = validator_signer {
-        if let Ok(s) = serde_json::to_string(&value) {
-            signature = format!("{}", vs.sign_json(s));
-        }
-    }
-    value["signature"] = signature.into();
-    value
 }
 
 fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
