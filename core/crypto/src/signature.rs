@@ -5,8 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rand::rngs::{OsRng, StdRng};
-use rand::SeedableRng;
+use rand_core::OsRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
@@ -325,14 +324,13 @@ impl SecretKey {
     }
 
     pub fn from_random(key_type: KeyType) -> SecretKey {
-        let mut rng = StdRng::from_rng(OsRng::default()).unwrap();
         match key_type {
             KeyType::ED25519 => {
-                let keypair = ed25519_dalek::Keypair::generate(&mut rng);
+                let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
-                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut rng))
+                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut OsRng))
             }
         }
     }

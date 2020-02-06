@@ -7,7 +7,7 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
-use rand::{CryptoRng, RngCore};
+use rand_core::OsRng;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
@@ -105,8 +105,8 @@ impl SecretKey {
         Scalar::from_canonical_bytes(*bytes).map(Self::from_scalar)
     }
 
-    pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self::from_scalar(Scalar::random(rng))
+    pub fn random() -> Self {
+        Self::from_scalar(Scalar::random(&mut OsRng))
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -169,13 +169,12 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
 
     #[test]
     fn test_conversion() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let sk2 = SecretKey::from_bytes(&sk.into()).unwrap();
         assert_eq!(sk, sk2);
         let pk = sk.public_key();
@@ -187,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
@@ -197,8 +196,8 @@ mod tests {
 
     #[test]
     fn test_different_keys() {
-        let sk = SecretKey::random(&mut OsRng::default());
-        let sk2 = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
+        let sk2 = SecretKey::random();
         assert_ne!(sk, sk2);
         assert_ne!(Into::<[u8; 32]>::into(sk), Into::<[u8; 32]>::into(sk2));
         let pk = sk.public_key();
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let sk2 = round_trip(&sk);
         assert_eq!(sk, sk2);
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
