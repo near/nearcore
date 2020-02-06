@@ -1,11 +1,9 @@
+use crate::util::*;
 use blake2::{Blake2b, VarBlake2b};
 use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
-use curve25519_dalek::scalar::Scalar;
-use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
 use rand::{CryptoRng, RngCore};
 use std::borrow::Borrow;
@@ -13,7 +11,7 @@ use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
-pub struct PublicKey(pub(crate) [u8; 32], pub(crate) RistrettoPoint);
+pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
 #[derive(Copy, Clone)]
 pub struct SecretKey(Scalar, PublicKey);
 value_type!(pub, Value, 32, "value");
@@ -40,15 +38,9 @@ impl Hash {
     }
 }
 
-fn bvmul2(s1: Scalar, p1: &RistrettoPoint, s2: Scalar, p2: &RistrettoPoint) -> [u8; 32] {
-    RistrettoPoint::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
-        .compress()
-        .to_bytes()
-}
-
 impl PublicKey {
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        CompressedRistretto(*bytes).decompress().map(|p| PublicKey(*bytes, p))
+        Some(PublicKey(*bytes, unpack(bytes)?))
     }
 
     fn offset(&self, input: &[u8]) -> Scalar {
@@ -60,35 +52,24 @@ impl PublicKey {
     }
 
     fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
-        let p = match CompressedRistretto(value.0).decompress() {
-            Some(p) => p,
-            None => return false,
-        };
-        let (&pr, &pc) = array_refs!(&proof.0, 32, 32);
-        let r = match Scalar::from_canonical_bytes(pr) {
-            Some(r) => r,
-            None => return false,
-        };
-        let c = match Scalar::from_canonical_bytes(pc) {
-            Some(c) => c,
-            None => return false,
-        };
+        let p = unwrap_or_return_false!(unpack(&value.0));
+        let (r, c) = unwrap_or_return_false!(unpack(&proof.0));
         Hash::new()
             .chain(&self.0)
             .chain(&value.0)
-            .chain(&bvmul2(r + c * self.offset(input), &G, c, &self.1))
-            .chain(&bvmul2(r, &p, c, &G))
+            .chain(&vmul2(r + c * self.offset(input), &G, c, &self.1).pack())
+            .chain(&vmul2(r, &p, c, &G).pack())
             .result_scalar()
             == c
     }
 }
 
-fn basemul(s: Scalar) -> RistrettoPoint {
+fn basemul(s: Scalar) -> Point {
     &s * &GT
 }
 
 fn bbmul(s: Scalar) -> [u8; 32] {
-    basemul(s).compress().to_bytes()
+    basemul(s).pack()
 }
 
 fn safe_invert(s: Scalar) -> Scalar {
@@ -98,11 +79,11 @@ fn safe_invert(s: Scalar) -> Scalar {
 impl SecretKey {
     pub(crate) fn from_scalar(sk: Scalar) -> Self {
         let pk = basemul(sk);
-        SecretKey(sk, PublicKey(pk.compress().to_bytes(), pk))
+        SecretKey(sk, PublicKey(pk.pack(), pk))
     }
 
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        Scalar::from_canonical_bytes(*bytes).map(Self::from_scalar)
+        Some(Self::from_scalar(unpack(bytes)?))
     }
 
     pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
@@ -137,11 +118,7 @@ impl SecretKey {
             .chain(&bbmul(inv * k))
             .result_scalar();
         let r = k - c * x;
-        let mut proof = [0; 64];
-        let (pr, pc) = mut_array_refs!(&mut proof, 32, 32);
-        *pr = r.to_bytes();
-        *pc = c.to_bytes();
-        (Value(val), Proof(proof))
+        (Value(val), Proof((r, c).pack()))
     }
 
     pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
