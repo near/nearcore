@@ -13,6 +13,7 @@ use tracing::{debug, error, info, trace, warn};
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::{ser, DisplayOption};
 
@@ -22,7 +23,7 @@ use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerId, PeerInfo, PeerManagerRequest, PeerMessage,
+    NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
     PROTOCOL_VERSION,
@@ -283,11 +284,11 @@ impl Peer {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
                 match message.body {
-                    RoutedMessageBody::QueryRequest { path, data, id } => {
-                        NetworkViewClientMessages::Query { path, data, id }
+                    RoutedMessageBody::QueryRequest { query_id, block_id, request } => {
+                        NetworkViewClientMessages::Query { query_id, block_id, request }
                     }
-                    RoutedMessageBody::QueryResponse { response, id } => {
-                        NetworkViewClientMessages::QueryResponse { response, id }
+                    RoutedMessageBody::QueryResponse { query_id, response } => {
+                        NetworkViewClientMessages::QueryResponse { query_id, response }
                     }
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
@@ -337,8 +338,8 @@ impl Peer {
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
-                    Ok(NetworkViewClientResponses::QueryResponse { response, id }) => {
-                        let body = RoutedMessageBody::QueryResponse { response, id };
+                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
+                        let body = RoutedMessageBody::QueryResponse { query_id, response };
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }

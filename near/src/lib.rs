@@ -5,6 +5,7 @@ use std::sync::Arc;
 use actix::{Actor, Addr};
 use log::info;
 
+use near_chain::ChainGenesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
@@ -15,7 +16,6 @@ pub use crate::config::{
     init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
 };
 pub use crate::runtime::NightshadeRuntime;
-use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
@@ -91,7 +91,7 @@ pub fn start_with_config(
         runtime,
         node_id,
         network_adapter.clone(),
-        config.block_producer,
+        config.validator_signer,
         telemetry,
         true,
     )

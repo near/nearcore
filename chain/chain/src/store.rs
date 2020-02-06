@@ -3,13 +3,15 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
-use serde::Serialize;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 use chrono::Utc;
+use serde::Serialize;
 
+use near_primitives::block::{Approval, BlockScore};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -22,6 +24,7 @@ use near_primitives::types::{
     StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::{index_to_bytes, to_timestamp};
+use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockMisc,
     ColBlockPerHeight, ColBlocksToCatchup, ColChallengedBlocks, ColChunkExtra,
@@ -35,10 +38,6 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-use near_primitives::block::{Approval, BlockScore};
-use near_primitives::errors::InvalidTxError;
-use near_primitives::merkle::MerklePath;
-use near_primitives::views::LightClientBlockView;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
@@ -2218,19 +2217,22 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::store::ChainStoreAccess;
-    use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
-    use borsh::ser::BorshSerialize;
+    use std::sync::Arc;
+
     use cached::Cached;
-    use near_crypto::{InMemorySigner, KeyType, Signer};
+
+    use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::utils::index_to_bytes;
+    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
-    use std::sync::Arc;
+
+    use crate::store::ChainStoreAccess;
+    use crate::test_utils::KeyValueRuntime;
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
         let store = create_test_store();
@@ -2254,7 +2256,8 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header.clone());
@@ -2310,7 +2313,8 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
@@ -2351,7 +2355,8 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         let mut store_update = chain.mut_store().store_update();
@@ -2397,13 +2402,18 @@ mod tests {
     fn test_cache_invalidation() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
         let mut block2 = block1.clone();
         block2.header.inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
-        let bytes = block2.header.try_to_vec().unwrap();
-        block2.header.hash = hash(&bytes);
-        block2.header.signature = signer.sign(block2.header.hash.as_ref());
+        let (block_hash, signature) = signer.sign_block_header_parts(
+            block2.header.prev_hash,
+            &block2.header.inner_lite,
+            &block2.header.inner_rest,
+        );
+        block2.header.hash = block_hash;
+        block2.header.signature = signature;
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
@@ -2431,12 +2441,13 @@ mod tests {
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut store_update = chain.mut_store().store_update();
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = Block::empty_with_height(&prev_block, i, &*signer);
             blocks.push(block.clone());
             store_update.save_block(block.clone());
             store_update.save_block_header(block.header.clone());
@@ -2484,7 +2495,8 @@ mod tests {
     fn test_clear_old_data() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let mut store_update = chain.mut_store().store_update();
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];

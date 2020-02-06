@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -12,6 +13,7 @@ use rand::{thread_rng, Rng};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::routing::EdgeInfo;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
     PeerChainInfo,
@@ -21,18 +23,17 @@ use near_network::{
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::{Block, GenesisId, ScoreAndHeight};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
 };
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{BlockProducer, Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
-use near_network::routing::EdgeInfo;
-use near_primitives::hash::{hash, CryptoHash};
-use std::ops::Bound::{Excluded, Included, Unbounded};
+use crate::{Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -103,7 +104,8 @@ pub fn setup(
     let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer =
+        Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -125,7 +127,7 @@ pub fn setup(
         runtime,
         PublicKey::empty(KeyType::ED25519).into(),
         network_adapter,
-        Some(signer.into()),
+        Some(signer),
         telemetry,
         enable_doomslug,
     )
@@ -720,13 +722,7 @@ pub fn setup_mock_all_validators(
                 account_id,
                 skip_sync_wait,
                 block_prod_time,
-                // When we tamper with fg, some blocks will have enough approvals, some will not,
-                //     and the `block_prod_timeout` is carefully chosen to get enough forkfulness,
-                //     but not to break the synchrony assumption, so we can't allow the timeout to
-                //     be too different for blocks with and without enough approvals.
-                // When not tampering with fg, make the relationship between constants closer to the
-                //     actual relationship.
-                if tamper_with_fg { block_prod_time } else { block_prod_time * 2 },
+                block_prod_time * 3,
                 enable_doomslug,
                 Arc::new(network_adapter),
                 10000,
@@ -782,12 +778,6 @@ pub fn setup_no_network_with_validity_period(
     )
 }
 
-impl BlockProducer {
-    pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
-    }
-}
-
 pub fn setup_client_with_runtime(
     num_validator_seats: NumSeats,
     account_id: Option<&str>,
@@ -796,8 +786,10 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
-    let block_producer =
-        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
+    let validator_signer = account_id.map(|x| {
+        Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
+            as Arc<dyn ValidatorSigner>
+    });
     let mut config = ClientConfig::test(true, 10, 20, num_validator_seats);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
@@ -805,7 +797,7 @@ pub fn setup_client_with_runtime(
         chain_genesis,
         runtime_adapter,
         network_adapter,
-        block_producer,
+        validator_signer,
         enable_doomslug,
     )
     .unwrap();

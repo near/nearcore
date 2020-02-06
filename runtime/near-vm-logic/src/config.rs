@@ -196,6 +196,16 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
 
+    /// Cost of getting sha256 base
+    pub keccak256_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak256_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub keccak512_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak512_byte: Gas,
+
     /// Cost for calling logging.
     pub log_base: Gas,
     /// Cost for logging per byte
@@ -283,6 +293,10 @@ impl Default for ExtCostsConfig {
             utf16_decoding_byte: 9095538,
             sha256_base: 710092630,
             sha256_byte: 5536829,
+            keccak256_base: 710092630,
+            keccak256_byte: 5536829,
+            keccak512_base: 710092630 * 2,
+            keccak512_byte: 5536829 * 2,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 21058769282,
@@ -331,6 +345,10 @@ impl ExtCostsConfig {
             utf16_decoding_byte: 0,
             sha256_base: 0,
             sha256_byte: 0,
+            keccak256_base: 0,
+            keccak256_byte: 0,
+            keccak512_base: 0,
+            keccak512_byte: 0,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 0,
@@ -380,6 +398,10 @@ pub enum ExtCosts {
     utf16_decoding_byte,
     sha256_base,
     sha256_byte,
+    keccak256_base,
+    keccak256_byte,
+    keccak512_base,
+    keccak512_byte,
     log_base,
     log_byte,
     storage_write_base,
@@ -427,6 +449,10 @@ impl ExtCosts {
             utf16_decoding_byte => config.utf16_decoding_byte,
             sha256_base => config.sha256_base,
             sha256_byte => config.sha256_byte,
+            keccak256_base => config.keccak256_base,
+            keccak256_byte => config.keccak256_byte,
+            keccak512_base => config.keccak512_base,
+            keccak512_byte => config.keccak512_byte,
             log_base => config.log_base,
             log_byte => config.log_byte,
             storage_write_base => config.storage_write_base,

@@ -1,11 +1,12 @@
-use near_crypto::Signer;
-use near_primitives::block::Approval;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use near_primitives::block::Approval;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
+use near_primitives::validator_signer::ValidatorSigner;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -35,7 +36,7 @@ pub enum DoomslugBlockProductionReadiness {
     None,
     /// after processing this approval the block has passed the threshold set by
     /// `threshold_mode` (either one half of the total stake, or a single approval).
-    /// Once the threshold is hit, we wait for `T(h - h_final) / 2` before producing
+    /// Once the threshold is hit, we wait for `T(h - h_final) / 6` before producing
     /// a block
     PassedThreshold(Instant),
     /// after processing this approval the block can be produced without waiting.
@@ -49,6 +50,7 @@ pub enum DoomslugBlockProductionReadiness {
 struct DoomslugTimer {
     started: Instant,
     height: BlockHeight,
+    endorsement_delay: Duration,
     min_delay: Duration,
     delay_step: Duration,
     max_delay: Duration,
@@ -93,7 +95,6 @@ struct DoomslugApprovalsTrackersAtHeight {
 /// happens via `PersistentDoomslug` struct. The split is to simplify testing of the logic separate
 /// from the chain.
 pub struct Doomslug {
-    me: Option<AccountId>,
     approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest height that we promised to skip
     largest_promised_skip_height: BlockHeight,
@@ -105,9 +106,11 @@ pub struct Doomslug {
     largest_threshold_height: BlockHeight,
     /// Information Doomslug tracks about the chain tip
     tip: DoomslugTip,
+    /// Whether an endorsement (or in general an approval) was sent since updating the tip
+    endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<dyn Signer>>,
+    signer: Option<Arc<dyn ValidatorSigner>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -297,27 +300,27 @@ impl DoomslugApprovalsTrackersAtHeight {
 
 impl Doomslug {
     pub fn new(
-        me: Option<AccountId>,
         largest_previously_skipped_height: BlockHeight,
         largest_previously_endorsed_height: BlockHeight,
+        endorsement_delay: Duration,
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<dyn Signer>>,
+        signer: Option<Arc<dyn ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
-        assert_eq!(me.is_some(), signer.is_some());
         Doomslug {
-            me,
             approval_tracking: HashMap::new(),
             largest_promised_skip_height: largest_previously_skipped_height,
             largest_endorsed_height: largest_previously_endorsed_height,
             largest_ds_final_height: 0,
             largest_threshold_height: 0,
             tip: DoomslugTip { block_hash: CryptoHash::default(), reference_hash: None, height: 0 },
+            endorsement_pending: false,
             timer: DoomslugTimer {
                 started: Instant::now(),
                 height: 0,
+                endorsement_delay,
                 min_delay,
                 delay_step,
                 max_delay,
@@ -363,6 +366,10 @@ impl Doomslug {
     /// If the `cur_time` way ahead of last time the `process_timer` was called, will only process
     /// a bounded number of steps, to avoid an infinite loop in case of some bugs.
     /// Processes sending delayed approvals or skip messages
+    /// A major difference with the paper is that we process endorsement from the `process_timer`,
+    /// not at the time of receiving a block. It is done to stagger blocks if the network is way
+    /// too fast (e.g. during tests, or if a large set of validators have connection significantly
+    /// better between themselves than with the rest of the validators)
     ///
     /// # Arguments
     /// * `cur_time` - is expected to receive `now`. Doesn't directly use `now` to simplify testing
@@ -374,22 +381,50 @@ impl Doomslug {
     pub fn process_timer(&mut self, cur_time: Instant) -> Vec<Approval> {
         let mut ret = vec![];
         for _ in 0..MAX_TIMER_ITERS {
-            let delay = self
+            let skip_delay = self
                 .timer
                 .get_delay(self.timer.height.saturating_sub(self.largest_ds_final_height));
-            if cur_time >= self.timer.started + delay {
+
+            // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
+            // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
+            // so it makes sense for them to be at least 2x apart
+            debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
+
+            if self.endorsement_pending
+                && cur_time >= self.timer.started + self.timer.endorsement_delay
+            {
+                let tip_height = self.tip.height;
+
+                let is_endorsement = tip_height > self.largest_promised_skip_height
+                    && tip_height > self.largest_endorsed_height;
+
+                if is_endorsement {
+                    self.largest_endorsed_height = tip_height;
+                }
+
+                if let Some(approval) = self.create_approval(tip_height + 1, is_endorsement) {
+                    ret.push(approval);
+                }
+
+                self.endorsement_pending = false;
+            }
+
+            if cur_time >= self.timer.started + skip_delay {
+                debug_assert!(!self.endorsement_pending);
+
                 if self.timer.height > self.largest_endorsed_height
                     && self.timer.height > self.tip.height
                 {
                     self.largest_promised_skip_height =
                         std::cmp::max(self.timer.height, self.largest_promised_skip_height);
+
                     if let Some(approval) = self.create_approval(self.timer.height + 1, false) {
                         ret.push(approval);
                     }
                 }
 
                 // Restart the timer
-                self.timer.started += delay;
+                self.timer.started += skip_delay;
                 self.timer.height += 1;
             } else {
                 break;
@@ -404,14 +439,13 @@ impl Doomslug {
         target_height: BlockHeight,
         is_endorsement: bool,
     ) -> Option<Approval> {
-        self.me.as_ref().map(|me| {
+        self.signer.as_ref().map(|signer| {
             Approval::new(
                 self.tip.block_hash,
                 self.tip.reference_hash,
                 target_height,
                 is_endorsement,
-                &**self.signer.as_ref().unwrap(),
-                me.clone(),
+                &**signer,
             )
         })
     }
@@ -525,7 +559,6 @@ impl Doomslug {
     }
 
     /// Updates the current tip of the chain. Restarts the timer accordingly.
-    /// If the tip can be endorsed, produces the endorsement, otherwise a non-endorsing approval.
     ///
     /// # Arguments
     /// * `now`            - current time. Doesn't call to `Utc::now()` directly to simplify testing
@@ -535,10 +568,6 @@ impl Doomslug {
     ///                      this tip (whether endorsements or skip messages)
     /// * `height`         - the height of the tip
     /// * `last_ds_final_height` - last height at which a block in this chain has doomslug finality
-    ///
-    /// # Returns
-    /// The approval to send
-    #[must_use]
     pub fn set_tip(
         &mut self,
         now: Instant,
@@ -546,7 +575,7 @@ impl Doomslug {
         reference_hash: Option<CryptoHash>,
         height: BlockHeight,
         last_ds_final_height: BlockHeight,
-    ) -> Option<Approval> {
+    ) {
         self.tip = DoomslugTip { block_hash, reference_hash, height };
 
         self.largest_ds_final_height = last_ds_final_height;
@@ -556,14 +585,7 @@ impl Doomslug {
         self.approval_tracking
             .retain(|h, _| *h > height && *h <= height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS);
 
-        let is_endorsement =
-            height > self.largest_promised_skip_height && height > self.largest_endorsed_height;
-
-        if is_endorsement {
-            self.largest_endorsed_height = height;
-        }
-
-        self.create_approval(height + 1, is_endorsement)
+        self.endorsement_pending = true;
     }
 
     /// Records an approval message, and return whether the block has passed the threshold / ready
@@ -613,7 +635,7 @@ impl Doomslug {
     /// We can produce a block if:
     ///  - The block has 2/3 of approvals, doomslug-finalizing the previous block, and we have
     ///    enough chunks, or
-    ///  - The block has 1/2 of approvals, and T(h' / 2) has passed since the block has had 1/2 of
+    ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the block has had 1/2 of
     ///    approvals for the first time, where h' is time since the last ds-final block.
     /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
     /// parent hash.
@@ -621,7 +643,7 @@ impl Doomslug {
     /// # Arguments:
     /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `has_enough_chunks` - if not, we will wait for T(h' / 2) even if we have 2/3 approvals &
+    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals &
     ///                         have the previous block ds-final.
     #[must_use]
     pub fn ready_to_produce_block(
@@ -641,7 +663,7 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::PassedThreshold(when) => {
                         let delay = self.timer.get_delay(
                             self.timer.height.saturating_sub(self.largest_ds_final_height),
-                        ) / 2;
+                        ) / 6;
 
                         now > when + delay
                     }
@@ -651,7 +673,7 @@ impl Doomslug {
                         } else {
                             let delay = self.timer.get_delay(
                                 self.timer.height.saturating_sub(self.largest_ds_final_height),
-                            ) / 2;
+                            ) / 6;
 
                             now > when + delay
                         }
@@ -668,41 +690,49 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
+    use near_primitives::hash::hash;
+    use near_primitives::types::ValidatorStake;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
     };
     use crate::Doomslug;
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
-    use near_primitives::block::Approval;
-    use near_primitives::hash::hash;
-    use near_primitives::types::ValidatorStake;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_endorsements_and_skips_basic() {
         let mut now = Instant::now(); // For the test purposes the absolute value of the initial instant doesn't matter
 
         let mut ds = Doomslug::new(
-            Some("test".to_string()),
             0,
             0,
+            Duration::from_millis(400),
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"))),
+            Some(Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"))),
             DoomslugThresholdMode::HalfStake,
         );
 
         // Set a new tip, must produce an endorsement
-        let approval = ds.set_tip(now, hash(&[1]), None, 1, 1).unwrap();
+        ds.set_tip(now, hash(&[1]), None, 1, 1);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(399)).len(), 0);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[1]));
         assert_eq!(approval.target_height, 2);
         assert!(approval.is_endorsement);
 
         // Same tip => no endorsement, but still expect an approval (it is for the cases when a block
         // at lower height is received after a block at a higher height, e.g. due to finality gadget)
-        let approval = ds.set_tip(now, hash(&[1]), None, 1, 1).unwrap();
+        ds.set_tip(now, hash(&[1]), None, 1, 1);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[1]));
         assert_eq!(approval.target_height, 2);
         assert!(!approval.is_endorsement);
@@ -724,7 +754,9 @@ mod tests {
         now += Duration::from_millis(1000);
 
         // Not processing a block at height 2 should not produce an endorsement (but still an approval)
-        let approval = ds.set_tip(now, hash(&[2]), None, 2, 1).unwrap();
+        ds.set_tip(now, hash(&[2]), None, 2, 1);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[2]));
         assert_eq!(approval.target_height, 3);
         assert!(!approval.is_endorsement);
@@ -733,7 +765,9 @@ mod tests {
         now += Duration::from_millis(1000);
 
         // But at height 3 should (also neither block has ds_finality set, keep last ds_final at 1 for now)
-        let approval = ds.set_tip(now, hash(&[3]), None, 3, 1).unwrap();
+        ds.set_tip(now, hash(&[3]), None, 3, 1);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[3]));
         assert_eq!(approval.target_height, 4);
         assert!(approval.is_endorsement);
@@ -787,7 +821,9 @@ mod tests {
         now += Duration::from_millis(1000);
 
         // Accept block at 5 with ds finality, expect it to produce an approval, but not an endorsement
-        let approval = ds.set_tip(now, hash(&[5]), None, 5, 5).unwrap();
+        ds.set_tip(now, hash(&[5]), None, 5, 5);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[5]));
         assert_eq!(approval.target_height, 6);
         assert!(!approval.is_endorsement);
@@ -801,7 +837,9 @@ mod tests {
         now += Duration::from_millis(17);
 
         // That approval should not be an endorsement, since we skipped 6
-        let approval = ds.set_tip(now, hash(&[6]), None, 6, 5).unwrap();
+        ds.set_tip(now, hash(&[6]), None, 6, 5);
+        let approval =
+            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[6]));
         assert_eq!(approval.target_height, 7);
         assert!(!approval.is_endorsement);
@@ -822,20 +860,28 @@ mod tests {
 
     #[test]
     fn test_doomslug_approvals() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
-            .into_iter()
+        let accounts: Vec<(&str, u128)> =
+            vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let stakes = accounts
+            .iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
-                stake,
+                stake: *stake,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+            })
+            .collect::<Vec<_>>();
 
-        let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
         let mut ds = Doomslug::new(
-            Some("test".to_string()),
             0,
             0,
+            Duration::from_millis(400),
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
@@ -853,7 +899,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -863,7 +909,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test3".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[2]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -873,7 +919,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -883,7 +929,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now + Duration::from_millis(100),
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -893,7 +939,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &*signer, "test4".to_string()),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::ReadyToProduce(now),
@@ -903,7 +949,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test4".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[3]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -915,7 +961,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &*signer, "test2".to_string()),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -925,7 +971,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[2]), None, 4, true, &*signer, "test2".to_string()),
+                &Approval::new(hash(&[2]), None, 4, true, &signers[1]),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -934,7 +980,14 @@ mod tests {
 
     #[test]
     fn test_doomslug_one_approval_per_target_height() {
-        let stakes = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)]
+        let accounts = vec![("test1", 2), ("test2", 1), ("test3", 3), ("test4", 2)];
+        let signers = accounts
+            .iter()
+            .map(|(account_id, _)| {
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+            })
+            .collect::<Vec<_>>();
+        let stakes = accounts
             .into_iter()
             .map(|(account_id, stake)| ValidatorStake {
                 account_id: account_id.to_string(),
@@ -942,16 +995,15 @@ mod tests {
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
             .collect::<Vec<_>>();
-        let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new();
 
-        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &*signer, "test1".to_string());
-        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &*signer, "test2".to_string());
-        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &*signer, "test3".to_string());
+        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &signers[0]);
+        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &signers[1]);
+        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &signers[2]);
 
-        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &*signer, "test1".to_string());
-        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &*signer, "test2".to_string());
-        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &*signer, "test3".to_string());
+        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &signers[0]);
+        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &signers[1]);
+        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &signers[2]);
 
         // Process first approval, and then process it again and make sure it works
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::HalfStake);

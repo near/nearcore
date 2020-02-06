@@ -10,8 +10,8 @@ use futures::{future, FutureExt, TryFutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
-use near_crypto::{InMemorySigner, KeyType};
+use near_client::{ClientActor, ClientConfig, ViewClientActor};
+use near_crypto::KeyType;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, StopSignal, WaitOrTimeout,
 };
@@ -22,6 +22,7 @@ use near_network::{
 };
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::ValidatorId;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 
@@ -43,12 +44,11 @@ pub fn setup_network_node(
         1,
         5,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.as_str(),
         KeyType::ED25519,
         account_id.as_str(),
     ));
-    let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis =
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
@@ -65,7 +65,7 @@ pub fn setup_network_node(
             runtime.clone(),
             config.public_key.clone().into(),
             network_adapter.clone(),
-            Some(block_producer),
+            Some(signer),
             telemetry_actor,
             false,
         )

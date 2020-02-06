@@ -19,7 +19,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges,
     StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse};
+use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, Store, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -386,8 +386,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
-        path_parts: Vec<&str>,
-        data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
@@ -522,10 +521,11 @@ pub struct ShardStateSyncResponse {
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_crypto::KeyType;
     use near_primitives::block::genesis_chunks;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::Chain;
 
@@ -542,22 +542,11 @@ mod tests {
             1_000_000_000,
             Chain::compute_bp_hash_inner(&vec![]).unwrap(),
         );
-        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
-        assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![
-            (Approval {
-                parent_hash: b1.hash(),
-                reference_hash: Some(b1.hash()),
-                account_id: "other2".to_string(),
-                target_height: 2,
-                is_endorsement: true,
-                signature: other_signer.sign(
-                    Approval::get_data_for_sig(&b1.hash(), &Some(b1.hash()), 2, true).as_ref(),
-                ),
-            }),
-        ];
+        assert!(b1.header.verify_block_producer(&signer.public_key()));
+        let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
+        let approvals = vec![Approval::new(b1.hash(), Some(b1.hash()), 2, true, &other_signer)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
@@ -567,7 +556,7 @@ mod tests {
             &signer,
             genesis.header.inner_lite.next_bp_hash,
         );
-        assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
+        b2.header.verify_block_producer(&signer.public_key());
     }
 
     #[test]

@@ -1,37 +1,37 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use std::cmp::Ordering;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::{Actor, Context, Handler};
+use cached::{Cached, SizedCache};
 use log::{error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
 };
+use near_network::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
+};
+use near_network::{NetworkAdapter, NetworkRequests};
+use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_path;
+use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryResponse,
+    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
 };
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{
     sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
 };
-use cached::{Cached, SizedCache};
-use near_network::types::{
-    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
-    StateResponseInfo,
-};
-use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::verify_path;
-use std::cmp::Ordering;
-use std::hash::Hash;
-use std::time::{Duration, Instant};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -103,17 +103,26 @@ impl ViewClientActor {
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<Option<QueryResponse>, String> {
-        if let Some(response) = self.query_responses.cache_remove(&msg.id) {
-            self.query_requests.cache_remove(&msg.id);
+        if let Some(response) = self.query_responses.cache_remove(&msg.query_id) {
+            self.query_requests.cache_remove(&msg.query_id);
             return response.map(Some);
         }
-        let header = self.chain.head_header().map_err(|e| e.to_string())?.clone();
-        let path_parts: Vec<&str> = msg.path.split('/').collect();
-        if path_parts.len() <= 1 {
-            return Err("Not enough query parameters provided".to_string());
-        }
-        let account_id = AccountId::from(path_parts[1].clone());
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+
+        let header = match msg.block_id {
+            Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
+            Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
+            None => self.chain.head_header(),
+        };
+        let header = header.map_err(|e| e.to_string())?.clone();
+
+        let account_id = match &msg.request {
+            QueryRequest::ViewAccount { account_id, .. } => account_id,
+            QueryRequest::ViewState { account_id, .. } => account_id,
+            QueryRequest::ViewAccessKey { account_id, .. } => account_id,
+            QueryRequest::ViewAccessKeyList { account_id, .. } => account_id,
+            QueryRequest::CallFunction { account_id, .. } => account_id,
+        };
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
 
         // If we have state for the shard that we query return query result directly.
         // Otherwise route query to peers.
@@ -126,8 +135,7 @@ impl ViewClientActor {
                         header.inner_lite.height,
                         header.inner_lite.timestamp,
                         &header.hash,
-                        path_parts.clone(),
-                        &msg.data,
+                        &msg.request,
                     )
                     .map(Some)
                     .map_err(|e| e.to_string())
@@ -140,16 +148,16 @@ impl ViewClientActor {
                     }
                 }
                 // route request
-                if Self::need_request(msg.id.clone(), &mut self.query_requests) {
+                if Self::need_request(msg.query_id.clone(), &mut self.query_requests) {
                     let validator = self
                         .chain
                         .find_validator_for_forwarding(shard_id)
                         .map_err(|e| e.to_string())?;
                     self.network_adapter.do_send(NetworkRequests::Query {
+                        query_id: msg.query_id.clone(),
                         account_id: validator,
-                        path: msg.path.clone(),
-                        data: msg.data.clone(),
-                        id: msg.id.clone(),
+                        block_id: msg.block_id.clone(),
+                        request: msg.request.clone(),
                     });
                 }
 
@@ -457,19 +465,21 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { path, data, id } => {
-                let query = Query { path, data, id: id.clone() };
+            NetworkViewClientMessages::Query { query_id, block_id, request } => {
+                let query = Query { query_id: query_id.clone(), block_id, request };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
-                        NetworkViewClientResponses::QueryResponse { response: Ok(r), id }
+                        NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
                     }
                     Ok(None) => NetworkViewClientResponses::NoResponse,
-                    Err(e) => NetworkViewClientResponses::QueryResponse { response: Err(e), id },
+                    Err(e) => {
+                        NetworkViewClientResponses::QueryResponse { query_id, response: Err(e) }
+                    }
                 }
             }
-            NetworkViewClientMessages::QueryResponse { response, id } => {
-                if self.query_requests.cache_get(&id).is_some() {
-                    self.query_responses.cache_set(id, response);
+            NetworkViewClientMessages::QueryResponse { query_id, response } => {
+                if self.query_requests.cache_get(&query_id).is_some() {
+                    self.query_responses.cache_set(query_id, response);
                 }
                 NetworkViewClientResponses::NoResponse
             }

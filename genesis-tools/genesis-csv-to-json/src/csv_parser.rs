@@ -1,6 +1,12 @@
 //! Constructs state of token holders from the csv file.
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
+
 use chrono::{DateTime, Utc};
 use csv::ReaderBuilder;
+use serde::{Deserialize, Serialize};
+
 use near::config::AccountInfo;
 use near_crypto::{KeyType, PublicKey};
 use near_network::PeerInfo;
@@ -12,10 +18,6 @@ use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id};
 use near_primitives::views::{AccessKeyPermissionView, AccessKeyView, AccountView};
 use node_runtime::StateRecord;
-use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -291,12 +293,14 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::TimeZone;
     use csv::WriterBuilder;
-    use near_crypto::KeyType;
-    use near_network::types::PeerId;
     use tempfile::NamedTempFile;
+
+    use near_crypto::KeyType;
+
+    use super::*;
+    use near_primitives::network::PeerId;
 
     #[test]
     fn test_with_file() {

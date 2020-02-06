@@ -739,6 +739,42 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash)
     }
 
+    /// Hashes the random sequence of bytes using keccak256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
+    pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(keccak256_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(keccak256_byte, value.len() as u64)?;
+        let value_hash = self.ext.keccak256(&value)?;
+        self.internal_write_register(register_id, value_hash)
+    }
+
+    /// Hashes the random sequence of bytes using keccak512 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
+    pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        self.gas_counter.pay_base(keccak512_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(keccak512_byte, value.len() as u64)?;
+        let value_hash = self.ext.keccak512(&value)?;
+        self.internal_write_register(register_id, value_hash)
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors
