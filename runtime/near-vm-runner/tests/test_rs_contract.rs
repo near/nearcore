@@ -174,6 +174,8 @@ pub fn test_out_of_memory() {
     );
     assert_eq!(
         result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
+            msg: "unknown".to_string()
+        }))
     );
 }

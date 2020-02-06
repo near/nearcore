@@ -187,8 +187,9 @@ pub fn proposals_to_epoch_info(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_utils::{change_stake, epoch_config, epoch_info, stake};
+
+    use super::*;
 
     #[test]
     fn test_find_threshold() {

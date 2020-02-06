@@ -28,8 +28,10 @@ impl<'a> ContractModule<'a> {
 
         module.memory_section_mut().unwrap_or_else(|| &mut tmp).entries_mut().pop();
 
-        let entry =
-            elements::MemoryType::new(config.initial_memory_pages, Some(config.max_memory_pages));
+        let entry = elements::MemoryType::new(
+            config.limit_config.initial_memory_pages,
+            Some(config.limit_config.max_memory_pages),
+        );
 
         let mut builder = builder::from_module(module);
         builder.push_import(elements::ImportEntry::new(
@@ -64,8 +66,9 @@ impl<'a> ContractModule<'a> {
 
     fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let module = pwasm_utils::stack_height::inject_limiter(module, config.max_stack_height)
-            .map_err(|_| PrepareError::StackHeightInstrumentation)?;
+        let module =
+            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
+                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
         Ok(Self { module, config })
     }
 
@@ -119,8 +122,8 @@ impl<'a> ContractModule<'a> {
         if let Some(memory_type) = imported_mem_type {
             // Inspect the module to extract the initial and maximum page count.
             let limits = memory_type.limits();
-            if limits.initial() != config.initial_memory_pages
-                || limits.maximum() != Some(config.max_memory_pages)
+            if limits.initial() != config.limit_config.initial_memory_pages
+                || limits.maximum() != Some(config.limit_config.max_memory_pages)
             {
                 return Err(PrepareError::Memory);
             }
@@ -177,7 +180,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(VMConfig::default().max_memory_pages, 2048);
+        assert_eq!(VMConfig::default().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));

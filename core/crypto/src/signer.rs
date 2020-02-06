@@ -14,7 +14,9 @@ pub trait Signer: Sync + Send {
     }
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, path: &Path);
+    fn write_to_file(&self, _path: &Path) {
+        unimplemented!();
+    }
 }
 
 // Signer that returns empty signature. Used for transaction testing.
@@ -27,10 +29,6 @@ impl Signer for EmptySigner {
 
     fn sign(&self, _data: &[u8]) -> Signature {
         Signature::empty(KeyType::ED25519)
-    }
-
-    fn write_to_file(&self, _path: &Path) {
-        unimplemented!()
     }
 }
 

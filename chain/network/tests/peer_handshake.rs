@@ -7,10 +7,9 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use near_client::{ClientActor, ViewClientActor};
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, StopSignal};
+use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
-use near_primitives::block::WeightAndScore;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 
@@ -38,7 +37,7 @@ fn make_peer_manager(
                 Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: Default::default(),
                     height: 1,
-                    weight_and_score: WeightAndScore::from_ints(1, 0),
+                    score: 0.into(),
                     tracked_shards: vec![],
                 }))
             }
@@ -142,7 +141,7 @@ fn peer_recover() {
                     state.store(1, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 1 {
                     // Stop node2.
-                    let _ = pm2.do_send(StopSignal {});
+                    let _ = pm2.do_send(StopSignal::new());
                     state.store(2, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 2 {
                     // Wait until node0 removes node2 from active validators.

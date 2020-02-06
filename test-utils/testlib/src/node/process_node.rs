@@ -34,8 +34,8 @@ impl Node for ProcessNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.block_producer {
-            Some(bp) => Some(bp.account_id.clone()),
+        match &self.config.validator_signer {
+            Some(vs) => Some(vs.validator_id().clone()),
             None => None,
         }
     }
@@ -98,9 +98,9 @@ impl ProcessNode {
             rng.gen::<u64>()
         );
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
             KeyType::ED25519,
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();

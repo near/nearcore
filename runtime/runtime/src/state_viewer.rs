@@ -261,15 +261,9 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(
-            root,
-            1,
-            1,
-            &alice_account(),
-            "panic_after_logging",
-            &[],
-            &mut logs,
-        );
+        viewer
+            .call_function(root, 1, 1, &alice_account(), "panic_after_logging", &[], &mut logs)
+            .unwrap_err();
 
         assert_eq!(logs, vec!["hello".to_string()]);
     }

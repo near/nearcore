@@ -5,15 +5,13 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-ed25519-dalek = "0.9.1"
-rand_os = "0.1"
+ed25519-dalek = "1.0.0-pre.3"
 sha2 = "0.8"
 parity-secp256k1 = "0.7.0"
 arrayref = "0.3"
 blake2 = "0.8"
 digest = "0.8"
 curve25519-dalek = "2"
-rand_core = "0.5"
 subtle = "2.2"
 
 bs58 = "0.3"
@@ -28,4 +26,3 @@ libc = "0.2"
 
 [dev-dependencies]
 criterion = "0.3.0"
-serde_json = "1.0"

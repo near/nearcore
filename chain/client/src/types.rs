@@ -8,7 +8,6 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, Signer};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
@@ -20,7 +19,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    LightClientBlockView, QueryResponse,
+    LightClientBlockView, QueryRequest, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -99,8 +98,6 @@ pub struct ClientConfig {
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
-    /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
     /// How much time to wait after initial header sync
@@ -110,7 +107,7 @@ pub struct ClientConfig {
     /// How much time to wait before banning a peer in header sync if sync is too slow
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
-    pub header_sync_expected_weight_per_second: u128,
+    pub header_sync_expected_height_per_second: u64,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -164,12 +161,11 @@ impl ClientConfig {
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
-            sync_weight_threshold: 0,
             sync_height_threshold: 1,
             header_sync_initial_timeout: Duration::from_secs(10),
             header_sync_progress_timeout: Duration::from_secs(2),
             header_sync_stall_ban_timeout: Duration::from_secs(30),
-            header_sync_expected_weight_per_second: 1_000_000_000,
+            header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
@@ -188,25 +184,6 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
         }
-    }
-}
-
-/// Required information to produce blocks.
-#[derive(Clone)]
-pub struct BlockProducer {
-    pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
-}
-
-impl From<InMemorySigner> for BlockProducer {
-    fn from(signer: InMemorySigner) -> Self {
-        BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
-    }
-}
-
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
-        BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
 
@@ -305,16 +282,16 @@ impl Message for GetChunk {
 }
 
 /// Queries client for given path / data.
-#[derive(Clone)]
+#[derive(Deserialize, Clone)]
 pub struct Query {
-    pub path: String,
-    pub data: Vec<u8>,
-    pub id: String,
+    pub query_id: String,
+    pub block_id: MaybeBlockId,
+    pub request: QueryRequest,
 }
 
 impl Query {
-    pub fn new(path: String, data: Vec<u8>) -> Self {
-        Query { path, data, id: generate_random_string(10) }
+    pub fn new(block_id: MaybeBlockId, request: QueryRequest) -> Self {
+        Query { query_id: generate_random_string(10), block_id, request }
     }
 }
 

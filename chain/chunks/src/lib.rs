@@ -15,10 +15,10 @@ use near_chain::{
     byzantine_assert, collect_receipts, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
     RuntimeAdapter,
 };
-use near_crypto::Signer;
 use near_network::types::{NetworkAdapter, PartialEncodedChunkRequestMsg};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -30,11 +30,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake,
 };
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::{unwrap_option_or_return, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 pub use crate::types::Error;
-use near_primitives::block::BlockHeader;
 
 mod chunk_cache;
 mod types;
@@ -285,7 +285,7 @@ impl ShardsManager {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.runtime_adapter.cares_about_shard(account_id.clone(), parent_hash, shard_id, is_me)
+        self.runtime_adapter.cares_about_shard(account_id, parent_hash, shard_id, is_me)
             || self.runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
@@ -406,7 +406,7 @@ impl ShardsManager {
                     false,
                 )
             {
-                block_producers.push(validator_stake.account_id);
+                block_producers.push(validator_stake.account_id.clone());
             }
         }
 
@@ -1001,7 +1001,7 @@ impl ShardsManager {
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         rs: &ReedSolomon,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         EncodedShardChunk::new(

@@ -1,5 +1,6 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use std::collections::HashMap;
+
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
@@ -406,9 +407,9 @@ pub fn validate_challenge(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use near_crypto::{InMemorySigner, KeyType};
+
+    use super::*;
 
     fn make_tx(account_id: &str, seed: &str, nonce: Nonce) -> SignedTransaction {
         let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, seed);

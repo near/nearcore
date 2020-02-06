@@ -1,7 +1,7 @@
 use std::collections::HashSet;
+use std::mem::swap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -11,36 +11,37 @@ use near::{GenesisConfig, NightshadeRuntime};
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, ChainGenesis, ChainStoreAccess, Error, ErrorKind, Provenance, RuntimeAdapter,
+    Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
+    RuntimeAdapter,
 };
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::StateRoot;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
-use std::mem::swap;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
+    let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);
 
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let b2 = Block::produce(
         &genesis.header,
         2,
@@ -54,9 +55,8 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         vec![],
         &signer,
-        1,
-        1,
         0.into(),
+        CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
         b1.header.inner_lite.next_bp_hash.clone(),
@@ -67,7 +67,6 @@ fn test_verify_block_double_sign_challenge() {
             left_block_header: b2.header.try_to_vec().unwrap(),
             right_block_header: b1.header.try_to_vec().unwrap(),
         }),
-        signer.account_id.clone(),
         &signer,
     );
     let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
@@ -90,7 +89,6 @@ fn test_verify_block_double_sign_challenge() {
             left_block_header: b1.header.try_to_vec().unwrap(),
             right_block_header: b1.header.try_to_vec().unwrap(),
         }),
-        signer.account_id.clone(),
         &signer,
     );
     let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
@@ -104,13 +102,12 @@ fn test_verify_block_double_sign_challenge() {
         transaction_validity_period,
     )
     .is_err());
-    let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
+    let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: b1.header.try_to_vec().unwrap(),
             right_block_header: b3.header.try_to_vec().unwrap(),
         }),
-        signer.account_id.clone(),
         &signer,
     );
     let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
@@ -126,9 +123,11 @@ fn test_verify_block_double_sign_challenge() {
     .is_err());
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
-    let _ = env.network_adapters[0].pop();
     assert!(result.is_ok());
-    let last_message = env.network_adapters[0].pop().unwrap();
+    let mut last_message = env.network_adapters[0].pop().unwrap();
+    if let NetworkRequests::BlockHeaderAnnounce { .. } = last_message {
+        last_message = env.network_adapters[0].pop().unwrap();
+    }
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(network_challenge, valid_challenge);
     } else {
@@ -160,7 +159,6 @@ fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block =
         client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
-    let prev_timestamp = client.chain.head().unwrap().prev_timestamp;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
@@ -181,6 +179,7 @@ fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let (tx_root, _) = merklize(&transactions);
+        let signer = client.validator_signer.as_ref().unwrap().clone();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             chunk.header.inner.prev_block_hash,
             chunk.header.inner.prev_state_root,
@@ -198,7 +197,7 @@ fn create_chunk(
             transactions,
             &decoded_chunk.receipts,
             chunk.header.inner.outgoing_receipts_root,
-            &*client.block_producer.as_ref().unwrap().signer,
+            &*signer,
         )
         .unwrap();
         swap(&mut chunk, &mut encoded_chunk);
@@ -207,9 +206,10 @@ fn create_chunk(
     if let Some(tx_root) = replace_tx_root {
         chunk.header.inner.tx_root = tx_root;
         chunk.header.height_included = 2;
-        chunk.header.hash = ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap()));
-        chunk.header.signature =
-            client.block_producer.as_ref().unwrap().signer.sign(chunk.header.hash.as_ref());
+        let (hash, signature) =
+            client.validator_signer.as_ref().unwrap().sign_chunk_header_inner(&chunk.header.inner);
+        chunk.header.hash = hash;
+        chunk.header.signature = signature;
     }
     let block = Block::produce(
         &last_block.header,
@@ -223,11 +223,10 @@ fn create_chunk(
         None,
         vec![],
         vec![],
-        &*client.block_producer.as_ref().unwrap().signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
+        &*client.validator_signer.as_ref().unwrap().clone(),
         0.into(),
-        last_block.header.prev_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
         CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
@@ -400,8 +399,7 @@ fn challenge(
             chunk,
             merkle_proof: merkle_paths[shard_id].clone(),
         }),
-        env.clients[0].block_producer.as_ref().unwrap().account_id.clone(),
-        &*env.clients[0].block_producer.as_ref().unwrap().signer,
+        &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
     let transaction_validity_period = env.clients[0].chain.transaction_validity_period;
     let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
@@ -428,6 +426,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let genesis_hash = env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
     env.clients[0].process_tx(SignedTransaction::send_money(
@@ -442,10 +441,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let prev_timestamp = env.clients[0].chain.head().unwrap().prev_timestamp;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
-    let prev_to_last_block =
-        env.clients[0].chain.get_block(&last_block.header.prev_hash).unwrap().clone();
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
@@ -468,7 +464,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             &vec![],
             last_block.chunks[0].inner.outgoing_receipts_root,
             CryptoHash::default(),
-            &signer,
+            &validator_signer,
             &rs,
         )
         .unwrap();
@@ -499,12 +495,11 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
         vec![],
         vec![],
-        &signer,
-        (last_block.header.inner_lite.timestamp - prev_timestamp) as u128,
-        1,
-        prev_to_last_block.header.inner_rest.total_weight,
-        last_block.header.prev_hash,
-        prev_to_last_block.header.prev_hash,
+        &validator_signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
         last_block.header.inner_lite.next_bp_hash,
     );
 
@@ -524,6 +519,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             validity_period,
             epoch_length,
             &BlockEconomicsConfig { gas_price_adjustment_rate: 0, min_gas_price: 0 },
+            DoomslugThresholdMode::NoApprovals,
         );
 
         chain_update
@@ -556,7 +552,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         );
     }
     let challenge =
-        Challenge::produce(ChallengeBody::ChunkState(challenge_body), "test0".to_string(), &signer);
+        Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
     let transaction_validity_period = client.chain.transaction_validity_period;
     let runtime_adapter = client.chain.runtime_adapter.clone();
     assert_eq!(
@@ -675,8 +671,7 @@ fn test_block_challenge() {
             chunk: MaybeEncodedShardChunk::Encoded(chunk.clone()),
             merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
         }),
-        env.clients[0].block_producer.as_ref().unwrap().account_id.clone(),
-        &*env.clients[0].block_producer.as_ref().unwrap().signer,
+        &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
     env.clients[0].process_challenge(challenge.clone()).unwrap();
     env.produce_block(0, 2);
@@ -712,7 +707,7 @@ fn test_fishermen_challenge() {
         "test1".to_string(),
         &signer,
         FISHERMEN_THRESHOLD,
-        env.clients[1].block_producer.as_ref().unwrap().signer.public_key(),
+        signer.public_key(),
         genesis_hash,
     );
     env.clients[0].process_tx(stake_transaction);
@@ -730,13 +725,11 @@ fn test_fishermen_challenge() {
     });
     let challenge = Challenge::produce(
         challenge_body.clone(),
-        env.clients[1].block_producer.as_ref().unwrap().account_id.clone(),
-        &*env.clients[1].block_producer.as_ref().unwrap().signer,
+        &*env.clients[1].validator_signer.as_ref().unwrap().clone(),
     );
     let challenge1 = Challenge::produce(
         challenge_body,
-        env.clients[2].block_producer.as_ref().unwrap().account_id.clone(),
-        &*env.clients[2].block_producer.as_ref().unwrap().signer,
+        &*env.clients[2].validator_signer.as_ref().unwrap().clone(),
     );
     assert!(env.clients[0].process_challenge(challenge1).is_err());
     env.clients[0].process_challenge(challenge.clone()).unwrap();
@@ -776,19 +769,17 @@ fn test_challenge_in_different_epoch() {
         TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
     let mut fork_blocks = vec![];
     for i in 1..5 {
-        let block1 =
-            env.clients[0].produce_block(2 * i - 1, Duration::from_millis(100)).unwrap().unwrap();
+        let block1 = env.clients[0].produce_block(2 * i - 1).unwrap().unwrap();
         env.process_block(0, block1, Provenance::PRODUCED);
 
-        let block2 =
-            env.clients[1].produce_block(2 * i, Duration::from_millis(100)).unwrap().unwrap();
+        let block2 = env.clients[1].produce_block(2 * i).unwrap().unwrap();
         env.process_block(1, block2.clone(), Provenance::PRODUCED);
         fork_blocks.push(block2);
     }
 
-    let fork1_block = env.clients[0].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(9).unwrap().unwrap();
     env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(9, Duration::from_millis(100)).unwrap().unwrap();
+    let fork2_block = env.clients[1].produce_block(9).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header.inner_lite.height;
