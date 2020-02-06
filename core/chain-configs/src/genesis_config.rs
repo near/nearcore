@@ -1,3 +1,8 @@
+//! Genesis Configuration
+//!
+//! NOTE: chain-configs is not the best place for `GenesisConfig` since it
+//! contains `RuntimeConfig`, but we keep it here for now until we figure
+//! out the better place.
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

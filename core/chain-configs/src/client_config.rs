@@ -1,3 +1,4 @@
+//! Chain Client Configuration
 use std::cmp::min;
 use std::time::Duration;
 
