@@ -1,5 +1,6 @@
 use crate::db::DBCol::ColBlockHeader;
 use crate::Store;
+use log::error;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
@@ -12,13 +13,12 @@ pub struct ForksManager {
 
 impl ForksManager {
     pub fn get_block_parent(&self, block_hash: CryptoHash) -> Option<CryptoHash> {
-        let block_header = self.store.get_ser::<BlockHeader>(ColBlockHeader, &block_hash[..]);
+        let block_header = self.store.get_ser::<BlockHeader>(ColBlockHeader, &(block_hash.0).0[..]);
         match block_header {
             Ok(val) => val.map(|header| header.prev_hash),
             Err(e) => {
                 error!(target: "client", "ForksManager: error getting block parent {:?}", e);
                 panic!("error getting block parent");
-                None
             }
         }
     }
