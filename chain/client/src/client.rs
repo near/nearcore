@@ -647,17 +647,13 @@ impl Client {
                 self.chain.get_block_header(&last_ds_final_hash)?.inner_lite.height
             };
 
-            let last_block_header = self.chain.get_block_header(&tip.last_block_hash)?;
-            if let Some(honeypot_shard_id) = self.shards_mgr.honeypot_shard_id(&last_block_header) {
-                self.doomslug.set_tip(
-                    Instant::now(),
-                    tip.last_block_hash,
-                    self.chain.get_my_approval_reference_hash(tip.last_block_hash),
-                    tip.height,
-                    last_ds_final_height,
-                    honeypot_shard_id,
-                );
-            }
+            self.doomslug.set_tip(
+                Instant::now(),
+                tip.last_block_hash,
+                self.chain.get_my_approval_reference_hash(tip.last_block_hash),
+                tip.height,
+                last_ds_final_height,
+            );
         }
 
         Ok(())

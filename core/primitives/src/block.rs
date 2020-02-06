@@ -178,12 +178,16 @@ impl Approval {
         reference_hash: Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
-        signer: &dyn ValidatorSigner,,
-        account_id: AccountId,
-        honeypot_shard_id: Option<ShardId>,
+        signer: &dyn ValidatorSigner,
+        honeypot_shard_id: HoneypotShardId,
     ) -> Self {
-        let signature =
-            signer.sign_approval(&parent_hash, &reference_hash, target_height, is_endorsement);
+        let signature = signer.sign_approval(
+            &parent_hash,
+            &reference_hash,
+            target_height,
+            is_endorsement,
+            honeypot_shard_id,
+        );
         Approval {
             parent_hash,
             reference_hash,
@@ -200,7 +204,7 @@ impl Approval {
         reference_hash: &Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
-        honeypot_shard_id: Option<ShardId>,
+        honeypot_shard_id: HoneypotShardId,
     ) -> Vec<u8> {
         let mut res = Vec::with_capacity(73);
         res.extend_from_slice(parent_hash.as_ref());

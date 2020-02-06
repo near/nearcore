@@ -53,7 +53,6 @@ fn add_blocks(
                 prev.header.inner_lite.height + 1,
                 false,
                 signer,
-                "other".to_string(),
                 None,
             )],
             0,

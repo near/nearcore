@@ -327,7 +327,6 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     false,
                     &signer,
-                    s.to_string(),
                     None,
                 );
                 client
@@ -671,7 +670,7 @@ fn test_invalid_approvals() {
                 KeyType::ED25519,
                 &format!("test{}", i),
             )
-            .sign_approval(&genesis.hash(), &Some(genesis.hash()), 1, true),
+            .sign_approval(&genesis.hash(), &Some(genesis.hash()), 1, true, None),
             honeypot_shard_id: None,
         })
         .collect();

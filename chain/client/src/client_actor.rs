@@ -863,24 +863,31 @@ impl ClientActor {
                     chain_store_update.save_largest_skipped_height(
                         &self.client.doomslug.get_largest_skipped_height(),
                     );
-
-        match chain_store_update.commit() {
-            Ok(_) => {
-                for approval in approvals {
-                    // `Chain::process_approval` updates metrics related to the finality gadget.
-                    // Don't send the approval if such an update failed
-                    if let Ok(_) = self.client.chain.process_approval(
-                        &self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-                        &approval,
-                    ) {
-                        if let Err(e) = self.client.send_approval(approval) {
-                            error!("Error while sending an approval {:?}", e);
+                    match chain_store_update.commit() {
+                        Ok(_) => {
+                            for approval in approvals {
+                                // `Chain::process_approval` updates metrics related to the finality gadget.
+                                // Don't send the approval if such an update failed
+                                if let Ok(_) = self.client.chain.process_approval(
+                                    &self
+                                        .client
+                                        .validator_signer
+                                        .as_ref()
+                                        .map(|x| x.validator_id().clone()),
+                                    &approval,
+                                ) {
+                                    if let Err(e) = self.client.send_approval(approval) {
+                                        error!("Error while sending an approval {}", e);
+                                    }
+                                }
+                            }
                         }
-                    }
+                        Err(e) => error!("Error while committing largest skipped height {}", e),
+                    };
                 }
             }
-            Err(e) => error!("Error while committing largest skipped height {:?}", e),
-        };
+            Err(e) => error!("Failed to get doomslug tip header: {}", e),
+        }
 
         ctx.run_later(Duration::from_millis(50), move |act, ctx| {
             act.doomslug_timer(ctx);

@@ -5,7 +5,9 @@ use borsh::BorshSerialize;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::block::{Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest};
+use crate::block::{
+    Approval, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest, HoneypotShardId,
+};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
@@ -45,6 +47,7 @@ pub trait ValidatorSigner: Sync + Send {
         reference_hash: &Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
+        honeypot_shard_id: HoneypotShardId,
     ) -> Signature;
 
     /// Signs challenge body.
@@ -106,6 +109,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
         _reference_hash: &Option<CryptoHash>,
         _target_height: BlockHeight,
         _is_endorsement: bool,
+        _honeypot_shard_id: HoneypotShardId,
     ) -> Signature {
         Signature::default()
     }
@@ -202,12 +206,14 @@ impl ValidatorSigner for InMemoryValidatorSigner {
         reference_hash: &Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
+        honeypot_shard_id: HoneypotShardId,
     ) -> Signature {
         self.signer.sign(&Approval::get_data_for_sig(
             parent_hash,
             reference_hash,
             target_height,
             is_endorsement,
+            honeypot_shard_id,
         ))
     }
 

@@ -1,17 +1,13 @@
-use near_crypto::Signer;
-use near_primitives::block::{Approval, HoneypotShardId};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId, ValidatorStake,
-};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_primitives::block::Approval;
+use near_primitives::block::{Approval, HoneypotShardId};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId, ValidatorStake,
+};
 use near_primitives::validator_signer::ValidatorSigner;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
@@ -412,7 +408,9 @@ impl Doomslug {
                     self.largest_endorsed_height = tip_height;
                 }
 
-                if let Some(approval) = self.create_approval(tip_height + 1, is_endorsement) {
+                if let Some(approval) =
+                    self.create_approval(tip_height + 1, is_endorsement, honeypot_shard_id)
+                {
                     ret.push(approval);
                 }
 
@@ -428,7 +426,9 @@ impl Doomslug {
                     self.largest_promised_skip_height =
                         std::cmp::max(self.timer.height, self.largest_promised_skip_height);
 
-                    if let Some(approval) = self.create_approval(self.timer.height + 1, false) {
+                    if let Some(approval) =
+                        self.create_approval(self.timer.height + 1, false, honeypot_shard_id)
+                    {
                         ret.push(approval);
                     }
                 }
@@ -455,7 +455,7 @@ impl Doomslug {
                 self.tip.reference_hash,
                 target_height,
                 is_endorsement,
-                **signer,
+                &**signer,
                 honeypot_shard_id,
             )
         })
@@ -732,9 +732,9 @@ mod tests {
 
         // Set a new tip, must produce an endorsement
         ds.set_tip(now, hash(&[1]), None, 1, 1);
-        assert_eq!(ds.process_timer(now + Duration::from_millis(399)).len(), 0);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(399), None).len(), 0);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[1]));
         assert_eq!(approval.target_height, 2);
         assert!(approval.is_endorsement);
@@ -743,16 +743,16 @@ mod tests {
         // at lower height is received after a block at a higher height, e.g. due to finality gadget)
         ds.set_tip(now, hash(&[1]), None, 1, 1);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[1]));
         assert_eq!(approval.target_height, 2);
         assert!(!approval.is_endorsement);
 
         // The block was `ds_final` and therefore started the timer. Try checking before one second expires
-        assert_eq!(ds.process_timer(now + Duration::from_millis(999), Some(None)), vec![]);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(999), None), vec![]);
 
         // But one second should trigger the skip
-        match ds.process_timer(now + Duration::from_millis(1000), Some(None)) {
+        match ds.process_timer(now + Duration::from_millis(1000), None) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].parent_hash, hash(&[1]));
@@ -767,7 +767,7 @@ mod tests {
         // Not processing a block at height 2 should not produce an endorsement (but still an approval)
         ds.set_tip(now, hash(&[2]), None, 2, 1);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[2]));
         assert_eq!(approval.target_height, 3);
         assert!(!approval.is_endorsement);
@@ -778,7 +778,7 @@ mod tests {
         // But at height 3 should (also neither block has ds_finality set, keep last ds_final at 1 for now)
         ds.set_tip(now, hash(&[3]), None, 3, 1);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[3]));
         assert_eq!(approval.target_height, 4);
         assert!(approval.is_endorsement);
@@ -786,9 +786,9 @@ mod tests {
         // Move 1 second further
         now += Duration::from_millis(1000);
 
-        assert_eq!(ds.process_timer(now + Duration::from_millis(199), Some(None)), vec![]);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(199), None), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(200), Some(None)) {
+        match ds.process_timer(now + Duration::from_millis(200), None) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals if approvals.len() == 1 => {
                 assert_eq!(approvals[0].parent_hash, hash(&[3]));
@@ -802,9 +802,9 @@ mod tests {
         now += Duration::from_millis(1000);
 
         // Now skip 5 (the extra delay is 200+300 = 500)
-        assert_eq!(ds.process_timer(now + Duration::from_millis(499), Some(None)), vec![]);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(499), None), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(500), Some(None)) {
+        match ds.process_timer(now + Duration::from_millis(500), None) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].parent_hash, hash(&[3]));
@@ -817,9 +817,9 @@ mod tests {
         now += Duration::from_millis(1000);
 
         // Skip 6 (the extra delay is 0+200+300+400 = 900)
-        assert_eq!(ds.process_timer(now + Duration::from_millis(899), Some(None)), vec![]);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(899), None), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(900), Some(None)) {
+        match ds.process_timer(now + Duration::from_millis(900), None) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].parent_hash, hash(&[3]));
@@ -834,14 +834,14 @@ mod tests {
         // Accept block at 5 with ds finality, expect it to produce an approval, but not an endorsement
         ds.set_tip(now, hash(&[5]), None, 5, 5);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[5]));
         assert_eq!(approval.target_height, 6);
         assert!(!approval.is_endorsement);
 
         // Skip a whole bunch of heights by moving 100 seconds ahead
         now += Duration::from_millis(100_000);
-        assert!(ds.process_timer(now, Some(None)).len() > 10);
+        assert!(ds.process_timer(now, None).len() > 10);
 
         // Add some random small number of milliseconds to test that when the next block is added, the
         // timer is reset
@@ -850,16 +850,16 @@ mod tests {
         // That approval should not be an endorsement, since we skipped 6
         ds.set_tip(now, hash(&[6]), None, 6, 5);
         let approval =
-            ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
+            ds.process_timer(now + Duration::from_millis(400), None).into_iter().nth(0).unwrap();
         assert_eq!(approval.parent_hash, hash(&[6]));
         assert_eq!(approval.target_height, 7);
         assert!(!approval.is_endorsement);
 
         // The block height was less than the timer height, and thus the timer was reset.
         // The wait time for height 7 with last ds final block at 5 is 1100
-        assert_eq!(ds.process_timer(now + Duration::from_millis(1099), Some(None)), vec![]);
+        assert_eq!(ds.process_timer(now + Duration::from_millis(1099), None), vec![]);
 
-        match ds.process_timer(now + Duration::from_millis(1100), Some(None)) {
+        match ds.process_timer(now + Duration::from_millis(1100), None) {
             approvals if approvals.len() == 0 => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].parent_hash, hash(&[6]));
@@ -910,7 +910,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &signers[0]),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[0], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -920,7 +920,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &signers[2]),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[2], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -930,7 +930,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -940,7 +940,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now + Duration::from_millis(100),
-                &Approval::new(hash(&[1]), None, 4, true, &signers[0]),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[0], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -950,7 +950,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 4, true, &signers[3]),
+                &Approval::new(hash(&[1]), None, 4, true, &signers[3], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::ReadyToProduce(now),
@@ -960,7 +960,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &signers[3]),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[3], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -972,7 +972,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[1]), None, 2, true, &signers[1]),
+                &Approval::new(hash(&[1]), None, 2, true, &signers[1], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::PassedThreshold(now),
@@ -982,7 +982,7 @@ mod tests {
         assert_eq!(
             ds.on_approval_message_internal(
                 now,
-                &Approval::new(hash(&[2]), None, 4, true, &signers[1]),
+                &Approval::new(hash(&[2]), None, 4, true, &signers[1], None),
                 &stakes,
             ),
             DoomslugBlockProductionReadiness::None,
@@ -1008,13 +1008,13 @@ mod tests {
             .collect::<Vec<_>>();
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new();
 
-        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &signers[0]);
-        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &signers[1]);
-        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &signers[2]);
+        let a1_1 = Approval::new(hash(&[1]), None, 4, true, &signers[0], None);
+        let a1_2 = Approval::new(hash(&[1]), None, 4, false, &signers[1], None);
+        let a1_3 = Approval::new(hash(&[1]), None, 4, true, &signers[2], None);
 
-        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &signers[0]);
-        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &signers[1]);
-        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &signers[2]);
+        let a2_1 = Approval::new(hash(&[2]), None, 4, true, &signers[0], None);
+        let a2_2 = Approval::new(hash(&[2]), None, 4, false, &signers[1], None);
+        let a2_3 = Approval::new(hash(&[2]), None, 4, true, &signers[2], None);
 
         // Process first approval, and then process it again and make sure it works
         tracker.process_approval(Instant::now(), &a1_1, &stakes, DoomslugThresholdMode::HalfStake);
