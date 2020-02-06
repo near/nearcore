@@ -1,27 +1,30 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+
     use near_chain::test_utils::setup;
     use near_chain::{create_light_client_block_view, FinalityGadget};
     use near_chain::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
-    use near_crypto::{KeyType, PublicKey, Signature, Signer};
+    use near_crypto::{KeyType, PublicKey, Signature};
     use near_epoch_manager::test_utils::{record_block, setup_default_epoch_manager};
     use near_epoch_manager::EpochManager;
     use near_primitives::block::{Approval, Block, BlockHeader, BlockScore};
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::combine_hash;
     use near_primitives::types::{AccountId, BlockHeight, EpochId, ValidatorStake};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::ValidatorStakeView;
-    use rand::seq::SliceRandom;
-    use rand::Rng;
-    use std::collections::{HashMap, HashSet};
 
     fn create_block(
         em: &mut EpochManager,
         prev: &Block,
         height: BlockHeight,
         chain_store: &mut ChainStore,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         approvals: Vec<Approval>,
         stakes: &Vec<ValidatorStake>,
     ) -> (Block, CryptoHash) {

@@ -1,8 +1,10 @@
+use std::cmp::{max, Ordering};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{KeyType, PublicKey, Signature};
 
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
@@ -13,7 +15,7 @@ use crate::types::{
     ValidatorStake,
 };
 use crate::utils::{from_timestamp, to_timestamp};
-use std::cmp::{max, Ordering};
+use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
@@ -176,27 +178,19 @@ impl Approval {
         reference_hash: Option<CryptoHash>,
         target_height: BlockHeight,
         is_endorsement: bool,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,,
         account_id: AccountId,
         honeypot_shard_id: Option<ShardId>,
     ) -> Self {
-        let signature = signer.sign(
-            Approval::get_data_for_sig(
-                &parent_hash,
-                &reference_hash,
-                target_height,
-                is_endorsement,
-                honeypot_shard_id.clone(),
-            )
-            .as_ref(),
-        );
+        let signature =
+            signer.sign_approval(&parent_hash, &reference_hash, target_height, is_endorsement);
         Approval {
             parent_hash,
             reference_hash,
             target_height,
             is_endorsement,
             signature,
-            account_id,
+            account_id: signer.validator_id().clone(),
             honeypot_shard_id,
         }
     }
@@ -296,7 +290,7 @@ impl BlockHeader {
         validator_reward: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -331,8 +325,8 @@ impl BlockHeader {
             last_ds_final_block,
             approvals,
         );
-        let hash = BlockHeader::compute_hash(prev_hash, &inner_lite, &inner_rest);
-        Self { prev_hash, inner_lite, inner_rest, signature: signer.sign(hash.as_ref()), hash }
+        let (hash, signature) = signer.sign_block_header_parts(prev_hash, &inner_lite, &inner_rest);
+        Self { prev_hash, inner_lite, inner_rest, signature, hash }
     }
 
     pub fn genesis(
@@ -441,7 +435,7 @@ pub fn genesis_chunks(
                 vec![],
                 &vec![],
                 CryptoHash::default(),
-                &EmptySigner {},
+                &EmptyValidatorSigner::default(),
             )
             .expect("Failed to decode genesis chunk");
             encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk")
@@ -490,7 +484,7 @@ impl Block {
         inflation: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         score: BlockScore,
         last_quorum_pre_vote: CryptoHash,
         last_quorum_pre_commit: CryptoHash,

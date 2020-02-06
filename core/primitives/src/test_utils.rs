@@ -13,6 +13,7 @@ use crate::transaction::{
     TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -160,7 +161,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         next_bp_hash: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         Self::empty_with_approvals(
             prev,
@@ -173,7 +174,11 @@ impl Block {
         )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockHeight, signer: &dyn Signer) -> Self {
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
         Self::empty_with_epoch(
             prev,
             height,
@@ -188,7 +193,7 @@ impl Block {
         )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
         Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
@@ -200,7 +205,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
     ) -> Self {
         Block::produce(

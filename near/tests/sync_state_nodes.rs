@@ -1,4 +1,5 @@
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
@@ -8,7 +9,6 @@ use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]

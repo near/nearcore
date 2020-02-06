@@ -68,17 +68,18 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::network::AnnounceAccount;
     use near_primitives::types::EpochId;
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
-        RoutedMessageBody, SyncData,
+        Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
+        SyncData,
     };
 
     use super::*;
-    use near_primitives::block::Approval;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
