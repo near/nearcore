@@ -2,6 +2,7 @@ use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::{External, ValuePtr};
 use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
+use sha3::{Keccak256, Keccak512};
 use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
@@ -262,6 +263,26 @@ impl External for MockedExternal {
 
         let value_hash = sha2::Sha256::digest(data);
         Ok(value_hash.as_ref().to_vec())
+    }
+
+    fn keccak256(&self, data: &[u8]) -> Result<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak256::default();
+        hasher.input(&data);
+        let mut res = [0u8; 32];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
+    }
+
+    fn keccak512(&self, data: &[u8]) -> Result<Vec<u8>> {
+        use sha3::Digest;
+
+        let mut hasher = Keccak512::default();
+        hasher.input(&data);
+        let mut res = [0u8; 64];
+        res.copy_from_slice(hasher.result().as_slice());
+        Ok(res.to_vec())
     }
 
     fn get_touched_nodes_count(&self) -> u64 {
