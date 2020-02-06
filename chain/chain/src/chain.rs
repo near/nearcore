@@ -1185,20 +1185,20 @@ impl Chain {
         let sync_block_header = sync_block.header.clone();
         let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
-            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
+            return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
         if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
-            return Err(ErrorKind::Other(
-                "Invalid request: sync_hash is not the first hash of the epoch".into(),
+            return Err(ErrorKind::InvalidStateRequest(
+                "sync_hash is not the first hash of the epoch".into(),
             )
             .into());
         }
         if shard_id as usize >= sync_prev_block.chunks.len() {
-            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
+            return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
@@ -1225,7 +1225,7 @@ impl Chain {
             Ok(prev_block) => {
                 if shard_id as usize >= prev_block.chunks.len() {
                     return Err(
-                        ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into()
+                        ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into()
                     );
                 }
                 let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
@@ -1336,33 +1336,24 @@ impl Chain {
         let sync_block_header = sync_block.header.clone();
         let sync_block_epoch_id = sync_block.header.inner_lite.epoch_id.clone();
         if shard_id as usize >= sync_block.chunks.len() {
-            return Err(ErrorKind::Other(
-                "get_syncing_state_root fail: shard_id out of bounds".into(),
-            )
-            .into());
+            return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let sync_prev_block = self.get_block(&sync_block_header.prev_hash)?;
         if sync_block_epoch_id == sync_prev_block.header.inner_lite.epoch_id {
-            return Err(ErrorKind::Other(
-                "Invalid request: sync_hash is not the first hash of the epoch".into(),
+            return Err(ErrorKind::InvalidStateRequest(
+                "sync_hash is not the first hash of the epoch".into(),
             )
             .into());
         }
         if shard_id as usize >= sync_prev_block.chunks.len() {
-            return Err(ErrorKind::Other(
-                "get_syncing_state_root fail: shard_id out of bounds".into(),
-            )
-            .into());
+            return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks[shard_id as usize].inner.prev_state_root.clone();
         let state_root_node = self.runtime_adapter.get_state_root_node(&state_root);
         let num_parts = Self::get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
-            return Err(ErrorKind::Other(
-                "get_state_response_part fail: part_id out of bound".to_string(),
-            )
-            .into());
+            return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
 
