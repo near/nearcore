@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -9,7 +10,7 @@ use log::info;
 use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::KeyType;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
@@ -18,7 +19,7 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
-use std::time::Instant;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
@@ -275,7 +276,7 @@ fn test_request_chunk_restart() {
 fn store_partial_encoded_chunk_sanity() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
     let mut partial_encoded_chunk = PartialEncodedChunk {
         shard_id: 0,
         chunk_hash: Default::default(),

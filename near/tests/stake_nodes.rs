@@ -101,7 +101,7 @@ fn test_stake_nodes() {
             // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
             &*test_nodes[1].signer,
             TESTING_INIT_STAKE,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[1].genesis_hash,
         );
         actix::spawn(test_nodes[0].client.send(NetworkClientMessages::Transaction(tx)).map(drop));
@@ -170,7 +170,7 @@ fn test_validator_kickout() {
                 test_node.account_id.clone(),
                 &*signer,
                 stake,
-                test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
+                test_node.config.validator_signer.as_ref().unwrap().public_key(),
                 test_node.genesis_hash,
             )
         });
@@ -308,7 +308,7 @@ fn test_validator_join() {
             test_nodes[1].account_id.clone(),
             &*signer,
             0,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[1].genesis_hash,
         );
 
@@ -322,7 +322,7 @@ fn test_validator_join() {
             test_nodes[2].account_id.clone(),
             &*signer,
             TESTING_INIT_STAKE,
-            test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[2].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[2].genesis_hash,
         );
 
