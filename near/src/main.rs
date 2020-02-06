@@ -78,6 +78,7 @@ fn main() {
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
+            .arg(Arg::with_name("archive").long("archive").help("Keep old blocks in the storage (default false)").takes_value(true))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
@@ -114,7 +115,14 @@ fn main() {
                 .map(|x| x.parse().expect("Failed to parse number of shards"))
                 .unwrap_or(1);
             let prefix = args.value_of("prefix").unwrap_or("node");
-            init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
+            init_testnet_configs(
+                home_dir,
+                num_shards,
+                num_validators,
+                num_non_validators,
+                prefix,
+                false,
+            );
         }
         ("run", Some(args)) => {
             // Load configs from home.
@@ -154,6 +162,12 @@ fn main() {
             }
             if let Some(telemetry_url) = args.value_of("telemetry-url") {
                 near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
+            }
+            if let Some(archive) = args
+                .value_of("archive")
+                .map(|x| x.parse().expect("Failed to parse boolean for archive"))
+            {
+                near_config.client_config.archive = archive;
             }
 
             let system = System::new("NEAR");

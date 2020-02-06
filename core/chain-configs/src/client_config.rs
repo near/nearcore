@@ -70,6 +70,8 @@ pub struct ClientConfig {
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
+    /// Not clear old data, set `true` for archive nodes.
+    pub archive: bool,
 }
 
 impl ClientConfig {
@@ -117,6 +119,7 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            archive: false,
         }
     }
 }

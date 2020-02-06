@@ -244,6 +244,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    pub archive: bool,
 }
 
 impl Default for Config {
@@ -258,6 +259,7 @@ impl Default for Config {
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            archive: false,
         }
     }
 }
@@ -420,6 +422,7 @@ impl NearConfig {
                 chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                archive: config.archive,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -669,6 +672,7 @@ pub fn create_testnet_configs_from_seeds(
     num_shards: NumShards,
     num_non_validator_seats: NumSeats,
     local_ports: bool,
+    archive: bool,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
@@ -701,6 +705,7 @@ pub fn create_testnet_configs_from_seeds(
             };
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
+        config.archive = archive;
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -716,6 +721,7 @@ pub fn create_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     local_ports: bool,
+    archive: bool,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisConfig) {
     create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
@@ -724,6 +730,7 @@ pub fn create_testnet_configs(
         num_shards,
         num_non_validator_seats,
         local_ports,
+        archive,
     )
 }
 
@@ -733,6 +740,7 @@ pub fn init_testnet_configs(
     num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     prefix: &str,
+    archive: bool,
 ) {
     let (configs, validator_signers, network_signers, genesis_config) = create_testnet_configs(
         num_shards,
@@ -740,6 +748,7 @@ pub fn init_testnet_configs(
         num_non_validator_seats,
         prefix,
         false,
+        archive,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
