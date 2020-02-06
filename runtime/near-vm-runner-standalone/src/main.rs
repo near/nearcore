@@ -12,6 +12,9 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMConfig, VMContext};
 use near_vm_runner::run;
 use std::fs;
+use near_store::{TestDB, Storage, Trie}
+use std::sync::Arc;
+
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -118,6 +121,8 @@ fn main() {
 
     let code =
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
+
+    let database = near::store
 
     let mut fake_external = MockedExternal::new();
     let fees = RuntimeFeesConfig::default();

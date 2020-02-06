@@ -22,7 +22,7 @@ use near_primitives::utils::{
     key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 
-use crate::db::{DBOp, DBTransaction, Database, RocksDB};
+use crate::db::{DBOp, DBTransaction, Database, RocksDB, TestDB};
 pub use crate::trie::{
     iterator::TrieIterator, update::PrefixKeyValueChanges, update::TrieUpdate,
     update::TrieUpdateIterator, update::TrieUpdateValuePtr, PartialStorage, Trie, TrieChanges,

@@ -1,0 +1,5 @@
+tasks:
+  - init: cargo build && make
+    command: cargo watch -x run
+image:
+  file: .Dockerfile

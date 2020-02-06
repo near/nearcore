@@ -24,3 +24,4 @@ clap = "2.33.0"
 near-vm-logic = { path = "../near-vm-logic", version = "0.4.3"}
 near-vm-runner = { path = "../near-vm-runner", version = "0.4.3" }
 near-runtime-fees = { path = "../near-runtime-fees", version = "0.4.3" }
+near-store = { path = "../../core/store", version = "0.1.0" }
