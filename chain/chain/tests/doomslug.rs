@@ -169,7 +169,7 @@ mod tests {
 
             // 3. Process timers
             for ds in doomslugs.iter_mut() {
-                for approval in ds.process_timer(now, Some(None)) {
+                for approval in ds.process_timer(now, None) {
                     approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
                 }
             }

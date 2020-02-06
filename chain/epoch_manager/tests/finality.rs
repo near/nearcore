@@ -97,6 +97,7 @@ mod tests {
             is_endorsement: true,
             parent_hash,
             signature: Signature::default(),
+            honeypot_shard_id: None,
         }
     }
 
