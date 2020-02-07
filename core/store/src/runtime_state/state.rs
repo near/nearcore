@@ -52,6 +52,7 @@ impl CombinedDBState {
         shard_id: ShardId,
         block_height: BlockHeight,
         block_hash: CryptoHash,
+        parent_hash: CryptoHash,
     ) -> CombinedDBState {
         let store =
             trie.trie.storage.as_caching_storage().expect("always CachingStorage").store.clone();
@@ -59,6 +60,7 @@ impl CombinedDBState {
             shard_id,
             store: store.clone(),
             block_hash,
+            parent_hash,
             block_height,
             forks_manager: ForksManager { store },
         };

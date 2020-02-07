@@ -194,6 +194,7 @@ impl NightshadeRuntime {
                 shard_id,
                 0,
                 CryptoHash::default(),
+                CryptoHash::default(),
             ));
             let state_update = StateUpdate::from_state(state);
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
@@ -845,7 +846,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             Arc::new(TrieState::new(Arc::new(self.trie.recording_reads()), *state_root))
         } else {
             let trie_state = TrieState::new(self.trie.clone(), *state_root);
-            Arc::new(CombinedDBState::new(trie_state, shard_id, height, *block_hash))
+            if height > 1 && *prev_block_hash == Default::default() {
+                panic!("WTF BLOCK HASH CANNOT JUST BE 0");
+            }
+            Arc::new(CombinedDBState::new(
+                trie_state,
+                shard_id,
+                height,
+                *block_hash,
+                *prev_block_hash,
+            ))
         };
         match self.process_state_update(
             state,
@@ -1050,6 +1060,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn confirm_state(
         &self,
         shard_id: ShardId,
+        block_hash: CryptoHash,
+        parent_hash: CryptoHash,
         block_height: BlockHeight,
         state_root: &StateRoot,
         data: &Vec<Vec<u8>>,
@@ -1061,13 +1073,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .expect("Part was already validated earlier, so could never fail here"),
             );
         }
+        let parent_height = std::cmp::max(block_height, 1) - 1;
         let trie_changes = Trie::combine_state_parts(&state_root, &parts)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         // TODO clean old states
         let mut store_update = StoreUpdate::new_with_trie(self.trie.clone());
-        // TODO pass correct block hash
         let flat_db_changes =
-            FlatDBChanges { shard_id, block_hash: Default::default(), block_height };
+            FlatDBChanges { shard_id, block_hash: parent_hash, block_height: parent_height };
         flat_db_changes.from_full_trie(self.trie.clone(), &trie_changes, &mut store_update);
         trie_changes
             .insertions_into(self.trie.clone(), &mut store_update)
@@ -1867,7 +1879,17 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.confirm_state(0, 0, &env.state_roots[0], &vec![state_part]).unwrap();
+        new_env
+            .runtime
+            .confirm_state(
+                0,
+                Default::default(),
+                Default::default(),
+                0,
+                &env.state_roots[0],
+                &vec![state_part],
+            )
+            .unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);

@@ -42,6 +42,7 @@ pub struct FlatKVState {
     pub(crate) store: Arc<Store>,
     pub(crate) shard_id: ShardId,
     pub(crate) block_hash: CryptoHash,
+    pub(crate) parent_hash: CryptoHash,
     pub(crate) block_height: BlockHeight,
     pub(crate) forks_manager: ForksManager,
 }
@@ -64,17 +65,23 @@ impl FlatKVState {
         let key_prefix =
             PrefixKeyTuple(self.shard_id, key.to_vec()).try_to_vec().expect("borsh cannot fail");
 
+        let (parent_hash, parent_height) = if self.block_height == 0 {
+            (Default::default(), 0)
+        } else {
+            (self.parent_hash, self.block_height - 1)
+        };
+
         for item in self.store.iter_prefix_ser::<Option<ValueRef>>(ColFlatState, &key_prefix) {
             let (key_tuple, value) = item.expect("storage internal error"); //.map_err(|_| StorageError::StorageInternalError)?;
             let KeyTuple(shard_id, key2, block_height, block_hash) =
                 KeyTuple::try_from_slice(&key_tuple).expect("storage internal error"); //.map_err(|_| StorageError::StorageInternalError)?;
             debug_assert_eq!(key, &key2[..]);
-            if block_height > self.block_height
+            if block_height > parent_height
                 || !self.forks_manager.is_same_chain(
                     block_height,
                     block_hash,
-                    self.block_height,
-                    self.block_hash,
+                    parent_height,
+                    parent_hash,
                 )
             {
                 continue;

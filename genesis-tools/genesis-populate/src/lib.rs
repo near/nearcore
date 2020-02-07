@@ -183,6 +183,7 @@ impl GenesisBuilder {
             shard_idx,
             0,
             CryptoHash::default(),
+            CryptoHash::default(),
         ));
 
         self.state_updates.insert(shard_idx, StateUpdate::from_state(state));

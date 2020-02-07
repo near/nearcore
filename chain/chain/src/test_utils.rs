@@ -745,6 +745,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn confirm_state(
         &self,
         _shard_id: ShardId,
+        _sync_hash: CryptoHash,
+        _parent_hash: CryptoHash,
         _block_height: BlockHeight,
         state_root: &StateRoot,
         parts: &Vec<Vec<u8>>,

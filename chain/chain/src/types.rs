@@ -408,6 +408,8 @@ pub trait RuntimeAdapter: Send + Sync {
     fn confirm_state(
         &self,
         shard_id: ShardId,
+        sync_hash: CryptoHash,
+        parent_hash: CryptoHash,
         block_height: BlockHeight,
         state_root: &StateRoot,
         parts: &Vec<Vec<u8>>,

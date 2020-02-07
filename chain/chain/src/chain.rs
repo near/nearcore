@@ -1574,8 +1574,20 @@ impl Chain {
             parts.push(self.store.owned_store().get_ser(ColStateParts, &key)?.unwrap());
         }
 
+        // TODO: change ? to panic
+        let header = self.get_block_header(&sync_hash)?;
+        let block_height = header.inner_lite.height;
+        let parent_hash = header.prev_hash;
+
         // Confirm that state matches the parts we received
-        self.runtime_adapter.confirm_state(shard_id, height, &state_root, &parts)?;
+        self.runtime_adapter.confirm_state(
+            shard_id,
+            sync_hash,
+            parent_hash,
+            block_height,
+            &state_root,
+            &parts,
+        )?;
 
         // Applying the chunk starts here
         let mut chain_update = ChainUpdate::new(
