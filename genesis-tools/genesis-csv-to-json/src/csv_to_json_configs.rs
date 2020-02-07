@@ -69,19 +69,18 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         gas_limit: INITIAL_GAS_LIMIT,
         gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
         block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-        runtime_config: Default::default(),
         validators,
         transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         records,
         developer_reward_percentage: DEVELOPER_PERCENT,
         protocol_reward_percentage: PROTOCOL_PERCENT,
         max_inflation_rate: MAX_INFLATION_RATE,
-        total_supply: 0,
         num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
         protocol_treasury_account: treasury,
         chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
         min_gas_price: MIN_GAS_PRICE,
         fishermen_threshold: FISHERMEN_THRESHOLD,
+        ..Default::default()
     };
     genesis_config.init();
     verify_total_supply(genesis_config.total_supply, &chain_id);

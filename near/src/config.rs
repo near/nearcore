@@ -330,19 +330,18 @@ impl GenesisConfig {
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-            runtime_config: Default::default(),
             validators,
             records,
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
-            total_supply: 0,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             min_gas_price: MIN_GAS_PRICE,
+            ..Default::default()
         };
         config.init();
         config

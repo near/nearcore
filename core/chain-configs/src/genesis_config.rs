@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
 
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::state_record::StateRecord;
@@ -21,7 +22,7 @@ use crate::PROTOCOL_VERSION;
 
 pub const CONFIG_VERSION: u32 = 1;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// This is a version of a genesis config structure this version of binary works with.
     /// If the binary tries to load a JSON config with a different version it will panic.
@@ -30,6 +31,7 @@ pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: u32,
     /// Official time of blockchain start.
+    #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
