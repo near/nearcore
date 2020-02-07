@@ -10,20 +10,21 @@ use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 use tempdir::TempDir;
 
-use near::{get_store_path, GenesisConfig, NightshadeRuntime};
+use near::{get_store_path, NightshadeRuntime};
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter, Tip};
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::block::genesis_chunks;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, EpochId, ShardId, StateRoot};
 use near_primitives::views::AccountView;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
-use node_runtime::StateRecord;
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
