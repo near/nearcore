@@ -16,6 +16,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
@@ -33,8 +34,6 @@ use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
-/// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 4;
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.

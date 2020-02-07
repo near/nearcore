@@ -12,9 +12,7 @@ use near_network::{NetworkRecipient, PeerManagerActor};
 use near_store::create_store;
 use near_telemetry::TelemetryActor;
 
-pub use crate::config::{
-    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
-};
+pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
