@@ -126,7 +126,7 @@ fn test_verify_block_double_sign_challenge() {
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap();
-    if let NetworkRequests::BlockHeaderAnnounce { .. } = last_message {
+    if let NetworkRequests::Approval { .. } = last_message {
         last_message = env.network_adapters[0].pop().unwrap();
     }
     if let NetworkRequests::Challenge(network_challenge) = last_message {

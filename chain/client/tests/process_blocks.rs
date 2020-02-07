@@ -132,12 +132,11 @@ fn receive_network_block() {
             true,
             false,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockHeaderAnnounce { approval_message, .. } = msg {
+                if let NetworkRequests::Approval { .. } = msg {
                     let mut first_header_announce = first_header_announce.write().unwrap();
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
-                        assert!(approval_message.is_some());
                         System::current().stop();
                     }
                 }
@@ -201,7 +200,7 @@ fn receive_network_block_header() {
                     );
                     NetworkResponses::NoResponse
                 }
-                NetworkRequests::BlockHeaderAnnounce { .. } => {
+                NetworkRequests::Approval { .. } => {
                     System::current().stop();
                     NetworkResponses::NoResponse
                 }
@@ -234,9 +233,10 @@ fn receive_network_block_header() {
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
             );
-            client.do_send(NetworkClientMessages::BlockHeader(
-                block.header.clone(),
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
                 PeerInfo::random().id,
+                false,
             ));
             *block_holder.write().unwrap() = Some(block);
             future::ready(())
@@ -351,10 +351,10 @@ fn invalid_blocks() {
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
-                    NetworkRequests::BlockHeaderAnnounce { header, approval_message: _ } => {
-                        assert_eq!(header.inner_lite.height, 1);
+                    NetworkRequests::Block { block } => {
+                        assert_eq!(block.header.inner_lite.height, 1);
                         assert_eq!(
-                            header.inner_lite.prev_state_root,
+                            block.header.inner_lite.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
                         System::current().stop();

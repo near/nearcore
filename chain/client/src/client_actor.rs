@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
+    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
@@ -146,9 +146,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
-            NetworkClientMessages::BlockHeader(header, peer_id) => {
-                self.receive_header(header, peer_id)
-            }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 let blocks_at_height = self
                     .client
@@ -612,8 +609,16 @@ impl ClientActor {
         provenance: Provenance,
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
+        // If we didn't produce the block and didn't request it, do basic validation
+        // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+        } else if provenance == Provenance::NONE {
+            // Don't care about challenge here since it will be handled when we actually process
+            // the block.
+            if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
+                self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            }
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
@@ -672,44 +677,6 @@ impl ClientActor {
                 }
             },
         }
-    }
-
-    fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
-        let hash = header.hash();
-        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, header.inner_lite.height, peer_info);
-
-        // Process block by chain, if it's valid header ask for the block.
-        let result = self.client.process_block_header(&header);
-
-        match result {
-            Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
-                // Block header is either invalid or arrived too early. We ignore it.
-                debug!(target: "client", "Epoch out of bound for header {}", e);
-                return NetworkClientResponses::NoResponse;
-            }
-            Err(ref e) if e.is_bad_data() => {
-                error!(target: "client", "Error on receival of header: {}", e);
-                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
-            }
-            // Some error that worth surfacing.
-            Err(ref e) if e.is_error() => {
-                match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {}
-                    _ => {
-                        error!(target: "client", "Error on receival of header: {}", e);
-                    }
-                }
-                return NetworkClientResponses::NoResponse;
-            }
-            // Got an error when trying to process the block header, but it's not due to
-            // invalid data or underlying error. Surface as fine.
-            Err(_) => return NetworkClientResponses::NoResponse,
-            _ => {}
-        }
-
-        // Succesfully processed a block header and can request the full block.
-        self.request_block_by_hash(header.hash(), peer_info);
-        NetworkClientResponses::NoResponse
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {

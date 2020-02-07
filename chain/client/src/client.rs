@@ -669,10 +669,7 @@ impl Client {
             self.collect_block_approval(&approval, false);
         } else {
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: self.chain.get_block_header(&parent_hash)?.clone(),
-                approval_message: Some(approval_message),
-            });
+            self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
 
         Ok(())
@@ -705,11 +702,6 @@ impl Client {
                     self.collect_block_approval(&approval, false);
                 }
             }
-
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: block.header.clone(),
-                approval_message: None,
-            });
         }
 
         if status.is_new_head() {
