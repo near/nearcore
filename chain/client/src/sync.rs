@@ -675,15 +675,20 @@ impl StateSync {
     fn get_epoch_start_sync_hash(
         &self,
         chain: &mut Chain,
-        sync_hash: CryptoHash,
+        sync_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let mut hash = sync_hash;
+        let mut header = chain.get_block_header(sync_hash)?;
+        let mut epoch_id = header.inner_lite.epoch_id.clone();
+        let mut hash = header.hash.clone();
+        let mut prev_hash = header.prev_hash.clone();
         loop {
-            let header = chain.get_block_header(&hash)?;
-            if header.inner_lite.next_epoch_id.0 == header.prev_hash {
+            header = chain.get_block_header(&prev_hash)?;
+            if epoch_id != header.inner_lite.epoch_id {
                 return Ok(hash);
             }
-            hash = header.prev_hash;
+            epoch_id = header.inner_lite.epoch_id.clone();
+            hash = header.hash.clone();
+            prev_hash = header.prev_hash.clone();
         }
     }
 
@@ -740,7 +745,7 @@ impl StateSync {
 
         // Downloading strategy starts here
         let mut new_shard_sync_download = shard_sync_download.clone();
-        let epoch_start_sync_hash = self.get_epoch_start_sync_hash(chain, sync_hash)?;
+        let epoch_start_sync_hash = self.get_epoch_start_sync_hash(chain, &sync_hash)?;
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
