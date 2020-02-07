@@ -19,7 +19,6 @@ from stat import ST_CTIME
 from multiprocessing import Process
 import tornado.ioloop
 import tornado.web
-import requests
 
 DEFAULT_TIMEOUT = 180
 
@@ -70,8 +69,8 @@ def run_test(outdir, test):
 
     print("[RUNNING] %s" % (' '.join(test)))
 
-    stdout = open(os.path.join(dir_name, 'stdout.txt'), 'w')
-    stderr = open(os.path.join(dir_name, 'stderr.txt'), 'w')
+    stdout = open(os.path.join(dir_name, 'stdout'), 'w')
+    stderr = open(os.path.join(dir_name, 'stderr'), 'w')
 
     env = os.environ.copy()
     env["RUST_BACKTRACE"] = "1"
@@ -142,26 +141,6 @@ def prettify_size(size):
     if size < 1024: return "<font color=darkred><b>%s</b></font>G" % size
 
 
-def gsutil_file_size(gsurl):
-    try:
-        output = subprocess.check_output(['gsutil', 'stat', gsurl])
-        lines = output.split('\n')
-        for l in lines:
-            if 'Content-Length:' in l:
-                size = int(l.split('Content-Length:')[-1].strip())
-    except:
-        size = -1
-    return size
-
-
-def filename_to_gsurl(filename):
-    return 'gs://log.nightly.neartest.com/%s' % filename
-
-
-def filename_to_download_url(filename):
-    return 'https://storage.cloud.google.com/log.nightly.neartest.com/%s' % filename
-
-
 def format_one_run(run_name, line):
     if line[0] == 'PASSED':
         clr = 'darkgreen'
@@ -176,25 +155,11 @@ def format_one_run(run_name, line):
     status = '<font color="%s">%s</font>' % (clr, line[0])
     test_type = '<b>%s</b>' % line[2]
 
+    stdout_size = os.path.getsize(get_stdout_path(run_name, line))
+    stderr_size = os.path.getsize(get_stderr_path(run_name, line))
+
     path_common = "%s/%s/%s" % (run_name, line[2], line[1])
-
-    try:
-        stdout_path = get_stdout_path(run_name, line)
-        stderr_path = get_stderr_path(run_name, line)
-        stdout_size = os.path.getsize(stdout_path)
-        stderr_size = os.path.getsize(stderr_path)
-        stdout_url = '/run/%s/stdout.txt' % path_common
-        stderr_url = '/run/%s/stderr.txt' % path_common
-    except FileNotFoundError:
-        # in gcloud storage
-        stdout_path = path_common + '/stdout.txt'
-        stderr_path = path_common + '/stderr.txt'
-        stdout_size = gsutil_file_size(filename_to_gsurl(stdout_path))
-        stderr_size = gsutil_file_size(filename_to_gsurl(stderr_path))
-        stdout_url = filename_to_download_url(stdout_path)
-        stderr_url = filename_to_download_url(stderr_path)
-
-    links = '<td><a href="%s">stdout (%s)</a></td><td><a href="%s">stderr (%s)</a></td>' % (stdout_url, prettify_size(stdout_size), stderr_url, prettify_size(stderr_size))
+    links = '<td><a href="/run/%s/stdout">stdout (%s)</a></td><td><a href=/run/%s/stderr>stderr (%s)</a></td>' % (path_common, prettify_size(stdout_size), path_common, prettify_size(stderr_size))
     if line[2] == 'basic':
         rest = ''
         links += '<td></td>'
@@ -207,11 +172,7 @@ def format_one_run(run_name, line):
 
         for i in range(100):
             if os.path.exists(os.path.join(run_name, line[2], line[1], "test%s_finished" % i)):
-                if os.path.exists(os.path.join(run_name, line[2], line[1], "test%s_finished" % i, 'stderr')):                    
-                    links += ' <a href="/run/%s/pytest/err/%s">log%s</a>' % (path_common, i, i)
-                else:
-                    pytest_url = filename_to_download_url('%s/test%s_finished/stderr' % (path_common, i))
-                    links += ' <a href="%s">log%s</a>' % (pytest_url, i)
+                links += ' <a href="/run/%s/pytest/err/%s">log%s</a>' % (path_common, i, i)
             else:
                 break
 
