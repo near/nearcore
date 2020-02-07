@@ -17,6 +17,7 @@ use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
     Provenance, RuntimeAdapter, Tip,
 };
+use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
@@ -34,7 +35,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
-use crate::{ClientConfig, SyncStatus};
+use crate::SyncStatus;
 
 pub struct Client {
     pub config: ClientConfig,

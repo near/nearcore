@@ -3,8 +3,9 @@ use std::sync::Arc;
 use actix::Addr;
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
+use near::{config::GenesisConfigExt, load_test_config, start_with_config, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};

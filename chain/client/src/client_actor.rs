@@ -15,6 +15,7 @@ use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
     RuntimeAdapter,
 };
+use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
@@ -33,8 +34,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{highest_height_peer, StateSyncResult};
 use crate::types::{
-    ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus,
-    Status, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
 

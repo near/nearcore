@@ -994,6 +994,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "easy-ext"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "quote 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ed25519-dalek"
 version = "1.0.0-pre.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1309,6 +1318,7 @@ dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.13",
+ "near-chain-configs 0.1.0",
  "near-crypto 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
@@ -1328,6 +1338,7 @@ dependencies = [
  "indicatif 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.13",
  "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
  "near-epoch-manager 0.0.1",
@@ -1337,7 +1348,6 @@ dependencies = [
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "near-telemetry 0.1.0",
- "node-runtime 0.0.1",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1932,12 +1942,14 @@ dependencies = [
  "chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "easy-ext 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "git-version 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
  "near-chunks 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
@@ -1946,6 +1958,7 @@ dependencies = [
  "near-network 0.1.0",
  "near-pool 0.1.0",
  "near-primitives 0.1.0",
+ "near-runtime-configs 0.1.0",
  "near-store 0.1.0",
  "near-telemetry 0.1.0",
  "node-runtime 0.0.1",
@@ -1972,6 +1985,7 @@ dependencies = [
  "futures 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-chain-configs 0.1.0",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
  "near-pool 0.1.0",
@@ -1981,6 +1995,19 @@ dependencies = [
  "rocksdb 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "near-chain-configs"
+version = "0.1.0"
+dependencies = [
+ "chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-crypto 0.1.0",
+ "near-primitives 0.1.0",
+ "near-runtime-configs 0.1.0",
+ "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smart-default 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2019,6 +2046,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.13",
  "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
  "near-chunks 0.1.0",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
@@ -2148,6 +2176,7 @@ dependencies = [
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
@@ -2224,6 +2253,16 @@ dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "near-runtime-configs"
+version = "0.1.0"
+dependencies = [
+ "near-primitives 0.1.0",
+ "near-runtime-fees 0.4.4",
+ "near-vm-logic 0.4.4",
+ "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2327,6 +2366,7 @@ dependencies = [
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.13",
+ "near-chain-configs 0.1.0",
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-network 0.1.0",
@@ -2378,6 +2418,7 @@ dependencies = [
  "near-crypto 0.1.0",
  "near-metrics 0.1.0",
  "near-primitives 0.1.0",
+ "near-runtime-configs 0.1.0",
  "near-runtime-fees 0.4.4",
  "near-store 0.1.0",
  "near-vm-errors 0.4.4",
@@ -3328,6 +3369,16 @@ version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "smart-default"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "proc-macro2 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quote 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "socket2"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3496,6 +3547,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.4.13",
  "near-chain 0.1.0",
+ "near-chain-configs 0.1.0",
  "near-client 0.1.0",
  "near-crypto 0.1.0",
  "near-jsonrpc 0.1.0",
@@ -4257,6 +4309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum dtoa 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)" = "ea57b42383d091c85abcc2706240b94ab2a8fa1fc81c10ff23c4de06e2a90b5e"
 "checksum dynasm 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "42a814e1edeb85dd2a3c6fc0d6bf76d02ca5695d438c70ecee3d90774f3259c5"
 "checksum dynasmrt 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8a393aaeb4441a48bcf47b5b6155971f82cc1eb77e22855403ccc0415ac8328d"
+"checksum easy-ext 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ed79d40452cc72aa676b63ddde7f415865b412984738a1ba11096615ab0b262c"
 "checksum ed25519-dalek 1.0.0-pre.3 (registry+https://github.com/rust-lang/crates.io-index)" = "978710b352437433c97b2bff193f2fb1dfd58a093f863dd95e225a19baa599a2"
 "checksum either 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "bb1f6b1ce1c140482ea30ddd3335fc0024ac7ee112895426e0a629a6c20adfe3"
 "checksum elastic-array 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0d63720ea2bc2e1b79f7aa044d9dc0b825f9ccb6930b32120f8fb9e873aa84bc"
@@ -4458,6 +4511,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum slab 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 "checksum smallvec 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)" = "ab606a9c5e214920bb66c458cd7be8ef094f813f20fe77a54cc7dbfff220d4b7"
 "checksum smallvec 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "44e59e0c9fa00817912ae6e4e6e3c4fe04455e75699d06eedc7d85917ed8e8f4"
+"checksum smart-default 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "133659a15339456eeeb07572eb02a91c91e9815e9cbc89566944d2c8d3efdbf6"
 "checksum socket2 0.3.11 (registry+https://github.com/rust-lang/crates.io-index)" = "e8b74de517221a2cb01a53349cf54182acdc31a074727d3079068448c0676d85"
 "checksum sourcefile 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4bf77cb82ba8453b42b6ae1d692e4cdc92f9a47beaf89a847c8be83f4e328ad3"
 "checksum spin 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
