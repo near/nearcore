@@ -1222,7 +1222,9 @@ mod test {
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, CreateAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId};
-    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+    use near_primitives::validator_signer::{
+        EmptyValidatorSigner, InMemoryValidatorSigner, ValidatorSigner,
+    };
     use near_primitives::views::{AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo};
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
@@ -1380,6 +1382,45 @@ mod test {
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
             let mut new_receipts = HashMap::new();
+            {
+                let prev_hash = hash(&vec![self.head.height as u8]);
+                // Crutch. Forks manager only needs to read parent block
+                let dummy_block_header = BlockHeader::new(
+                    self.head.height + 1,
+                    self.head.last_block_hash,
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    &EmptyValidatorSigner::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                );
+                let mut store_update = self.runtime.store.store_update();
+                store_update.set_ser(
+                    near_store::DBCol::ColBlockHeader,
+                    &(new_hash.0).0[..],
+                    &dummy_block_header,
+                );
+                store_update.commit();
+            }
             for i in 0..num_shards {
                 let (state_root, proposals, receipts) = self.runtime.update(
                     &self.state_roots[i as usize],

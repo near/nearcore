@@ -15,7 +15,11 @@ impl ForksManager {
     pub fn get_block_parent(&self, block_hash: CryptoHash) -> Option<CryptoHash> {
         let block_header = self.store.get_ser::<BlockHeader>(ColBlockHeader, &(block_hash.0).0[..]);
         match block_header {
-            Ok(val) => val.map(|header| header.prev_hash),
+            Ok(Some(header)) => Some(header.prev_hash),
+            Ok(None) => {
+                error!(target: "client", "ForksManager: orphan block?! {:?}", block_hash);
+                None
+            }
             Err(e) => {
                 error!(target: "client", "ForksManager: error getting block parent {:?}", e);
                 panic!("error getting block parent");
@@ -42,10 +46,10 @@ impl ForksManager {
             hash2 = match self.get_block_parent(hash2) {
                 Some(val) => val,
                 None => {
-                    //                    panic!("WTF ORPHAN??? {:?} {:?}", height2, hash2)
+                    panic!("WTF ORPHAN??? {:?} {:?}", height2, hash2)
                     // runtime TestEnv writes states but does not bother writing any blocks.
                     // TODO fix TestEnv
-                    return true;
+                    //                    return true;
                 }
             }
         }
