@@ -196,7 +196,6 @@ impl Peer {
         // Record block requests in tracker.
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
-            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
@@ -389,13 +388,6 @@ impl Peer {
                     max(self.chain_info.height, block.header.inner_lite.height);
                 self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
-            }
-            PeerMessage::BlockHeaderAnnounce(header) => {
-                let block_hash = header.hash();
-                self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, header.inner_lite.height);
-                self.chain_info.score = max(self.chain_info.score, header.inner_rest.score);
-                NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
