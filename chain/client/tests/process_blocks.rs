@@ -267,7 +267,8 @@ fn produce_block_with_approvals() {
                     // block
                     if block.header.num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
-                    } else {
+                    } else if block.header.inner_lite.height == 10 {
+                        println!("{}", block.header.inner_lite.height);
                         println!(
                             "{:?}",
                             block
@@ -284,6 +285,7 @@ fn produce_block_with_approvals() {
                             validators.len(),
                             block.header.inner_lite.height
                         );
+
                         assert!(false);
                     }
                 }
@@ -339,7 +341,7 @@ fn produce_block_with_approvals() {
     .unwrap();
 }
 
-/// Sends 2 invalid blocks followed by valid block, and checks that client announces only valid block.
+/// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 #[test]
 fn invalid_blocks() {
     init_test_logger();
@@ -367,7 +369,7 @@ fn invalid_blocks() {
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
-            // Send invalid state root.
+            // Send block with invalid chunk mask
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -391,39 +393,15 @@ fn invalid_blocks() {
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
             );
-            block.header.inner_lite.prev_state_root = hash(&[1]);
+            block.header.inner_rest.chunk_mask = vec![];
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
                 false,
             ));
-            // Send block that builds on invalid one.
-            let block2 = Block::produce(
-                &block.header.clone().into(),
-                block.header.inner_lite.height + 1,
-                block.chunks.clone(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id.clone())
-                },
-                vec![],
-                0,
-                0,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                0.into(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                last_block.header.next_bp_hash,
-            );
-            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
+
             // Send proper block.
-            let block3 = Block::produce(
+            let block2 = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
@@ -446,7 +424,7 @@ fn invalid_blocks() {
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
             );
-            client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
+            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);

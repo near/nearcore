@@ -617,7 +617,7 @@ impl ClientActor {
             // Don't care about challenge here since it will be handled when we actually process
             // the block.
             if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
-                self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+                self.client.rebroadcast_block(block.clone());
             }
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
