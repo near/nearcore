@@ -38,6 +38,8 @@ use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
 
+const NUM_REBROADCAST_BLOCKS: usize = 30;
+
 pub struct Client {
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
@@ -64,6 +66,8 @@ pub struct Client {
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
     pub rs: ReedSolomon,
+    /// Blocks that have been re-broadcast recently. They should not be broadcast again.
+    rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
 }
 
 impl Client {
@@ -133,6 +137,7 @@ impl Client {
             state_sync,
             challenges: Default::default(),
             rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
+            rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
         })
     }
 
@@ -587,6 +592,13 @@ impl Client {
         (unwrapped_accepted_blocks, result)
     }
 
+    pub fn rebroadcast_block(&mut self, block: Block) {
+        if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.rebroadcasted_blocks.cache_set(block.hash(), ());
+        }
+    }
+
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
@@ -669,10 +681,7 @@ impl Client {
             self.collect_block_approval(&approval, false);
         } else {
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: self.chain.get_block_header(&parent_hash)?.clone(),
-                approval_message: Some(approval_message),
-            });
+            self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
 
         Ok(())
@@ -706,10 +715,7 @@ impl Client {
                 }
             }
 
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: block.header.clone(),
-                approval_message: None,
-            });
+            self.rebroadcast_block(block.clone());
         }
 
         if status.is_new_head() {

@@ -396,7 +396,6 @@ pub enum PeerMessage {
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    BlockHeaderAnnounce(BlockHeader),
 
     BlockRequest(CryptoHash),
     Block(Block),
@@ -425,7 +424,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
@@ -512,13 +510,6 @@ impl PeerMessage {
             PeerMessage::BlockHeaders(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockHeaderAnnounce(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_BYTES,
-                    size as i64,
-                );
             }
             PeerMessage::BlockRequest(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
@@ -653,7 +644,6 @@ impl PeerMessage {
     pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
-            | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
@@ -951,11 +941,9 @@ pub enum NetworkRequests {
     Block {
         block: Block,
     },
-    /// Sends block header announcement, with possibly attaching approval for this block if
-    /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval_message: Option<ApprovalMessage>,
+    /// Sends approval.
+    Approval {
+        approval_message: ApprovalMessage,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -1130,8 +1118,6 @@ pub struct StateResponseInfo {
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
-    /// Received block header.
-    BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
