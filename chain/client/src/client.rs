@@ -212,20 +212,20 @@ impl Client {
     /// Check that we are next block producer.
     fn is_me_block_producer(
         &self,
-        block_producer: &BlockProducer,
+        account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> bool {
         #[cfg(feature = "adversarial")]
         {
             if self.adv_produce_blocks_only_valid {
-                return &block_producer.account_id == next_block_proposer;
+                return account_id == next_block_proposer;
             }
             if self.adv_produce_blocks {
                 return true;
             }
         }
 
-        &block_producer.account_id == next_block_proposer
+        account_id == next_block_proposer
     }
 
     fn should_reschedule_block(
@@ -235,14 +235,14 @@ impl Client {
         prev_prev_hash: &CryptoHash,
         next_height: BlockHeight,
         known_height: BlockHeight,
-        block_producer: &BlockProducer,
+        account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
         if self.known_block_height(next_height, known_height) {
             return Ok(true);
         }
 
-        if !self.is_me_block_producer(&block_producer, &next_block_proposer) {
+        if !self.is_me_block_producer(account_id, &next_block_proposer) {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(true);
         }
@@ -310,7 +310,7 @@ impl Client {
             &prev_prev_hash,
             next_height,
             known_height,
-            &block_producer,
+            &validator_signer.validator_id(),
             &next_block_proposer,
         )? {
             return Ok(None);
