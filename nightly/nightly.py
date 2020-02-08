@@ -161,13 +161,13 @@ def format_one_run(run_name, line):
     path_common = "%s/%s/%s" % (run_name, line[2], line[1])
     links = '<td><a href="/run/%s/stdout">stdout (%s)</a></td><td><a href=/run/%s/stderr>stderr (%s)</a></td>' % (path_common, prettify_size(stdout_size), path_common, prettify_size(stderr_size))
     if line[2] == 'basic':
-        rest = ''
+        rest = '<a href="/test/basic/basic">basic</a>'
         links += '<td></td>'
     elif line[2] == 'expensive':
-        rest = '<font color="grey">%s</font> ' % ' '.join(line[3:-1]) + '%s' % line[-1]
+        rest = '<font color="grey">%s</font> ' % ' '.join(line[3:-1]) + '<a href="/test/expensive/%s">%s</a>' % (line[1], line[-1])
         links += '<td></td>'
     elif line[2] == 'pytest':
-        rest = '%s' % line[3] + ' <font color="grey">%s</font>' % ' '.join(line[4:])
+        rest = '<a href="/test/pytest/%s">%s</a>' % (line[1], line[3]) + ' <font color="grey">%s</font>' % ' '.join(line[4:])
         links += '<td>'
 
         for i in range(100):
@@ -180,7 +180,7 @@ def format_one_run(run_name, line):
 
     else:
         assert False, test_type
-    return "<tr><td>[%s]</td>%s<td>%s %s</td>\n" % (status, links, test_type, rest)
+    return "<tr><td>[%s]</td>%s<td>%s %s</td></tr>" % (status, links, test_type, rest)
 
 
 class ShowRunsListHandler(tornado.web.RequestHandler):
@@ -241,10 +241,33 @@ class ShowPytestLogHandler(ServeFileHandler):
         self.serve([run_name, test_type, test_name, 'test%s_finished' % ordinal, 'std%s' % kind])
 
 
+class ShowTestHandler(tornado.web.RequestHandler):
+    def get(self, test_type, test_name):
+        ret = '<table>'
+        subfolders = [f.path for f in os.scandir('.') if f.is_dir()]
+        subfolders = reversed(sorted([(os.stat(x), x) for x in subfolders]))
+        subfolders = [x[1] for x in subfolders]
+        for subfolder in subfolders:
+            run_name = os.path.split(subfolder)[-1]
+            if '.' not in run_name:
+                test_log = os.path.join(run_name, test_type, 'log')
+                if os.path.exists(test_log):
+                    with open(test_log) as f:
+                        for line in f.readlines():
+                            if test_name in line:
+                                testline = format_one_run(run_name, line.split())
+                                testline = testline.replace('<tr>', '<tr><td><a href="/run/%s">%s</a></td>' % (run_name, run_name))
+                                ret += testline
+                                break
+        ret += '</table>'
+        self.finish(ret)
+
+
 def make_app():
     return tornado.web.Application([
         (r"/", ShowRunsListHandler),
         (r"/run/([^/]+)", ShowRunHandler),
+        (r"/test/([^/]+)/([^/]+)", ShowTestHandler),
         (r"/run/([^/]+)/([^/]+)/([^/]+)/stdout", ShowStdOutHandler),
         (r"/run/([^/]+)/([^/]+)/([^/]+)/stderr", ShowStdErrHandler),
         (r"/run/([^/]+)/([^/]+)/([^/]+)/pytest/([^/]+)/([^/]+)", ShowPytestLogHandler),
