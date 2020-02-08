@@ -1,6 +1,11 @@
 while true
 do
         git pull --ff-only origin staging
+        n=$(ls ~/testruns | wc -l)
+        if (( $n % 100 == 0 ))
+        then
+                cd .. && cargo clean && cd nightly
+        fi
         cd .. && cargo build --all --tests && cd nightly
         timestamp=$(date +%y%m%d_%H%M%S)
         output_path=~/testruns/$(git rev-parse HEAD)_${timestamp}
