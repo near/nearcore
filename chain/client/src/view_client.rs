@@ -15,6 +15,8 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
 };
 use near_chain_configs::ClientConfig;
+#[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{AdvDisableHeaderSync, AdvSetSyncInfo};
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
@@ -477,16 +479,20 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
-            NetworkViewClientMessages::AdvSetSyncInfo(height, score) => {
-                info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
-                self.adv_sync_info = Some((height, score));
-                return NetworkViewClientResponses::NoResponse;
-            }
-            #[cfg(feature = "adversarial")]
-            NetworkViewClientMessages::AdvDisableHeaderSync => {
-                info!(target: "adversary", "Blocking header sync");
-                self.adv_disable_header_sync = true;
-                return NetworkViewClientResponses::NoResponse;
+            NetworkViewClientMessages::Adversarial(adversarial_msg) => {
+                return match adversarial_msg {
+                    AdvSetSyncInfo(height, score) => {
+                        info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
+                        self.adv_sync_info = Some((height, score));
+                        NetworkViewClientResponses::NoResponse
+                    }
+                    AdvDisableHeaderSync => {
+                        info!(target: "adversary", "Blocking header sync");
+                        self.adv_disable_header_sync = true;
+                        NetworkViewClientResponses::NoResponse
+                    }
+                    _ => panic!("invalid adversary message"),
+                }
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {

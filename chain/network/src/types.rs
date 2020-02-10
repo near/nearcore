@@ -1112,17 +1112,21 @@ pub struct StateResponseInfo {
     pub state_response: ShardStateSyncResponse,
 }
 
+#[cfg(feature = "adversarial")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvDisableHeaderSync,
+    AdvGetSavedBlocks,
+    AdvSetSyncInfo(u64, u64),
+}
+
 #[derive(Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
-    /// Adversarial controls
     #[cfg(feature = "adversarial")]
-    AdvProduceBlocks(u64, bool),
-    #[cfg(feature = "adversarial")]
-    AdvDisableHeaderSync,
-    #[cfg(feature = "adversarial")]
-    AdvGetSavedBlocks,
+    Adversarial(NetworkAdversarialMessage),
 
     /// Received transaction.
     Transaction(SignedTransaction),
@@ -1184,9 +1188,7 @@ impl Message for NetworkClientMessages {
 
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "adversarial")]
-    AdvDisableHeaderSync,
-    #[cfg(feature = "adversarial")]
-    AdvSetSyncInfo(u64, u64),
+    Adversarial(NetworkAdversarialMessage),
 
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },

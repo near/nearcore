@@ -17,6 +17,10 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+#[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{
+    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks,
+};
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
@@ -158,53 +162,59 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
             #[cfg(feature = "adversarial")]
-            NetworkClientMessages::AdvDisableHeaderSync => {
-                info!(target: "adversary", "Blocking header sync");
-                self.adv_disable_header_sync = true;
-                return NetworkClientResponses::NoResponse;
-            }
-            #[cfg(feature = "adversarial")]
-            NetworkClientMessages::AdvProduceBlocks(num_blocks, only_valid) => {
-                info!(target: "adversary", "Producing {} blocks", num_blocks);
-                self.client.adv_produce_blocks = true;
-                self.client.adv_produce_blocks_only_valid = only_valid;
-                let start_height =
-                    self.client.chain.mut_store().get_latest_known().unwrap().height + 1;
-                let mut blocks_produced = 0;
-                for height in start_height.. {
-                    let block =
-                        self.client.produce_block(height).expect("block should be produced");
-                    if only_valid && block == None {
-                        continue;
+            NetworkClientMessages::Adversarial(adversarial_msg) => {
+                return match adversarial_msg {
+                    AdvDisableHeaderSync => {
+                        info!(target: "adversary", "Blocking header sync");
+                        self.adv_disable_header_sync = true;
+                        NetworkClientResponses::NoResponse
                     }
-                    let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                    self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-                    let (accepted_blocks, _) =
-                        self.client.process_block(block, Provenance::PRODUCED);
-                    for accepted_block in accepted_blocks {
-                        self.client.on_block_accepted(
-                            accepted_block.hash,
-                            accepted_block.status,
-                            accepted_block.provenance,
-                        );
+                    AdvProduceBlocks(num_blocks, only_valid) => {
+                        info!(target: "adversary", "Producing {} blocks", num_blocks);
+                        self.client.adv_produce_blocks = true;
+                        self.client.adv_produce_blocks_only_valid = only_valid;
+                        let start_height =
+                            self.client.chain.mut_store().get_latest_known().unwrap().height + 1;
+                        let mut blocks_produced = 0;
+                        for height in start_height.. {
+                            let block = self
+                                .client
+                                .produce_block(height)
+                                .expect("block should be produced");
+                            if only_valid && block == None {
+                                continue;
+                            }
+                            let block = block.expect("block should exist after produced");
+                            info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
+                            self.network_adapter
+                                .do_send(NetworkRequests::Block { block: block.clone() });
+                            let (accepted_blocks, _) =
+                                self.client.process_block(block, Provenance::PRODUCED);
+                            for accepted_block in accepted_blocks {
+                                self.client.on_block_accepted(
+                                    accepted_block.hash,
+                                    accepted_block.status,
+                                    accepted_block.provenance,
+                                );
+                            }
+                            blocks_produced += 1;
+                            if blocks_produced == num_blocks {
+                                break;
+                            }
+                        }
+                        NetworkClientResponses::NoResponse
                     }
-                    blocks_produced += 1;
-                    if blocks_produced == num_blocks {
-                        break;
+                    AdvGetSavedBlocks => {
+                        info!(target: "adversary", "Requested number of saved blocks");
+                        let store = self.client.chain.store().store();
+                        let mut num_blocks = 0;
+                        for _ in store.iter(ColBlock) {
+                            num_blocks += 1;
+                        }
+                        NetworkClientResponses::AdvU64(num_blocks)
                     }
+                    _ => panic!("invalid adversary message"),
                 }
-                return NetworkClientResponses::NoResponse;
-            }
-            #[cfg(feature = "adversarial")]
-            NetworkClientMessages::AdvGetSavedBlocks => {
-                info!(target: "adversary", "Requested number of saved blocks");
-                let store = self.client.chain.store().store();
-                let mut num_blocks = 0;
-                for _ in store.iter(ColBlock) {
-                    num_blocks += 1;
-                }
-                return NetworkClientResponses::AdvU64(num_blocks);
             }
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::Block(block, peer_id, was_requested) => {

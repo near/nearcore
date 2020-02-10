@@ -27,6 +27,10 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::{message, ChunkId};
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{
+    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks, AdvSetSyncInfo,
+};
+#[cfg(feature = "adversarial")]
 use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
@@ -220,7 +224,7 @@ impl JsonRpcHandler {
         let (height, score) = parse_params::<(u64, u64)>(params)?;
         actix::spawn(
             self.view_client_addr
-                .send(NetworkViewClientMessages::AdvSetSyncInfo(height, score))
+                .send(NetworkViewClientMessages::Adversarial(AdvSetSyncInfo(height, score)))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -229,10 +233,14 @@ impl JsonRpcHandler {
     #[cfg(feature = "adversarial")]
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
-            self.client_addr.send(NetworkClientMessages::AdvDisableHeaderSync).map(|_| ()),
+            self.client_addr
+                .send(NetworkClientMessages::Adversarial(AdvDisableHeaderSync))
+                .map(|_| ()),
         );
         actix::spawn(
-            self.view_client_addr.send(NetworkViewClientMessages::AdvDisableHeaderSync).map(|_| ()),
+            self.view_client_addr
+                .send(NetworkViewClientMessages::Adversarial(AdvDisableHeaderSync))
+                .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
     }
@@ -242,7 +250,7 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::AdvProduceBlocks(num_blocks, only_valid))
+                .send(NetworkClientMessages::Adversarial(AdvProduceBlocks(num_blocks, only_valid)))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -250,7 +258,7 @@ impl JsonRpcHandler {
 
     #[cfg(feature = "adversarial")]
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        match self.client_addr.send(NetworkClientMessages::AdvGetSavedBlocks).await {
+        match self.client_addr.send(NetworkClientMessages::Adversarial(AdvGetSavedBlocks)).await {
             Ok(result) => match result {
                 NetworkClientResponses::AdvU64(value) => jsonify(Ok(Ok(value))),
                 _ => Err(RpcError::server_error::<String>(None)),
