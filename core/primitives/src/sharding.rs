@@ -1,13 +1,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near_crypto::{Signature, Signer};
+use near_crypto::Signature;
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot, ValidatorStake};
+use crate::validator_signer::ValidatorSigner;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, Eq, PartialEq, Clone, Debug, Default,
@@ -106,7 +107,7 @@ impl ShardChunkHeader {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -125,8 +126,7 @@ impl ShardChunkHeader {
             tx_root,
             validator_proposals,
         };
-        let hash = ChunkHash(hash(&inner.try_to_vec().expect("Failed to serialize")));
-        let signature = signer.sign(hash.as_ref());
+        let (hash, signature) = signer.sign_chunk_header_inner(&inner);
         Self { inner, height_included: 0, signature, hash }
     }
 }
@@ -226,7 +226,7 @@ impl EncodedShardChunk {
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
 
@@ -293,7 +293,7 @@ impl EncodedShardChunk {
 
         rs: &ReedSolomon,
 
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(rs).unwrap();

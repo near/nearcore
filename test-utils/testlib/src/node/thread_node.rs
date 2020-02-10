@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near::{start_with_config, GenesisConfig, NearConfig};
+use near::{start_with_config, NearConfig};
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
@@ -34,8 +35,8 @@ impl Node for ThreadNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        match &self.config.block_producer {
-            Some(bp) => Some(bp.account_id.clone()),
+        match &self.config.validator_signer {
+            Some(vs) => Some(vs.validator_id().clone()),
             None => None,
         }
     }
@@ -84,9 +85,9 @@ impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
             KeyType::ED25519,
-            &config.block_producer.clone().unwrap().account_id,
+            &config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         ThreadNode {
             config,
