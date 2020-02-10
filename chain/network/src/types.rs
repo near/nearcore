@@ -1112,10 +1112,22 @@ pub struct StateResponseInfo {
     pub state_response: ShardStateSyncResponse,
 }
 
+#[cfg(feature = "adversarial")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvDisableHeaderSync,
+    AdvGetSavedBlocks,
+    AdvSetSyncInfo(u64, u64),
+}
+
 #[derive(Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Received transaction.
     Transaction(SignedTransaction),
     /// Received block, possibly requested.
@@ -1142,6 +1154,10 @@ pub enum NetworkClientMessages {
 #[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "adversarial")]
+    AdvU64(u64),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1150,7 +1166,7 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
 
@@ -1171,6 +1187,9 @@ impl Message for NetworkClientMessages {
 }
 
 pub enum NetworkViewClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
@@ -1221,7 +1240,7 @@ pub enum NetworkViewClientResponses {
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,

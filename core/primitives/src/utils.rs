@@ -5,6 +5,8 @@ use std::fmt;
 use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use serde;
 
@@ -13,8 +15,6 @@ use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, NumSeats, NumShards};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
