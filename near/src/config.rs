@@ -137,6 +137,8 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+pub const STATE_FILE: &str = "state";
+pub const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
@@ -239,6 +241,8 @@ impl Default for Consensus {
 pub struct Config {
     pub genesis_file: String,
     pub validator_key_file: String,
+    pub state_file: String,
+    pub state_roots_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
     pub telemetry: TelemetryConfig,
@@ -253,6 +257,8 @@ impl Default for Config {
         Config {
             genesis_file: GENESIS_CONFIG_FILENAME.to_string(),
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
+            state_file: STATE_FILE.to_string(),
+            state_roots_file: GENESIS_ROOTS_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
             telemetry: TelemetryConfig::default(),
