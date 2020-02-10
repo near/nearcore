@@ -131,14 +131,6 @@ impl FlatDBChanges {
 
         let key_prefix = self.shard_id.try_to_vec().expect("borsh cannot fail");
 
-        //        for item in storage.iter_prefix_ser::<Option<ValueRef>>(ColFlatState, &key_prefix) {
-        //            let (key_tuple, value) = item.expect("storage internal error"); //.map_err(|_| StorageError::StorageInternalError)?;
-        //            let db_key = key_tuple.try_to_vec().expect("borsh cannot fail");
-        //            store_update
-        //                .set_ser::<Option<ValueRef>>(ColFlatState, &db_key, &None)
-        //                .expect("borsh cannot fail");
-        //        }
-
         for item in new_trie.iter(&trie_changes.get_new_root()).expect("trie was validated") {
             let (key, value) = item.expect("trie was validated");
             let key_tuple =

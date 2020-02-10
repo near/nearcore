@@ -1032,6 +1032,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .expect("serializer should not fail")
     }
 
+    #[must_use]
     fn validate_state_part(
         &self,
         state_root: &StateRoot,
@@ -1340,6 +1341,15 @@ mod test {
             let (_store, store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
+
+            let mut store_update = runtime.store.store_update();
+            store_update.set_ser(
+                near_store::DBCol::ColBlockHeader,
+                &(genesis_hash.0).0[..],
+                &Self::create_dummy_block_header(0, Default::default()),
+            );
+            store_update.commit();
+
             runtime
                 .add_validator_proposals(
                     CryptoHash::default(),
@@ -1370,6 +1380,38 @@ mod test {
             }
         }
 
+        // Crutch. Forks manager only needs to read height and prev_hash
+        fn create_dummy_block_header(height: BlockHeight, prev_hash: CryptoHash) -> BlockHeader {
+            BlockHeader::new(
+                height,
+                prev_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                &EmptyValidatorSigner::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
+        }
+
         pub fn step(
             &mut self,
             transactions: Vec<Vec<SignedTransaction>>,
@@ -1384,40 +1426,14 @@ mod test {
             let mut new_receipts = HashMap::new();
             {
                 let prev_hash = hash(&vec![self.head.height as u8]);
-                // Crutch. Forks manager only needs to read parent block
-                let dummy_block_header = BlockHeader::new(
-                    self.head.height + 1,
-                    self.head.last_block_hash,
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    &EmptyValidatorSigner::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                );
                 let mut store_update = self.runtime.store.store_update();
                 store_update.set_ser(
                     near_store::DBCol::ColBlockHeader,
                     &(new_hash.0).0[..],
-                    &dummy_block_header,
+                    &Self::create_dummy_block_header(
+                        self.head.height + 1,
+                        self.head.last_block_hash,
+                    ),
                 );
                 store_update.commit();
             }
@@ -1496,6 +1512,36 @@ mod test {
             let per_epoch_per_validator_reward =
                 (per_epoch_total_reward - per_epoch_protocol_treasury) / num_validators as u128;
             (per_epoch_per_validator_reward, per_epoch_protocol_treasury)
+        }
+
+        pub fn state_sync_from(&self, env: &Self) {
+            let state_part = env.runtime.obtain_state_part(&env.state_roots[0], 0, 1);
+            assert!(!self.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
+            assert!(self.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part));
+            self.runtime
+                .confirm_state(
+                    0,
+                    env.head.last_block_hash,
+                    env.head.prev_block_hash,
+                    env.head.height,
+                    &env.state_roots[0],
+                    &vec![state_part],
+                )
+                .unwrap();
+            let mut store_update = self.runtime.store.store_update();
+            store_update.set_ser(
+                near_store::DBCol::ColBlockHeader,
+                &(env.head.last_block_hash.0).0[..],
+                &Self::create_dummy_block_header(env.head.height, env.head.prev_block_hash),
+            );
+
+            // Crutch. Correct way would be to get all block headers but just do this.
+            store_update.set_ser(
+                near_store::DBCol::ColBlockHeader,
+                &(env.head.prev_block_hash.0).0[..],
+                &Self::create_dummy_block_header(env.head.height - 1, Default::default()),
+            );
+            store_update.commit();
         }
     }
 
@@ -1919,19 +1965,7 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         root_node_wrong.data = vec![123];
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
-        new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env
-            .runtime
-            .confirm_state(
-                0,
-                Default::default(),
-                Default::default(),
-                0,
-                &env.state_roots[0],
-                &vec![state_part],
-            )
-            .unwrap();
+        new_env.state_sync_from(&env);
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);

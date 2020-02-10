@@ -60,10 +60,8 @@ impl ForksManager {
             hash2 = match self.get_block_parent(hash2) {
                 Some(val) => val,
                 None => {
-                    panic!("WTF ORPHAN??? {:?} {:?}", height2, hash2)
-                    // runtime TestEnv writes states but does not bother writing any blocks.
-                    // TODO fix TestEnv
-                    //                    return true;
+                    debug_assert!(false, "Found an orphan ?! {:?} {:?}", height2, hash2);
+                    return false;
                 }
             };
             height2 = self.get_block_height(hash2).expect("Orphan ?!");
