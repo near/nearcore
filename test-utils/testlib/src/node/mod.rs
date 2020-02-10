@@ -144,7 +144,7 @@ fn near_configs_to_node_configs(
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
     let (configs, validator_signers, network_signers, genesis_config) =
-        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true);
+        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true, false);
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis_config)
 }
 
@@ -153,7 +153,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
     let code = to_base64(&fs::read(path).unwrap());
     let (configs, validator_signers, network_signers, mut genesis_config) =
-        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
+        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
     genesis_config.gas_price_adjustment_rate = 0;
     for seed in seeds {
         genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
