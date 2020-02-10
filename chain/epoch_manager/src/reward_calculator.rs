@@ -1,3 +1,4 @@
+use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
@@ -39,7 +40,6 @@ impl RewardCalculator {
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
-        println!("validator stake: {:?}", validator_stake);
         for (account_id, stats) in validator_block_chunk_stats {
             let reward = if stats.block_stats.expected == 0 || stats.chunk_stats.expected == 0 {
                 0
@@ -48,12 +48,15 @@ impl RewardCalculator {
                     .get(&account_id)
                     .expect(&format!("{} is not a validator", account_id));
                 // Online ratio is an average of block produced / expected and chunk produced / expected.
-                epoch_validator_reward
-                    * (stats.block_stats.produced as u128 * stats.chunk_stats.expected as u128
-                        + stats.chunk_stats.produced as u128 * stats.block_stats.expected as u128)
-                    / (stats.block_stats.expected as u128 * stats.chunk_stats.expected as u128 * 2)
-                    * stake
-                    / total_stake
+                (U256::from(epoch_validator_reward)
+                    * U256::from(
+                        stats.block_stats.produced * stats.chunk_stats.expected
+                            + stats.chunk_stats.produced * stats.block_stats.expected,
+                    )
+                    / U256::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
+                    * U256::from(stake)
+                    / U256::from(total_stake))
+                .as_u128()
             };
             res.insert(account_id, reward);
         }
