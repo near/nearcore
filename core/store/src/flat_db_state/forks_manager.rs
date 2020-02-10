@@ -12,6 +12,21 @@ pub struct ForksManager {
 }
 
 impl ForksManager {
+    pub fn get_block_height(&self, block_hash: CryptoHash) -> Option<BlockHeight> {
+        let block_header = self.store.get_ser::<BlockHeader>(ColBlockHeader, &(block_hash.0).0[..]);
+        match block_header {
+            Ok(Some(header)) => Some(header.inner_lite.height),
+            Ok(None) => {
+                error!(target: "client", "ForksManager: orphan block?! {:?}", block_hash);
+                None
+            }
+            Err(e) => {
+                error!(target: "client", "ForksManager: error getting block parent {:?}", e);
+                panic!("error getting block parent");
+            }
+        }
+    }
+
     pub fn get_block_parent(&self, block_hash: CryptoHash) -> Option<CryptoHash> {
         let block_header = self.store.get_ser::<BlockHeader>(ColBlockHeader, &(block_hash.0).0[..]);
         match block_header {
@@ -42,7 +57,6 @@ impl ForksManager {
             return true;
         }
         while height1 < height2 {
-            height2 -= 1;
             hash2 = match self.get_block_parent(hash2) {
                 Some(val) => val,
                 None => {
@@ -51,8 +65,9 @@ impl ForksManager {
                     // TODO fix TestEnv
                     //                    return true;
                 }
-            }
+            };
+            height2 = self.get_block_height(hash2).expect("Orphan ?!");
         }
-        hash1 == hash2
+        height1 == height2 && hash1 == hash2
     }
 }

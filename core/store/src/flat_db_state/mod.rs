@@ -68,7 +68,8 @@ impl FlatKVState {
         let (parent_hash, parent_height) = if self.block_height == 0 {
             (Default::default(), 0)
         } else {
-            (self.parent_hash, self.block_height - 1)
+            let parent_height = self.forks_manager.get_block_height(self.parent_hash).unwrap();
+            (self.parent_hash, parent_height)
         };
 
         for item in self.store.iter_prefix_ser::<Option<ValueRef>>(ColFlatState, &key_prefix) {
