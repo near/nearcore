@@ -146,30 +146,53 @@ fn load_trie(
 }
 
 /// Dump state in binary format. Also write state roots to a separate file.
-fn dump_state(home_dir: &PathBuf, store: Arc<Store>, mut near_config: NearConfig) {
-    // Step 1: dumping state roots.
-    let mut chain_store = ChainStore::new(store.clone());
-    let head = chain_store.head().unwrap();
-    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
-    let mut state_roots = vec![];
-    for chunk in last_block.chunks.iter() {
-        state_roots.push(chunk.inner.prev_state_root.clone());
+fn dump_state(
+    home_dir: &PathBuf,
+    store: Arc<Store>,
+    mut near_config: NearConfig,
+    output_json: bool,
+) {
+    if output_json {
+        let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
+        println!("Saving state at {:?} @ {}", state_roots, height);
+        near_config.genesis_config.records = vec![];
+        for state_root in state_roots {
+            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+            for item in trie {
+                let (key, value) = item.unwrap();
+                if let Some(sr) = kv_to_state_record(key, value) {
+                    near_config.genesis_config.records.push(sr);
+                }
+            }
+        }
+        let mut output_path = home_dir.clone();
+        output_path.push("output.json");
+        near_config.genesis_config.write_to_file(&output_path);
+    } else {
+        // Step 1: dumping state roots.
+        let mut chain_store = ChainStore::new(store.clone());
+        let head = chain_store.head().unwrap();
+        let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+        let mut state_roots = vec![];
+        for chunk in last_block.chunks.iter() {
+            state_roots.push(chunk.inner.prev_state_root.clone());
+        }
+        println!("Saving state at {:?} @ {}", state_roots, head.height);
+        let mut roots_files = home_dir.clone();
+        roots_files.push("genesis_roots_dump");
+        let mut file = File::create(roots_files).unwrap();
+        let data = state_roots.try_to_vec().unwrap();
+        file.write_all(&data).unwrap();
+        // Step 2: dumping state.
+        let mut dump_path = home_dir.clone();
+        dump_path.push("state_dump");
+        store.save_to_file(ColState, dump_path.as_path()).unwrap();
+        // Step 3: dumping genesis config
+        let mut genesis_file = home_dir.clone();
+        genesis_file.push("genesis_config.json");
+        near_config.genesis_config.records = vec![];
+        near_config.genesis_config.write_to_file(&genesis_file);
     }
-    println!("Saving state at {:?} @ {}", state_roots, head.height);
-    let mut roots_files = home_dir.clone();
-    roots_files.push("genesis_roots_dump");
-    let mut file = File::create(roots_files).unwrap();
-    let data = state_roots.try_to_vec().unwrap();
-    file.write_all(&data).unwrap();
-    // Step 2: dumping state.
-    let mut dump_path = home_dir.clone();
-    dump_path.push("state_dump");
-    store.save_to_file(ColState, dump_path.as_path()).unwrap();
-    // Step 3: dumping genesis config
-    let mut genesis_file = home_dir.clone();
-    genesis_file.push("genesis_config.json");
-    near_config.genesis_config.records = vec![];
-    near_config.genesis_config.write_to_file(&genesis_file);
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -297,7 +320,7 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("peers"))
         .subcommand(SubCommand::with_name("state"))
-        .subcommand(SubCommand::with_name("dump_state"))
+        .subcommand(SubCommand::with_name("dump_state").arg(Arg::with_name("json").long("json")))
         .subcommand(
             SubCommand::with_name("chain")
                 .arg(
@@ -359,8 +382,9 @@ fn main() {
                 }
             }
         }
-        ("dump_state", _) => {
-            dump_state(&PathBuf::from(home_dir), store, near_config);
+        ("dump_state", Some(args)) => {
+            let output_json = args.value_of("json").is_some();
+            dump_state(&PathBuf::from(home_dir), store, near_config, output_json);
         }
         ("chain", Some(args)) => {
             let start_index =
