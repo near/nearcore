@@ -166,7 +166,7 @@ fn dump_state(
             }
         }
         let mut output_path = home_dir.clone();
-        output_path.push("output.json");
+        output_path.push("state_dump.json");
         near_config.genesis_config.write_to_file(&output_path);
     } else {
         // Step 1: dumping state roots.
