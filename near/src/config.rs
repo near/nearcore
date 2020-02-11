@@ -32,6 +32,7 @@ use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
+use std::env::current_dir;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -682,6 +683,23 @@ pub fn testnet_genesis() -> GenesisConfig {
     )
 }
 
+/// Copy state file to target directory assuming that we are in `near` directory.
+fn copy_state_file(dir: &Path) {
+    let mut path_dir = current_dir().expect("Fail to get current directory path");
+    path_dir.push("near/res");
+    path_dir.push(STATE_FILE);
+    println!("path dir {:?} dir {:?}", path_dir, dir);
+    std::fs::copy(path_dir, &dir.join(STATE_FILE)).expect("Fail to copy state file");
+}
+
+/// Copy state roots file to target directory assuming that we are in `near` directory.
+fn copy_state_roots_file(dir: &Path) {
+    let mut path_dir = current_dir().expect("Fail to get current directory path");
+    path_dir.push("near/res");
+    path_dir.push(GENESIS_ROOTS_FILE);
+    std::fs::copy(path_dir, &dir.join(GENESIS_ROOTS_FILE)).expect("Fail to copy state roots file");
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -730,6 +748,9 @@ pub fn init_configs(
             genesis_config.chain_id = chain_id;
 
             genesis_config.write_to_file(&dir.join(config.genesis_file));
+            copy_state_file(dir);
+            copy_state_roots_file(dir);
+
             info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
