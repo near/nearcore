@@ -28,6 +28,7 @@ def docker_init(image, home_dir, init_flags):
     subprocess.check_output(['mkdir', '-p', home_dir])
     subprocess.check_output(['docker', 'run', '-u', USER,
         '-v', '%s:/srv/near' % home_dir,
+        '-v', os.path.abspath('near/res') + ':/near/res',
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
 
 
