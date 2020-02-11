@@ -2,12 +2,11 @@ import sys, time
 
 sys.path.append('lib')
 
+from cluster import start_cluster
+
 valid_blocks_only = False # creating invalid blocks, should be banned instantly
 if "valid_blocks_only" in sys.argv:
     valid_blocks_only = True # creating valid blocks, should be fixed by doom slug
-
-from cluster import start_cluster
-from adversary import corrupt_node
 
 TIMEOUT = 300
 BLOCKS = 25
@@ -16,10 +15,6 @@ MALICIOUS_BLOCKS = 50
 nodes = start_cluster(2, 1, 2, None, [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
-
-#nodes[1].kill() # do it if necessary
-corrupt_node(nodes[1])
-#nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 
 print("Waiting for %s blocks..." % BLOCKS)
 
