@@ -90,6 +90,10 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
           prompt += ": "
         account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
+    if chain_id == 'testnet':
+        if not os.path.exists('near/res/state'):
+            print('Combining initial testnet state')
+            subprocess.check_output('cat near/res/state.?? > near/res/state', shell=True)
     if nodocker:
         nodocker_init(home_dir, is_release, init_flags)
     else:

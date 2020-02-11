@@ -53,3 +53,6 @@ pytest/.adversary
 
 # a file indicating that the person understands the risks of running adversarial tests
 pytest/.consent
+
+# testnet state file combined, too big to put in github
+/near/res/state
