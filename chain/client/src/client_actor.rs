@@ -17,6 +17,10 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+#[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{
+    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks,
+};
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
@@ -28,6 +32,8 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
+#[cfg(feature = "adversarial")]
+use near_store::ColBlock;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
@@ -44,6 +50,12 @@ use crate::StatusResponse;
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
 pub struct ClientActor {
+    /// Adversarial controls
+    #[cfg(feature = "adversarial")]
+    pub adv_sync_info: Option<(u64, u64)>,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_header_sync: bool,
+
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
     network_info: NetworkInfo,
@@ -98,6 +110,10 @@ impl ClientActor {
         )?;
 
         Ok(ClientActor {
+            #[cfg(feature = "adversarial")]
+            adv_sync_info: None,
+            #[cfg(feature = "adversarial")]
+            adv_disable_header_sync: false,
             client,
             network_adapter,
             node_id,
@@ -145,6 +161,61 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
+            #[cfg(feature = "adversarial")]
+            NetworkClientMessages::Adversarial(adversarial_msg) => {
+                return match adversarial_msg {
+                    AdvDisableHeaderSync => {
+                        info!(target: "adversary", "Blocking header sync");
+                        self.adv_disable_header_sync = true;
+                        NetworkClientResponses::NoResponse
+                    }
+                    AdvProduceBlocks(num_blocks, only_valid) => {
+                        info!(target: "adversary", "Producing {} blocks", num_blocks);
+                        self.client.adv_produce_blocks = true;
+                        self.client.adv_produce_blocks_only_valid = only_valid;
+                        let start_height =
+                            self.client.chain.mut_store().get_latest_known().unwrap().height + 1;
+                        let mut blocks_produced = 0;
+                        for height in start_height.. {
+                            let block = self
+                                .client
+                                .produce_block(height)
+                                .expect("block should be produced");
+                            if only_valid && block == None {
+                                continue;
+                            }
+                            let block = block.expect("block should exist after produced");
+                            info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
+                            self.network_adapter
+                                .do_send(NetworkRequests::Block { block: block.clone() });
+                            let (accepted_blocks, _) =
+                                self.client.process_block(block, Provenance::PRODUCED);
+                            for accepted_block in accepted_blocks {
+                                self.client.on_block_accepted(
+                                    accepted_block.hash,
+                                    accepted_block.status,
+                                    accepted_block.provenance,
+                                );
+                            }
+                            blocks_produced += 1;
+                            if blocks_produced == num_blocks {
+                                break;
+                            }
+                        }
+                        NetworkClientResponses::NoResponse
+                    }
+                    AdvGetSavedBlocks => {
+                        info!(target: "adversary", "Requested number of saved blocks");
+                        let store = self.client.chain.store().store();
+                        let mut num_blocks = 0;
+                        for _ in store.iter(ColBlock) {
+                            num_blocks += 1;
+                        }
+                        NetworkClientResponses::AdvU64(num_blocks)
+                    }
+                    _ => panic!("invalid adversary message"),
+                }
+            }
             NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 let blocks_at_height = self
@@ -713,7 +784,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
-    fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
+    fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
@@ -755,6 +826,17 @@ impl ClientActor {
             }
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
+    }
+
+    fn needs_syncing(&self, needs_syncing: bool) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_disable_header_sync {
+                return false;
+            }
+        }
+
+        needs_syncing
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -868,9 +950,9 @@ impl ClientActor {
         let mut wait_period = self.client.config.sync_step_period;
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
+        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
 
-        if !needs_syncing {
+        if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
                 debug!(
                     target: "client",
