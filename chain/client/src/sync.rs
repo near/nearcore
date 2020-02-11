@@ -672,6 +672,26 @@ impl StateSync {
         Ok((update_sync_status, all_done))
     }
 
+    fn get_epoch_start_sync_hash(
+        &self,
+        chain: &mut Chain,
+        sync_hash: &CryptoHash,
+    ) -> Result<CryptoHash, near_chain::Error> {
+        let mut header = chain.get_block_header(sync_hash)?;
+        let mut epoch_id = header.inner_lite.epoch_id.clone();
+        let mut hash = header.hash.clone();
+        let mut prev_hash = header.prev_hash.clone();
+        loop {
+            header = chain.get_block_header(&prev_hash)?;
+            if epoch_id != header.inner_lite.epoch_id {
+                return Ok(hash);
+            }
+            epoch_id = header.inner_lite.epoch_id.clone();
+            hash = header.hash.clone();
+            prev_hash = header.prev_hash.clone();
+        }
+    }
+
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
     pub fn request_shard(
         &mut self,
@@ -725,6 +745,7 @@ impl StateSync {
 
         // Downloading strategy starts here
         let mut new_shard_sync_download = shard_sync_download.clone();
+        let epoch_start_sync_hash = self.get_epoch_start_sync_hash(chain, &sync_hash)?;
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
                 let target =
@@ -738,7 +759,7 @@ impl StateSync {
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader {
                             shard_id,
-                            sync_hash,
+                            sync_hash: epoch_start_sync_hash,
                             target: target.clone(),
                         })
                         .then(move |result| {
@@ -764,7 +785,7 @@ impl StateSync {
                             self.network_adapter
                                 .send(NetworkRequests::StateRequestPart {
                                     shard_id,
-                                    sync_hash,
+                                    sync_hash: epoch_start_sync_hash,
                                     part_id: i as u64,
                                     target: target.clone(),
                                 })
