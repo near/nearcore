@@ -154,7 +154,7 @@ fn dump_state(
 ) {
     if output_json {
         let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
-        println!("Saving state at {:?} @ {}", state_roots, height);
+        println!("Saving state at {:?} @ {} in json", state_roots, height);
         near_config.genesis_config.records = vec![];
         for state_root in state_roots {
             let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
@@ -383,7 +383,7 @@ fn main() {
             }
         }
         ("dump_state", Some(args)) => {
-            let output_json = args.value_of("json").is_some();
+            let output_json = args.is_present("json");
             dump_state(&PathBuf::from(home_dir), store, near_config, output_json);
         }
         ("chain", Some(args)) => {
