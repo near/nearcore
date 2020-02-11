@@ -2283,6 +2283,6 @@ mod tests {
             0,
         );
         epoch_info.validator_kickout = HashSet::default();
-        assert_eq!(em.get_epoch_info(&EpochId(CryptoHash::default())).unwrap(), &epoch_info)
+        assert_eq!(em.get_epoch_info(&EpochId::default()).unwrap(), &epoch_info)
     }
 }

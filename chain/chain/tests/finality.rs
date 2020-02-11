@@ -132,7 +132,7 @@ fn create_block(
         compute_quorums_slow(prev.hash(), approvals.clone(), chain_store, stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         prev.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         height,
         approvals.clone(),
         chain_store,
@@ -237,7 +237,7 @@ fn test_finality_genesis2() {
         compute_quorums_slow(block1.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block1.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         2,
         vec![],
         chain.mut_store(),
@@ -293,7 +293,7 @@ fn test_finality_basic() {
         compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block3.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         4,
         vec![],
         chain.mut_store(),
@@ -342,7 +342,7 @@ fn test_finality_weight() {
         compute_quorums_slow(block3.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block3.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         4,
         vec![],
         chain.mut_store(),
@@ -418,7 +418,7 @@ fn test_finality_fewer_approvals_per_block() {
         compute_quorums_slow(block5.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
     let fast_quorums = FinalityGadget::compute_quorums(
         block5.hash(),
-        EpochId(CryptoHash::default()),
+        EpochId::default(),
         6,
         vec![],
         chain.mut_store(),
@@ -480,7 +480,7 @@ fn test_finality_quorum_precommit_cases() {
             compute_quorums_slow(block4.hash(), vec![], chain.mut_store(), stakes.clone()).clone();
         let fast_quorums = FinalityGadget::compute_quorums(
             block4.hash(),
-            EpochId(CryptoHash::default()),
+            EpochId::default(),
             5,
             vec![],
             chain.mut_store(),
