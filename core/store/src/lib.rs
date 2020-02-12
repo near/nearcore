@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
@@ -77,13 +77,15 @@ impl Store {
     }
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
-        let mut file = File::create(filename)?;
+        let file = File::create(filename)?;
+        let mut file = BufWriter::new(file);
         for (key, value) in self.storage.iter(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
             file.write_all(&value)?;
         }
+        file.flush()?;
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::str;
 use std::sync::Arc;
@@ -279,9 +279,10 @@ impl Config {
     }
 
     pub fn write_to_file(&self, path: &PathBuf) {
-        let mut file = File::create(path).expect("Failed to create / write a config file.");
+        let file = File::create(path).expect("Failed to create / write a config file.");
+        let mut file = BufWriter::new(file);
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
+        if let Err(err) = file.write_all(str.as_bytes()).and_then(|_| file.flush()) {
             panic!("Failed to write a config file {}", err);
         }
     }
