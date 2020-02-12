@@ -28,6 +28,7 @@ def docker_init(image, home_dir, init_flags):
     subprocess.check_output(['mkdir', '-p', home_dir])
     subprocess.check_output(['docker', 'run', '-u', USER,
         '-v', '%s:/srv/near' % home_dir,
+        '-v', os.path.abspath('near/res') + ':/near/res',
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
 
 
@@ -89,6 +90,12 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
           prompt += ": "
         account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
+
+    if chain_id == 'testnet':
+        if os.path.exists('near/res/testnet_records.json.aa'):
+            print('Combining initial testnet state')
+            subprocess.check_output('cat near/res/testnet_records.json.?? > near/res/testnet_records.json', shell=True)
+
     if nodocker:
         nodocker_init(home_dir, is_release, init_flags)
     else:
