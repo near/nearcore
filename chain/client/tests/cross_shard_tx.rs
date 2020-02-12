@@ -7,6 +7,7 @@ use futures::{future, FutureExt};
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::{NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::rpc::Finality;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
@@ -52,6 +53,7 @@ fn test_keyvalue_runtime_balances() {
                     .send(Query::new(
                         None,
                         QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
+                        Finality::None,
                     ))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap().unwrap();
@@ -89,6 +91,7 @@ mod tests {
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
     use near_primitives::hash::CryptoHash;
+    use near_primitives::rpc::Finality;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
@@ -192,6 +195,7 @@ mod tests {
                         .send(Query::new(
                             None,
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
+                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
@@ -285,6 +289,7 @@ mod tests {
                                     QueryRequest::ViewAccount {
                                         account_id: validators[i].to_string(),
                                     },
+                                    Finality::None,
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -334,6 +339,7 @@ mod tests {
                         .send(Query::new(
                             None,
                             QueryRequest::ViewAccount { account_id: account_id.clone() },
+                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
@@ -449,6 +455,7 @@ mod tests {
                             QueryRequest::ViewAccount {
                                 account_id: flat_validators[i].to_string(),
                             },
+                            Finality::None,
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(

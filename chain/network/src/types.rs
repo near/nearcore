@@ -33,6 +33,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryRespo
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
+use near_primitives::rpc::Finality;
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -215,6 +216,7 @@ pub enum RoutedMessageBody {
         query_id: String,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     QueryResponse {
         query_id: String,
@@ -1007,6 +1009,7 @@ pub enum NetworkRequests {
         account_id: AccountId,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1195,7 +1198,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
+    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest, finality: Finality },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::Finality;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
@@ -169,11 +170,12 @@ pub struct Query {
     pub query_id: String,
     pub block_id: MaybeBlockId,
     pub request: QueryRequest,
+    pub finality: Finality,
 }
 
 impl Query {
-    pub fn new(block_id: MaybeBlockId, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_id, request }
+    pub fn new(block_id: MaybeBlockId, request: QueryRequest, finality: Finality) -> Self {
+        Query { query_id: generate_random_string(10), block_id, request, finality }
     }
 }
 

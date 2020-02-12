@@ -35,7 +35,7 @@ use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{RpcQueryRequest, Finality};
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
@@ -399,11 +399,11 @@ impl JsonRpcHandler {
                         ))))
                     }
                 };
-                RpcQueryRequest { block_id: None, request }
+                RpcQueryRequest { block_id: None, request, finality: Finality::NFG }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
-        let query = Query::new(query_request.block_id, query_request.request);
+        let query = Query::new(query_request.block_id, query_request.request, query_request.finality);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
