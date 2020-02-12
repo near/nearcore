@@ -41,10 +41,12 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate};
 
-use crate::config::{GenesisConfig, GENESIS_ROOTS_FILE, STATE_FILE};
+use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const STATE_DUMP_FILE: &str = "state_dump";
+const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -140,7 +142,7 @@ impl NightshadeRuntime {
     fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRoot>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
-        state_file.push(STATE_FILE);
+        state_file.push(STATE_DUMP_FILE);
         self.store
             .load_from_file(ColState, state_file.as_path())
             .expect("Failed to read state dump");
@@ -368,7 +370,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let has_records = !self.genesis_config.records.is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
-            state_dump.push(STATE_FILE);
+            state_dump.push(STATE_DUMP_FILE);
             state_dump.exists()
         };
         if has_dump {
