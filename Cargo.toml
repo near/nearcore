@@ -66,10 +66,12 @@ testlib = { path = "./test-utils/testlib" }
 [profile.release]
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+overflow-checks = true
 
 [profile.bench]
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+overflow-checks = true
 
 [profile.dev.overrides.hex]
 opt-level = 3 # BLS library is too slow to use in debug
