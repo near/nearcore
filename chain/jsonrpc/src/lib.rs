@@ -399,7 +399,8 @@ impl JsonRpcHandler {
                         ))))
                     }
                 };
-                RpcQueryRequest { block_id: None, request, finality: Finality::NFG }
+                // Use Finality::None here to make backward compatibility tests work
+                RpcQueryRequest { block_id: None, request, finality: Finality::None }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
