@@ -178,7 +178,15 @@ fn test_query_account() {
             })
             .await
             .unwrap();
-        for query_response in [query_response_1, query_response_2, query_response_3, query_response_4, query_response_5].into_iter() {
+        for query_response in [
+            query_response_1,
+            query_response_2,
+            query_response_3,
+            query_response_4,
+            query_response_5,
+        ]
+        .into_iter()
+        {
             assert_eq!(query_response.block_height, 0);
             assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =
@@ -277,7 +285,7 @@ fn test_query_access_key() {
                     )
                     .unwrap(),
                 },
-                finality: Finality::None
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -303,7 +311,7 @@ fn test_query_state() {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
                 },
-                finality: Finality::None
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -329,7 +337,7 @@ fn test_query_call_function() {
                     method_name: "method".to_string(),
                     args: vec![].into(),
                 },
-                finality: Finality::None
+                finality: Finality::None,
             })
             .await
             .unwrap();
