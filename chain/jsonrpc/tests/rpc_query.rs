@@ -10,10 +10,10 @@ use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{Finality, RpcQueryRequest};
+use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{BlockId, ShardId};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
 
 macro_rules! test_with_client {
     ($client:ident, $block:expr) => {

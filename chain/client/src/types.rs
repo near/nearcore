@@ -9,14 +9,13 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::Finality;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, Finality, GasPriceView,
     LightClientBlockView, QueryRequest, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};

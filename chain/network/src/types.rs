@@ -28,12 +28,11 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, Finality, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use near_primitives::rpc::Finality;
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network

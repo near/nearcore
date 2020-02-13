@@ -28,13 +28,12 @@ use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    Finality, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
 };
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
 use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
-use near_primitives::rpc::Finality;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -129,15 +128,20 @@ impl ViewClientActor {
             Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
             None => {
-                let head_header = self.chain.head_header();
+                let head_header = match self.chain.head_header() {
+                    Ok(h) => h,
+                    Err(e) => return Err(e.to_string()),
+                };
                 match msg.finality {
-                    Finality::None => head_header,
-                    Finality::DoomSlug => head_header.map(|h| h.clone()).and_then(|h| {
-                        self.chain.get_block_header(&h.inner_rest.last_ds_final_block)
-                    }),
-                    Finality::NFG => head_header.map(|h| h.clone()).and_then(|h| {
-                        self.chain.get_block_header(&h.inner_rest.last_quorum_pre_commit)
-                    }),
+                    Finality::None => Ok(head_header),
+                    Finality::DoomSlug => {
+                        let last_ds_final_block_hash = head_header.inner_rest.last_ds_final_block;
+                        self.chain.get_block_header(&last_ds_final_block_hash)
+                    }
+                    Finality::NFG => {
+                        let last_final_block_hash = head_header.inner_rest.last_quorum_pre_commit;
+                        self.chain.get_block_header(&last_final_block_hash)
+                    }
                 }
             }
         };

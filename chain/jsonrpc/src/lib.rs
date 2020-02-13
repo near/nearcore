@@ -35,12 +35,12 @@ use near_network::types::NetworkViewClientMessages;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{Finality, RpcQueryRequest};
+use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, QueryRequest};
+use near_primitives::views::{FinalExecutionStatus, Finality, QueryRequest};
 
 mod metrics;
 pub mod test_utils;

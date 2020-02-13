@@ -3,9 +3,8 @@ use futures::{future, FutureExt};
 
 use near_client::test_utils::setup_no_network;
 use near_client::Query;
-use near_primitives::rpc::Finality;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
 
 /// Query account from view client
 #[test]

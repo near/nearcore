@@ -1016,3 +1016,17 @@ pub struct GasPriceView {
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
 }
+
+/// Different types of finality.
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Finality {
+    None,
+    DoomSlug,
+    NFG,
+}
+
+impl Default for Finality {
+    fn default() -> Self {
+        Finality::NFG
+    }
+}
