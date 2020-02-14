@@ -1,16 +1,10 @@
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
-
 use std::cmp::max;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use log::debug;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -19,6 +13,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
@@ -47,7 +42,6 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
     total_prepaid_gas, RuntimeConfig,
 };
-pub use crate::store::StateRecord;
 use crate::verifier::validate_receipt;
 pub use crate::verifier::verify_and_charge_transaction;
 
@@ -59,7 +53,6 @@ pub mod config;
 pub mod ext;
 mod metrics;
 pub mod state_viewer;
-mod store;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -444,7 +437,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config)?;
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();

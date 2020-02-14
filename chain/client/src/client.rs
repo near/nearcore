@@ -1,5 +1,5 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
-//! This client works completely syncronously and must be operated by some async actor outside.
+//! This client works completely synchronously and must be operated by some async actor outside.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -17,6 +17,7 @@ use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
     Provenance, RuntimeAdapter, Tip,
 };
+use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::{FullPeerInfo, NetworkAdapter, NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
@@ -35,9 +36,17 @@ use near_store::Store;
 use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
-use crate::{ClientConfig, SyncStatus};
+use crate::SyncStatus;
+
+const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 pub struct Client {
+    /// Adversarial controls
+    #[cfg(feature = "adversarial")]
+    pub adv_produce_blocks: bool,
+    #[cfg(feature = "adversarial")]
+    pub adv_produce_blocks_only_valid: bool,
+
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
     pub chain: Chain,
@@ -63,6 +72,8 @@ pub struct Client {
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
     pub rs: ReedSolomon,
+    /// Blocks that have been re-broadcast recently. They should not be broadcast again.
+    rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
 }
 
 impl Client {
@@ -117,6 +128,10 @@ impl Client {
         );
 
         Ok(Self {
+            #[cfg(feature = "adversarial")]
+            adv_produce_blocks: false,
+            #[cfg(feature = "adversarial")]
+            adv_produce_blocks_only_valid: false,
             config,
             sync_status,
             chain,
@@ -132,6 +147,7 @@ impl Client {
             state_sync,
             challenges: Default::default(),
             rs: ReedSolomon::new(data_parts, parity_parts).unwrap(),
+            rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
         })
     }
 
@@ -181,13 +197,85 @@ impl Client {
         }
     }
 
+    /// Check that this block height is not known yet.
+    fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_produce_blocks {
+                return false;
+            }
+        }
+
+        next_height <= known_height
+    }
+
+    /// Check that we are next block producer.
+    fn is_me_block_producer(
+        &self,
+        account_id: &AccountId,
+        next_block_proposer: &AccountId,
+    ) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_produce_blocks_only_valid {
+                return account_id == next_block_proposer;
+            }
+            if self.adv_produce_blocks {
+                return true;
+            }
+        }
+
+        account_id == next_block_proposer
+    }
+
+    fn should_reschedule_block(
+        &self,
+        head: &Tip,
+        prev_hash: &CryptoHash,
+        prev_prev_hash: &CryptoHash,
+        next_height: BlockHeight,
+        known_height: BlockHeight,
+        account_id: &AccountId,
+        next_block_proposer: &AccountId,
+    ) -> Result<bool, Error> {
+        if self.known_block_height(next_height, known_height) {
+            return Ok(true);
+        }
+
+        if !self.is_me_block_producer(account_id, &next_block_proposer) {
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+            return Ok(true);
+        }
+
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_produce_blocks {
+                return Ok(false);
+            }
+        }
+
+        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // Currently state for the chunks we are interested in this epoch
+                // are not yet caught up (e.g. still state syncing).
+                // We reschedule block production.
+                // Alex's comment:
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, block production must to be rescheduled
+                debug!(target: "client", "Produce block: prev block is not caught up");
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        // Check that this block height is not known yet.
-        if next_height <= self.chain.mut_store().get_latest_known()?.height {
-            return Ok(None);
-        }
+        let known_height = self.chain.mut_store().get_latest_known()?.height;
+
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -204,10 +292,7 @@ impl Client {
             &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
             next_height,
         )?;
-        if *validator_signer.validator_id() != next_block_proposer {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-            return Ok(None);
-        }
+
         let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.prev_hash;
@@ -219,21 +304,19 @@ impl Client {
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
 
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
-
-        if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
-            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(None);
-            }
+        if self.should_reschedule_block(
+            &head,
+            &prev_hash,
+            &prev_prev_hash,
+            next_height,
+            known_height,
+            &validator_signer.validator_id(),
+            &next_block_proposer,
+        )? {
+            return Ok(None);
         }
+
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.inner_lite.height, format_hash(head.last_block_hash));
 
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         // If we are producing empty blocks and there are no transactions.
@@ -586,6 +669,13 @@ impl Client {
         (unwrapped_accepted_blocks, result)
     }
 
+    pub fn rebroadcast_block(&mut self, block: Block) {
+        if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
+            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.rebroadcasted_blocks.cache_set(block.hash(), ());
+        }
+    }
+
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: PartialEncodedChunk,
@@ -668,10 +758,7 @@ impl Client {
             self.collect_block_approval(&approval, false);
         } else {
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: self.chain.get_block_header(&parent_hash)?.clone(),
-                approval_message: Some(approval_message),
-            });
+            self.network_adapter.do_send(NetworkRequests::Approval { approval_message });
         }
 
         Ok(())
@@ -705,17 +792,16 @@ impl Client {
                 }
             }
 
-            self.network_adapter.do_send(NetworkRequests::BlockHeaderAnnounce {
-                header: block.header.clone(),
-                approval_message: None,
-            });
+            self.rebroadcast_block(block.clone());
         }
 
         if status.is_new_head() {
             self.shards_mgr.update_largest_seen_height(block.header.inner_lite.height);
-            if let Err(err) = self.chain.clear_old_data() {
-                error!(target: "client", "Can't clear old data, {:?}", err);
-            };
+            if !self.config.archive {
+                if let Err(err) = self.chain.clear_old_data() {
+                    error!(target: "client", "Can't clear old data, {:?}", err);
+                };
+            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {

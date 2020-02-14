@@ -11,6 +11,7 @@ serde = { version = "1.0", features = ["derive"] }
 clap = "2.33.0"
 
 near = { path = "../../near" }
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }

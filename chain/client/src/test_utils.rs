@@ -12,6 +12,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
+use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
 use near_network::types::{
@@ -33,7 +34,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
+use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -603,11 +604,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BlockHeaderAnnounce {
-                            header,
-                            approval_message: Some(approval_message),
-                        } => {
-                            let height_mod = header.inner_lite.height % 300;
+                        NetworkRequests::Approval { approval_message } => {
+                            let height_mod = approval_message.approval.target_height % 300;
 
                             let do_propagate = if tamper_with_fg {
                                 if height_mod < 100 {
@@ -704,7 +702,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::BanPeer { .. }
-                        | NetworkRequests::BlockHeaderAnnounce { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)

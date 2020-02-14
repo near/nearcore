@@ -6,14 +6,15 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use near::config::FISHERMEN_THRESHOLD;
-use near::{GenesisConfig, NightshadeRuntime};
+use near::config::{GenesisConfigExt, FISHERMEN_THRESHOLD};
+use near::NightshadeRuntime;
 use near_chain::chain::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
     RuntimeAdapter,
 };
+use near_chain_configs::GenesisConfig;
 use near_client::test_utils::{MockNetworkAdapter, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -125,7 +126,7 @@ fn test_verify_block_double_sign_challenge() {
     let (_, result) = env.clients[0].process_block(b2, Provenance::NONE);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap();
-    if let NetworkRequests::BlockHeaderAnnounce { .. } = last_message {
+    if let NetworkRequests::Block { .. } = last_message {
         last_message = env.network_adapters[0].pop().unwrap();
     }
     if let NetworkRequests::Challenge(network_challenge) = last_message {
@@ -535,18 +536,16 @@ fn test_verify_chunk_invalid_state_challenge() {
             challenge_body.partial_state.0,
             vec![
                 vec![
-                    1, 7, 0, 92, 241, 96, 67, 27, 175, 62, 116, 3, 39, 175, 167, 179, 91, 63, 212,
-                    212, 75, 174, 160, 30, 148, 184, 11, 249, 27, 202, 188, 201, 221, 145, 255,
-                    115, 118, 86, 148, 43, 154, 46, 88, 27, 131, 172, 99, 25, 223, 149, 122, 104,
-                    247, 21, 42, 198, 205, 43, 239, 65, 133, 166, 38, 174, 254, 133, 217, 171, 30,
-                    7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
-                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 143, 134, 2, 0, 0, 0,
+                    1, 5, 0, 195, 214, 6, 46, 119, 169, 1, 3, 121, 138, 244, 191, 143, 67, 22, 114,
+                    135, 198, 178, 165, 31, 28, 170, 137, 37, 101, 144, 65, 83, 21, 211, 67, 171,
+                    30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241, 148,
+                    128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 185, 5, 0, 0, 0, 0,
                     0, 0
                 ],
                 vec![
-                    3, 1, 0, 0, 0, 16, 87, 105, 4, 75, 116, 102, 206, 154, 70, 99, 176, 15, 235,
-                    33, 252, 102, 42, 183, 44, 211, 10, 91, 215, 11, 231, 16, 255, 52, 90, 26, 233,
-                    136, 195, 134, 2, 0, 0, 0, 0, 0
+                    3, 1, 0, 0, 0, 16, 89, 163, 102, 187, 221, 241, 76, 89, 115, 107, 96, 179, 220,
+                    198, 2, 101, 186, 51, 10, 127, 106, 82, 61, 92, 36, 164, 125, 1, 231, 68, 208,
+                    8, 237, 5, 0, 0, 0, 0, 0, 0
                 ]
             ],
         );

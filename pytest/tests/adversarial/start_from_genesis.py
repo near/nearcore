@@ -2,12 +2,11 @@ import sys, time
 
 sys.path.append('lib')
 
+from cluster import start_cluster
+
 overtake = False # create a new chain which should not be accepted
 if "overtake" in sys.argv:
     overtake = True # create a new chain which head should be accepted and then the chain is restored completely
-
-from cluster import start_cluster
-from adversary import corrupt_node
 
 TIMEOUT = 300
 BLOCKS = 30
@@ -33,8 +32,6 @@ print("Got to %s blocks, getting to fun stuff" % BLOCKS)
 nodes[0].kill() # to disallow syncing
 nodes[1].kill()
 nodes[1].reset_data()
-corrupt_node(nodes[0]) # for calling adv_get_saved_blocks
-corrupt_node(nodes[1])
 
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 res = nodes[1].json_rpc('adv_disable_header_sync', [])

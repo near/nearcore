@@ -176,7 +176,7 @@ fn create_genesis(matches: &clap::ArgMatches) {
     let dir = dir_buf.as_path();
 
     let (mut configs, validator_signers, network_signers, genesis_config) =
-        create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false);
+        create_testnet_configs(s, v, n - v, &format!("{}.", prefix), false, false);
     for i in 0..v as usize {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");

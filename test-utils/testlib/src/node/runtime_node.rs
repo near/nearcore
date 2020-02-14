@@ -1,11 +1,14 @@
 use std::sync::{Arc, RwLock};
 
-use near::GenesisConfig;
+use near::config::GenesisConfigExt;
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, get_runtime_and_trie_from_genesis};
+use crate::runtime_utils::{
+    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
+};
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
@@ -17,8 +20,10 @@ pub struct RuntimeNode {
 
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
-        let genesis_config =
+        let mut genesis_config =
             GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        add_test_contract(&mut genesis_config, &alice_account());
+        add_test_contract(&mut genesis_config, &bob_account());
         Self::new_from_genesis(account_id, genesis_config)
     }
 
@@ -35,8 +40,9 @@ impl RuntimeNode {
     }
 
     pub fn free(account_id: &AccountId) -> Self {
-        let genesis_config =
+        let mut genesis_config =
             GenesisConfig::test_free(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        add_test_contract(&mut genesis_config, &bob_account());
         Self::new_from_genesis(account_id, genesis_config)
     }
 }
