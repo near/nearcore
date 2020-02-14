@@ -292,13 +292,12 @@ pub(crate) fn action_create_account(
         amount: 0,
         locked: 0,
         code_hash: CryptoHash::default(),
-        storage_usage: fee_config.storage_usage_config.account_cost,
+        storage_usage: fee_config.storage_usage_config.num_bytes_account,
         storage_paid_at: apply_state.block_index,
     });
 }
 
 pub(crate) fn action_deploy_contract(
-    fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     account_id: &AccountId,
@@ -307,20 +306,15 @@ pub(crate) fn action_deploy_contract(
     let code = ContractCode::new(deploy_contract.code.clone());
     let prev_code = get_code(state_update, account_id)?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    let storage_usage_config = &fee_config.storage_usage_config;
-    account.storage_usage = account
-        .storage_usage
-        .checked_sub(prev_code_length * storage_usage_config.code_cost_per_byte)
-        .ok_or_else(|| {
+    account.storage_usage =
+        account.storage_usage.checked_sub(prev_code_length).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer underflow for account {}",
                 account_id
             ))
         })?;
-    account.storage_usage = account
-        .storage_usage
-        .checked_add((code.code.len() as u64) * storage_usage_config.code_cost_per_byte)
-        .ok_or_else(|| {
+    account.storage_usage =
+        account.storage_usage.checked_add(code.code.len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer overflow for account {}",
                 account_id
@@ -377,11 +371,9 @@ pub(crate) fn action_delete_key(
     account.storage_usage = account
         .storage_usage
         .checked_sub(
-            (delete_key.public_key.try_to_vec().unwrap().len() as u64)
-                * storage_usage_config.key_cost_per_byte
+            delete_key.public_key.try_to_vec().unwrap().len() as u64
                 + access_key.try_to_vec().unwrap().len() as u64
-                    * storage_usage_config.value_cost_per_byte
-                + storage_usage_config.data_record_cost,
+                + storage_usage_config.num_bytes_data_record,
         )
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -413,11 +405,9 @@ pub(crate) fn action_add_key(
     account.storage_usage = account
         .storage_usage
         .checked_add(
-            (add_key.public_key.try_to_vec().unwrap().len() as u64)
-                * storage_config.key_cost_per_byte
-                + (add_key.access_key.try_to_vec().unwrap().len() as u64)
-                    * storage_config.value_cost_per_byte
-                + storage_config.data_record_cost,
+            add_key.public_key.try_to_vec().unwrap().len() as u64
+                + add_key.access_key.try_to_vec().unwrap().len() as u64
+                + storage_config.num_bytes_data_record,
         )
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(

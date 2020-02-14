@@ -1913,12 +1913,12 @@ impl<'a> VMLogic<'a> {
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_sub((old_value.len() as u64) * storage_config.value_cost_per_byte)
+                    .checked_sub(old_value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 // Inner value can't overflow, because the value length is limited.
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_add(value.len() as u64 * storage_config.value_cost_per_byte)
+                    .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
                 Ok(1)
@@ -1928,9 +1928,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_add(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_bytes_data_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
@@ -2045,9 +2045,9 @@ impl<'a> VMLogic<'a> {
                 self.current_storage_usage = self
                     .current_storage_usage
                     .checked_sub(
-                        value.len() as u64 * storage_config.value_cost_per_byte
-                            + key.len() as u64 * storage_config.key_cost_per_byte
-                            + storage_config.data_record_cost,
+                        value.len() as u64
+                            + key.len() as u64
+                            + storage_config.num_bytes_data_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;
