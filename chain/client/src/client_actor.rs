@@ -12,10 +12,15 @@ use log::{debug, error, info, warn};
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, ErrorKind, Provenance,
+    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
 };
+use near_chain_configs::ClientConfig;
 use near_crypto::Signature;
+#[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{
+    AdvDisableHeaderSync, AdvGetSavedBlocks, AdvProduceBlocks,
+};
 use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
@@ -27,6 +32,8 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::ValidatorInfo;
+#[cfg(feature = "adversarial")]
+use near_store::ColBlock;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
@@ -34,8 +41,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{highest_height_peer, StateSyncResult};
 use crate::types::{
-    ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus,
-    Status, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusSyncInfo, SyncStatus,
 };
 use crate::StatusResponse;
 
@@ -43,6 +50,12 @@ use crate::StatusResponse;
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
 
 pub struct ClientActor {
+    /// Adversarial controls
+    #[cfg(feature = "adversarial")]
+    pub adv_sync_info: Option<(u64, u64)>,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_header_sync: bool,
+
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
     network_info: NetworkInfo,
@@ -97,6 +110,10 @@ impl ClientActor {
         )?;
 
         Ok(ClientActor {
+            #[cfg(feature = "adversarial")]
+            adv_sync_info: None,
+            #[cfg(feature = "adversarial")]
+            adv_disable_header_sync: false,
             client,
             network_adapter,
             node_id,
@@ -144,10 +161,62 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, _: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
-            NetworkClientMessages::BlockHeader(header, peer_id) => {
-                self.receive_header(header, peer_id)
+            #[cfg(feature = "adversarial")]
+            NetworkClientMessages::Adversarial(adversarial_msg) => {
+                return match adversarial_msg {
+                    AdvDisableHeaderSync => {
+                        info!(target: "adversary", "Blocking header sync");
+                        self.adv_disable_header_sync = true;
+                        NetworkClientResponses::NoResponse
+                    }
+                    AdvProduceBlocks(num_blocks, only_valid) => {
+                        info!(target: "adversary", "Producing {} blocks", num_blocks);
+                        self.client.adv_produce_blocks = true;
+                        self.client.adv_produce_blocks_only_valid = only_valid;
+                        let start_height =
+                            self.client.chain.mut_store().get_latest_known().unwrap().height + 1;
+                        let mut blocks_produced = 0;
+                        for height in start_height.. {
+                            let block = self
+                                .client
+                                .produce_block(height)
+                                .expect("block should be produced");
+                            if only_valid && block == None {
+                                continue;
+                            }
+                            let block = block.expect("block should exist after produced");
+                            info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
+                            self.network_adapter
+                                .do_send(NetworkRequests::Block { block: block.clone() });
+                            let (accepted_blocks, _) =
+                                self.client.process_block(block, Provenance::PRODUCED);
+                            for accepted_block in accepted_blocks {
+                                self.client.on_block_accepted(
+                                    accepted_block.hash,
+                                    accepted_block.status,
+                                    accepted_block.provenance,
+                                );
+                            }
+                            blocks_produced += 1;
+                            if blocks_produced == num_blocks {
+                                break;
+                            }
+                        }
+                        NetworkClientResponses::NoResponse
+                    }
+                    AdvGetSavedBlocks => {
+                        info!(target: "adversary", "Requested number of saved blocks");
+                        let store = self.client.chain.store().store();
+                        let mut num_blocks = 0;
+                        for _ in store.iter(ColBlock) {
+                            num_blocks += 1;
+                        }
+                        NetworkClientResponses::AdvU64(num_blocks)
+                    }
+                    _ => panic!("invalid adversary message"),
+                }
             }
+            NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 let blocks_at_height = self
                     .client
@@ -611,8 +680,16 @@ impl ClientActor {
         provenance: Provenance,
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
+        // If we didn't produce the block and didn't request it, do basic validation
+        // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+        } else if provenance == Provenance::NONE {
+            // Don't care about challenge here since it will be handled when we actually process
+            // the block.
+            if self.client.chain.process_block_header(&block.header, |_| {}).is_ok() {
+                self.client.rebroadcast_block(block.clone());
+            }
         }
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
@@ -673,44 +750,6 @@ impl ClientActor {
         }
     }
 
-    fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
-        let hash = header.hash();
-        debug!(target: "client", "{:?} Received block header {} at {} from {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, header.inner_lite.height, peer_info);
-
-        // Process block by chain, if it's valid header ask for the block.
-        let result = self.client.process_block_header(&header);
-
-        match result {
-            Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
-                // Block header is either invalid or arrived too early. We ignore it.
-                debug!(target: "client", "Epoch out of bound for header {}", e);
-                return NetworkClientResponses::NoResponse;
-            }
-            Err(ref e) if e.is_bad_data() => {
-                error!(target: "client", "Error on receival of header: {}", e);
-                return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader };
-            }
-            // Some error that worth surfacing.
-            Err(ref e) if e.is_error() => {
-                match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {}
-                    _ => {
-                        error!(target: "client", "Error on receival of header: {}", e);
-                    }
-                }
-                return NetworkClientResponses::NoResponse;
-            }
-            // Got an error when trying to process the block header, but it's not due to
-            // invalid data or underlying error. Surface as fine.
-            Err(_) => return NetworkClientResponses::NoResponse,
-            _ => {}
-        }
-
-        // Succesfully processed a block header and can request the full block.
-        self.request_block_by_hash(header.hash(), peer_info);
-        NetworkClientResponses::NoResponse
-    }
-
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
         if headers.len() == 0 {
@@ -745,7 +784,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
-    fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
+    fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
@@ -787,6 +826,17 @@ impl ClientActor {
             }
         }
         Ok((is_syncing, full_peer_info.chain_info.height))
+    }
+
+    fn needs_syncing(&self, needs_syncing: bool) -> bool {
+        #[cfg(feature = "adversarial")]
+        {
+            if self.adv_disable_header_sync {
+                return false;
+            }
+        }
+
+        needs_syncing
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -900,9 +950,9 @@ impl ClientActor {
         let mut wait_period = self.client.config.sync_step_period;
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.needs_syncing());
+        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
 
-        if !needs_syncing {
+        if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
                 debug!(
                     target: "client",

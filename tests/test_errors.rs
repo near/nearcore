@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::{load_test_config, GenesisConfig};
+use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near::load_test_config;
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;

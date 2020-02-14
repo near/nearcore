@@ -10,6 +10,7 @@ use actix::{
 };
 use tracing::{debug, error, info, trace, warn};
 
+use near_chain_configs::PROTOCOL_VERSION;
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -26,7 +27,6 @@ use crate::types::{
     NetworkViewClientResponses, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
     PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
     QueryPeerStats, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, SendMessage, Unregister,
-    PROTOCOL_VERSION,
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
@@ -196,7 +196,6 @@ impl Peer {
         // Record block requests in tracker.
         match &msg {
             PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
-            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
@@ -389,13 +388,6 @@ impl Peer {
                     max(self.chain_info.height, block.header.inner_lite.height);
                 self.chain_info.score = max(self.chain_info.score, block.header.inner_rest.score);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
-            }
-            PeerMessage::BlockHeaderAnnounce(header) => {
-                let block_hash = header.hash();
-                self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, header.inner_lite.height);
-                self.chain_info.score = max(self.chain_info.score, header.inner_rest.score);
-                NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
                 near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED_TOTAL);
