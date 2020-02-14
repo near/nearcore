@@ -8,8 +8,10 @@ edition = "2018"
 
 [workspace]
 members = [
+    "core/chain-configs",
     "core/crypto",
     "core/primitives",
+    "core/runtime-configs",
     "core/store",
     "core/metrics",
     "runtime/runtime",
@@ -47,6 +49,7 @@ serde_json = "1.0.0"
 reqwest = "0.10"
 futures = "0.3"
 
+near-chain-configs = { path = "./core/chain-configs" }
 near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
@@ -63,10 +66,12 @@ testlib = { path = "./test-utils/testlib" }
 [profile.release]
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+overflow-checks = true
 
 [profile.bench]
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+overflow-checks = true
 
 [profile.dev.overrides.hex]
 opt-level = 3 # BLS library is too slow to use in debug
@@ -84,3 +89,4 @@ opt-level = 3 # bs58 library is too slow to use in debug
 expensive_tests = []
 regression_tests = []
 old_tests = []
+adversarial = ["near/adversarial", "near-jsonrpc/adversarial"]

@@ -1,7 +1,3 @@
-use std::borrow::Borrow;
-use std::convert::{identity, TryFrom};
-use std::fmt::{self, Debug, Display, Formatter};
-
 use blake2::{Blake2b, VarBlake2b};
 use bs58;
 use curve25519_dalek::constants::{
@@ -12,20 +8,16 @@ use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
 use rand::{CryptoRng, RngCore};
-use serde::de::{Error as _, Unexpected};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Borrow;
+use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
 pub struct PublicKey([u8; 32], RistrettoPoint);
 #[derive(Copy, Clone)]
 pub struct SecretKey(Scalar, PublicKey);
-#[derive(Copy, Clone)]
-pub struct Value(pub [u8; 32]);
-#[derive(Copy, Clone)]
-pub struct Proof(pub [u8; 64]);
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Error;
+value_type!(pub, Value, 32, "value");
+value_type!(pub, Proof, 64, "proof");
 
 struct Hash(VarBlake2b);
 
@@ -157,181 +149,29 @@ impl SecretKey {
     }
 }
 
-macro_rules! peq {
-    (Proof, $this:expr, $other:expr) => {
-        $this.0[..] == $other.0[..]
-    };
-    ($ty:ident, $this:expr, $other:expr) => {
-        $this.0 == $other.0
-    };
-}
-
-macro_rules! as_bytes {
-    (SecretKey, $this:expr) => {
-        $this.0.as_bytes()
-    };
-    ($ty:ident, $this:expr) => {
-        &$this.0
-    };
-}
-
-macro_rules! to_str {
-    ($v:expr) => {
-        identity::<String>($v.into()).as_str()
-    };
-}
-
 macro_rules! traits {
-    ($ty:ident, $l:literal, $what:literal) => {
-        impl PartialEq for $ty {
-            fn eq(&self, other: &Self) -> bool {
-                peq!($ty, self, other)
-            }
-        }
+    ($ty:ident, $l:literal, $bytes:expr, $what:literal) => {
+        eq!($ty, |a, b| a.0 == b.0);
+        common_conversions_fixed!($ty, 32, $bytes, $what);
 
-        impl Eq for $ty {}
-
-        impl AsRef<[u8; $l]> for $ty {
-            fn as_ref(&self) -> &[u8; $l] {
-                as_bytes!($ty, self)
-            }
-        }
-
-        impl AsRef<[u8]> for $ty {
-            fn as_ref(&self) -> &[u8] {
-                as_bytes!($ty, self)
-            }
-        }
-
-        impl TryFrom<&[u8]> for $ty {
-            type Error = Error;
-            fn try_from(value: &[u8]) -> Result<Self, Error> {
-                if value.len() == $l {
-                    return Self::try_from(array_ref!(value, 0, $l)).or(Err(Error));
-                }
-                Err(Error)
-            }
-        }
-
-        impl TryFrom<&str> for $ty {
-            type Error = Error;
-            fn try_from(value: &str) -> Result<Self, Error> {
-                let mut buf = [0; $l];
-                if bs58::decode(value).into(&mut buf[..]) == Ok($l) {
-                    return Self::try_from(&buf).or(Err(Error));
-                }
-                Err(Error)
-            }
-        }
-
-        impl TryFrom<String> for $ty {
-            type Error = Error;
-            fn try_from(value: String) -> Result<Self, Error> {
-                Self::try_from(value.as_str())
-            }
-        }
-
-        impl Into<[u8; $l]> for $ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
-            }
-        }
-
-        impl Into<[u8; $l]> for &$ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
-            }
-        }
-
-        impl Into<String> for $ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
-            }
-        }
-
-        impl Into<String> for &$ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
-            }
-        }
-
-        impl Debug for $ty {
-            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                f.write_str(to_str!(self))
-            }
-        }
-
-        impl Display for $ty {
-            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                f.write_str(to_str!(self))
-            }
-        }
-
-        impl<'de> Deserialize<'de> for $ty {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let s = <&str as Deserialize<'de>>::deserialize(deserializer)?;
-                Self::try_from(s).map_err(|_| {
-                    D::Error::invalid_value(Unexpected::Str(s), &concat!("a valid ", $what))
-                })
-            }
-        }
-
-        impl Serialize for $ty {
-            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                serializer.serialize_str(to_str!(self))
-            }
-        }
-    };
-}
-
-macro_rules! traits_k {
-    ($ty:ident, $l:literal) => {
         impl TryFrom<&[u8; $l]> for $ty {
-            type Error = Error;
-            fn try_from(value: &[u8; $l]) -> Result<Self, Error> {
-                Self::from_bytes(value).ok_or(Error)
+            type Error = ();
+            fn try_from(value: &[u8; $l]) -> Result<Self, ()> {
+                Self::from_bytes(value).ok_or(())
             }
         }
     };
 }
 
-macro_rules! traits_v {
-    ($ty:ident, $l:literal) => {
-        impl AsMut<[u8; $l]> for $ty {
-            fn as_mut(&mut self) -> &mut [u8; $l] {
-                &mut self.0
-            }
-        }
-
-        impl AsMut<[u8]> for $ty {
-            fn as_mut(&mut self) -> &mut [u8] {
-                &mut self.0[..]
-            }
-        }
-
-        impl From<&[u8; $l]> for $ty {
-            fn from(value: &[u8; $l]) -> Self {
-                Self(*value)
-            }
-        }
-    };
-}
-
-traits!(PublicKey, 32, "public key");
-traits_k!(PublicKey, 32);
-traits!(SecretKey, 32, "secret key");
-traits_k!(SecretKey, 32);
-traits!(Value, 32, "value");
-traits_v!(Value, 32);
-traits!(Proof, 64, "proof");
-traits_v!(Proof, 64);
+traits!(PublicKey, 32, |s| &s.0, "public key");
+traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::OsRng;
-    use serde_json::{from_str, to_string};
-
     use super::*;
+    use rand::rngs::OsRng;
+    use serde::{Deserialize, Serialize};
+    use serde_json::{from_str, to_string};
 
     #[test]
     fn test_conversion() {

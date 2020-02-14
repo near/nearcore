@@ -8,13 +8,13 @@ use log::error;
 use rand::Rng;
 
 use near::config::NearConfig;
+use near_chain_configs::GenesisConfig;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;
-use near::GenesisConfig;
 
 pub enum ProcessNodeState {
     Stopped,

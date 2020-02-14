@@ -14,8 +14,8 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 cached = "0.11.0"
-wasmer-runtime = { version = "0.11.0", features = ["default-backend-singlepass"], default-features = false }
-wasmer-runtime-core = { version = "0.11.0", features = ["backend-singlepass"]}
+wasmer-runtime = { version = "0.13.1", features = ["default-backend-singlepass"], default-features = false }
+wasmer-runtime-core = { version = "0.13.1" }
 near-runtime-fees = { path="../near-runtime-fees", version = "0.4.4" }
 near-vm-logic = { path="../near-vm-logic", version = "0.4.4", default-features = false, features = []}
 near-vm-errors = { path = "../near-vm-errors", version = "0.4.4" }

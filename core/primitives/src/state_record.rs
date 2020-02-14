@@ -1,8 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 use near_crypto::PublicKey;
-use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::option_base64_format;
-use near_primitives::types::AccountId;
-use near_primitives::views::{AccessKeyView, AccountView, ReceiptView};
+
+use crate::hash::CryptoHash;
+use crate::serialize::option_base64_format;
+use crate::types::AccountId;
+use crate::views::{AccessKeyView, AccountView, ReceiptView};
 
 /// Record in the state storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]
