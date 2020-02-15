@@ -76,7 +76,7 @@ pub fn verify_and_charge_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &config);
+    let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &config)?;
     access_key.nonce = transaction.nonce;
 
     let TransactionCost { gas_burnt, gas_used, total_cost } =
@@ -370,6 +370,7 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::DataReceiver;
     use near_primitives::transaction::{
@@ -700,6 +701,40 @@ mod tests {
             )
             .expect_err("expected an error"),
             RuntimeError::InvalidTxError(InvalidTxError::CostOverflow),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_state_bad_storage_paid_block() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, apply_state) =
+            setup_common(TESTING_INIT_BALANCE, 0, 10_000_000, Some(AccessKey::full_access()));
+
+        let bad_account = Account::new(TESTING_INIT_BALANCE, hash(&[]), 10000);
+        set_account(&mut state_update, &alice_account(), &bad_account);
+        state_update.commit(StateChangeCause::InitialState);
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                &apply_state,
+                &SignedTransaction::send_money(
+                    1,
+                    alice_account(),
+                    bob_account(),
+                    &*signer,
+                    10,
+                    CryptoHash::default(),
+                ),
+            )
+            .expect_err("expected an error"),
+            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
+                "storage_paid_at {} for account {} is larger than current block height {}",
+                10000,
+                alice_account(),
+                0
+            ))),
         );
     }
 

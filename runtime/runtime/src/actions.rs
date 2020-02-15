@@ -79,16 +79,20 @@ pub(crate) fn check_rent(
 pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
-    // TODO #1903 block_height: BlockHeight,
-    block_index: BlockHeight,
+    block_height: BlockHeight,
     runtime_config: &RuntimeConfig,
-) -> Balance {
-    let charge = u128::from(block_index - account.storage_paid_at)
-        * cost_per_block(account_id, account, runtime_config);
+) -> Result<Balance, StorageError> {
+    let block_difference = block_height.checked_sub(account.storage_paid_at).ok_or_else(|| {
+        StorageError::StorageInconsistentState(format!(
+            "storage_paid_at {} for account {} is larger than current block height {}",
+            account.storage_paid_at, account_id, block_height
+        ))
+    })?;
+    let charge = u128::from(block_difference) * cost_per_block(account_id, account, runtime_config);
     let actual_charge = std::cmp::min(account.amount, charge);
     account.amount -= actual_charge;
-    account.storage_paid_at = block_index;
-    actual_charge
+    account.storage_paid_at = block_height;
+    Ok(actual_charge)
 }
 
 pub(crate) fn get_code_with_cache(
