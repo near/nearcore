@@ -32,8 +32,8 @@ time.sleep(5)
 for i in range(2):
     acc_id = 'test0' if i == 0 else 'test1'
     acc_no_finality = nodes[0].get_account(acc_id)
-    acc_doomslug_finality = nodes[0].get_account(acc_id, "DoomSlug")
-    acc_nfg_finality = nodes[0].get_account(acc_id, "NFG")
+    acc_doomslug_finality = nodes[0].get_account(acc_id, "near-final")
+    acc_nfg_finality = nodes[0].get_account(acc_id, "final")
     if i == 0:
         assert int(acc_no_finality['result']['amount']) == acc0_balance - token_transfer
         assert int(acc_doomslug_finality['result']['amount']) == acc0_balance - token_transfer
