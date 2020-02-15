@@ -1020,11 +1020,11 @@ pub struct GasPriceView {
 /// Different types of finality.
 #[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Finality {
-    #[serde(rename(serialize = "optimistic", deserialize = "optimistic"))]
+    #[serde(rename = "optimistic")]
     None,
-    #[serde(rename(serialize = "near-final", deserialize = "near-final"))]
+    #[serde(rename = "near-final")]
     DoomSlug,
-    #[serde(rename(serialize = "final", deserialize = "final"))]
+    #[serde(rename = "final")]
     NFG,
 }
 
