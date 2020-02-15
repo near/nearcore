@@ -1,4 +1,6 @@
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -331,10 +333,15 @@ fn main() {
             }
         }
         ("dump_state", Some(_args)) => {
-            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
+            let (runtime, state_roots, height) = load_trie(store.clone(), home_dir, &near_config);
             let home_dir = PathBuf::from(&home_dir);
+            let mut chain_store = ChainStore::new(store.clone());
+            let genesis_hash = chain_store.get_block_hash_by_height(0).unwrap();
+            println!("Genesis hash: {}", &genesis_hash);
             let output_path = home_dir.join(Path::new("output_config.json"));
-            let records_path = home_dir.join(Path::new("output_records.json"));
+            let records_path =
+                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
+            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
             println!(
                 "Saving state at {:?} @ {} into {} and records {}",
                 state_roots,
@@ -352,9 +359,14 @@ fn main() {
                     }
                 }
             }
+
             near_config
                 .genesis_config
                 .write_to_config_and_records_files(&output_path, &records_path);
+            File::create(&genesis_hash_path)
+                .unwrap()
+                .write_all(format!("{}", genesis_hash).as_bytes())
+                .unwrap();
         }
         ("chain", Some(args)) => {
             let start_index =
