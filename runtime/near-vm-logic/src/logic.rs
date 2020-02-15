@@ -595,7 +595,7 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_index)
     }
 
-    /// Returns the current block timestamp.
+    /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     ///
     /// # Cost
     ///
