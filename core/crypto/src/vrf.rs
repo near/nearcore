@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
-pub struct PublicKey([u8; 32], RistrettoPoint);
+pub struct PublicKey(pub(crate) [u8; 32], pub(crate) RistrettoPoint);
 #[derive(Copy, Clone)]
 pub struct SecretKey(Scalar, PublicKey);
 value_type!(pub, Value, 32, "value");
@@ -96,7 +96,7 @@ fn safe_invert(s: Scalar) -> Scalar {
 }
 
 impl SecretKey {
-    fn from_scalar(sk: Scalar) -> Self {
+    pub(crate) fn from_scalar(sk: Scalar) -> Self {
         let pk = basemul(sk);
         SecretKey(sk, PublicKey(pk.compress().to_bytes(), pk))
     }
