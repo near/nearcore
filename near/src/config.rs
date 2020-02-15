@@ -707,13 +707,17 @@ fn state_records_account_with_key(
 }
 
 /// Official TestNet configuration.
-pub fn testnet_genesis() -> GenesisConfig {
-    let genesis_config_bytes = include_bytes!("../res/testnet_config.json");
-    let genesis_records_bytes = include_bytes!("../res/testnet_records.json");
+pub fn testnet_genesis(genesis_records: &str, genesis_config: &str) -> GenesisConfig {
+    let mut f = File::open(genesis_records).expect("Failed to open genesis records");
+    let mut genesis_records_bytes = Vec::new();
+    f.read_to_end(&mut genesis_records_bytes).expect("Failed to read genesis records");
+    let mut f = File::open(genesis_config).expect("Failed to open genesis config");
+    let mut genesis_config_bytes = Vec::new();
+    f.read_to_end(&mut genesis_config_bytes).expect("Failed to read genesis config");
     GenesisConfig::from(
-        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
+        str::from_utf8(&genesis_config_bytes).expect("Failed to read testnet configuration"),
         Some(
-            str::from_utf8(genesis_records_bytes)
+            str::from_utf8(&genesis_records_bytes)
                 .expect("Failed to read testnet records")
                 .to_string(),
         ),
@@ -728,6 +732,8 @@ pub fn init_configs(
     test_seed: Option<&str>,
     num_shards: ShardId,
     fast: bool,
+    genesis_records: Option<&str>,
+    genesis_config: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -767,7 +773,10 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
-            let mut genesis_config = testnet_genesis();
+            let mut genesis_config = testnet_genesis(
+                genesis_records.expect("Genesis records file is required for testnet"),
+                genesis_config.expect("Genesis config file is required for testnet"),
+            );
             genesis_config.chain_id = chain_id;
 
             genesis_config.write_to_file(&dir.join(config.genesis_file));
