@@ -53,3 +53,7 @@ pytest/.adversary
 
 # a file indicating that the person understands the risks of running adversarial tests
 pytest/.consent
+
+# testnet genesis
+/near/res/testnet.json
+/near/res/testnet_records.json
