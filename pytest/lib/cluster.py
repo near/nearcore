@@ -120,9 +120,8 @@ class BaseNode(object):
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc):
-        print(f'get account {acc}')
-        return self.json_rpc('query', ["account/%s" % acc, ""])
+    def get_account(self, acc, finality='optimistic'):
+        return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "block_id": None, "finality": finality})
 
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])

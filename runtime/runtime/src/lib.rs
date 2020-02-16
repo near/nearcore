@@ -437,7 +437,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config)?;
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();

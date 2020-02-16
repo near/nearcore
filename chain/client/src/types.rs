@@ -15,7 +15,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, Finality, GasPriceView,
     LightClientBlockView, QueryRequest, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
@@ -169,11 +169,12 @@ pub struct Query {
     pub query_id: String,
     pub block_id: MaybeBlockId,
     pub request: QueryRequest,
+    pub finality: Finality,
 }
 
 impl Query {
-    pub fn new(block_id: MaybeBlockId, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_id, request }
+    pub fn new(block_id: MaybeBlockId, request: QueryRequest, finality: Finality) -> Self {
+        Query { query_id: generate_random_string(10), block_id, request, finality }
     }
 }
 

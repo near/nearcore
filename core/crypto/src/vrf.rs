@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
-pub struct PublicKey([u8; 32], RistrettoPoint);
+pub struct PublicKey(pub(crate) [u8; 32], pub(crate) RistrettoPoint);
 #[derive(Copy, Clone)]
 pub struct SecretKey(Scalar, PublicKey);
 value_type!(pub, Value, 32, "value");
@@ -55,11 +55,11 @@ impl PublicKey {
         Hash::new().chain(&self.0).chain(input).result_scalar()
     }
 
-    pub fn check_vrf(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
-        self.check(input.borrow(), value, proof)
+    pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
+        self.is_valid(input.borrow(), value, proof)
     }
 
-    fn check(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
+    fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = match CompressedRistretto(value.0).decompress() {
             Some(p) => p,
             None => return false,
@@ -96,7 +96,7 @@ fn safe_invert(s: Scalar) -> Scalar {
 }
 
 impl SecretKey {
-    fn from_scalar(sk: Scalar) -> Self {
+    pub(crate) fn from_scalar(sk: Scalar) -> Self {
         let pk = basemul(sk);
         SecretKey(sk, PublicKey(pk.compress().to_bytes(), pk))
     }
@@ -144,8 +144,8 @@ impl SecretKey {
         (Value(val), Proof(proof))
     }
 
-    pub fn check_vrf(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
-        self.1.check(input.borrow(), value, proof)
+    pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
+        self.1.is_valid(input.borrow(), value, proof)
     }
 }
 
@@ -191,8 +191,8 @@ mod tests {
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
-        assert!(sk.public_key().check_vrf(b"Test", &val, &proof));
-        assert!(!sk.public_key().check_vrf(b"Tent", &val, &proof));
+        assert!(sk.public_key().is_vrf_valid(b"Test", &val, &proof));
+        assert!(!sk.public_key().is_vrf_valid(b"Tent", &val, &proof));
     }
 
     #[test]
@@ -209,9 +209,9 @@ mod tests {
         let (val2, proof2) = sk2.compute_vrf_with_proof(b"Test");
         assert_ne!(val, val2);
         assert_ne!(proof, proof2);
-        assert!(!pk2.check_vrf(b"Test", &val, &proof));
-        assert!(!pk2.check_vrf(b"Test", &val2, &proof));
-        assert!(!pk2.check_vrf(b"Test", &val, &proof2));
+        assert!(!pk2.is_vrf_valid(b"Test", &val, &proof));
+        assert!(!pk2.is_vrf_valid(b"Test", &val2, &proof));
+        assert!(!pk2.is_vrf_valid(b"Test", &val, &proof2));
     }
 
     fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
@@ -231,8 +231,8 @@ mod tests {
         let pk = sk.public_key();
         let pk2 = sk2.public_key();
         let pk3 = round_trip(&pk);
-        assert!(pk.check_vrf(b"Test", &val, &proof));
-        assert!(pk2.check_vrf(b"Test", &val, &proof));
-        assert!(pk3.check_vrf(b"Test", &val, &proof));
+        assert!(pk.is_vrf_valid(b"Test", &val, &proof));
+        assert!(pk2.is_vrf_valid(b"Test", &val, &proof));
+        assert!(pk3.is_vrf_valid(b"Test", &val, &proof));
     }
 }

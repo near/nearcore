@@ -28,7 +28,7 @@ use near_primitives::network::AnnounceAccount;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    Finality, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
 };
 use near_store::Store;
 
@@ -127,7 +127,23 @@ impl ViewClientActor {
         let header = match msg.block_id {
             Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
-            None => self.chain.head_header(),
+            None => {
+                let head_header = match self.chain.head_header() {
+                    Ok(h) => h,
+                    Err(e) => return Err(e.to_string()),
+                };
+                match msg.finality {
+                    Finality::None => Ok(head_header),
+                    Finality::DoomSlug => {
+                        let last_ds_final_block_hash = head_header.inner_rest.last_ds_final_block;
+                        self.chain.get_block_header(&last_ds_final_block_hash)
+                    }
+                    Finality::NFG => {
+                        let last_final_block_hash = head_header.inner_rest.last_quorum_pre_commit;
+                        self.chain.get_block_header(&last_final_block_hash)
+                    }
+                }
+            }
         };
         let header = header.map_err(|e| e.to_string())?.clone();
 
@@ -174,6 +190,7 @@ impl ViewClientActor {
                         account_id: validator,
                         block_id: msg.block_id.clone(),
                         request: msg.request.clone(),
+                        finality: msg.finality.clone(),
                     });
                 }
 
@@ -508,8 +525,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_id, request } => {
-                let query = Query { query_id: query_id.clone(), block_id, request };
+            NetworkViewClientMessages::Query { query_id, block_id, request, finality } => {
+                let query = Query { query_id: query_id.clone(), block_id, request, finality };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }

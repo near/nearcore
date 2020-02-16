@@ -200,7 +200,8 @@ fn test_replay_protection() {
                 .map_err(|_| {
                     System::current().stop();
                 })
-                .map(move |_| panic!("transaction should not succeed")),
+                .map_ok(move |_| panic!("transaction should not succeed"))
+                .map(drop),
         );
         wait_or_panic(10000);
     })
@@ -223,7 +224,8 @@ fn test_tx_status_invalid_account_id() {
                     assert!(s.starts_with("\"Invalid account id"));
                     System::current().stop();
                 })
-                .map(move |_| panic!("transaction should not succeed")),
+                .map_ok(move |_| panic!("transaction should not succeed"))
+                .map(drop),
         );
         wait_or_panic(10000);
     })
