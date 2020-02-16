@@ -40,7 +40,7 @@ use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChangesRequest};
 use near_primitives::utils::is_valid_account_id;
-use near_primitives::views::{FinalExecutionStatus, QueryRequest};
+use near_primitives::views::{FinalExecutionStatus, Finality, QueryRequest};
 
 mod metrics;
 pub mod test_utils;
@@ -399,11 +399,13 @@ impl JsonRpcHandler {
                         ))))
                     }
                 };
-                RpcQueryRequest { block_id: None, request }
+                // Use Finality::None here to make backward compatibility tests work
+                RpcQueryRequest { block_id: None, request, finality: Finality::None }
             } else {
                 parse_params::<RpcQueryRequest>(params)?
             };
-        let query = Query::new(query_request.block_id, query_request.request);
+        let query =
+            Query::new(query_request.block_id, query_request.request, query_request.finality);
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let result = self.view_client_addr.send(query.clone()).await;
