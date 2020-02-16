@@ -53,8 +53,8 @@ impl RewardCalculator {
                         stats.block_stats.produced * stats.chunk_stats.expected
                             + stats.chunk_stats.produced * stats.block_stats.expected,
                     )
-                    / U256::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
                     * U256::from(stake)
+                    / U256::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
                     / U256::from(total_stake))
                 .as_u128()
             };
