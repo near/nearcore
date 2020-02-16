@@ -295,10 +295,19 @@ impl EpochManager {
             total_storage_rent,
             total_validator_reward,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
+        let epoch_id = self.get_epoch_id(last_block_hash)?;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let validator_stake = epoch_info
+            .validators
+            .clone()
+            .into_iter()
+            .map(|r| (r.account_id, r.stake))
+            .collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            &validator_stake,
             total_storage_rent,
             total_validator_reward,
             block_info.total_supply,
@@ -1645,7 +1654,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validator_reward() {
+    fn test_validator_reward_one_validator() {
         let stake_amount = 1_000_000;
         let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
         let epoch_length = 2;
@@ -1749,8 +1758,16 @@ mod tests {
                 chunk_stats: ValidatorStats { produced: 1, expected: 1 },
             },
         );
-        let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
+        let mut validator_stakes = HashMap::new();
+        validator_stakes.insert("test1".to_string(), stake_amount);
+        validator_stakes.insert("test2".to_string(), stake_amount);
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
+            validator_online_ratio,
+            &validator_stakes,
+            20,
+            20,
+            total_supply,
+        );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
 
@@ -1764,6 +1781,152 @@ mod tests {
                 vec![("test1", stake_amount)],
                 change_stake(vec![("test1", stake_amount), ("test2", stake_amount + test2_reward)]),
                 reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)]),
+                inflation,
+            )
+        );
+    }
+
+    #[test]
+    fn test_validator_reward_weight_by_stake() {
+        let stake_amount1 = 1_000_000;
+        let stake_amount2 = 500_000;
+        let validators = vec![("test1", stake_amount1), ("test2", stake_amount2)];
+        let epoch_length = 2;
+        let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: 5,
+            num_blocks_per_year: 50,
+            epoch_length,
+            validator_reward_percentage: 60,
+            protocol_reward_percentage: 10,
+            protocol_treasury_account: "near".to_string(),
+        };
+        let mut epoch_manager = setup_epoch_manager(
+            validators,
+            epoch_length,
+            1,
+            2,
+            0,
+            90,
+            60,
+            100,
+            reward_calculator.clone(),
+        );
+        let rng_seed = [0; 32];
+        let h = hash_range(5);
+        epoch_manager
+            .record_block_info(
+                &h[0],
+                BlockInfo {
+                    height: 0,
+                    last_finalized_height: 0,
+                    prev_hash: Default::default(),
+                    epoch_first_block: h[0],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    chunk_mask: vec![true],
+                    slashed: Default::default(),
+                    rent_paid: 0,
+                    validator_reward: 0,
+                    total_supply,
+                    block_tracker: Default::default(),
+                    all_proposals: vec![],
+                },
+                rng_seed,
+            )
+            .unwrap();
+        epoch_manager
+            .record_block_info(
+                &h[1],
+                BlockInfo {
+                    height: 1,
+                    last_finalized_height: 1,
+                    prev_hash: h[0],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    chunk_mask: vec![true],
+                    slashed: Default::default(),
+                    rent_paid: 10,
+                    validator_reward: 10,
+                    total_supply,
+                    block_tracker: Default::default(),
+                    all_proposals: vec![],
+                },
+                rng_seed,
+            )
+            .unwrap();
+        epoch_manager
+            .record_block_info(
+                &h[2],
+                BlockInfo {
+                    height: 2,
+                    last_finalized_height: 2,
+                    prev_hash: h[1],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    chunk_mask: vec![true],
+                    slashed: Default::default(),
+                    rent_paid: 10,
+                    validator_reward: 10,
+                    total_supply,
+                    block_tracker: Default::default(),
+                    all_proposals: vec![],
+                },
+                rng_seed,
+            )
+            .unwrap();
+        let mut validator_online_ratio = HashMap::new();
+        validator_online_ratio.insert(
+            "test1".to_string(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 1, expected: 1 },
+                chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            },
+        );
+        validator_online_ratio.insert(
+            "test2".to_string(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 1, expected: 1 },
+                chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            },
+        );
+        let mut validators_stakes = HashMap::new();
+        validators_stakes.insert("test1".to_string(), stake_amount1);
+        validators_stakes.insert("test2".to_string(), stake_amount2);
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
+            validator_online_ratio,
+            &validators_stakes,
+            20,
+            20,
+            total_supply,
+        );
+        let test1_reward = *validator_reward.get("test1").unwrap();
+        let test2_reward = *validator_reward.get("test2").unwrap();
+        assert_eq!(test1_reward, test2_reward * 2);
+        let protocol_reward = *validator_reward.get("near").unwrap();
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
+            &epoch_info(
+                vec![
+                    ("test1", stake_amount1 + test1_reward),
+                    ("test2", stake_amount2 + test2_reward)
+                ],
+                vec![1, 0],
+                vec![vec![1, 0]],
+                vec![],
+                vec![],
+                change_stake(vec![
+                    ("test1", stake_amount1 + test1_reward),
+                    ("test2", stake_amount2 + test2_reward)
+                ]),
+                reward(vec![
+                    ("test1", test1_reward),
+                    ("test2", test2_reward),
+                    ("near", protocol_reward)
+                ]),
                 inflation,
             )
         );
@@ -1867,8 +2030,16 @@ mod tests {
                 chunk_stats: ValidatorStats { produced: 1, expected: 1 },
             },
         );
-        let (validator_reward, inflation) =
-            reward_calculator.calculate_reward(validator_online_ratio, 20, 20, total_supply);
+        let mut validators_stakes = HashMap::new();
+        validators_stakes.insert("test1".to_string(), stake_amount);
+        validators_stakes.insert("test2".to_string(), stake_amount);
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
+            validator_online_ratio,
+            &validators_stakes,
+            20,
+            20,
+            total_supply,
+        );
         let test2_reward = *validator_reward.get("test2").unwrap();
         let protocol_reward = *validator_reward.get("near").unwrap();
         assert_eq!(
