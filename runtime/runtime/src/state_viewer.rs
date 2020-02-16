@@ -3,6 +3,7 @@ use std::str;
 use std::time::Instant;
 
 use borsh::BorshSerialize;
+use log::debug;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
@@ -180,7 +181,15 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(root, 1, 1, &alice_account(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(
+            root,
+            1,
+            1,
+            &AccountId::from("test.contract"),
+            "run_test",
+            &[],
+            &mut logs,
+        );
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -226,8 +235,15 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
         let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
-        let view_call_result =
-            viewer.call_function(root, 1, 1, &alice_account(), "sum_with_input", &args, &mut logs);
+        let view_call_result = viewer.call_function(
+            root,
+            1,
+            1,
+            &AccountId::from("test.contract"),
+            "sum_with_input",
+            &args,
+            &mut logs,
+        );
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
@@ -262,7 +278,15 @@ mod tests {
 
         let mut logs = vec![];
         viewer
-            .call_function(root, 1, 1, &alice_account(), "panic_after_logging", &[], &mut logs)
+            .call_function(
+                root,
+                1,
+                1,
+                &AccountId::from("test.contract"),
+                "panic_after_logging",
+                &[],
+                &mut logs,
+            )
             .unwrap_err();
 
         assert_eq!(logs, vec!["hello".to_string()]);

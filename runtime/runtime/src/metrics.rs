@@ -1,6 +1,6 @@
 use near_metrics::{try_create_int_counter, IntCounter};
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref ACTION_CREATE_ACCOUNT_TOTAL: near_metrics::Result<IntCounter> =
         try_create_int_counter(
             "action_create_account_total",

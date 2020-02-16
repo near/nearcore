@@ -19,6 +19,7 @@ lazy_static = "1.4"
 
 borsh = "0.2.10"
 
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
@@ -29,3 +30,4 @@ near-pool = { path = "../pool" }
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
 expensive_tests = []
+adversarial = []

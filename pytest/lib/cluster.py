@@ -17,6 +17,8 @@ from rc import gcloud
 import uuid
 import network
 
+os.environ["ADVERSARY_CONSENT"] = "1"
+
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
@@ -118,9 +120,8 @@ class BaseNode(object):
     def get_validators(self):
         return self.json_rpc('validators', [None])
 
-    def get_account(self, acc):
-        print(f'get account {acc}')
-        return self.json_rpc('query', ["account/%s" % acc, ""])
+    def get_account(self, acc, finality='optimistic'):
+        return self.json_rpc('query', {"request_type": "view_account", "account_id": acc, "block_id": None, "finality": finality})
 
     def get_block(self, block_hash):
         return self.json_rpc('block', [block_hash])
@@ -335,7 +336,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_ch
     print("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-    process = subprocess.Popen([near_root + "near", "testnet", "--v", str(num_nodes), "--shards", str(
+    process = subprocess.Popen([os.path.join(near_root, "near"), "testnet", "--v", str(num_nodes), "--shards", str(
         num_shards), "--n", str(num_observers), "--prefix", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = process.communicate()
     assert 0 == process.returncode, err
@@ -422,6 +423,7 @@ CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 def load_config():
     config = DEFAULT_CONFIG
+
     config_file = os.environ.get(CONFIG_ENV_VAR, '')
     if config_file:
         try:

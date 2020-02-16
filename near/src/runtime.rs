@@ -12,6 +12,7 @@ use log::debug;
 
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, ChainStore, ChainStoreAccess, Error, ErrorKind, RuntimeAdapter};
+use near_chain_configs::GenesisConfig;
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochError, EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -23,6 +24,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NumShards, ShardId,
@@ -40,11 +42,8 @@ use near_store::{
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{
-    verify_and_charge_transaction, ApplyState, Runtime, StateRecord, ValidatorAccountsUpdate,
-};
+use node_runtime::{verify_and_charge_transaction, ApplyState, Runtime, ValidatorAccountsUpdate};
 
-use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -1198,7 +1197,9 @@ mod test {
     use near_store::create_store;
     use node_runtime::config::RuntimeConfig;
 
-    use crate::config::{FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{
+        GenesisConfigExt, FISHERMEN_THRESHOLD, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+    };
     use crate::get_store_path;
 
     use super::*;

@@ -8,18 +8,20 @@ use log::info;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
+use near_chain_configs::ClientConfig;
 use near_network::types::NetworkInfo;
 use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;
+use near_primitives::telemetry::{
+    TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
+};
 use near_primitives::types::Gas;
 use near_primitives::types::Version;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{telemetry, TelemetryActor};
 
-use crate::types::{ClientConfig, ShardSyncStatus, SyncStatus};
-use near_primitives::telemetry::{
-    TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
-};
+use crate::types::ShardSyncStatus;
+use crate::SyncStatus;
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {

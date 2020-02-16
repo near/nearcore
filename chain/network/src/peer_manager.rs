@@ -834,17 +834,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header, approval_message } => {
-                if let Some(approval_message) = approval_message {
-                    self.send_message_to_account(
-                        ctx,
-                        &approval_message.target,
-                        RoutedMessageBody::BlockApproval(approval_message.approval),
-                    );
-                }
-                self.broadcast_message(
+            NetworkRequests::Approval { approval_message } => {
+                self.send_message_to_account(
                     ctx,
-                    SendMessage { message: PeerMessage::BlockHeaderAnnounce(header) },
+                    &approval_message.target,
+                    RoutedMessageBody::BlockApproval(approval_message.approval),
                 );
                 NetworkResponses::NoResponse
             }
@@ -967,11 +961,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Query { query_id, account_id, block_id, request } => {
+            NetworkRequests::Query { query_id, account_id, block_id, request, finality } => {
                 if self.send_message_to_account(
                     ctx,
                     &account_id,
-                    RoutedMessageBody::QueryRequest { query_id, block_id, request },
+                    RoutedMessageBody::QueryRequest { query_id, block_id, request, finality },
                 ) {
                     NetworkResponses::NoResponse
                 } else {
