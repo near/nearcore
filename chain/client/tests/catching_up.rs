@@ -23,7 +23,7 @@ mod tests {
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta};
-    use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
+    use near_primitives::views::{Finality, QueryRequest, QueryResponseKind::ViewAccount};
 
     fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
         let validators = vec![
@@ -311,6 +311,7 @@ mod tests {
                                                     QueryRequest::ViewAccount {
                                                         account_id: account_to.clone(),
                                                     },
+                                                    Finality::None,
                                                 ))
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
@@ -503,6 +504,7 @@ mod tests {
                                                             account_id: flat_validators[j]
                                                                 .to_string(),
                                                         },
+                                                        Finality::None,
                                                     ))
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();

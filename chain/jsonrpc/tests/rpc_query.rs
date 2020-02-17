@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::RpcQueryRequest;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{BlockId, ShardId};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
 
 macro_rules! test_with_client {
     ($client:ident, $block:expr) => {
@@ -142,6 +142,7 @@ fn test_query_account() {
             .query(RpcQueryRequest {
                 block_id: None,
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -149,6 +150,7 @@ fn test_query_account() {
             .query(RpcQueryRequest {
                 block_id: Some(BlockId::Height(0)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -156,10 +158,35 @@ fn test_query_account() {
             .query(RpcQueryRequest {
                 block_id: Some(BlockId::Hash(block_hash)),
                 request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+                finality: Finality::None,
             })
             .await
             .unwrap();
-        for query_response in [query_response_1, query_response_2, query_response_3].into_iter() {
+        let query_response_4 = client
+            .query(RpcQueryRequest {
+                block_id: Some(BlockId::Hash(block_hash)),
+                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+                finality: Finality::DoomSlug,
+            })
+            .await
+            .unwrap();
+        let query_response_5 = client
+            .query(RpcQueryRequest {
+                block_id: Some(BlockId::Hash(block_hash)),
+                request: QueryRequest::ViewAccount { account_id: "test".to_string() },
+                finality: Finality::NFG,
+            })
+            .await
+            .unwrap();
+        for query_response in [
+            query_response_1,
+            query_response_2,
+            query_response_3,
+            query_response_4,
+            query_response_5,
+        ]
+        .into_iter()
+        {
             assert_eq!(query_response.block_height, 0);
             assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =
@@ -205,6 +232,7 @@ fn test_query_access_keys() {
             .query(RpcQueryRequest {
                 block_id: None,
                 request: QueryRequest::ViewAccessKeyList { account_id: "test".to_string() },
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -257,6 +285,7 @@ fn test_query_access_key() {
                     )
                     .unwrap(),
                 },
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -282,6 +311,7 @@ fn test_query_state() {
                     account_id: "test".to_string(),
                     prefix: vec![].into(),
                 },
+                finality: Finality::None,
             })
             .await
             .unwrap();
@@ -307,6 +337,7 @@ fn test_query_call_function() {
                     method_name: "method".to_string(),
                     args: vec![].into(),
                 },
+                finality: Finality::None,
             })
             .await
             .unwrap();

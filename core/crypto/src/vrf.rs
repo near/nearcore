@@ -1,19 +1,17 @@
+use crate::util::*;
 use blake2::{Blake2b, VarBlake2b};
 use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
-use curve25519_dalek::scalar::Scalar;
-use curve25519_dalek::traits::VartimeMultiscalarMul;
 use digest::{Input, VariableOutput};
-use rand::{CryptoRng, RngCore};
+use rand_core::OsRng;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
-pub struct PublicKey([u8; 32], RistrettoPoint);
+pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
 #[derive(Copy, Clone)]
 pub struct SecretKey(Scalar, PublicKey);
 value_type!(pub, Value, 32, "value");
@@ -40,55 +38,38 @@ impl Hash {
     }
 }
 
-fn bvmul2(s1: Scalar, p1: &RistrettoPoint, s2: Scalar, p2: &RistrettoPoint) -> [u8; 32] {
-    RistrettoPoint::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
-        .compress()
-        .to_bytes()
-}
-
 impl PublicKey {
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        CompressedRistretto(*bytes).decompress().map(|p| PublicKey(*bytes, p))
+        Some(PublicKey(*bytes, unpack(bytes)?))
     }
 
     fn offset(&self, input: &[u8]) -> Scalar {
         Hash::new().chain(&self.0).chain(input).result_scalar()
     }
 
-    pub fn check_vrf(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
-        self.check(input.borrow(), value, proof)
+    pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
+        self.is_valid(input.borrow(), value, proof)
     }
 
-    fn check(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
-        let p = match CompressedRistretto(value.0).decompress() {
-            Some(p) => p,
-            None => return false,
-        };
-        let (&pr, &pc) = array_refs!(&proof.0, 32, 32);
-        let r = match Scalar::from_canonical_bytes(pr) {
-            Some(r) => r,
-            None => return false,
-        };
-        let c = match Scalar::from_canonical_bytes(pc) {
-            Some(c) => c,
-            None => return false,
-        };
+    fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
+        let p = unwrap_or_return_false!(unpack(&value.0));
+        let (r, c) = unwrap_or_return_false!(unpack(&proof.0));
         Hash::new()
             .chain(&self.0)
             .chain(&value.0)
-            .chain(&bvmul2(r + c * self.offset(input), &G, c, &self.1))
-            .chain(&bvmul2(r, &p, c, &G))
+            .chain(&vmul2(r + c * self.offset(input), &G, c, &self.1).pack())
+            .chain(&vmul2(r, &p, c, &G).pack())
             .result_scalar()
             == c
     }
 }
 
-fn basemul(s: Scalar) -> RistrettoPoint {
+fn basemul(s: Scalar) -> Point {
     &s * &GT
 }
 
 fn bbmul(s: Scalar) -> [u8; 32] {
-    basemul(s).compress().to_bytes()
+    basemul(s).pack()
 }
 
 fn safe_invert(s: Scalar) -> Scalar {
@@ -96,17 +77,17 @@ fn safe_invert(s: Scalar) -> Scalar {
 }
 
 impl SecretKey {
-    fn from_scalar(sk: Scalar) -> Self {
+    pub(crate) fn from_scalar(sk: Scalar) -> Self {
         let pk = basemul(sk);
-        SecretKey(sk, PublicKey(pk.compress().to_bytes(), pk))
+        SecretKey(sk, PublicKey(pk.pack(), pk))
     }
 
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        Scalar::from_canonical_bytes(*bytes).map(Self::from_scalar)
+        Some(Self::from_scalar(unpack(bytes)?))
     }
 
-    pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self::from_scalar(Scalar::random(rng))
+    pub fn random() -> Self {
+        Self::from_scalar(Scalar::random(&mut OsRng))
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -137,15 +118,11 @@ impl SecretKey {
             .chain(&bbmul(inv * k))
             .result_scalar();
         let r = k - c * x;
-        let mut proof = [0; 64];
-        let (pr, pc) = mut_array_refs!(&mut proof, 32, 32);
-        *pr = r.to_bytes();
-        *pc = c.to_bytes();
-        (Value(val), Proof(proof))
+        (Value(val), Proof((r, c).pack()))
     }
 
-    pub fn check_vrf(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
-        self.1.check(input.borrow(), value, proof)
+    pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
+        self.1.is_valid(input.borrow(), value, proof)
     }
 }
 
@@ -169,13 +146,12 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
 
     #[test]
     fn test_conversion() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let sk2 = SecretKey::from_bytes(&sk.into()).unwrap();
         assert_eq!(sk, sk2);
         let pk = sk.public_key();
@@ -187,18 +163,18 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
-        assert!(sk.public_key().check_vrf(b"Test", &val, &proof));
-        assert!(!sk.public_key().check_vrf(b"Tent", &val, &proof));
+        assert!(sk.public_key().is_vrf_valid(b"Test", &val, &proof));
+        assert!(!sk.public_key().is_vrf_valid(b"Tent", &val, &proof));
     }
 
     #[test]
     fn test_different_keys() {
-        let sk = SecretKey::random(&mut OsRng::default());
-        let sk2 = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
+        let sk2 = SecretKey::random();
         assert_ne!(sk, sk2);
         assert_ne!(Into::<[u8; 32]>::into(sk), Into::<[u8; 32]>::into(sk2));
         let pk = sk.public_key();
@@ -209,9 +185,9 @@ mod tests {
         let (val2, proof2) = sk2.compute_vrf_with_proof(b"Test");
         assert_ne!(val, val2);
         assert_ne!(proof, proof2);
-        assert!(!pk2.check_vrf(b"Test", &val, &proof));
-        assert!(!pk2.check_vrf(b"Test", &val2, &proof));
-        assert!(!pk2.check_vrf(b"Test", &val, &proof2));
+        assert!(!pk2.is_vrf_valid(b"Test", &val, &proof));
+        assert!(!pk2.is_vrf_valid(b"Test", &val2, &proof));
+        assert!(!pk2.is_vrf_valid(b"Test", &val, &proof2));
     }
 
     fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
@@ -220,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let sk = SecretKey::random(&mut OsRng::default());
+        let sk = SecretKey::random();
         let sk2 = round_trip(&sk);
         assert_eq!(sk, sk2);
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
@@ -231,8 +207,8 @@ mod tests {
         let pk = sk.public_key();
         let pk2 = sk2.public_key();
         let pk3 = round_trip(&pk);
-        assert!(pk.check_vrf(b"Test", &val, &proof));
-        assert!(pk2.check_vrf(b"Test", &val, &proof));
-        assert!(pk3.check_vrf(b"Test", &val, &proof));
+        assert!(pk.is_vrf_valid(b"Test", &val, &proof));
+        assert!(pk2.is_vrf_valid(b"Test", &val, &proof));
+        assert!(pk3.is_vrf_valid(b"Test", &val, &proof));
     }
 }

@@ -24,7 +24,7 @@ pub struct VMContext {
     /// The current block height.
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
-    /// The current block timestamp.
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
