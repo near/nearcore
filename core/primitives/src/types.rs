@@ -257,6 +257,7 @@ pub struct ValidatorStats {
     pub expected: NumBlocks,
 }
 
+#[derive(Debug)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ValidatorStats,

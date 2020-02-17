@@ -1,3 +1,4 @@
+use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
@@ -18,6 +19,7 @@ impl RewardCalculator {
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+        validator_stake: &HashMap<AccountId, Balance>,
         total_storage_rent: Balance,
         total_validator_reward: Balance,
         total_supply: Balance,
@@ -36,19 +38,25 @@ impl RewardCalculator {
         if num_validators == 0 {
             return (res, inflation);
         }
-        let epoch_per_validator_reward =
-            (epoch_total_reward - epoch_protocol_treasury) / num_validators as u128;
+        let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
+        let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
             let reward = if stats.block_stats.expected == 0 || stats.chunk_stats.expected == 0 {
                 0
             } else {
+                let stake = *validator_stake
+                    .get(&account_id)
+                    .expect(&format!("{} is not a validator", account_id));
                 // Online ratio is an average of block produced / expected and chunk produced / expected.
-                epoch_per_validator_reward
-                    * u128::from(
+                (U256::from(epoch_validator_reward)
+                    * U256::from(
                         stats.block_stats.produced * stats.chunk_stats.expected
                             + stats.chunk_stats.produced * stats.block_stats.expected,
                     )
-                    / u128::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
+                    * U256::from(stake)
+                    / U256::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
+                    / U256::from(total_stake))
+                .as_u128()
             };
             res.insert(account_id, reward);
         }
