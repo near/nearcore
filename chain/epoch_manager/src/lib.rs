@@ -2472,4 +2472,35 @@ mod tests {
             actual_block_producers
         );
     }
+
+    #[test]
+    fn test_validator_consistency_not_all_same_stake() {
+        let stake_amount1 = 1_000;
+        let stake_amount2 = 500;
+        let validators =
+            vec![("test1", stake_amount1), ("test2", stake_amount2), ("test3", stake_amount2)];
+        // have two seats to that 500 would be the threshold
+        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
+        let h = hash_range(5);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        let epoch_id = epoch_manager.get_epoch_id(&h[0]).unwrap();
+        let epoch_info1 = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+        assert_eq!(
+            epoch_info1,
+            &epoch_info(
+                vec![("test1", stake_amount1), ("test3", stake_amount2)],
+                vec![0, 1],
+                vec![vec![0, 1]],
+                vec![],
+                vec![("test2", stake_amount2)],
+                change_stake(vec![
+                    ("test1", stake_amount1),
+                    ("test2", stake_amount2),
+                    ("test3", stake_amount2)
+                ]),
+                reward(vec![("near", 0)]),
+                0,
+            )
+        );
+    }
 }
