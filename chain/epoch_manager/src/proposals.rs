@@ -119,15 +119,6 @@ pub fn proposals_to_epoch_info(
         }
     }
 
-    //    let (final_proposals, validator_to_index) = final_proposals.into_iter().enumerate().fold(
-    //        (vec![], HashMap::new()),
-    //        |(mut proposals, mut validator_to_index), (i, p)| {
-    //            validator_to_index.insert(p.account_id.clone(), i as u64);
-    //            proposals.push(p);
-    //            (proposals, validator_to_index)
-    //        },
-    //    );
-
     // Duplicate each proposal for number of seats it has.
     let mut dup_proposals = final_proposals
         .iter()
