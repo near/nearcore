@@ -141,6 +141,7 @@ mod tests {
                 false,
                 5,
                 false,
+                true,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -434,6 +435,7 @@ mod tests {
                 false,
                 5,
                 false,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
@@ -446,10 +448,15 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
+                                if block.header.inner_lite.height == 1 {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
                                 assert!(block.header.inner_lite.height >= 2);
                                 assert!(block.header.inner_lite.height <= height);
                                 let mut tx_count = 0;
-                                if block.header.inner_lite.height == height {
+                                if block.header.inner_lite.height == height
+                                    && block.header.inner_lite.height >= 2
+                                {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             let mut amount =
@@ -645,6 +652,7 @@ mod tests {
                 false,
                 5,
                 false,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -702,6 +710,7 @@ mod tests {
                 false,
                 5,
                 true,
+                false,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let propagate = if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner_lite.height);
@@ -771,6 +780,7 @@ mod tests {
                 false,
                 false,
                 5,
+                false,
                 false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
@@ -931,6 +941,7 @@ mod tests {
                 false,
                 false,
                 epoch_length,
+                false,
                 false,
                 Arc::new(RwLock::new(move |sender_account_id: String, msg: &NetworkRequests| {
                     let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
