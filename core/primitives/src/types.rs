@@ -34,6 +34,8 @@ pub type Gas = u64;
 pub type NumBlocks = u64;
 /// Number of shards in current group.
 pub type NumShards = u64;
+/// Number of chunks in current group.
+pub type NumChunks = u64;
 /// Number of seats of validators (block producer or hidden ones) in current group (settlement).
 pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
@@ -251,14 +253,8 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct ValidatorStats {
-    pub produced: NumBlocks,
-    pub expected: NumBlocks,
-}
-
 #[derive(Debug)]
 pub struct BlockChunkValidatorStats {
-    pub block_stats: ValidatorStats,
-    pub chunk_stats: ValidatorStats,
+    pub blocks_produced: NumBlocks,
+    pub chunks_produced: NumChunks,
 }

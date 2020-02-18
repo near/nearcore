@@ -180,6 +180,16 @@ pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId
     VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR.is_match(prefix)
 }
 
+/// Returns a value of the median index of the array, NOT a median value.
+pub fn median<T: std::clone::Clone + std::cmp::Ord>(arr: Vec<T>) -> T {
+    if arr.is_empty() {
+        panic!("empty array")
+    }
+    let mut arr = arr.clone();
+    arr.sort();
+    arr[arr.len() / 2].clone()
+}
+
 /// A wrapper around Option<T> that provides native Display trait.
 /// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);
@@ -318,6 +328,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_median() {
+        assert_eq!(median(vec![100]), 100);
+        assert_eq!(median(vec![100, 200]), 200);
+        assert_eq!(median(vec![100, 200, 300]), 200);
+        assert_eq!(median(vec![100, 200, 300, 400]), 300);
+        assert_eq!(median(vec![100, 200, 300, 400, 500]), 300);
+
+        assert_eq!(median(vec![300, 200, 400, 100, 500]), 300);
+        assert_eq!(median(vec![400, 100, 500, 200, 300]), 300);
+
+        assert_eq!(median(vec![100, 100, 200]), 100);
+        assert_eq!(median(vec![200, 100, 200]), 200);
+        assert_eq!(median(vec![100, 100, 300, 100]), 100);
+        assert_eq!(median(vec![300, 100, 300, 100]), 300);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_median_panic() {
+        let mut a = vec![123];
+        a.pop();
+        median(a);
+    }
 
     #[test]
     fn test_is_valid_account_id() {

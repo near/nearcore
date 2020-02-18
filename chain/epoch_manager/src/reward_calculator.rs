@@ -2,7 +2,9 @@ use ethereum_types::U256;
 use std::cmp::max;
 use std::collections::HashMap;
 
+use crate::types::SlashState;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
+use near_primitives::utils::median;
 
 #[derive(Clone)]
 pub struct RewardCalculator {
@@ -20,6 +22,7 @@ impl RewardCalculator {
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,
+        slashed: &HashMap<AccountId, SlashState>,
         total_storage_rent: Balance,
         total_validator_reward: Balance,
         total_supply: Balance,
@@ -42,25 +45,38 @@ impl RewardCalculator {
         }
         let epoch_validator_reward = epoch_total_reward - epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
-        for (account_id, stats) in validator_block_chunk_stats {
-            let reward = if stats.block_stats.expected == 0 || stats.chunk_stats.expected == 0 {
-                0
-            } else {
+        let mut blocks_produced = vec![];
+        let mut chunks_produced = vec![];
+        for (account_id, stats) in validator_block_chunk_stats.iter() {
+            if !slashed.contains_key(account_id) {
+                blocks_produced.push(stats.blocks_produced);
+                chunks_produced.push(stats.chunks_produced);
+            }
+        }
+        if !blocks_produced.is_empty() {
+            let blocks_produced_median = median(blocks_produced);
+            let chunks_produced_median = median(chunks_produced);
+            for (account_id, stats) in validator_block_chunk_stats {
                 let stake = *validator_stake
                     .get(&account_id)
                     .expect(&format!("{} is not a validator", account_id));
-                // Online ratio is an average of block produced / expected and chunk produced / expected.
-                (U256::from(epoch_validator_reward)
+                // Online ratio is an average of block produced / block produced median and chunk produced / chunk produced median.
+                let mut div = blocks_produced_median * chunks_produced_median * 2;
+                if div == 0 {
+                    div = 1;
+                }
+                let reward = (U256::from(epoch_validator_reward)
                     * U256::from(
-                        stats.block_stats.produced * stats.chunk_stats.expected
-                            + stats.chunk_stats.produced * stats.block_stats.expected,
+                        // TODO Alex Illia check the formula
+                        stats.blocks_produced * chunks_produced_median
+                            + stats.chunks_produced * blocks_produced_median,
                     )
                     * U256::from(stake)
-                    / U256::from(stats.block_stats.expected * stats.chunk_stats.expected * 2)
+                    / U256::from(div)
                     / U256::from(total_stake))
-                .as_u128()
-            };
-            res.insert(account_id, reward);
+                .as_u128();
+                res.insert(account_id, reward);
+            }
         }
         (res, inflation)
     }

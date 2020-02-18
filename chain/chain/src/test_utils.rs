@@ -24,7 +24,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
-    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::{
@@ -343,8 +343,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
-    ) -> Result<ValidatorStats, Error> {
-        Ok(ValidatorStats { produced: 0, expected: 0 })
+    ) -> Result<NumBlocks, Error> {
+        Ok(0)
     }
 
     fn num_shards(&self) -> ShardId {

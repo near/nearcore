@@ -9,8 +9,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
-    NumShards, ShardId, ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId,
+    NumBlocks, NumChunks, NumSeats, NumShards, ShardId, ValidatorId, ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -84,11 +84,11 @@ pub struct BlockInfo {
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
-    /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
-    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
-    /// All proposals in this epoch up to this block.
+    /// Map from validator index to num_blocks_produced so far in the given epoch.
+    pub block_tracker: HashMap<ValidatorId, NumBlocks>,
+    /// For each shard, a map of validator id to num_chunks_produced so far in the given epoch.
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, NumChunks>>,
+    /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
     /// Total rent paid so far in this epoch.
     pub total_rent_paid: Balance,
@@ -141,27 +141,21 @@ impl BlockInfo {
         &mut self,
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
-        mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
+        mut prev_block_tracker: HashMap<ValidatorId, NumBlocks>,
     ) {
         let block_producer_id = epoch_info.block_producers_settlement
             [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
-            .and_modify(|validator_stats| {
-                validator_stats.produced += 1;
-                validator_stats.expected += 1;
+            .and_modify(|produced| {
+                *produced += 1;
             })
-            .or_insert(ValidatorStats { produced: 1, expected: 1 });
+            .or_insert(1);
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for height in prev_block_height + 1..self.height {
             let block_producer_id = epoch_info.block_producers_settlement
                 [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
-            prev_block_tracker
-                .entry(block_producer_id)
-                .and_modify(|validator_stats| {
-                    validator_stats.expected += 1;
-                })
-                .or_insert(ValidatorStats { produced: 0, expected: 1 });
+            prev_block_tracker.entry(block_producer_id).or_insert(0);
         }
         self.block_tracker = prev_block_tracker;
     }
@@ -169,7 +163,7 @@ impl BlockInfo {
     pub fn update_shard_tracker(
         &mut self,
         epoch_info: &EpochInfo,
-        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, u64>>,
     ) {
         for (i, mask) in self.chunk_mask.iter().enumerate() {
             let chunk_validator_id =
@@ -177,13 +171,12 @@ impl BlockInfo {
             let tracker = prev_shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_validator_id)
-                .and_modify(|stats| {
+                .and_modify(|produced| {
                     if *mask {
-                        stats.produced += 1;
+                        *produced += 1;
                     }
-                    stats.expected += 1;
                 })
-                .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+                .or_insert(u64::from(*mask));
         }
         self.shard_tracker = prev_shard_tracker;
     }

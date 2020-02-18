@@ -8,6 +8,8 @@ use log::{error, info, LevelFilter};
 use near::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use near::get_default_home;
 use near_crypto::{InMemorySigner, KeyFile};
+use near_primitives::types::NumBlocks;
+use near_primitives::utils::median;
 use near_primitives::views::CurrentEpochValidatorInfo;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use testlib::user::{rpc_user::RpcUser, User};
@@ -16,9 +18,12 @@ const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";
 
 /// Returns true if given validator might get kicked out.
-fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
+fn maybe_kicked_out(
+    validator_info: &CurrentEpochValidatorInfo,
+    block_produced_median: NumBlocks,
+) -> bool {
     validator_info.num_produced_blocks * 100
-        < validator_info.num_expected_blocks * u64::from(BLOCK_PRODUCER_KICKOUT_THRESHOLD)
+        < block_produced_median * u64::from(BLOCK_PRODUCER_KICKOUT_THRESHOLD)
 }
 
 fn main() {
@@ -92,17 +97,26 @@ fn main() {
             continue;
         }
         let mut restake = false;
-        validators
-            .current_validators
-            .iter()
-            .filter(|validator_info| validator_info.account_id == account_id)
-            .last()
-            .map(|validator_info| {
-                last_stake_amount = validator_info.stake;
-                if maybe_kicked_out(validator_info) {
-                    restake = true;
-                }
-            });
+        let mut blocks_produced = vec![];
+        for validator in validators.current_validators.iter() {
+            if !validator.is_slashed {
+                blocks_produced.push(validator.num_produced_blocks);
+            }
+        }
+        if !blocks_produced.is_empty() {
+            let block_produced_median = median(blocks_produced);
+            validators
+                .current_validators
+                .iter()
+                .filter(|validator_info| validator_info.account_id == account_id)
+                .last()
+                .map(|validator_info| {
+                    last_stake_amount = validator_info.stake;
+                    if maybe_kicked_out(validator_info, block_produced_median) {
+                        restake = true;
+                    }
+                });
+        }
         restake |= !validators
             .next_validators
             .iter()
