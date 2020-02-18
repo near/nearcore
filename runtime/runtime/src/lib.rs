@@ -748,7 +748,12 @@ impl Runtime {
                         set(
                             state_update,
                             key_for_pending_data_count(account_id, &receipt_id),
-                            &(pending_data_count - 1),
+                            &(pending_data_count.checked_sub(1).ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending data count is 0, but there is a new DataReceipt"
+                                        .to_string(),
+                                )
+                            })?),
                         );
                     }
                 }
@@ -1004,6 +1009,8 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
+                // NOTE: We don't need to validate the local receipt, because it's just validated in
+                // the `verify_and_charge_transaction`.
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
@@ -1022,6 +1029,15 @@ impl Runtime {
                     delayed_receipts_indices.first_index
                 ))
             })?;
+
+            // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
+            validate_receipt(&self.config.wasm_config.limit_config, &receipt).map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} in the state is invalid: {}",
+                    delayed_receipts_indices.first_index, e
+                ))
+            })?;
+
             state_update.remove(&key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
@@ -1030,6 +1046,10 @@ impl Runtime {
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         for receipt in incoming_receipts.iter() {
+            // Validating new incoming no matter whether we have available gas or not. We don't
+            // want to store invalid receipts in state as delayed.
+            validate_receipt(&self.config.wasm_config.limit_config, &receipt)
+                .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
@@ -1242,14 +1262,15 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
     use testlib::runtime_utils::{alice_account, bob_account};
-
-    use super::*;
 
     const GAS_PRICE: Balance = 100;
 
@@ -1652,5 +1673,64 @@ mod tests {
             ],
             "STEP #5 failed",
         );
+    }
+
+    #[test]
+    fn test_apply_invalid_incoming_receipts() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, root, apply_state, _) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 1;
+        let mut receipts = generate_receipts(small_transfer, n);
+        let invalid_account_id = "Invalid".to_string();
+        receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
+
+        let err =
+            runtime.apply(trie.clone(), root, &None, &apply_state, &receipts, &[]).err().unwrap();
+        assert_eq!(
+            err,
+            RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
+                account_id: invalid_account_id
+            })
+        )
+    }
+
+    #[test]
+    fn test_apply_invalid_delayed_receipts() {
+        let initial_balance = 1_000_000;
+        let initial_locked = 500_000;
+        let small_transfer = 10_000;
+        let gas_limit = 1;
+        let (runtime, trie, root, apply_state, _) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 1;
+        let mut invalid_receipt = generate_receipts(small_transfer, n).pop().unwrap();
+        let invalid_account_id = "Invalid".to_string();
+        invalid_receipt.predecessor_id = invalid_account_id.clone();
+
+        // Saving invalid receipt to the delayed receipts.
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
+        Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
+            .unwrap();
+        set(&mut state_update, DELAYED_RECEIPT_INDICES.to_vec(), &delayed_receipts_indices);
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        let trie_changes = state_update.finalize().unwrap();
+        let (store_update, root) = trie_changes.into(trie.clone()).unwrap();
+        store_update.commit().unwrap();
+
+        let err = runtime.apply(trie.clone(), root, &None, &apply_state, &[], &[]).err().unwrap();
+        assert_eq!(
+            err,
+            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
+                "Delayed receipt #0 in the state is invalid: {}",
+                ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+            )))
+        )
     }
 }

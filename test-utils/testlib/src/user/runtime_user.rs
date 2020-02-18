@@ -87,6 +87,7 @@ impl RuntimeUser {
                     RuntimeError::UnexpectedIntegerOverflow => {
                         panic!("UnexpectedIntegerOverflow error")
                     }
+                    RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
