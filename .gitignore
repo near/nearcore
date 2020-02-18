@@ -56,4 +56,4 @@ pytest/.consent
 
 # testnet genesis
 /near/res/testnet.json
-/near/res/testnet_records*.json
+/near/res/testnet_genesis_records*.json
