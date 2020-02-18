@@ -446,10 +446,15 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
+                                if block.header.inner_lite.height == 1 {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
                                 assert!(block.header.inner_lite.height >= 2);
                                 assert!(block.header.inner_lite.height <= height);
                                 let mut tx_count = 0;
-                                if block.header.inner_lite.height == height {
+                                if block.header.inner_lite.height == height
+                                    && block.header.inner_lite.height >= 2
+                                {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             let mut amount =
