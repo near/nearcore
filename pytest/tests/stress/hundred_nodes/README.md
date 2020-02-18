@@ -31,7 +31,7 @@ python tests/stress/hundred_nodes/create_gcloud_image image_name branch 'additio
 3. Start hundred nodes
 ```
 # will use the near-<branch>-YYYYMMDD-<username> image, instance name will be pytest-node-<username>-0 to 99
-python tests/stress/hundred_nodes/hundred_nodes/start_100_nodes.py
+python tests/stress/hundred_nodes/start_100_nodes.py
 # If you have a different image name, or want different instance name
 ... start_100_nodes.py image_name instance_name_prefix
 ```
