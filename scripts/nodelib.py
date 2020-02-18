@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+import urllib
 
 try:
     input = raw_input
@@ -92,9 +93,13 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
         init_flags.append('--account-id=%s' % account_id)
 
     if chain_id == 'testnet':
-        if os.path.exists('near/res/testnet_records.json.aa'):
-            print('Combining initial testnet state')
-            subprocess.check_output('cat near/res/testnet_records.json.?? > near/res/testnet_records.json', shell=True)
+        testnet_genesis_hash = open('near/res/testnet_genesis_hash').read()
+        testnet_genesis_records = 'near/res/testnet_genesis_records_%s.json' % testnet_genesis_hash
+        if not os.path.exists(testnet_genesis_records):
+            print('Downloading testnet genesis records')
+            url = 'https://s3-us-west-1.amazonaws.com/testnet.nearprotocol.com/testnet_genesis_records_%s.json' % testnet_genesis_hash
+            urllib.urlretrieve(url, testnet_genesis_records)
+        init_flags.extend(['--genesis-config', 'near/res/testnet_genesis_config.json', '--genesis-records', testnet_genesis_records])
 
     if nodocker:
         nodocker_init(home_dir, is_release, init_flags)
