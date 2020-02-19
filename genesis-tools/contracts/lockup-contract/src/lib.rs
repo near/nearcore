@@ -1,4 +1,4 @@
-//! A smart contract that allows lockup of a smart contract.
+//! A smart contract that allows tokens lockup.
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use common::key_management::{KeyType, PublicKey};
