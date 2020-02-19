@@ -1,6 +1,5 @@
 use actix::System;
-use futures::future;
-use futures::future::Future;
+use futures::{future, FutureExt};
 
 use near_jsonrpc::client::new_http_client;
 use near_jsonrpc::test_utils::start_all;
@@ -21,7 +20,7 @@ fn test_status() {
             assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);
             System::current().stop();
-            future::result(Ok(()))
+            future::ready(())
         }));
     })
     .unwrap();

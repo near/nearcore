@@ -25,6 +25,7 @@ extern "C" {
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
+    // TODO #1903 fn block_height() -> u64;
     fn block_index() -> u64;
     fn storage_usage() -> u64;
     // #################
@@ -39,6 +40,8 @@ extern "C" {
     // ############
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
+    fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
+    fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -178,7 +181,7 @@ pub fn payload() {
 #[no_mangle]
 pub fn noop() {}
 
-// Function that we use to measure `base` cost by calling `block_index` many times.
+// Function that we use to measure `base` cost by calling `block_height` many times.
 #[no_mangle]
 pub unsafe fn base_1M() {
     for _ in 0..1_000_000 {
@@ -388,6 +391,52 @@ pub unsafe fn sha256_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         sha256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `keccak256_base` and `keccak256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `keccak256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute keccak256 on 10b 10k times.
+#[no_mangle]
+pub unsafe fn keccak256_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        keccak256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `keccak256_base` and `keccak256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `keccak256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute keccak256 on 10kib 10k times.
+#[no_mangle]
+pub unsafe fn keccak256_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        keccak256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `keccak512_base` and `keccak512_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `keccak512` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute keccak512 on 10b 10k times.
+#[no_mangle]
+pub unsafe fn keccak512_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `keccak512_base` and `keccak512_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `keccak512` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute keccak512 on 10kib 10k times.
+#[no_mangle]
+pub unsafe fn keccak512_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
     }
 }
 

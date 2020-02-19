@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use log::LevelFilter;
 
@@ -12,7 +12,8 @@ use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockIndex, EpochId, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, Nonce};
+use crate::validator_signer::ValidatorSigner;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -33,6 +34,16 @@ pub fn init_test_logger() {
         .filter_module("hyper", LevelFilter::Info)
         .filter(None, LevelFilter::Debug)
         .try_init();
+    init_stop_on_panic();
+}
+
+pub fn init_test_logger_allow_panic() {
+    let _ = env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
+        .try_init();
 }
 
 pub fn init_test_module_logger(module: &str) {
@@ -44,6 +55,7 @@ pub fn init_test_module_logger(module: &str) {
         .filter_module(module, LevelFilter::Info)
         .filter(None, LevelFilter::Info)
         .try_init();
+    init_stop_on_panic();
 }
 
 pub fn init_integration_logger() {
@@ -51,6 +63,20 @@ pub fn init_integration_logger() {
         .filter(None, LevelFilter::Info)
         .filter(Some("actix_web"), LevelFilter::Warn)
         .try_init();
+    init_stop_on_panic();
+}
+
+static SET_PANIC_HOOK: Once = Once::new();
+
+/// This is a workaround to make actix/tokio runtime stop when a task panics.
+pub fn init_stop_on_panic() {
+    SET_PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_hook(info);
+            actix::System::with_current(|sys| sys.stop_with_code(1));
+        }));
+    })
 }
 
 impl Transaction {
@@ -131,36 +157,65 @@ impl SignedTransaction {
 impl Block {
     pub fn empty_with_epoch(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
-        signer: &dyn Signer,
+        next_epoch_id: EpochId,
+        next_bp_hash: CryptoHash,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
-        Self::empty_with_approvals(prev, height, epoch_id, vec![], signer)
+        Self::empty_with_approvals(
+            prev,
+            height,
+            epoch_id,
+            next_epoch_id,
+            vec![],
+            signer,
+            next_bp_hash,
+        )
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: &dyn Signer) -> Self {
-        Self::empty_with_epoch(prev, height, prev.header.inner.epoch_id.clone(), signer)
+    pub fn empty_with_height(
+        prev: &Block,
+        height: BlockHeight,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
+        Self::empty_with_epoch(
+            prev,
+            height,
+            prev.header.inner_lite.epoch_id.clone(),
+            if prev.header.prev_hash == CryptoHash::default() {
+                EpochId(prev.hash())
+            } else {
+                prev.header.inner_lite.next_epoch_id.clone()
+            },
+            prev.header.inner_lite.next_bp_hash,
+            signer,
+        )
     }
 
-    pub fn empty(prev: &Block, signer: &dyn Signer) -> Self {
-        Self::empty_with_height(prev, prev.header.inner.height + 1, signer)
+    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
+        Self::empty_with_height(prev, prev.header.inner_lite.height + 1, signer)
     }
 
     /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
     /// Done because chain tests don't have a good way to store chunks right now.
     pub fn empty_with_approvals(
         prev: &Block,
-        height: BlockIndex,
+        height: BlockHeight,
         epoch_id: EpochId,
+        next_epoch_id: EpochId,
         approvals: Vec<Approval>,
-        signer: &dyn Signer,
+        signer: &dyn ValidatorSigner,
+        next_bp_hash: CryptoHash,
     ) -> Self {
         Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
             epoch_id,
+            next_epoch_id,
             approvals,
+            0,
             0,
             Some(0),
             vec![],
@@ -169,6 +224,8 @@ impl Block {
             0.into(),
             CryptoHash::default(),
             CryptoHash::default(),
+            CryptoHash::default(),
+            next_bp_hash,
         )
     }
 }

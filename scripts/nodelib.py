@@ -11,6 +11,9 @@ except NameError:
     pass
 
 
+USER = str(os.getuid())+':'+str(os.getgid())
+
+
 """Installs cargo/Rust."""
 def install_cargo():
     try:
@@ -22,8 +25,9 @@ def install_cargo():
 
 """Inits the node configuration using docker."""
 def docker_init(image, home_dir, init_flags):
-    subprocess.check_output(['docker', 'run',
-        '-v', '%s:/srv/near' % home_dir, '-it',
+    subprocess.check_output(['mkdir', '-p', home_dir])
+    subprocess.check_output(['docker', 'run', '-u', USER,
+        '-v', '%s:/srv/near' % home_dir,
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
 
 
@@ -93,6 +97,7 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
         filename = os.path.join(home_dir, 'genesis.json')
         genesis_config = json.load(open(filename))
         genesis_config['gas_price'] = 0
+        genesis_config['min_gas_price'] = 0
         json.dump(genesis_config, open(filename, 'w'))
 
 
@@ -111,11 +116,11 @@ def print_staking_key(home_dir):
 """Stops and removes given docker container."""
 def docker_stop_if_exists(name):
     try:
-        subprocess.check_output(['docker', 'stop', name])
+        subprocess.Popen(['docker', 'stop', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     except subprocess.CalledProcessError:
         pass
     try:
-        subprocess.check_output(['docker', 'rm', name])
+        subprocess.Popen(['docker', 'rm', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     except subprocess.CalledProcessError:
         pass
 
@@ -136,14 +141,15 @@ def run_docker(image, home_dir, boot_nodes, telemetry_url, verbose):
     network_port = get_port(home_dir, 'network')
     if verbose:
         envs.extend(['-e', 'VERBOSE=1'])
-    subprocess.check_output(['docker', 'run',
+    subprocess.check_output(['mkdir', '-p', home_dir])
+    subprocess.check_output(['docker', 'run', '-u', USER,
                     '-d', '-p', rpc_port, '-p', network_port, '-v', '%s:/srv/near' % home_dir,
                     '-v', '/tmp:/tmp',
                     '--ulimit', 'core=-1',
                     '--name', 'nearcore', '--restart', 'unless-stopped'] +
                     envs + [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
-    subprocess.check_output(['docker', 'run',
+    subprocess.check_output(['docker', 'run', '-u', USER,
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
                     '-v', '/var/run/docker.sock:/var/run/docker.sock',
                     'v2tec/watchtower', image])
@@ -156,7 +162,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
-        cmd.append('--verbose')
+        cmd += ['--verbose', '']
     cmd.append('run')
     cmd.append('--telemetry-url=%s' % telemetry_url)
     if boot_nodes:
@@ -205,7 +211,8 @@ def generate_node_key(home, is_release, nodocker, image):
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', 'node-key'])
+        subprocess.check_output(['mkdir', '-p', home])
+        subprocess.check_output(['docker', 'run', '-u', USER, '-v', '%s:/srv/keypair-generator' % home, image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', 'node-key'])
     print("Node key generated")
 
 def generate_validator_key(home, is_release, nodocker, image, account_id):
@@ -221,7 +228,8 @@ def generate_validator_key(home, is_release, nodocker, image, account_id):
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'validator-key'])
+        subprocess.check_output(['mkdir', '-p', home])
+        subprocess.check_output(['docker', 'run', '-u', USER, '-v', '%s:/srv/keypair-generator' % home, image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'validator-key'])
     print("Validator key generated")
 
 def generate_signer_key(home, is_release, nodocker, image, account_id):
@@ -237,7 +245,8 @@ def generate_signer_key(home, is_release, nodocker, image, account_id):
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/keypair-generator' % home, '-it', image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'signer-keys'])
+        subprocess.check_output(['mkdir', '-p', home])
+        subprocess.check_output(['docker', 'run', '-u', USER, '-v', '%s:/srv/keypair-generator' % home, image, 'keypair-generator', '--home=/srv/keypair-generator', '--generate-config', '--account-id=%s' % account_id, 'signer-keys'])
     print("Signer keys generated")
 
 
@@ -275,7 +284,8 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
         except KeyboardInterrupt:
             print("\nStopping NEARCore.")
     else:
-        subprocess.check_output(['docker', 'run', '-v', '%s:/srv/genesis-csv-to-json' % home, '-it', image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id, '--tracked-shards=%s' % tracked_shards])
+        subprocess.check_output(['mkdir', '-p', home])
+        subprocess.check_output(['docker', 'run', '-u', USER, '-v', '%s:/srv/genesis-csv-to-json' % home, image, 'genesis-csv-to-json', '--home=/srv/genesis-csv-to-json', '--chain-id=%s' % chain_id, '--tracked-shards=%s' % tracked_shards])
     print("Genesis created")
 
 def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose, tracked_shards):

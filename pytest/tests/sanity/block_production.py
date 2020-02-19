@@ -2,6 +2,13 @@
 # Ensures that the nodes remained in sync throughout the process
 # Sets epoch length to 10
 
+# Local:
+# python tests/sanity/block_production.py
+# Remote:
+# NEAR_PYTEST_CONFIG=remote.json python tests/sanity/block_production.py
+
+# Same for all tests that call start_cluster with a None config
+
 import sys, time
 
 sys.path.append('lib')
@@ -12,15 +19,7 @@ from cluster import start_cluster
 TIMEOUT = 150
 BLOCKS = 50
 
-# Local:
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
-
-# Remote:
-# nodes = start_cluster(4, 0, 4, {'local': False, 'near_root': '../target/debug/',
-#     'remote': {
-#         'instance_name': 'near-pytest',
-#     }
-# }, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+nodes = start_cluster(4, 0, 4, None, [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
 started = time.time()
 

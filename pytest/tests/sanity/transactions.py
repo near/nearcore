@@ -15,7 +15,7 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 240
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
+nodes = start_cluster(4, 0, 4, None, [["min_gas_price", 0], ["max_inflation_rate", 0], ["epoch_length", 10], ["block_producer_kickout_threshold", 70]], {})
 
 started = time.time()
 
@@ -36,6 +36,7 @@ while True:
     hash_ = status['sync_info']['latest_block_hash']
 
     if step == 0:
+        print(f'step {step}')
         if height >= 1:
             tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
             nodes[3].send_tx(tx)
@@ -47,13 +48,18 @@ while True:
             sent_height = height
 
     elif step == 1:
+        print(f'step {step}')
+        print(f'height {height}, sent_height {sent_height}')
         if height == sent_height + 6:
             cur_balances = ctx.get_balances()
+            print(f'cur_balances {cur_balances}')
+            print(f'expected_bal {ctx.expected_balances}')
 
-            assert cur_balances == ctx.expected_balances, "%s != %s" % (cur_balances, expected_balances)
+            assert cur_balances == ctx.expected_balances, "%s != %s" % (cur_balances, ctx.expected_balances)
             step = 2
 
     else:
+        print(f'step {step}')
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
             print("Balances caught up, took %s blocks, moving on" % (height - sent_height));

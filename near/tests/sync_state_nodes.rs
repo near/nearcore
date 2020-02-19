@@ -1,14 +1,15 @@
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::{Actor, System};
-use futures::future::Future;
+use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig};
+use near::{config::GenesisConfigExt, load_test_config, start_with_config};
+use near_chain_configs::GenesisConfig;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -57,10 +58,10 @@ fn sync_state_nodes() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -71,10 +72,10 @@ fn sync_state_nodes() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("SECOND STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 } else {
                 }
@@ -176,10 +177,10 @@ fn sync_state_nodes_multishard() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -192,17 +193,17 @@ fn sync_state_nodes_multishard() {
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             Err(e) => {
                                 println!("SECOND STAGE ERROR2: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             _ => {
                                 assert!(false);
                             }
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
             }),
@@ -272,8 +273,6 @@ fn sync_empty_state() {
                                         block_header_fetch_horizon;
                                     near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                     near2.client_config.tracked_shards = vec![0, 1, 2, 3];
-                                    near2.network_config.boot_nodes =
-                                        convert_boot_nodes(vec![("test1", port1)]);
 
                                     let (_, view_client2) = start_with_config(dir2.path(), near2);
                                     *view_client2_holder2 = Some(view_client2);
@@ -282,10 +281,10 @@ fn sync_empty_state() {
                             Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
                                 println!("FIRST STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
+                            Err(_) => return future::ready(()),
                             _ => {}
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
 
@@ -298,17 +297,17 @@ fn sync_empty_state() {
                             }
                             Ok(Err(e)) => {
                                 println!("SECOND STAGE ERROR1: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             Err(e) => {
                                 println!("SECOND STAGE ERROR2: {:?}", e);
-                                return futures::future::err(());
+                                return future::ready(());
                             }
                             _ => {
                                 assert!(false);
                             }
                         };
-                        futures::future::ok(())
+                        future::ready(())
                     }));
                 }
             }),

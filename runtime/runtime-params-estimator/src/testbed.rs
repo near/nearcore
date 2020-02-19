@@ -3,10 +3,10 @@ use near::get_store_path;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
-use near_store::{create_store, Trie, COL_STATE};
+use near_store::{create_store, ColState, Trie};
+use near_vm_logic::VMLimitConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::{ApplyState, Runtime};
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -37,7 +37,7 @@ impl RuntimeTestbed {
 
         let mut state_file = dump_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        store.load_from_file(COL_STATE, state_file.as_path()).expect("Failed to read state dump");
+        store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = dump_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
@@ -50,11 +50,24 @@ impl RuntimeTestbed {
         let root = state_roots[0];
 
         let mut runtime_config = RuntimeConfig::default();
-        runtime_config.wasm_config.max_log_len = std::u64::MAX;
-        runtime_config.wasm_config.max_number_registers = std::u64::MAX;
-        runtime_config.wasm_config.max_gas_burnt = std::u64::MAX;
-        runtime_config.wasm_config.max_register_size = std::u64::MAX;
-        runtime_config.wasm_config.max_number_logs = std::u64::MAX;
+
+        runtime_config.wasm_config.limit_config = VMLimitConfig {
+            max_total_log_length: u64::max_value(),
+            max_number_registers: u64::max_value(),
+            max_gas_burnt: u64::max_value(),
+            max_register_size: u64::max_value(),
+            max_number_logs: u64::max_value(),
+
+            max_actions_per_receipt: u64::max_value(),
+            max_promises_per_function_call_action: u64::max_value(),
+            max_number_input_data_dependencies: u64::max_value(),
+
+            max_total_prepaid_gas: u64::max_value(),
+            max_number_bytes_method_names: u64::max_value(),
+
+            ..Default::default()
+        };
+
         let runtime = Runtime::new(runtime_config);
         let prev_receipts = vec![];
 
@@ -84,7 +97,6 @@ impl RuntimeTestbed {
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
-                &HashSet::new(),
             )
             .unwrap();
 
@@ -103,7 +115,7 @@ impl RuntimeTestbed {
                 }
             }
         }
-        self.prev_receipts = apply_result.new_receipts;
+        self.prev_receipts = apply_result.outgoing_receipts;
         total_burnt_gas
     }
 

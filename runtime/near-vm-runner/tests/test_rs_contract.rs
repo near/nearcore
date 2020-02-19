@@ -4,15 +4,15 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
-use std::fs;
 use std::mem::size_of;
-use std::path::PathBuf;
 
 mod utils;
 
 use crate::utils::{
     CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
+
+const TEST_CONTRACT: &'static [u8] = include_bytes!("../tests/res/test_contract_rs.wasm");
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
     if let Some(_) = err {
@@ -47,9 +47,7 @@ fn create_context(input: &[u8]) -> VMContext {
 
 #[test]
 pub fn test_read_write() {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/res/test_contract_rs.wasm");
-    let code = fs::read(path).unwrap();
+    let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&arr_u64_to_u8(&[10u64, 20u64]));
@@ -99,9 +97,7 @@ macro_rules! def_test_ext {
 }
 
 fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/res/test_contract_rs.wasm");
-    let code = fs::read(path).unwrap();
+    let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
@@ -137,12 +133,12 @@ def_test_ext!(
 def_test_ext!(ext_signer_pk, b"ext_signer_pk", &SIGNER_ACCOUNT_PK);
 def_test_ext!(ext_random_seed, b"ext_random_seed", &[0, 1, 2]);
 
-def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(9)).to_le_bytes());
+def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes());
 def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, b"ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &19u64.to_le_bytes());
+def_test_ext!(ext_used_gas, b"ext_used_gas", &[116, 54, 169, 11, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,
     b"ext_sha256",
@@ -158,14 +154,12 @@ def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes(
 
 #[test]
 pub fn test_out_of_memory() {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/res/test_contract_rs.wasm");
-    let code = fs::read(path).unwrap();
+    let code = &TEST_CONTRACT;
     let mut fake_external = MockedExternal::new();
 
     let context = create_context(&[]);
-    let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let config = VMConfig::free();
+    let fees = RuntimeFeesConfig::free();
 
     let promise_results = vec![];
     let result = run(
@@ -180,6 +174,8 @@ pub fn test_out_of_memory() {
     );
     assert_eq!(
         result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap {
+            msg: "unknown".to_string()
+        }))
     );
 }

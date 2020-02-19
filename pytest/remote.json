@@ -1,0 +1,13 @@
+{
+    "local": false,
+    "near_root": "../target/debug/",
+    "remote": {
+        "instance_name": "near-pytest",
+        "binary": "near-staging-200f8d5650932291df9e61c16059b8723e503920-debug",
+        "zones": [
+            "us-east1-d",
+            "us-central1-c",
+            "us-east1-b"
+        ]
+    }
+}

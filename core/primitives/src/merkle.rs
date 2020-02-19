@@ -17,7 +17,7 @@ pub enum Direction {
     Right,
 }
 
-fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
+pub fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
     let mut combined: Vec<u8> = hash1.into();
     combined.append(&mut hash2.into());
     hash(&combined)
@@ -132,5 +132,14 @@ mod tests {
         for i in 0..items.len() {
             assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
         }
+    }
+
+    #[test]
+    fn test_elements_order() {
+        let items = vec![1, 2];
+        let (root, _) = merklize(&items);
+        let items2 = vec![2, 1];
+        let (root2, _) = merklize(&items2);
+        assert_ne!(root, root2);
     }
 }

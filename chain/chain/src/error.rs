@@ -6,6 +6,7 @@ use failure::{Backtrace, Context, Fail};
 
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::types::ShardId;
 
 #[derive(Debug)]
 pub struct Error {
@@ -25,9 +26,6 @@ pub enum ErrorKind {
     /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
-    /// Peer abusively sending us an old block we already have
-    #[fail(display = "Old Block")]
-    OldBlock,
     /// Block time is before parent block time.
     #[fail(display = "Invalid Block Time: block time {} before previous {}", _1, _0)]
     InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
@@ -43,9 +41,9 @@ pub enum ErrorKind {
     /// Invalid block confirmation signature.
     #[fail(display = "Invalid Block Confirmation Signature")]
     InvalidBlockConfirmation,
-    /// Invalid block weight.
-    #[fail(display = "Invalid Block Weight")]
-    InvalidBlockWeight,
+    /// Invalid block score.
+    #[fail(display = "Invalid Block Score")]
+    InvalidBlockScore,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -100,9 +98,18 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    #[fail(display = "Invalid Next BP Hash")]
+    InvalidNextBPHash,
     /// Invalid quorum_pre_vote or quorum_pre_commit
     #[fail(display = "Invalid Finality Info")]
     InvalidFinalityInfo,
+    /// The block doesn't have approvals from 50% of the block producers
+    #[fail(display = "Not enough approvals")]
+    NotEnoughApprovals,
+    /// The information about the last doomslug final block is incorrect
+    #[fail(display = "Invalid doomslug finality info")]
+    InvalidDoomslugFinalityInfo,
     /// Invalid validator proposals in the block.
     #[fail(display = "Invalid Validator Proposals")]
     InvalidValidatorProposals,
@@ -130,6 +137,15 @@ pub enum ErrorKind {
     /// Invalid Balance Burnt
     #[fail(display = "Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Invalid shard id
+    #[fail(display = "Shard id {} does not exist", _0)]
+    InvalidShardId(ShardId),
+    /// Invalid shard id
+    #[fail(display = "Invalid state request: {}", _0)]
+    InvalidStateRequest(String),
+    /// Someone is not a validator. Usually happens in signature verification
+    #[fail(display = "Not A Validator")]
+    NotAValidator,
     /// Validator error.
     #[fail(display = "Validator Error: {}", _0)]
     ValidatorError(String),
@@ -199,10 +215,9 @@ impl Error {
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
             | ErrorKind::InvalidBlockHeight
-            | ErrorKind::OldBlock
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
-            | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidBlockScore
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidChunkState(_)
@@ -220,7 +235,10 @@ impl Error {
             | ErrorKind::MaliciousChallenge
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidNextBPHash
             | ErrorKind::InvalidFinalityInfo
+            | ErrorKind::NotEnoughApprovals
+            | ErrorKind::InvalidDoomslugFinalityInfo
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature
             | ErrorKind::InvalidApprovals
@@ -229,7 +247,10 @@ impl Error {
             | ErrorKind::InvalidGasUsed
             | ErrorKind::InvalidReward
             | ErrorKind::InvalidBalanceBurnt
-            | ErrorKind::InvalidRent => true,
+            | ErrorKind::InvalidRent
+            | ErrorKind::InvalidShardId(_)
+            | ErrorKind::InvalidStateRequest(_)
+            | ErrorKind::NotAValidator => true,
         }
     }
 

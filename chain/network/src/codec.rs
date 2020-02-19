@@ -1,8 +1,8 @@
 use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::{BufMut, BytesMut};
-use tokio::codec::{Decoder, Encoder};
+use bytes::{Buf, BufMut, BytesMut};
+use tokio_util::codec::{Decoder, Encoder};
 
 use crate::types::PeerMessage;
 
@@ -28,7 +28,7 @@ impl Encoder for Codec {
             // First four bytes is the length of the buffer.
             buf.reserve(item.len() + 4);
             buf.put_u32_le(item.len() as u32);
-            buf.put(item);
+            buf.put(&item[..]);
             Ok(())
         }
     }
@@ -68,17 +68,18 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
+    use near_primitives::block::Approval;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::network::AnnounceAccount;
     use near_primitives::types::EpochId;
 
     use crate::routing::EdgeInfo;
     use crate::types::{
-        AnnounceAccount, Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage,
-        RoutedMessageBody, SyncData,
+        Handshake, PeerChainInfo, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
+        SyncData,
     };
 
     use super::*;
-    use near_primitives::block::{Approval, WeightAndScore};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -98,7 +99,7 @@ mod test {
             chain_info: PeerChainInfo {
                 genesis_id: Default::default(),
                 height: 0,
-                weight_and_score: WeightAndScore::from_ints(0, 0),
+                score: 0.into(),
                 tracked_shards: vec![],
             },
             edge_info: EdgeInfo::default(),
@@ -145,13 +146,24 @@ mod test {
             target: PeerIdOrHash::PeerId(sk.public_key().into()),
             author: sk.public_key().into(),
             signature: signature.clone(),
+            ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
                 account_id: "test2".to_string(),
                 parent_hash: CryptoHash::default(),
-                reference_hash: CryptoHash::default(),
+                reference_hash: Some(CryptoHash::default()),
+                target_height: 1,
+                is_endorsement: true,
                 signature: bls_signature,
             }),
         });
         test_codec(msg);
+    }
+
+    #[test]
+    fn test_account_id_bytes() {
+        let account_id = "near0".to_string();
+        let enc = account_id.as_bytes();
+        let dec_account_id = String::from_utf8_lossy(enc).to_string();
+        assert_eq!(account_id, dec_account_id);
     }
 }

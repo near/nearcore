@@ -5,15 +5,15 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
+use crate::db::{DBOp, DBTransaction};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
-pub use kvdb::DBValue;
-use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{StateRoot, StateRootNode};
+use near_primitives::types::{StateChangeCause, StateChanges, StateRoot, StateRootNode};
 
+use crate::db::DBCol::ColKeyValueChanges;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -21,7 +21,8 @@ use crate::trie::trie_storage::{
     TouchedNodesCounter, TrieCachingStorage, TrieMemoryPartialStorage, TrieRecordingStorage,
     TrieStorage,
 };
-use crate::{StorageError, Store, StoreUpdate, COL_STATE};
+use crate::{ColState, StorageError, Store, StoreUpdate};
+use borsh::BorshSerialize;
 
 mod insert_delete;
 pub mod iterator;
@@ -30,10 +31,13 @@ mod state_parts;
 mod trie_storage;
 pub mod update;
 
+#[cfg(test)]
+mod trie_tests;
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PartialStorage {
     pub nodes: PartialState,
 }
@@ -41,13 +45,16 @@ pub struct PartialStorage {
 #[derive(Clone, Hash, Debug, Copy)]
 pub(crate) struct StorageHandle(usize);
 
+#[derive(Clone, Hash, Debug, Copy)]
+pub(crate) struct StorageValueHandle(usize);
+
 pub struct TrieCosts {
     pub byte_of_key: u64,
     pub byte_of_value: u64,
     pub node_cost: u64,
 }
 
-const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 40 };
+const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Hash, Debug)]
 enum NodeHandle {
@@ -56,13 +63,19 @@ enum NodeHandle {
 }
 
 #[derive(Clone, Hash, Debug)]
+enum ValueHandle {
+    InMemory(StorageValueHandle),
+    HashAndSize(u32, CryptoHash),
+}
+
+#[derive(Clone, Hash, Debug)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
     Empty,
     /// Key and value of the leaf node.
-    Leaf(Vec<u8>, Vec<u8>),
+    Leaf(Vec<u8>, ValueHandle),
     /// Branch of 16 possible children and value if key ends here.
-    Branch(Box<[Option<NodeHandle>; 16]>, Option<Vec<u8>>),
+    Branch(Box<[Option<NodeHandle>; 16]>, Option<ValueHandle>),
     /// Key and child of extension.
     Extension(Vec<u8>, NodeHandle),
 }
@@ -87,23 +100,27 @@ impl TrieNodeWithSize {
     }
 
     fn empty() -> TrieNodeWithSize {
-        TrieNodeWithSize {
-            node: TrieNode::Empty,
-            memory_usage: TrieNode::Empty.memory_usage_direct(),
-        }
+        TrieNodeWithSize { node: TrieNode::Empty, memory_usage: 0 }
     }
 }
 
 impl TrieNode {
     fn new(rc_node: RawTrieNode) -> TrieNode {
         match rc_node {
-            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, value),
+            RawTrieNode::Leaf(key, value_length, value_hash) => {
+                TrieNode::Leaf(key, ValueHandle::HashAndSize(value_length, value_hash))
+            }
             RawTrieNode::Branch(children, value) => {
                 let mut new_children: Box<[Option<NodeHandle>; 16]> = Default::default();
                 for i in 0..children.len() {
                     new_children[i] = children[i].map(NodeHandle::Hash);
                 }
-                TrieNode::Branch(new_children, value)
+                TrieNode::Branch(
+                    new_children,
+                    value.map(|(value_length, value_hash)| {
+                        ValueHandle::HashAndSize(value_length, value_hash)
+                    }),
+                )
             }
             RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
@@ -177,7 +194,30 @@ impl TrieNode {
         buf
     }
 
-    fn memory_usage_direct(&self) -> u64 {
+    fn memory_usage_for_value_length(value_length: u64) -> u64 {
+        value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
+    }
+
+    fn memory_usage_value(value: &ValueHandle, memory: Option<&NodesStorage>) -> u64 {
+        let value_length = match value {
+            ValueHandle::InMemory(handle) => memory
+                .expect("InMemory nodes exist, but storage is not provided")
+                .value_ref(*handle)
+                .len() as u64,
+            ValueHandle::HashAndSize(value_length, _value_hash) => *value_length as u64,
+        };
+        Self::memory_usage_for_value_length(value_length)
+    }
+
+    fn memory_usage_direct_no_memory(&self) -> u64 {
+        self.memory_usage_direct_internal(None)
+    }
+
+    fn memory_usage_direct(&self, memory: &NodesStorage) -> u64 {
+        self.memory_usage_direct_internal(Some(memory))
+    }
+
+    fn memory_usage_direct_internal(&self, memory: Option<&NodesStorage>) -> u64 {
         match self {
             TrieNode::Empty => {
                 // DEVNOTE: empty nodes don't exist in storage.
@@ -188,11 +228,11 @@ impl TrieNode {
             TrieNode::Leaf(key, value) => {
                 TRIE_COSTS.node_cost
                     + (key.len() as u64) * TRIE_COSTS.byte_of_key
-                    + (value.len() as u64) * TRIE_COSTS.byte_of_value
+                    + Self::memory_usage_value(value, memory)
             }
             TrieNode::Branch(_children, value) => {
                 TRIE_COSTS.node_cost
-                    + value.as_ref().map_or(0, |v| (v.len() as u64) * TRIE_COSTS.byte_of_value)
+                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value, memory))
             }
             TrieNode::Extension(key, _child) => {
                 TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
@@ -204,8 +244,8 @@ impl TrieNode {
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 enum RawTrieNode {
-    Leaf(Vec<u8>, Vec<u8>),
-    Branch([Option<CryptoHash>; 16], Option<Vec<u8>>),
+    Leaf(Vec<u8>, u32, CryptoHash),
+    Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
 }
 
@@ -247,19 +287,22 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
         let mut cursor = Cursor::new(out);
+        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
-            RawTrieNode::Leaf(key, value) => {
+            // size <= 1 + 4 + 4 + 32 + key_length + value_length
+            RawTrieNode::Leaf(key, value_length, value_hash) => {
                 cursor.write_u8(LEAF_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
                 cursor.write_all(&key)?;
-                cursor.write_u32::<LittleEndian>(value.len() as u32)?;
-                cursor.write_all(&value)?;
+                cursor.write_u32::<LittleEndian>(*value_length)?;
+                cursor.write_all(value_hash.as_ref())?;
             }
+            // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
-                if let Some(bytes) = value {
+                if let Some((value_length, value_hash)) = value {
                     cursor.write_u8(BRANCH_NODE_WITH_VALUE)?;
-                    cursor.write_u32::<LittleEndian>(bytes.len() as u32)?;
-                    cursor.write_all(&bytes)?;
+                    cursor.write_u32::<LittleEndian>(*value_length)?;
+                    cursor.write_all(value_hash.as_ref())?;
                 } else {
                     cursor.write_u8(BRANCH_NODE_NO_VALUE)?;
                 }
@@ -278,6 +321,7 @@ impl RawTrieNode {
                     }
                 }
             }
+            // size <= 1 + 4 + key_length + 32
             RawTrieNode::Extension(key, child) => {
                 cursor.write_u8(EXTENSION_NODE)?;
                 cursor.write_u32::<LittleEndian>(key.len() as u32)?;
@@ -303,9 +347,10 @@ impl RawTrieNode {
                 let mut key = vec![0; key_length as usize];
                 cursor.read_exact(&mut key)?;
                 let value_length = cursor.read_u32::<LittleEndian>()?;
-                let mut value = vec![0; value_length as usize];
-                cursor.read_exact(&mut value)?;
-                Ok(RawTrieNode::Leaf(key, value))
+                let mut arr = [0; 32];
+                cursor.read_exact(&mut arr)?;
+                let value_hash = CryptoHash::try_from(&arr[..]).unwrap();
+                Ok(RawTrieNode::Leaf(key, value_length, value_hash))
             }
             BRANCH_NODE_NO_VALUE => {
                 let children = decode_children(&mut cursor)?;
@@ -313,10 +358,11 @@ impl RawTrieNode {
             }
             BRANCH_NODE_WITH_VALUE => {
                 let value_length = cursor.read_u32::<LittleEndian>()?;
-                let mut value = vec![0; value_length as usize];
-                cursor.read_exact(&mut value)?;
+                let mut arr = [0; 32];
+                cursor.read_exact(&mut arr)?;
+                let value_hash = CryptoHash::try_from(&arr[..]).unwrap();
                 let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, Some(value)))
+                Ok(RawTrieNode::Branch(children, Some((value_length, value_hash))))
             }
             EXTENSION_NODE => {
                 let key_length = cursor.read_u32::<LittleEndian>()?;
@@ -425,7 +471,7 @@ impl TrieChanges {
                 .retrieve_rc(&key)
                 .unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
-            store_update.set(COL_STATE, key.as_ref(), &bytes);
+            store_update.set(ColState, key.as_ref(), &bytes);
         }
         Ok(())
     }
@@ -446,9 +492,9 @@ impl TrieChanges {
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
                 let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
-                store_update.set(COL_STATE, key.as_ref(), &bytes);
+                store_update.set(ColState, key.as_ref(), &bytes);
             } else {
-                store_update.delete(COL_STATE, key.as_ref());
+                store_update.delete(ColState, key.as_ref());
             }
         }
         Ok(())
@@ -476,11 +522,18 @@ impl TrieChanges {
 pub struct WrappedTrieChanges {
     trie: Arc<Trie>,
     trie_changes: TrieChanges,
+    kv_changes: StateChanges,
+    block_hash: CryptoHash,
 }
 
 impl WrappedTrieChanges {
-    pub fn new(trie: Arc<Trie>, trie_changes: TrieChanges) -> Self {
-        WrappedTrieChanges { trie, trie_changes }
+    pub fn new(
+        trie: Arc<Trie>,
+        trie_changes: TrieChanges,
+        kv_changes: StateChanges,
+        block_hash: CryptoHash,
+    ) -> Self {
+        WrappedTrieChanges { trie, trie_changes, kv_changes, block_hash }
     }
 
     pub fn insertions_into(
@@ -495,6 +548,31 @@ impl WrappedTrieChanges {
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
+    }
+
+    pub fn key_value_changes_into(
+        &self,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        store_update.trie = Some(self.trie.clone());
+        for (key, changes) in &self.kv_changes {
+            assert!(
+                !changes.iter().any(|(change_cause, _)| {
+                    if let StateChangeCause::NotWritableToDisk = change_cause {
+                        true
+                    } else {
+                        false
+                    }
+                }),
+                "NotWritableToDisk changes must never be finalized."
+            );
+            let mut storage_key = Vec::with_capacity(self.block_hash.as_ref().len() + key.len());
+            storage_key.extend_from_slice(self.block_hash.as_ref());
+            storage_key.extend_from_slice(key);
+            let value = changes.try_to_vec()?;
+            store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
+        }
+        Ok(())
     }
 }
 
@@ -553,7 +631,7 @@ impl Trie {
             NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure"),
         };
 
-        let mut memory_usage_naive = node.memory_usage_direct();
+        let mut memory_usage_naive = node.memory_usage_direct(memory);
         match &node {
             TrieNode::Empty => {}
             TrieNode::Leaf(_key, _value) => {}
@@ -584,6 +662,23 @@ impl Trie {
             assert_eq!(memory_usage_naive, memory_usage);
         }
         memory_usage
+    }
+
+    fn delete_value(
+        &self,
+        memory: &mut NodesStorage,
+        value: &ValueHandle,
+    ) -> Result<(), StorageError> {
+        match value {
+            ValueHandle::HashAndSize(_, hash) => {
+                let bytes = self.storage.retrieve_raw_bytes(hash)?;
+                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+            }
+            ValueHandle::InMemory(_) => {
+                // do nothing
+            }
+        }
+        Ok(())
     }
 
     fn move_node_to_mutable(
@@ -618,8 +713,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNodeWithSize::empty());
         }
-        self.counter.increment();
-        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        let bytes = self.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {
             Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
@@ -629,12 +723,16 @@ impl Trie {
         }
     }
 
+    pub(crate) fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        self.counter.increment();
+        self.storage.retrieve_raw_bytes(hash)
+    }
+
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         if *root == Trie::empty_root() {
             return Ok(StateRootNode::empty());
         }
-        self.counter.increment();
-        let data = self.storage.retrieve_raw_bytes(root)?;
+        let data = self.retrieve_raw_bytes(root)?;
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
                 let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
@@ -651,26 +749,25 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice,
-    ) -> Result<Option<Vec<u8>>, StorageError> {
+    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
 
         loop {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
-            self.counter.increment();
-            let bytes = self.storage.retrieve_raw_bytes(&hash)?;
+            let bytes = self.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
 
             match node.node {
-                RawTrieNode::Leaf(existing_key, value) => {
-                    return Ok(if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        Some(value)
+                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
+                    if NibbleSlice::from_encoded(&existing_key).0 == key {
+                        return Ok(Some((value_length, value_hash)));
                     } else {
-                        None
-                    });
+                        return Ok(None);
+                    }
                 }
                 RawTrieNode::Extension(existing_key, child) => {
                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
@@ -683,7 +780,12 @@ impl Trie {
                 }
                 RawTrieNode::Branch(mut children, value) => {
                     if key.is_empty() {
-                        return Ok(value);
+                        match value {
+                            Some((value_length, value_hash)) => {
+                                return Ok(Some((value_length, value_hash)));
+                            }
+                            None => return Ok(None),
+                        }
                     } else {
                         match children[key.at(0) as usize].take() {
                             Some(x) => {
@@ -698,9 +800,20 @@ impl Trie {
         }
     }
 
-    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get_ref(
+        &self,
+        root: &CryptoHash,
+        key: &[u8],
+    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let key = NibbleSlice::new(key);
         self.lookup(root, key)
+    }
+
+    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        match self.get_ref(root, key)? {
+            Some((_length, hash)) => self.retrieve_raw_bytes(&hash).map(Some),
+            None => Ok(None),
+        }
     }
 
     fn convert_to_insertions_and_deletions(
@@ -759,14 +872,13 @@ impl Trie {
         let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
         for op in &transaction.ops {
             match op {
-                DBOp::Insert { col, ref key, ref value } if *col == COL_STATE => (*guard)
-                    .cache_set(
-                        CryptoHash::try_from(&key[..]).map_err(|_| {
-                            std::io::Error::new(ErrorKind::Other, "Key is always a hash")
-                        })?,
-                        Some(value.to_vec()),
-                    ),
-                DBOp::Delete { col, ref key } if *col == COL_STATE => (*guard).cache_set(
+                DBOp::Insert { col, ref key, ref value } if *col == ColState => (*guard).cache_set(
+                    CryptoHash::try_from(&key[..]).map_err(|_| {
+                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                    })?,
+                    Some(value.to_vec()),
+                ),
+                DBOp::Delete { col, ref key } if *col == ColState => (*guard).cache_set(
                     CryptoHash::try_from(&key[..]).map_err(|_| {
                         std::io::Error::new(ErrorKind::Other, "Key is always a hash")
                     })?,
@@ -817,14 +929,17 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let node = RawTrieNode::Leaf(vec![1, 2, 3], vec![123, 245, 255]);
+        let value = vec![123, 245, 255];
+        let value_length = 3;
+        let value_hash = hash(&value);
+        let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
         let buf = node.encode().expect("Failed to serialize");
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(CryptoHash::default());
-        let node = RawTrieNode::Branch(children, Some(vec![123, 245, 255]));
+        let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
         let buf = node.encode().expect("Failed to serialize");
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
@@ -1077,6 +1192,60 @@ mod tests {
     }
 
     #[test]
+    fn test_refcounts() {
+        let mut rng = rand::thread_rng();
+        for _test_run in 0..10 {
+            let num_iterations = rng.gen_range(1, 20);
+            let trie = create_trie();
+            let mut state_root = Trie::empty_root();
+            for _ in 0..num_iterations {
+                let trie_changes = gen_changes(&mut rng, 20);
+                let (store_update, new_root) = trie
+                    .update(&state_root, trie_changes.iter().cloned())
+                    .unwrap()
+                    .into(trie.clone())
+                    .unwrap();
+
+                store_update.commit().unwrap();
+                state_root = new_root;
+                println!(
+                    "New memory_usage: {}",
+                    trie.retrieve_root_node(&state_root).unwrap().memory_usage
+                );
+            }
+            {
+                let trie_changes = trie
+                    .iter(&state_root)
+                    .unwrap()
+                    .map(|item| {
+                        let (key, _) = item.unwrap();
+                        (key, None)
+                    })
+                    .collect::<Vec<_>>();
+                let (store_update, new_root) = trie
+                    .update(&state_root, trie_changes.iter().cloned())
+                    .unwrap()
+                    .into(trie.clone())
+                    .unwrap();
+                store_update.commit().unwrap();
+                state_root = new_root;
+                assert_eq!(state_root, Trie::empty_root(), "Trie must be empty");
+                assert!(
+                    trie.storage
+                        .as_caching_storage()
+                        .unwrap()
+                        .store
+                        .iter(ColState)
+                        .peekable()
+                        .peek()
+                        .is_none(),
+                    "Storage must be empty"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_trie_restart() {
         let store = create_test_store();
         let trie1 = Arc::new(Trie::new(store.clone()));
@@ -1137,16 +1306,16 @@ mod tests {
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             trie2.get(&root, b"doge").unwrap();
-            // record extension, branch and one leaf, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 3);
+            // record extension, branch and one leaf with value, but not the other
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
         }
 
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(&root, updates.into_iter()).unwrap();
-            // record extension, branch and both leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
+            // record extension, branch and both leaves (one with value)
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
         }
 
         {
@@ -1169,9 +1338,9 @@ mod tests {
         ];
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
         let dir = TempDir::new("test_dump_load_trie").unwrap();
-        store.save_to_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(COL_STATE, &dir.path().join("test.bin")).unwrap();
+        store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
         let trie2 = Arc::new(Trie::new(store2.clone()));
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }

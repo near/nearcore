@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
-use near_vm_logic::{HostErrorOrStorageError, VMLogic};
+use near_vm_logic::{VMLogic, VMLogicError};
 use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 struct ImportReference(*mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
@@ -52,6 +52,7 @@ wrapped_imports! {
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
+    // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
@@ -68,6 +69,8 @@ wrapped_imports! {
     // ############
     random_seed<[register_id: u64] -> []>,
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     // #####################
     // # Miscellaneous API #
     // #####################

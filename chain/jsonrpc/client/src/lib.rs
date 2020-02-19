@@ -1,27 +1,21 @@
 use std::time::Duration;
 
 use actix_web::client::{Client, Connector};
-use futures::Future;
+use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::types::{BlockId, MaybeBlockId, ShardId};
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, QueryResponse,
-    StatusResponse,
+    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
+    QueryResponse, StateChangesView, StatusResponse,
 };
 
-use crate::message::{from_slice, Message};
+use crate::message::{from_slice, Message, RpcError};
 
 pub mod message;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BlockId {
-    Height(BlockIndex),
-    Hash(CryptoHash),
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -33,8 +27,8 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-type HttpRequest<T> = Box<dyn Future<Item = T, Error = String>>;
-type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
+type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
+type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
@@ -45,28 +39,31 @@ where
     let request =
         Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
     // TODO: simplify this.
-    Box::new(
-        client
-            .post(server_addr)
-            .header("Content-Type", "application/json")
-            .send_json(&request)
-            .map_err(|err| err.to_string())
-            .and_then(|mut response| {
-                response.body().then(|body| match body {
-                    Ok(bytes) => {
-                        from_slice(&bytes).map_err(|err| format!("Error {:?} in {:?}", err, bytes))
-                    }
-                    Err(_) => Err("Payload error: {:?}".to_string()),
-                })
+    client
+        .post(server_addr)
+        .header("Content-Type", "application/json")
+        .send_json(&request)
+        .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
+        .and_then(|mut response| {
+            response.body().map(|body| match body {
+                Ok(bytes) => from_slice(&bytes).map_err(|err| {
+                    RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
+                }),
+                Err(err) => {
+                    Err(RpcError::parse_error(format!("Failed to retrieve payload: {:?}", err)))
+                }
             })
-            .and_then(|message| match message {
-                Message::Response(resp) => resp
-                    .result
-                    .map_err(|x| format!("{:?}", x))
-                    .and_then(|x| serde_json::from_value(x).map_err(|x| x.to_string())),
-                _ => Err("Invalid message type".to_string()),
-            }),
-    )
+        })
+        .and_then(|message| {
+            future::ready(match message {
+                Message::Response(resp) => resp.result.and_then(|x| {
+                    serde_json::from_value(x)
+                        .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
+                }),
+                _ => Err(RpcError::invalid_request()),
+            })
+        })
+        .boxed_local()
 }
 
 /// Prepare a `HttpRequest` with a given client, server address and parameters.
@@ -81,19 +78,19 @@ where
     R: serde::de::DeserializeOwned + 'static,
 {
     // TODO: url encode params.
-    let response = client
+    client
         .get(format!("{}/{}", server_addr, method))
         .send()
         .map_err(|err| err.to_string())
         .and_then(|mut response| {
-            response.body().then(|body| match body {
+            response.body().map(|body| match body {
                 Ok(bytes) => String::from_utf8(bytes.to_vec())
                     .map_err(|err| format!("Error {:?} in {:?}", err, bytes))
                     .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),
                 Err(_) => Err("Payload error: {:?}".to_string()),
             })
-        });
-    Box::new(response)
+        })
+        .boxed_local()
 }
 
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params
@@ -182,14 +179,27 @@ macro_rules! jsonrpc_client {
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
     pub fn chunk(&mut self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn validators(&mut self, block_hash: String) -> RpcRequest<EpochValidatorInfo>;
+    pub fn changes(&mut self, block_hash: CryptoHash, key_prefix: Vec<u8>) -> RpcRequest<StateChangesView>;
+    pub fn validators(&mut self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
+    pub fn gas_price(&mut self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
+
+impl JsonRpcClient {
+    /// This is a soft-deprecated method to do query RPC request with a path and data positional
+    /// parameters.
+    pub fn query_by_path(&mut self, path: String, data: String) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", [path, data])
+    }
+
+    pub fn query(&mut self, request: RpcQueryRequest) -> RpcRequest<QueryResponse> {
+        call_method(&self.client, &self.server_addr, "query", request)
+    }
+}
 
 fn create_client() -> Client {
     Client::build()

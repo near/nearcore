@@ -1,4 +1,4 @@
-use reqwest::r#async::Client as AsyncClient;
+use reqwest::Client as AsyncClient;
 use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
-use futures::Future;
+use futures::{future, future::BoxFuture, FutureExt, TryFutureExt};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc::client::message::Message;
 use near_primitives::hash::CryptoHash;
@@ -14,7 +14,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
-use reqwest::Client as SyncClient;
+use reqwest::blocking::Client as SyncClient;
 use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
@@ -140,9 +140,7 @@ impl RemoteNode {
             .iter()
             .zip(self.signers.iter().map(|s| &s.public_key))
             .map(|(account_id, public_key)| {
-                get_result(|| self.get_access_key(&account_id, &public_key))
-                    .expect("No access key for given public key")
-                    .nonce
+                get_result(|| self.get_access_key(&account_id, &public_key)).nonce
             })
             .collect();
         self.nonces = nonces;
@@ -161,7 +159,7 @@ impl RemoteNode {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
+    ) -> Result<AccessKeyView, Box<dyn std::error::Error>> {
         let user = RpcUser::new(
             &self.addr.to_string(),
             account_id.to_string(),
@@ -181,25 +179,28 @@ impl RemoteNode {
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = String, Error = String> + Send> {
+    ) -> BoxFuture<'static, Result<String, String>> {
         let bytes = transaction.try_to_vec().unwrap();
         let params = (to_base64(&bytes),);
         let message = Message::request(
             "broadcast_tx_async".to_string(),
             Some(serde_json::to_value(&params).unwrap()),
         );
-        let response = self
-            .async_client
+        self.async_client
             .post(self.url.as_str())
             .json(&message)
             .send()
-            .and_then(|mut r| r.json::<serde_json::Value>())
+            .and_then(|r| r.json::<serde_json::Value>())
             .map_err(|err| format!("{}", err))
             .and_then(|j| {
-                j["result"].as_str().map(|s| s.to_string()).ok_or(VALUE_NOT_STR_ERR.to_string())
-            });
-
-        Box::new(response)
+                future::ready(
+                    j["result"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .ok_or(VALUE_NOT_STR_ERR.to_string()),
+                )
+            })
+            .boxed()
     }
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of

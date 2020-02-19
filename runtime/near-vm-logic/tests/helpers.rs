@@ -1,10 +1,12 @@
-use near_vm_errors::HostErrorOrStorageError;
+use near_vm_errors::VMLogicError;
 use near_vm_logic::types::Gas;
 use near_vm_logic::{ExtCosts, VMLogic, EXT_COSTS_COUNTER};
 use std::collections::HashMap;
 
-type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+#[allow(dead_code)]
+type Result<T> = ::std::result::Result<T, VMLogicError>;
 
+#[allow(dead_code)]
 pub fn promise_create(
     logic: &mut VMLogic,
     account_id: &[u8],
@@ -25,6 +27,7 @@ pub fn promise_create(
     )
 }
 
+#[allow(dead_code)]
 pub fn promise_batch_action_function_call(
     logic: &mut VMLogic,
     promise_index: u64,
@@ -45,6 +48,7 @@ pub fn promise_batch_action_function_call(
     )
 }
 
+#[allow(dead_code)]
 pub fn promise_batch_action_add_key_with_function_call(
     logic: &mut VMLogic,
     promise_index: u64,
@@ -92,6 +96,7 @@ pub fn reset_costs_counter() {
     EXT_COSTS_COUNTER.with(|f| f.borrow_mut().clear());
 }
 
+#[allow(dead_code)]
 pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
     EXT_COSTS_COUNTER.with(|f| {
         assert_eq!(f.borrow().clone(), expected);

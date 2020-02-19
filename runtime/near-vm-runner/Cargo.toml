@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "0.4.2"
+version = "0.4.4"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -13,15 +13,15 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-cached = "0.9.0"
-wasmer-runtime = { version = "0.9.0", features = ["default-backend-singlepass"], default-features = false }
-wasmer-runtime-core = { version = "0.9.0", features = ["backend-singlepass"]}
-near-runtime-fees = { path="../near-runtime-fees", version = "0.4.2" }
-near-vm-logic = { path="../near-vm-logic", version = "0.4.2", default-features = false, features = []}
-near-vm-errors = { path = "../near-vm-errors", version = "0.4.2" }
+cached = "0.11.0"
+wasmer-runtime = { version = "0.13.1", features = ["default-backend-singlepass"], default-features = false }
+wasmer-runtime-core = { version = "0.13.1" }
+near-runtime-fees = { path="../near-runtime-fees", version = "0.4.4" }
+near-vm-logic = { path="../near-vm-logic", version = "0.4.4", default-features = false, features = []}
+near-vm-errors = { path = "../near-vm-errors", version = "0.4.4" }
 pwasm-utils = "0.12.0"
 parity-wasm = "0.41.0"
-wasmparser = "0.39.2"
+wasmparser = "0.44"
 
 [dev-dependencies]
 assert_matches = "1.3.0"
@@ -33,6 +33,8 @@ default = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = ["near-vm-logic/costs_counting"]
+
+no_cache = []
 
 [[bench]]
 name = "bench"

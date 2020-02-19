@@ -6,19 +6,13 @@ use std::sync::{Arc, RwLock};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
+use serde::Serialize;
 
-use crate::error::{Error, ErrorKind};
-use crate::store::ChainStoreAccess;
-use crate::types::{
-    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
-    Weight,
-};
-use crate::{Chain, ChainGenesis};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
-use near_primitives::account::Account;
-use near_primitives::block::Approval;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::{Approval, Block};
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -29,19 +23,31 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRoot, StateRootNode,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, ShardId, StateChanges,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::views::{
+    AccessKeyInfoView, AccessKeyList, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewStateResult,
+};
 use near_store::test_utils::create_test_store;
 use near_store::{
-    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+    ColBlockHeader, PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
+use crate::chain::{Chain, ChainGenesis};
+use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
+use crate::types::ApplyTransactionResult;
+use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
+)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -73,7 +79,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
     u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct ReceiptNonce {
     from: String,
     to: String,
@@ -136,7 +142,7 @@ impl KeyValueRuntime {
                             account_id: account_id.clone(),
                             public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
                                 .public_key(),
-                            amount: 1_000_000,
+                            stake: 1_000_000,
                         })
                         .collect()
                 })
@@ -163,24 +169,11 @@ impl KeyValueRuntime {
         if headers_cache.get(hash).is_some() {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
-        if let Some(result) = self.store.get_ser(COL_BLOCK_HEADER, hash.as_ref())? {
+        if let Some(result) = self.store.get_ser(ColBlockHeader, hash.as_ref())? {
             headers_cache.insert(hash.clone(), result);
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
-    }
-
-    fn get_prev_height(
-        &self,
-        prev_hash: &CryptoHash,
-    ) -> Result<BlockIndex, Box<dyn std::error::Error>> {
-        if prev_hash == &CryptoHash::default() {
-            return Ok(0);
-        }
-        let prev_block_header = self
-            .get_block_header(prev_hash)?
-            .ok_or_else(|| format!("Missing block {} when computing the epoch", prev_hash))?;
-        Ok(prev_block_header.inner.height)
     }
 
     fn get_epoch_and_valset(
@@ -199,7 +192,7 @@ impl KeyValueRuntime {
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
-        let prev_prev_hash = prev_block_header.inner.prev_hash;
+        let prev_prev_hash = prev_block_header.prev_hash;
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
@@ -210,7 +203,7 @@ impl KeyValueRuntime {
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.inner.height - prev_epoch_start >= self.epoch_length;
+            || prev_block_header.inner_lite.height - prev_epoch_start >= self.epoch_length;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
@@ -221,7 +214,7 @@ impl KeyValueRuntime {
                 prev_next_epoch.clone(),
                 EpochId(prev_hash),
                 new_valset,
-                prev_block_header.inner.height,
+                prev_block_header.inner_lite.height,
             )
         } else {
             (
@@ -262,18 +255,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         )
     }
 
-    fn compute_block_weight(
-        &self,
-        prev_header: &BlockHeader,
-        header: &BlockHeader,
-    ) -> Result<Weight, Error> {
+    fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validators = &self.validators
-            [self.get_epoch_and_valset(header.inner.prev_hash).map_err(|err| err.to_string())?.1];
-        let validator = &validators[(header.inner.height as usize) % validators.len()];
+            [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.inner_lite.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
+        Ok(())
     }
 
     fn verify_validator_signature(
@@ -283,15 +272,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         _account_id: &AccountId,
         _data: &[u8],
         _signature: &Signature,
-    ) -> ValidatorSignatureVerificationResult {
-        ValidatorSignatureVerificationResult::Valid
+    ) -> Result<bool, Error> {
+        Ok(true)
     }
 
-    fn verify_header_signature(
-        &self,
-        _header: &BlockHeader,
-    ) -> ValidatorSignatureVerificationResult {
-        ValidatorSignatureVerificationResult::Valid
+    fn verify_header_signature(&self, _header: &BlockHeader) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -307,19 +293,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn get_epoch_block_producers(
+    fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
+        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
     }
 
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
@@ -328,7 +314,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
-        height: BlockIndex,
+        height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
@@ -341,28 +327,31 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
-    ) -> Result<u64, Error> {
-        Ok(0)
+    ) -> Result<ValidatorStats, Error> {
+        Ok(ValidatorStats { produced: 0, expected: 0 })
     }
 
     fn num_shards(&self) -> ShardId {
         self.num_shards
     }
 
-    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        1 + self.num_data_parts(parent_hash) * (2 + (height as usize) % 2)
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
     }
 
-    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
-        let height = self.get_prev_height(parent_hash).unwrap();
-        // Test changing number of data parts
-        12 + 2 * ((height as usize) % 4)
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -373,8 +362,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx =
-            part_id as usize + self.num_data_parts(parent_hash) + self.num_total_parts(parent_hash);
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].account_id.clone())
     }
 
@@ -435,7 +423,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn validate_tx(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _state_update: StateRoot,
@@ -446,7 +434,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _block_index: BlockIndex,
+        _block_height: BlockHeight,
         _block_timestamp: u64,
         _gas_price: Balance,
         _gas_limit: Gas,
@@ -466,10 +454,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _current_hash: CryptoHash,
-        _block_index: u64,
-        _last_finalized_height: u64,
+        _height: BlockHeight,
+        _last_finalized_height: BlockHeight,
         _proposals: Vec<ValidatorStake>,
-        _slashed_validators: Vec<AccountId>,
+        _slashed_validators: Vec<SlashedValidator>,
         _validator_mask: Vec<bool>,
         _rent_paid: Balance,
         _validator_reward: Balance,
@@ -482,10 +470,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         _last_validator_proposals: &[ValidatorStake],
@@ -639,6 +627,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root),
+                Default::default(),
+                block_hash.clone(),
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -657,7 +647,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _partial_storage: PartialStorage,
         _shard_id: ShardId,
         _state_root: &StateRoot,
-        _block_index: BlockIndex,
+        _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
@@ -674,29 +664,58 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn query(
         &self,
         state_root: &StateRoot,
-        _height: BlockIndex,
+        block_height: BlockHeight,
         _block_timestamp: u64,
-        _block_hash: &CryptoHash,
-        path: Vec<&str>,
-        _data: &[u8],
+        block_hash: &CryptoHash,
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        let account_id = path[1].to_string();
-        let account_id2 = account_id.clone();
-        Ok(QueryResponse::ViewAccount(
-            Account {
-                amount: self
-                    .state
-                    .read()
-                    .unwrap()
-                    .get(&state_root)
-                    .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
-                locked: 0,
-                code_hash: CryptoHash::default(),
-                storage_usage: 0,
-                storage_paid_at: 0,
-            }
-            .into(),
-        ))
+        match request {
+            QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewAccount(
+                    Account {
+                        amount: self.state.read().unwrap().get(&state_root).map_or_else(
+                            || 0,
+                            |state| *state.amounts.get(account_id).unwrap_or(&0),
+                        ),
+                        locked: 0,
+                        code_hash: CryptoHash::default(),
+                        storage_usage: 0,
+                        storage_paid_at: 0,
+                    }
+                    .into(),
+                ),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKeyList { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKeyList(AccessKeyList {
+                    keys: vec![AccessKeyInfoView {
+                        public_key: PublicKey::empty(KeyType::ED25519),
+                        access_key: AccessKey::full_access().into(),
+                    }],
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewAccessKey { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::AccessKey(AccessKey::full_access().into()),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::ViewState { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::ViewState(ViewStateResult { values: Default::default() }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+            QueryRequest::CallFunction { .. } => Ok(QueryResponse {
+                kind: QueryResponseKind::CallResult(CallResult {
+                    result: Default::default(),
+                    logs: Default::default(),
+                }),
+                block_height,
+                block_hash: *block_hash,
+            }),
+        }
     }
 
     fn obtain_state_part(&self, state_root: &StateRoot, part_id: u64, num_parts: u64) -> Vec<u8> {
@@ -772,7 +791,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 parent_hash
             )))
         })?;
-        let prev_prev_hash = prev_block_header.inner.prev_hash;
+        let prev_prev_hash = prev_block_header.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
@@ -788,10 +807,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
         match self.get_block_header(&epoch_id.0)? {
-            Some(block_header) => Ok(block_header.inner.height),
+            Some(block_header) => Ok(block_header.inner_lite.height),
             None => Ok(0),
         }
     }
@@ -804,8 +823,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(EpochValidatorInfo {
             current_validators: vec![],
             next_validators: vec![],
+            current_fishermen: vec![],
+            next_fishermen: vec![],
             current_proposals: vec![],
         })
+    }
+
+    fn get_key_value_changes(
+        &self,
+        _block_hash: &CryptoHash,
+        _state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>> {
+        Ok(Default::default())
     }
 
     fn push_final_block_back_if_needed(
@@ -815,25 +844,107 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<CryptoHash, Error> {
         Ok(last_final)
     }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(ErrorKind::EpochOutOfBounds.into()),
+        }
+    }
+
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn get_validator_by_account_id(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        Err(ErrorKind::NotAValidator.into())
+    }
+
+    fn get_fisherman_by_account_id(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &String,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        Err(ErrorKind::NotAValidator.into())
+    }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
-    validity: BlockIndex,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+    tx_validity_period: NumBlocks,
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity, 10),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period, 10),
+        DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
+}
+
+pub fn setup_with_validators(
+    validators: Vec<AccountId>,
+    validator_groups: u64,
+    num_shards: ShardId,
+    epoch_length: u64,
+    tx_validity_period: NumBlocks,
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+    let store = create_test_store();
+    let signers = validators
+        .iter()
+        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .collect();
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+        store.clone(),
+        vec![validators],
+        validator_groups,
+        num_shards,
+        epoch_length,
+    ));
+    let chain = Chain::new(
+        store,
+        runtime.clone(),
+        &ChainGenesis::new(
+            Utc::now(),
+            1_000_000,
+            100,
+            1_000_000_000,
+            0,
+            0,
+            tx_validity_period,
+            epoch_length,
+        ),
+        DoomslugThresholdMode::NoApprovals,
+    )
+    .unwrap();
+    (chain, runtime, signers)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -853,40 +964,38 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.owned_store().iter(COL_BLOCK_HEADER) {
+    for (key, _) in chain_store.owned_store().iter(ColBlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
             .clone();
-        if !tail || header.inner.height + 10 > head.height {
+        if !tail || header.inner_lite.height + 10 > head.height {
             headers.push(header);
         }
     }
     headers.sort_by(|h_left, h_right| {
-        if h_left.inner.height > h_right.inner.height {
+        if h_left.inner_lite.height > h_right.inner_lite.height {
             Ordering::Greater
         } else {
             Ordering::Less
         }
     });
     for header in headers {
-        if header.inner.prev_hash == CryptoHash::default() {
+        if header.prev_hash == CryptoHash::default() {
             // Genesis block.
-            debug!("{: >3} {}", header.inner.height, format_hash(header.hash()));
+            debug!("{: >3} {}", header.inner_lite.height, format_hash(header.hash()));
         } else {
-            let parent_header =
-                chain_store.get_block_header(&header.inner.prev_hash).unwrap().clone();
+            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
-            let epoch_id =
-                runtime_adapter.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
+            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
             let block_producer =
-                runtime_adapter.get_block_producer(&epoch_id, header.inner.height).unwrap();
+                runtime_adapter.get_block_producer(&epoch_id, header.inner_lite.height).unwrap();
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
-                header.inner.height,
+                header.inner_lite.height,
                 format_hash(header.hash()),
                 block_producer,
-                parent_header.inner.height,
+                parent_header.inner_lite.height,
                 format_hash(parent_header.hash()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks.len())
@@ -941,7 +1050,7 @@ impl ChainGenesis {
         ChainGenesis {
             time: Utc::now(),
             gas_limit: 1_000_000,
-            gas_price: 1,
+            min_gas_price: 0,
             total_supply: 1_000_000_000,
             max_inflation_rate: 0,
             gas_price_adjustment_rate: 0,
@@ -949,4 +1058,47 @@ impl ChainGenesis {
             epoch_length: 5,
         }
     }
+}
+
+pub fn new_block_no_epoch_switches(
+    prev_block: &Block,
+    height: BlockHeight,
+    approvals: Vec<&str>,
+    signer: &InMemoryValidatorSigner,
+) -> Block {
+    let approvals = approvals
+        .into_iter()
+        .map(|account_id| {
+            let signer =
+                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id);
+            Approval::new(prev_block.hash(), Some(prev_block.hash()), height, true, &signer)
+        })
+        .collect();
+    let (epoch_id, next_epoch_id) = if prev_block.header.prev_hash == CryptoHash::default() {
+        (prev_block.header.inner_lite.next_epoch_id.clone(), EpochId(prev_block.hash()))
+    } else {
+        (
+            prev_block.header.inner_lite.epoch_id.clone(),
+            prev_block.header.inner_lite.next_epoch_id.clone(),
+        )
+    };
+    Block::produce(
+        &prev_block.header,
+        height,
+        prev_block.chunks.clone(),
+        epoch_id,
+        next_epoch_id,
+        approvals,
+        0,
+        0,
+        Some(0),
+        vec![],
+        vec![],
+        signer,
+        0.into(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        prev_block.header.inner_lite.next_bp_hash.clone(),
+    )
 }

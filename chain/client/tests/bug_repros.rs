@@ -1,7 +1,11 @@
 // This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
 // fix do not resurface
 
+use std::sync::{Arc, RwLock};
+
 use actix::{Addr, System};
+use rand::{thread_rng, Rng};
+
 use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, ViewClientActor};
@@ -11,8 +15,6 @@ use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, Pee
 use near_primitives::block::Block;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
-use rand::{thread_rng, Rng};
-use std::sync::{Arc, RwLock};
 
 #[test]
 fn repro_1183() {
@@ -43,6 +45,8 @@ fn repro_1183() {
             false,
             false,
             5,
+            false,
+            false,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
@@ -86,12 +90,12 @@ fn repro_1183() {
                                 .0
                                 .do_send(NetworkClientMessages::Transaction(
                                     SignedTransaction::send_money(
-                                        block.header.inner.height * 16 + nonce_delta,
+                                        block.header.inner_lite.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
                                         &InMemorySigner::from_seed(from, KeyType::ED25519, from),
                                         1,
-                                        block.header.inner.prev_hash,
+                                        block.header.prev_hash,
                                     ),
                                 ));
                             nonce_delta += 1
@@ -101,7 +105,7 @@ fn repro_1183() {
                     *last_block = Some(block.clone());
                     *delayed_one_parts = vec![];
 
-                    if block.header.inner.height >= 25 {
+                    if block.header.inner_lite.height >= 25 {
                         System::current().stop();
                     }
                     (NetworkResponses::NoResponse, false)

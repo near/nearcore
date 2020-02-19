@@ -3,8 +3,8 @@ extern crate lazy_static;
 
 pub use peer_manager::PeerManagerActor;
 pub use types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
+    NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
 mod codec;
@@ -15,6 +15,6 @@ pub mod peer_store;
 mod rate_counter;
 pub mod routing;
 pub mod types;
-mod utils;
+pub mod utils;
 
 pub mod test_utils;

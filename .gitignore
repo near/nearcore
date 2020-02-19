@@ -46,3 +46,4 @@ tmp/
 
 # Vim tmp files
 *.swp
+rusty-tags.vi

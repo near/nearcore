@@ -11,16 +11,17 @@ use near_primitives::account::AccessKey;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
+use near_primitives::types::StateChangeCause;
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
 };
 use near_vm_logic::types::Balance;
-use node_runtime::StateRecord;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashSet;
@@ -39,7 +40,12 @@ const NUM_BLOCKS: usize = 10;
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
 
-const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+/// Initial balance used in tests.
+pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
+
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
+
 const TESTING_INIT_STAKE: Balance = 50_000_000;
 
 enum TransactionType {
@@ -145,7 +151,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
                         Action::FunctionCall(FunctionCallAction {
                             method_name: "benchmark_storage_8b".to_string(),
                             args: (&arg).to_vec(),
-                            gas: 10_000_000,
+                            gas: 10u64.pow(18),
                             deposit: 0,
                         })
                     }
@@ -169,6 +175,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
+        state_update.commit(StateChangeCause::InitialState);
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update
             .finalize()
@@ -250,10 +257,10 @@ fn test_transfer_memory() {
 
 #[test]
 fn test_contract_call_disk() {
-    template_test(TransactionType::ContractCall, DataBaseType::Disk, 100);
+    template_test(TransactionType::ContractCall, DataBaseType::Disk, 90);
 }
 
 #[test]
 fn test_contract_call_memory() {
-    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 100);
+    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 90);
 }
