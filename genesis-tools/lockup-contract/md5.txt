@@ -1,2 +1,2 @@
-23e252f5205451959836932e4d3357b9  ./lockup_contract.wasm
-21a4b99c96c2de0de00e26bb00f99b0e  ./lockup_vesting_contract.wasm
+MD5 (./lockup_contract.wasm) = 919a240e7f2689be4de5f98ea21bd5fa
+MD5 (./lockup_vesting_contract.wasm) = e5921810c58f9b398302976722fc977e

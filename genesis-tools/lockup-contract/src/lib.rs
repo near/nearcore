@@ -30,7 +30,13 @@ pub struct LockupContract {
     vesting_end_timestamp: u64,
 }
 
-#[near_bindgen(init => new)]
+impl Default for LockupContract {
+    fn default() -> Self {
+        env::panic(b"The contract is not initialized.");
+    }
+}
+
+#[near_bindgen]
 impl LockupContract {
     /// Check that all timestamps are strictly in the future.
     fn check_timestamps_future(timestamps: &[u64]) {
@@ -53,6 +59,7 @@ impl LockupContract {
 
     /// Initializes an account with the given lockup amount, lockup timestamp (when it
     /// expires), and the keys that it needs to add
+    #[init]
     #[cfg(not(feature = "vesting"))]
     pub fn new(
         lockup_amount: u128,
@@ -74,6 +81,7 @@ impl LockupContract {
     }
 
     /// Same initialization method as above, but with vesting functionality.
+    #[init]
     #[cfg(feature = "vesting")]
     pub fn new(
         lockup_amount: u128,
