@@ -11,7 +11,7 @@ use subtle::{ConditionallySelectable, ConstantTimeEq};
 #[derive(Copy, Clone)]
 pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
 #[derive(Copy, Clone)]
-pub struct SecretKey(Scalar, PublicKey);
+pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
 
