@@ -12,15 +12,27 @@ pub struct VMConfig {
     pub grow_mem_cost: u32,
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
+
+    /// Describes limits for VM and Runtime.
+    pub limit_config: VMLimitConfig,
+}
+
+/// Describes limits for VM and Runtime.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
+    /// Max burnt gas per view method.
+    pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
     /// See https://wiki.parity.io/WebAssembly-StackHeight to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
+
     /// The initial number of memory pages.
+    /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
     /// What is the maximal memory pages amount is allowed to have for
     /// a contract.
@@ -35,8 +47,33 @@ pub struct VMConfig {
 
     /// Maximum number of log entries.
     pub max_number_logs: u64,
-    /// Maximum length of a single log, in bytes.
-    pub max_log_len: u64,
+    /// Maximum total length in bytes of all log messages.
+    pub max_total_log_length: u64,
+
+    /// Max total prepaid gas for all function call actions per receipt.
+    pub max_total_prepaid_gas: Gas,
+
+    /// Max number of actions per receipt.
+    pub max_actions_per_receipt: u64,
+    /// Max total length of all method names (including terminating character) for a function call
+    /// permission access key.
+    pub max_number_bytes_method_names: u64,
+    /// Max length of any method name (without terminating character).
+    pub max_length_method_name: u64,
+    /// Max length of arguments in a function call action.
+    pub max_arguments_length: u64,
+    /// Max length of returned data
+    pub max_length_returned_data: u64,
+    /// Max contract size
+    pub max_contract_size: u64,
+    /// Max storage key size
+    pub max_length_storage_key: u64,
+    /// Max storage value size
+    pub max_length_storage_value: u64,
+    /// Max number of promises that a function call can create
+    pub max_promises_per_function_call_action: u64,
+    /// Max number of input data dependencies
+    pub max_number_input_data_dependencies: u64,
 }
 
 impl Default for VMConfig {
@@ -45,18 +82,7 @@ impl Default for VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
             regular_op_cost: 3856371,
-            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-            max_stack_height: 16 * 1024,      // 16Kib of stack.
-            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
-            max_memory_pages: 2u32.pow(11),   // 128Mib of memory.
-            // By default registers are limited by 1GiB of memory.
-            registers_memory_limit: 2u64.pow(30),
-            // By default each register is limited by 100MiB of memory.
-            max_register_size: 2u64.pow(20) * 100,
-            // By default there is at most 100 registers.
-            max_number_registers: 100,
-            max_number_logs: 100,
-            max_log_len: 500,
+            limit_config: VMLimitConfig::default(),
         }
     }
 }
@@ -75,15 +101,57 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
-            max_gas_burnt: std::u64::MAX,
-            max_stack_height: 16 * 1024,
-            initial_memory_pages: 17,
-            max_memory_pages: 32,
+            // We shouldn't have any costs in the limit config.
+            limit_config: VMLimitConfig {
+                max_gas_burnt: std::u64::MAX,
+                max_gas_burnt_view: std::u64::MAX,
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Default for VMLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
+            max_gas_burnt_view: 2 * 10u64.pow(14), // same as `max_gas_burnt` for now
+
+            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
+            // For experimentation try `test_stack_overflow`.
+            max_stack_height: 16 * 1024,        // 16Kib of stack.
+            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
+            max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
+
+            // By default registers are limited by 1GiB of memory.
             registers_memory_limit: 2u64.pow(30),
+            // By default each register is limited by 100MiB of memory.
             max_register_size: 2u64.pow(20) * 100,
+            // By default there is at most 100 registers.
             max_number_registers: 100,
+
             max_number_logs: 100,
-            max_log_len: 500,
+            // Total logs size is 16Kib
+            max_total_log_length: 16 * 1024,
+
+            // Fills 10 blocks. It defines how long a single receipt might live.
+            max_total_prepaid_gas: 10 * 10u64.pow(15),
+
+            // Safety limit. Unlikely to hit it for most common transactions and receipts.
+            max_actions_per_receipt: 100,
+            // Should be low enough to deserialize an access key without paying.
+            max_number_bytes_method_names: 2000,
+            max_length_method_name: 256,            // basic safety limit
+            max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
+            max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
+            max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+
+            max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
+            max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib
+            // Safety limit and unlikely abusable.
+            max_promises_per_function_call_action: 1024,
+            // Unlikely to hit it for normal development.
+            max_number_input_data_dependencies: 128,
         }
     }
 }
@@ -127,6 +195,16 @@ pub struct ExtCostsConfig {
     pub sha256_base: Gas,
     /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub keccak256_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak256_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub keccak512_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak512_byte: Gas,
 
     /// Cost for calling logging.
     pub log_base: Gas,
@@ -215,6 +293,10 @@ impl Default for ExtCostsConfig {
             utf16_decoding_byte: 9095538,
             sha256_base: 710092630,
             sha256_byte: 5536829,
+            keccak256_base: 710092630,
+            keccak256_byte: 5536829,
+            keccak512_base: 710092630 * 2,
+            keccak512_byte: 5536829 * 2,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 21058769282,
@@ -263,6 +345,10 @@ impl ExtCostsConfig {
             utf16_decoding_byte: 0,
             sha256_base: 0,
             sha256_byte: 0,
+            keccak256_base: 0,
+            keccak256_byte: 0,
+            keccak512_base: 0,
+            keccak512_byte: 0,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 0,
@@ -312,6 +398,10 @@ pub enum ExtCosts {
     utf16_decoding_byte,
     sha256_base,
     sha256_byte,
+    keccak256_base,
+    keccak256_byte,
+    keccak512_base,
+    keccak512_byte,
     log_base,
     log_byte,
     storage_write_base,
@@ -359,6 +449,10 @@ impl ExtCosts {
             utf16_decoding_byte => config.utf16_decoding_byte,
             sha256_base => config.sha256_base,
             sha256_byte => config.sha256_byte,
+            keccak256_base => config.keccak256_base,
+            keccak256_byte => config.keccak256_byte,
+            keccak512_base => config.keccak512_base,
+            keccak512_byte => config.keccak512_byte,
             log_base => config.log_base,
             log_byte => config.log_byte,
             storage_write_base => config.storage_write_base,

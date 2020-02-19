@@ -6,12 +6,12 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use tempdir::TempDir;
 
-use near::config::TESTING_INIT_STAKE;
-use near::{load_test_config, start_with_config, GenesisConfig};
-use near_chain::chain::WEIGHT_MULTIPLIER;
+use near::config::{GenesisConfigExt, TESTING_INIT_STAKE};
+use near::{load_test_config, start_with_config};
 use near_chain::{Block, Chain};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, GetBlock};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
@@ -19,6 +19,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeightDelta, EpochId, ValidatorStake};
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
@@ -27,13 +28,8 @@ fn add_blocks(
     client: Addr<ClientActor>,
     num: usize,
     epoch_length: BlockHeightDelta,
-    signer: &dyn Signer,
+    signer: &dyn ValidatorSigner,
 ) -> Vec<Block> {
-    let mut prev_prev_timestamp = if blocks.len() == 1 {
-        blocks[0].header.inner_lite.timestamp
-    } else {
-        blocks[blocks.len() - 2].header.inner_lite.timestamp
-    };
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
         let epoch_id = match prev.header.inner_lite.height + 1 {
@@ -50,32 +46,29 @@ fn add_blocks(
             &prev.header,
             prev.header.inner_lite.height + 1,
             blocks[0].chunks.clone(),
-            epoch_id.clone(),
+            epoch_id,
             next_epoch_id,
-            vec![Approval::new(prev.hash(), prev.hash(), signer, "other".to_string())],
+            vec![Approval::new(
+                prev.hash(),
+                None,
+                prev.header.inner_lite.height + 1,
+                false,
+                signer,
+            )],
             0,
             0,
             Some(0),
             vec![],
             vec![],
             signer,
-            (prev.header.inner_lite.timestamp - prev_prev_timestamp) as u128,
-            WEIGHT_MULTIPLIER,
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
-                prev.header.inner_rest.total_weight
-            } else {
-                prev.header.inner_rest.score
-            },
-            if epoch_id == prev.header.inner_lite.epoch_id || prev.header.inner_lite.height < 5 {
-                prev.hash()
-            } else {
-                prev.header.inner_rest.last_quorum_pre_vote
-            },
+            0.into(),
+            CryptoHash::default(),
+            CryptoHash::default(),
             CryptoHash::default(),
             Chain::compute_bp_hash_inner(&vec![ValidatorStake {
                 account_id: "other".to_string(),
                 public_key: signer.public_key(),
-                amount: TESTING_INIT_STAKE,
+                stake: TESTING_INIT_STAKE,
             }])
             .unwrap(),
         );
@@ -84,7 +77,6 @@ fn add_blocks(
             PeerInfo::random().id,
             false,
         ));
-        prev_prev_timestamp = prev.header.inner_lite.timestamp;
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
     }
@@ -114,7 +106,7 @@ fn sync_nodes() {
         let dir1 = TempDir::new("sync_nodes_1").unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let _ = add_blocks(vec![genesis_block], client1, 13, genesis_config.epoch_length, &signer);
 
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
@@ -166,7 +158,7 @@ fn sync_after_sync_nodes() {
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
-        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let blocks = add_blocks(
             vec![genesis_block],
             client1.clone(),
@@ -242,7 +234,7 @@ fn sync_state_stake_change() {
             "test1".to_string(),
             &*signer,
             TESTING_INIT_STAKE / 2,
-            near1.block_producer.as_ref().unwrap().signer.public_key(),
+            near1.validator_signer.as_ref().unwrap().public_key(),
             genesis_hash,
         );
         actix::spawn(

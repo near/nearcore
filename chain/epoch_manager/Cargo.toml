@@ -6,6 +6,7 @@ edition = "2018"
 
 
 [dependencies]
+# Changing this version will lead to change to the protocol, as will change how validators get shuffled.
 protocol_defining_rand = { package = "rand", version = "0.6.5" }
 log = "0.4"
 cached = "0.11.0"

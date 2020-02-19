@@ -7,8 +7,9 @@ use futures::{future, FutureExt};
 use rand::Rng;
 use tempdir::TempDir;
 
-use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
+use near::config::{GenesisConfigExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near::{load_test_config, start_with_config, NearConfig};
+use near_chain_configs::GenesisConfig;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
@@ -17,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumSeats};
-use near_primitives::views::{QueryResponseKind, ValidatorInfo};
+use near_primitives::views::{Finality, QueryRequest, QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
 #[derive(Clone)]
@@ -101,7 +102,7 @@ fn test_stake_nodes() {
             // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
             &*test_nodes[1].signer,
             TESTING_INIT_STAKE,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[1].genesis_hash,
         );
         actix::spawn(test_nodes[0].client.send(NetworkClientMessages::Transaction(tx)).map(drop));
@@ -133,7 +134,7 @@ fn test_stake_nodes() {
                 ));
             }),
             100,
-            5000,
+            8000,
         )
         .start();
 
@@ -141,7 +142,6 @@ fn test_stake_nodes() {
     });
 }
 
-/// TODO(1094): Enable kickout test after figuring
 #[test]
 fn test_validator_kickout() {
     heavy_test(|| {
@@ -171,7 +171,7 @@ fn test_validator_kickout() {
                 test_node.account_id.clone(),
                 &*signer,
                 stake,
-                test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
+                test_node.config.validator_signer.as_ref().unwrap().public_key(),
                 test_node.genesis_hash,
             )
         });
@@ -214,11 +214,13 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            format!(
-                                                "account/{}",
-                                                test_nodes[i as usize].account_id.clone()
-                                            ),
-                                            vec![],
+                                            None,
+                                            QueryRequest::ViewAccount {
+                                                account_id: test_nodes[i as usize]
+                                                    .account_id
+                                                    .clone(),
+                                            },
+                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -242,11 +244,13 @@ fn test_validator_kickout() {
                                     test_node1
                                         .view_client
                                         .send(Query::new(
-                                            format!(
-                                                "account/{}",
-                                                test_nodes[i as usize].account_id.clone()
-                                            ),
-                                            vec![],
+                                            None,
+                                            QueryRequest::ViewAccount {
+                                                account_id: test_nodes[i as usize]
+                                                    .account_id
+                                                    .clone(),
+                                            },
+                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -307,7 +311,7 @@ fn test_validator_join() {
             test_nodes[1].account_id.clone(),
             &*signer,
             0,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[1].genesis_hash,
         );
 
@@ -321,7 +325,7 @@ fn test_validator_join() {
             test_nodes[2].account_id.clone(),
             &*signer,
             TESTING_INIT_STAKE,
-            test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[2].config.validator_signer.as_ref().unwrap().public_key(),
             test_nodes[2].genesis_hash,
         );
 
@@ -360,8 +364,11 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        format!("account/{}", test_nodes[1].account_id.clone()),
-                                        vec![],
+                                        None,
+                                        QueryRequest::ViewAccount {
+                                            account_id: test_nodes[1].account_id.clone(),
+                                        },
+                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -377,8 +384,11 @@ fn test_validator_join() {
                                 test_node1
                                     .view_client
                                     .send(Query::new(
-                                        format!("account/{}", test_nodes[2].account_id.clone()),
-                                        vec![],
+                                        None,
+                                        QueryRequest::ViewAccount {
+                                            account_id: test_nodes[2].account_id.clone(),
+                                        },
+                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {

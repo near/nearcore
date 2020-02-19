@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use actix::{Addr, System};
 use futures::{future, FutureExt};
@@ -9,13 +10,16 @@ use log::info;
 use near_chain::ChainGenesis;
 use near_client::test_utils::{setup_mock_all_validators, TestEnv};
 use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_crypto::KeyType;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
@@ -38,6 +42,11 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
     });
 }
 
+/// The timeout for requesting chunk from others is 1s. 3000 block timeout means that a participant
+/// that is otherwise ready to produce a block will wait for 3000/2 milliseconds for all the chunks.
+/// We block all the communication from test1 to test4, and expect that in 1.5 seconds test4 will
+/// give up on getting the part from test1 and will get it from test2 (who will have it because
+/// `validator_groups=2`)
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
@@ -45,6 +54,10 @@ fn chunks_recovered_from_others() {
     });
 }
 
+/// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
+/// part test4 needs. The only way test4 can recover the part is by reconstructing the whole chunk,
+/// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
+/// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
@@ -53,6 +66,8 @@ fn chunks_recovered_from_full_timeout_too_short() {
     });
 }
 
+/// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
+/// chunk
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
@@ -103,6 +118,8 @@ fn chunks_produced_and_distributed_common(
             false,
             false,
             5,
+            true,
+            false,
             Arc::new(RwLock::new(move |from_whom: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -113,7 +130,8 @@ fn chunks_produced_and_distributed_common(
                         height_to_hash.insert(block.header.inner_lite.height, block.hash());
 
                         println!(
-                            "BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}",
+                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}; QUORUMS: {} / {}\nAPPROVALS: {:?}",
+                            Instant::now(),
                             block.hash(),
                             block.header.inner_lite.height,
                             block.chunks[0].inner.height_created,
@@ -122,10 +140,14 @@ fn chunks_produced_and_distributed_common(
                             block.chunks[3].inner.height_created,
                             block.header.inner_rest.last_quorum_pre_vote,
                             block.header.inner_rest.last_quorum_pre_commit,
+                            block.header.inner_rest.approvals,
                         );
 
                         // Make sure blocks are finalized. 6 is the epoch boundary.
                         let h = block.header.inner_lite.height;
+                        if h > 1 {
+                            assert_eq!(block.header.inner_rest.last_ds_final_block, *height_to_hash.get(&(h - 1)).unwrap());
+                        }
                         if h > 1 && h != 6 {
                             assert_eq!(block.header.inner_rest.last_quorum_pre_vote, *height_to_hash.get(&(h - 1)).unwrap());
                         }
@@ -249,4 +271,138 @@ fn test_request_chunk_restart() {
         println!("{:?}", response);
         assert!(false);
     }
+}
+
+#[test]
+fn store_partial_encoded_chunk_sanity() {
+    init_test_logger();
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut partial_encoded_chunk = PartialEncodedChunk {
+        shard_id: 0,
+        chunk_hash: Default::default(),
+        header: Some(ShardChunkHeader::new(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            &signer,
+        )),
+        parts: vec![],
+        receipts: vec![],
+    };
+    let block_hash = env.clients[0].chain.genesis().hash();
+    let block = env.clients[0].chain.get_block(&block_hash).unwrap().clone();
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 0);
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
+    assert_eq!(
+        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
+        partial_encoded_chunk
+    );
+
+    // Check replacing
+    partial_encoded_chunk.chunk_hash.0 = hash(vec![123].as_ref());
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
+    assert_eq!(
+        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
+        partial_encoded_chunk
+    );
+
+    // Check adding
+    let mut partial_encoded_chunk2 = partial_encoded_chunk.clone();
+    let h = ShardChunkHeader::new(
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        1,
+        1,
+        173465755,
+        0,
+        0,
+        0,
+        0,
+        0,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        &signer,
+    );
+    partial_encoded_chunk2.header = Some(h);
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 1);
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk2.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1).len(), 2);
+    assert_eq!(
+        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&0],
+        partial_encoded_chunk
+    );
+    assert_eq!(
+        env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(1)[&173465755],
+        partial_encoded_chunk2
+    );
+
+    // Check horizon
+    env.produce_block(0, 3);
+    let mut partial_encoded_chunk3 = partial_encoded_chunk.clone();
+    let mut h = ShardChunkHeader::new(
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        1,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        &signer,
+    );
+    partial_encoded_chunk3.header = Some(h.clone());
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(2).len(), 0);
+    h.inner.height_created = 9;
+    partial_encoded_chunk3.header = Some(h.clone());
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(9).len(), 0);
+    h.inner.height_created = 5;
+    partial_encoded_chunk3.header = Some(h.clone());
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk3.clone());
+    assert_eq!(env.clients[0].shards_mgr.get_stored_partial_encoded_chunks(5).len(), 1);
+
+    // No header
+    let mut partial_encoded_chunk4 = partial_encoded_chunk.clone();
+    partial_encoded_chunk4.header = None;
+    env.clients[0]
+        .shards_mgr
+        .store_partial_encoded_chunk(&block.header, partial_encoded_chunk4.clone());
 }

@@ -1,7 +1,9 @@
 use std::convert::TryFrom;
 use std::io;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::types::{FunctionArgs, StoreKey};
 
 pub type EncodeResult = Result<Vec<u8>, io::Error>;
 pub type DecodeResult<T> = Result<T, io::Error>;
@@ -75,6 +77,34 @@ pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Erro
         Self::try_from(&bytes)
     }
 }
+
+macro_rules! pretty_bytes_serialization {
+    ($type:ident) => {
+        impl Serialize for $type {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_str(&to_base64(self.as_ref()))
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D>(deserializer: D) -> Result<$type, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let s = String::deserialize(deserializer)?;
+                Ok($type::from(
+                    from_base64(&s).map_err(|err| serde::de::Error::custom(err.to_string()))?,
+                ))
+            }
+        }
+    };
+}
+
+pretty_bytes_serialization!(StoreKey);
+pretty_bytes_serialization!(FunctionArgs);
 
 pub mod base_format {
     use serde::de;
@@ -299,6 +329,11 @@ mod tests {
         data: Option<Vec<u8>>,
     }
 
+    #[derive(Deserialize, Serialize)]
+    struct StoreKeyStruct {
+        store_key: StoreKey,
+    }
+
     #[test]
     fn test_serialize_some() {
         let s = OptionBytesStruct { data: Some(vec![10, 20, 30]) };
@@ -325,5 +360,19 @@ mod tests {
         let encoded = "{\"data\":null}";
         let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.data, None);
+    }
+
+    #[test]
+    fn test_serialize_store_key() {
+        let s = StoreKeyStruct { store_key: StoreKey::from(vec![10, 20, 30]) };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"store_key\":\"ChQe\"}");
+    }
+
+    #[test]
+    fn test_deserialize_store_key() {
+        let encoded = "{\"store_key\":\"ChQe\"}";
+        let decoded: StoreKeyStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.store_key, StoreKey::from(vec![10, 20, 30]));
     }
 }

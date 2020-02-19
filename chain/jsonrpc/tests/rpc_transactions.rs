@@ -10,7 +10,7 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::{start_all, start_all_with_validity_period};
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
@@ -122,7 +122,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (view_client, addr) = start_all_with_validity_period(true, 1);
+        let (view_client, addr) = start_all_with_validity_period(true, 1, false);
 
         let block_hash = Arc::new(Mutex::new(None));
         let block_height = Arc::new(Mutex::new(None));
@@ -200,7 +200,32 @@ fn test_replay_protection() {
                 .map_err(|_| {
                     System::current().stop();
                 })
-                .map(move |_| panic!("transaction should not succeed")),
+                .map_ok(move |_| panic!("transaction should not succeed"))
+                .map(drop),
+        );
+        wait_or_panic(10000);
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_tx_status_invalid_account_id() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(true);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        actix::spawn(
+            client
+                .tx(to_base64(&CryptoHash::default()), "".to_string())
+                .map_err(|e| {
+                    let s = serde_json::to_string(&e.data.unwrap()).unwrap();
+                    assert!(s.starts_with("\"Invalid account id"));
+                    System::current().stop();
+                })
+                .map_ok(move |_| panic!("transaction should not succeed"))
+                .map(drop),
         );
         wait_or_panic(10000);
     })

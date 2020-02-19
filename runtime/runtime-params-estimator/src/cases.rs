@@ -22,7 +22,7 @@ use near_runtime_fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee, Fraction,
     RuntimeFeesConfig, StorageUsageConfig,
 };
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig};
+use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
 /// How much gas there is in a nanosecond worth of computation.
@@ -114,6 +114,10 @@ pub enum Metric {
     nul_utf16_log_10kib_10k,
     sha256_10b_10k,
     sha256_10kib_10k,
+    keccak256_10b_10k,
+    keccak256_10kib_10k,
+    keccak512_10b_10k,
+    keccak512_10kib_10k,
     storage_write_10b_key_10b_value_1k,
     storage_write_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k,
@@ -435,6 +439,10 @@ pub fn run(mut config: Config) -> RuntimeConfig {
     nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
     sha256_10b_10k => sha256_10b_10k,
     sha256_10kib_10k => sha256_10kib_10k,
+    keccak256_10b_10k => keccak256_10b_10k,
+    keccak256_10kib_10k => keccak256_10kib_10k,
+    keccak512_10b_10k => keccak512_10b_10k,
+    keccak512_10kib_10k => keccak512_10kib_10k,
     storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
     storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
     storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
@@ -564,6 +572,10 @@ fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
         utf16_decoding_byte: f64_to_gas(pure[&utf16_decoding_byte]),
         sha256_base: f64_to_gas(pure[&sha256_base]),
         sha256_byte: f64_to_gas(pure[&sha256_byte]),
+        keccak256_base: f64_to_gas(pure[&keccak256_base]),
+        keccak256_byte: f64_to_gas(pure[&keccak256_byte]),
+        keccak512_base: f64_to_gas(pure[&keccak512_base]),
+        keccak512_byte: f64_to_gas(pure[&keccak512_byte]),
         log_base: f64_to_gas(pure[&log_base]),
         log_byte: f64_to_gas(pure[&log_byte]),
         storage_write_base: f64_to_gas(pure[&storage_write_base]),
@@ -601,18 +613,7 @@ fn get_vm_config(measurement: &Measurements) -> VMConfig {
         // growth cost.
         grow_mem_cost: 1,
         regular_op_cost: f64_to_gas(nanosec_per_op()) as u32,
-        max_gas_burnt: 10u64.pow(9),
-        max_stack_height: 32 * 1024,        // 32Kib of stack.
-        initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
-        max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
-        // By default registers are limited by 1GiB of memory.
-        registers_memory_limit: 2u64.pow(30),
-        // By default each register is limited by 100MiB of memory.
-        max_register_size: 2u64.pow(20) * 100,
-        // By default there is at most 100 registers.
-        max_number_registers: 100,
-        max_number_logs: 100,
-        max_log_len: 500,
+        limit_config: VMLimitConfig::default(),
     }
 }
 
@@ -621,8 +622,8 @@ fn get_runtime_config(measurement: &Measurements) -> RuntimeConfig {
         transaction_costs: get_runtime_fees_config(measurement),
         wasm_config: get_vm_config(measurement),
         // TODO: Figure out the following values.
-        storage_cost_byte_per_block: 1,
-        poke_threshold: 60,
-        account_length_baseline_cost_per_block: 6561,
+        storage_cost_byte_per_block: 5000000,
+        poke_threshold: 86400,
+        account_length_baseline_cost_per_block: 207909813343189798558,
     }
 }

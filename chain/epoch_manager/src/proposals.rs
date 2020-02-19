@@ -48,7 +48,7 @@ pub fn proposals_to_epoch_info(
 
     for p in proposals {
         if validator_kickout.contains(&p.account_id) {
-            stake_change.insert(p.account_id, (0, p.amount));
+            stake_change.insert(p.account_id, (0, p.stake));
         } else {
             ordered_proposals.insert(p.account_id.clone(), p);
         }
@@ -57,18 +57,18 @@ pub fn proposals_to_epoch_info(
         match ordered_proposals.entry(r.account_id.clone()) {
             Entry::Occupied(mut e) => {
                 let p = e.get_mut();
-                let return_stake = if r.amount > p.amount { r.amount - p.amount } else { 0 };
+                let return_stake = if r.stake > p.stake { r.stake - p.stake } else { 0 };
                 let reward = *validator_reward.get(&r.account_id).unwrap_or(&0);
-                p.amount += reward;
-                stake_change.insert(r.account_id.clone(), (p.amount, return_stake));
+                p.stake += reward;
+                stake_change.insert(r.account_id.clone(), (p.stake, return_stake));
             }
             Entry::Vacant(e) => {
                 if !validator_kickout.contains(&r.account_id) {
                     let mut proposal = r.clone();
-                    proposal.amount += *validator_reward.get(&r.account_id).unwrap_or(&0);
+                    proposal.stake += *validator_reward.get(&r.account_id).unwrap_or(&0);
                     e.insert(proposal);
                 } else {
-                    stake_change.insert(r.account_id.clone(), (0, r.amount));
+                    stake_change.insert(r.account_id.clone(), (0, r.stake));
                 }
             }
         }
@@ -87,20 +87,20 @@ pub fn proposals_to_epoch_info(
     let num_hidden_validator_seats: NumSeats =
         epoch_config.avg_hidden_validator_seats_per_shard.iter().sum();
     let num_total_seats = epoch_config.num_block_producer_seats + num_hidden_validator_seats;
-    let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
+    let stakes = ordered_proposals.iter().map(|(_, p)| p.stake).collect::<Vec<_>>();
     let threshold = find_threshold(&stakes, num_total_seats)?;
     // Remove proposals under threshold.
     let mut final_proposals = vec![];
 
     for (account_id, p) in ordered_proposals {
-        if p.amount >= threshold {
+        if p.stake >= threshold {
             if !stake_change.contains_key(&account_id) {
-                stake_change.insert(account_id, (p.amount, 0));
+                stake_change.insert(account_id, (p.stake, 0));
             }
             final_proposals.push(p);
-        } else if p.amount >= epoch_config.fishermen_threshold {
+        } else if p.stake >= epoch_config.fishermen_threshold {
             // Do not return stake back since they will become fishermen
-            stake_change.entry(account_id.clone()).or_insert((p.amount, 0));
+            stake_change.entry(account_id.clone()).or_insert((p.stake, 0));
             fishermen_to_index.insert(account_id, fishermen.len() as ValidatorId);
             fishermen.push(p);
         } else {
@@ -112,7 +112,7 @@ pub fn proposals_to_epoch_info(
                         *new_stake = 0;
                     }
                 })
-                .or_insert((0, p.amount));
+                .or_insert((0, p.stake));
             if epoch_info.validator_to_index.contains_key(&account_id) {
                 validator_kickout.insert(account_id);
             }
@@ -132,7 +132,7 @@ pub fn proposals_to_epoch_info(
     let mut dup_proposals = final_proposals
         .iter()
         .enumerate()
-        .flat_map(|(i, p)| iter::repeat(i as u64).take((p.amount / threshold) as usize))
+        .flat_map(|(i, p)| iter::repeat(i as u64).take((p.stake / threshold) as usize))
         .collect::<Vec<_>>();
     if dup_proposals.len() < num_total_seats as usize {
         return Err(EpochError::SelectedSeatsMismatch(
@@ -187,8 +187,9 @@ pub fn proposals_to_epoch_info(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_utils::{change_stake, epoch_config, epoch_info, stake};
+
+    use super::*;
 
     #[test]
     fn test_find_threshold() {

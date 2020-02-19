@@ -1,6 +1,7 @@
-use near_primitives::errors::ActionError;
+use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
+use near_vm_errors::{FunctionCallError, HostError};
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
@@ -54,7 +55,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "insert_strings",
                 input_data.to_vec(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -75,7 +76,7 @@ fn test_evil_deep_trie() {
                 "test_contract".to_string(),
                 "delete_strings",
                 input_data.to_vec(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -99,7 +100,7 @@ fn test_evil_deep_recursion() {
                 "test_contract".to_string(),
                 "recurse",
                 n_bytes.clone(),
-                10u64.pow(18),
+                10u64.pow(16),
                 0,
             )
             .unwrap();
@@ -127,15 +128,20 @@ fn test_evil_abort() {
             "test_contract".to_string(),
             "abort_with_zero",
             vec![],
-            10u64.pow(18),
+            10u64.pow(16),
             0,
         )
         .unwrap();
     assert_eq!(
         res.status,
         FinalExecutionStatus::Failure(
-            ActionError::FunctionCallError("String encoding is bad UTF-16 sequence.".to_string())
-                .into()
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
+                    HostError::BadUTF16
+                ))
+            }
+            .into()
         ),
         "{:?}",
         res

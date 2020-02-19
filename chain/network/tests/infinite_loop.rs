@@ -8,11 +8,10 @@ use futures::{future, FutureExt};
 
 use near_client::ClientActor;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
-use near_network::types::{
-    AnnounceAccount, NetworkViewClientMessages, NetworkViewClientResponses, PeerId, SyncData,
-};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
-use near_primitives::block::{GenesisId, WeightAndScore};
+use near_primitives::block::GenesisId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
 
@@ -49,7 +48,7 @@ pub fn make_peer_manager(
                 Box::new(Some(NetworkViewClientResponses::ChainInfo {
                     genesis_id: GenesisId::default(),
                     height: 1,
-                    weight_and_score: WeightAndScore::from_ints(0, 0),
+                    score: 0.into(),
                     tracked_shards: vec![],
                 }))
             }

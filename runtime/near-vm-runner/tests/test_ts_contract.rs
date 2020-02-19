@@ -37,9 +37,9 @@ pub fn test_ts_contract() {
     );
     assert_eq!(
         result.1,
-        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic(
-            "explicit guest panic".to_string()
-        ))))
+        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
+            panic_msg: "explicit guest panic".to_string()
+        })))
     );
 
     // Call method that writes something into storage.

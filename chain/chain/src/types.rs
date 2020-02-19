@@ -1,28 +1,28 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Serialize;
+
 use near_crypto::Signature;
-use near_primitives::block::{Approval, WeightAndScore};
-pub use near_primitives::block::{Block, BlockHeader, Weight};
+use near_pool::types::PoolIterator;
+use near_primitives::block::{Approval, BlockScore, ScoreAndHeight};
+pub use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateRoot, StateRootNode,
-    ValidatorStake,
+    AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, ShardId, StateChanges,
+    StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryResponse};
+use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
-use serde::Serialize;
 
-use crate::chain::WEIGHT_MULTIPLIER;
 use crate::error::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::errors::InvalidTxError;
-use std::cmp::{max, Ordering};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -110,7 +110,7 @@ impl ApplyTransactionResult {
 
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
-/// Additionally handles validators and block weight computation.
+/// Additionally handles validators.
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
@@ -225,12 +225,12 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Number of missed blocks for given block producer.
-    fn get_num_missing_blocks(
+    fn get_num_validator_blocks(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<u64, Error>;
+    ) -> Result<ValidatorStats, Error>;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -385,8 +385,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_height: BlockHeight,
         block_timestamp: u64,
         block_hash: &CryptoHash,
-        path_parts: Vec<&str>,
-        data: &[u8],
+        request: &QueryRequest,
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
     fn get_validator_info(&self, block_hash: &CryptoHash) -> Result<EpochValidatorInfo, Error>;
@@ -419,6 +418,13 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
+    /// Get a list of changes in a given block by a given key prefix.
+    fn get_key_value_changes(
+        &self,
+        block_hash: &CryptoHash,
+        state_changes_request: &StateChangesRequest,
+    ) -> Result<StateChanges, Box<dyn std::error::Error>>;
+
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -442,45 +448,6 @@ pub trait RuntimeAdapter: Send + Sync {
     }
 }
 
-impl dyn RuntimeAdapter {
-    pub fn compute_block_weight_delta(
-        &self,
-        approvals: Vec<&String>,
-        prev_epoch: &EpochId,
-        prev_hash: &CryptoHash,
-    ) -> Result<u128, Error> {
-        let block_producers = self.get_epoch_block_producers_ordered(prev_epoch, prev_hash)?;
-        let mut account_to_stake = HashMap::new();
-
-        let mut approved_stake = 0;
-        let mut total_stake = 0;
-
-        for bp in block_producers {
-            account_to_stake.insert(bp.0.account_id, bp.0.amount);
-            total_stake += bp.0.amount;
-        }
-
-        for approval in approvals {
-            approved_stake += *account_to_stake.get(approval).unwrap_or(&0u128);
-            account_to_stake.insert(approval.clone(), 0);
-        }
-
-        debug_assert!(approved_stake <= total_stake);
-
-        // Compute ret as
-        //
-        //    ret = WEIGHT_MULTIPLIER * approved_stake / total_stake
-        //
-        // carefully handling the overflow
-        let ret = if approved_stake >= std::u128::MAX / WEIGHT_MULTIPLIER {
-            approved_stake / (total_stake / WEIGHT_MULTIPLIER)
-        } else {
-            WEIGHT_MULTIPLIER * approved_stake / total_stake
-        };
-        Ok(max(ret, 1))
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Default)]
 pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
@@ -494,7 +461,7 @@ pub struct LatestKnown {
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
-/// blocks for convenience and the total weight.
+/// blocks for convenience and the score.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
@@ -503,25 +470,26 @@ pub struct Tip {
     pub last_block_hash: CryptoHash,
     /// Previous block
     pub prev_block_hash: CryptoHash,
-    /// Total weight on that fork
-    pub weight_and_score: WeightAndScore,
-    /// The timestamp of the head block
-    pub prev_timestamp: u64,
+    /// The score on that fork
+    pub score: BlockScore,
     /// Previous epoch id. Used for getting validator info.
     pub epoch_id: EpochId,
 }
 
 impl Tip {
     /// Creates a new tip based on provided header.
-    pub fn from_header_and_prev_timestamp(header: &BlockHeader, prev_timestamp: u64) -> Tip {
+    pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
             height: header.inner_lite.height,
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
-            weight_and_score: header.inner_rest.weight_and_score(),
-            prev_timestamp,
+            score: header.inner_rest.score,
             epoch_id: header.inner_lite.epoch_id.clone(),
         }
+    }
+
+    pub fn score_and_height(&self) -> ScoreAndHeight {
+        ScoreAndHeight { score: self.score, height: self.height }
     }
 }
 
@@ -539,27 +507,22 @@ pub struct ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponse {
     pub header: Option<ShardStateSyncResponseHeader>,
-    pub part_ids: Vec<u64>,
-    pub data: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Default)]
-pub struct StateRequestParts {
-    pub ids: Vec<u64>,
-    pub num_parts: u64,
+    pub part: Option<(u64, Vec<u8>)>,
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_crypto::KeyType;
     use near_primitives::block::genesis_chunks;
-
-    use super::*;
-    use crate::Chain;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
+
+    use crate::Chain;
+
+    use super::*;
 
     #[test]
     fn test_block_produce() {
@@ -572,20 +535,11 @@ mod tests {
             1_000_000_000,
             Chain::compute_bp_hash_inner(&vec![]).unwrap(),
         );
-        let signer = InMemorySigner::from_seed("other", KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
-        assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.inner_rest.total_weight.to_num(), 1);
-        let other_signer = InMemorySigner::from_seed("other2", KeyType::ED25519, "other2");
-        let approvals = vec![
-            (Approval {
-                parent_hash: b1.hash(),
-                reference_hash: b1.hash(),
-                account_id: "other2".to_string(),
-                signature: other_signer
-                    .sign(Approval::get_data_for_sig(&b1.hash(), &b1.hash()).as_ref()),
-            }),
-        ];
+        assert!(b1.header.verify_block_producer(&signer.public_key()));
+        let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
+        let approvals = vec![Approval::new(b1.hash(), Some(b1.hash()), 2, true, &other_signer)];
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
@@ -594,11 +548,8 @@ mod tests {
             approvals,
             &signer,
             genesis.header.inner_lite.next_bp_hash,
-            20,
-            1,
         );
-        assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.inner_rest.total_weight.to_num(), 21);
+        b2.header.verify_block_producer(&signer.public_key());
     }
 
     #[test]

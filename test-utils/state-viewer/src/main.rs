@@ -14,12 +14,12 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base, to_base64};
+use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use node_runtime::StateRecord;
 use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
