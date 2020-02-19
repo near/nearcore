@@ -16,6 +16,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockHeader};
+use near_chain_configs::PROTOCOL_VERSION;
 use near_crypto::{PublicKey, SecretKey, Signature};
 use near_metrics;
 use near_primitives::block::{Approval, ApprovalMessage, BlockScore, GenesisId, ScoreAndHeight};
@@ -27,14 +28,12 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, Finality, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 
-/// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 4;
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
 /// by different nodes.
@@ -216,6 +215,7 @@ pub enum RoutedMessageBody {
         query_id: String,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     QueryResponse {
         query_id: String,
@@ -397,7 +397,6 @@ pub enum PeerMessage {
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    BlockHeaderAnnounce(BlockHeader),
 
     BlockRequest(CryptoHash),
     Block(Block),
@@ -426,7 +425,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(_) => f.write_str("BlockApproval"),
@@ -513,13 +511,6 @@ impl PeerMessage {
             PeerMessage::BlockHeaders(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_HEADERS_RECEIVED_TOTAL);
                 near_metrics::inc_counter_by(&metrics::BLOCK_HEADERS_RECEIVED_BYTES, size as i64);
-            }
-            PeerMessage::BlockHeaderAnnounce(_) => {
-                near_metrics::inc_counter(&metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_TOTAL);
-                near_metrics::inc_counter_by(
-                    &metrics::BLOCK_HEADER_ANNOUNCE_RECEIVED_BYTES,
-                    size as i64,
-                );
             }
             PeerMessage::BlockRequest(_) => {
                 near_metrics::inc_counter(&metrics::BLOCK_REQUEST_RECEIVED_TOTAL);
@@ -654,7 +645,6 @@ impl PeerMessage {
     pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
-            | PeerMessage::BlockHeaderAnnounce(_)
             | PeerMessage::BlockHeaders(_)
             | PeerMessage::Transaction(_)
             | PeerMessage::Challenge(_) => true,
@@ -952,11 +942,9 @@ pub enum NetworkRequests {
     Block {
         block: Block,
     },
-    /// Sends block header announcement, with possibly attaching approval for this block if
-    /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval_message: Option<ApprovalMessage>,
+    /// Sends approval.
+    Approval {
+        approval_message: ApprovalMessage,
     },
     /// Request block with given hash from given peer.
     BlockRequest {
@@ -1020,6 +1008,7 @@ pub enum NetworkRequests {
         account_id: AccountId,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1125,14 +1114,24 @@ pub struct StateResponseInfo {
     pub state_response: ShardStateSyncResponse,
 }
 
+#[cfg(feature = "adversarial")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvDisableHeaderSync,
+    AdvGetSavedBlocks,
+    AdvSetSyncInfo(u64, u64),
+}
+
 #[derive(Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Received transaction.
     Transaction(SignedTransaction),
-    /// Received block header.
-    BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
     Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
@@ -1157,6 +1156,10 @@ pub enum NetworkClientMessages {
 #[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "adversarial")]
+    AdvU64(u64),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1165,7 +1168,7 @@ pub enum NetworkClientResponses {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
 }
 
@@ -1186,12 +1189,15 @@ impl Message for NetworkClientMessages {
 }
 
 pub enum NetworkViewClientMessages {
+    #[cfg(feature = "adversarial")]
+    Adversarial(NetworkAdversarialMessage),
+
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
+    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest, finality: Finality },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome
@@ -1236,7 +1242,7 @@ pub enum NetworkViewClientResponses {
     StateResponse(StateResponseInfo),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// Ban peer for malicious behaviour.
+    /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed
     NoResponse,

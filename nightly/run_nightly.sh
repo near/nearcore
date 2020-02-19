@@ -6,7 +6,7 @@ do
         then
                 cd .. && cargo clean && cd nightly
         fi
-        cd .. && cargo build --all --tests && cd nightly
+        cd .. && cargo build --all --tests --features adversarial && cd nightly
         timestamp=$(date +%y%m%d_%H%M%S)
         output_path=~/testruns/$(git rev-parse HEAD)_${timestamp}
         python nightly.py run nightly.txt ${output_path}

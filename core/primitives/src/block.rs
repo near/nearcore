@@ -28,7 +28,7 @@ pub struct BlockHeaderInnerLite {
     pub prev_state_root: MerkleHash,
     /// Root of the outcomes of transactions and receipts.
     pub outcome_root: MerkleHash,
-    /// Timestamp at which the block was built.
+    /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
     pub next_bp_hash: CryptoHash,

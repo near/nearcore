@@ -12,27 +12,28 @@ use log::{error, info, warn};
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, ErrorKind, RuntimeAdapter, Tip,
 };
+use near_chain_configs::ClientConfig;
+#[cfg(feature = "adversarial")]
+use near_network::types::NetworkAdversarialMessage::{AdvDisableHeaderSync, AdvSetSyncInfo};
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
 };
 use near_network::{NetworkAdapter, NetworkRequests};
-use near_primitives::block::{BlockHeader, GenesisId};
+use near_primitives::block::{BlockHeader, BlockScore, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::verify_path;
 use near_primitives::network::AnnounceAccount;
-use near_primitives::types::{AccountId, BlockId, MaybeBlockId, StateChanges};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, MaybeBlockId, StateChanges};
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, FinalExecutionStatus,
-    GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
+    Finality, GasPriceView, LightClientBlockView, QueryRequest, QueryResponse,
 };
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, GetGasPrice, Query, TxStatus};
-use crate::{
-    sync, ClientConfig, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo,
-};
+use crate::{sync, GetChunk, GetKeyValueChanges, GetNextLightClientBlock, GetValidatorInfo};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -41,6 +42,11 @@ const REQUEST_WAIT_TIME: u64 = 1000;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_header_sync: bool,
+    #[cfg(feature = "adversarial")]
+    pub adv_sync_info: Option<(u64, u64)>,
+
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -73,6 +79,10 @@ impl ViewClientActor {
             DoomslugThresholdMode::HalfStake,
         )?;
         Ok(ViewClientActor {
+            #[cfg(feature = "adversarial")]
+            adv_disable_header_sync: false,
+            #[cfg(feature = "adversarial")]
+            adv_sync_info: None,
             chain,
             runtime_adapter,
             network_adapter,
@@ -117,7 +127,23 @@ impl ViewClientActor {
         let header = match msg.block_id {
             Some(BlockId::Height(block_height)) => self.chain.get_header_by_height(block_height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
-            None => self.chain.head_header(),
+            None => {
+                let head_header = match self.chain.head_header() {
+                    Ok(h) => h,
+                    Err(e) => return Err(e.to_string()),
+                };
+                match msg.finality {
+                    Finality::None => Ok(head_header),
+                    Finality::DoomSlug => {
+                        let last_ds_final_block_hash = head_header.inner_rest.last_ds_final_block;
+                        self.chain.get_block_header(&last_ds_final_block_hash)
+                    }
+                    Finality::NFG => {
+                        let last_final_block_hash = head_header.inner_rest.last_quorum_pre_commit;
+                        self.chain.get_block_header(&last_final_block_hash)
+                    }
+                }
+            }
         };
         let header = header.map_err(|e| e.to_string())?.clone();
 
@@ -164,6 +190,7 @@ impl ViewClientActor {
                         account_id: validator,
                         block_id: msg.block_id.clone(),
                         request: msg.request.clone(),
+                        finality: msg.finality.clone(),
                     });
                 }
 
@@ -281,6 +308,17 @@ impl ViewClientActor {
                 &announce_account.signature,
             )
             .map_err(|e| e.into())
+    }
+
+    fn get_height_and_score(&self, head: &Tip) -> (BlockHeight, BlockScore) {
+        #[cfg(feature = "adversarial")]
+        {
+            if let Some((height, score)) = self.adv_sync_info {
+                return (height, BlockScore::from(score));
+            }
+        }
+
+        (head.height, head.score)
     }
 }
 
@@ -457,6 +495,22 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
+            #[cfg(feature = "adversarial")]
+            NetworkViewClientMessages::Adversarial(adversarial_msg) => {
+                return match adversarial_msg {
+                    AdvSetSyncInfo(height, score) => {
+                        info!(target: "adversary", "Setting adversarial stats: ({}, {})", height, score);
+                        self.adv_sync_info = Some((height, score));
+                        NetworkViewClientResponses::NoResponse
+                    }
+                    AdvDisableHeaderSync => {
+                        info!(target: "adversary", "Blocking header sync");
+                        self.adv_disable_header_sync = true;
+                        NetworkViewClientResponses::NoResponse
+                    }
+                    _ => panic!("invalid adversary message"),
+                }
+            }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id) {
                     NetworkViewClientResponses::TxStatus(result)
@@ -471,8 +525,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 NetworkViewClientResponses::NoResponse
             }
-            NetworkViewClientMessages::Query { query_id, block_id, request } => {
-                let query = Query { query_id: query_id.clone(), block_id, request };
+            NetworkViewClientMessages::Query { query_id, block_id, request, finality } => {
+                let query = Query { query_id: query_id.clone(), block_id, request, finality };
                 match self.handle_query(query) {
                     Ok(Some(r)) => {
                         NetworkViewClientResponses::QueryResponse { query_id, response: Ok(r) }
@@ -535,6 +589,13 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
+                #[cfg(feature = "adversarial")]
+                {
+                    if self.adv_disable_header_sync {
+                        return NetworkViewClientResponses::NoResponse;
+                    }
+                }
+
                 if let Ok(headers) = self.retrieve_headers(hashes) {
                     NetworkViewClientResponses::BlockHeaders(headers)
                 } else {
@@ -542,15 +603,19 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
-                Ok(head) => NetworkViewClientResponses::ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.config.chain_id.clone(),
-                        hash: self.chain.genesis().hash(),
-                    },
-                    height: head.height,
-                    score: head.score,
-                    tracked_shards: self.config.tracked_shards.clone(),
-                },
+                Ok(head) => {
+                    let (height, score) = self.get_height_and_score(&head);
+
+                    NetworkViewClientResponses::ChainInfo {
+                        genesis_id: GenesisId {
+                            chain_id: self.config.chain_id.clone(),
+                            hash: self.chain.genesis().hash(),
+                        },
+                        height,
+                        score,
+                        tracked_shards: self.config.tracked_shards.clone(),
+                    }
+                }
                 Err(err) => {
                     error!(target: "view_client", "{}", err);
                     NetworkViewClientResponses::NoResponse

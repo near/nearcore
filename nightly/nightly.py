@@ -1,4 +1,4 @@
-# This is a quick and dirty nightly tests runner, in the temporary absense of a better CI tool
+# This is a quick and dirty nightly tests runner, in the temporary absence of a better CI tool
 #
 # Running tests:
 #  - full set:

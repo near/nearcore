@@ -10,7 +10,8 @@ use futures::{future, FutureExt, TryFutureExt};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
-use near_client::{ClientActor, ClientConfig, ViewClientActor};
+use near_chain_configs::ClientConfig;
+use near_client::{ClientActor, ViewClientActor};
 use near_crypto::KeyType;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, StopSignal, WaitOrTimeout,
@@ -54,7 +55,7 @@ pub fn setup_network_node(
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000, 5);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false, 100, 200, num_validators);
+        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false);
         client_config.ttl_account_id_router = config.ttl_account_id_router;
         let network_adapter = NetworkRecipient::new();
         network_adapter.set_recipient(ctx.address().recipient());

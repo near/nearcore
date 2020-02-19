@@ -12,6 +12,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Provenance, RuntimeAdapter};
+use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
 use near_network::types::{
@@ -33,7 +34,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{Client, ClientActor, ClientConfig, SyncStatus, ViewClientActor};
+use crate::{Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -73,6 +74,7 @@ pub fn setup(
     min_block_prod_time: u64,
     max_block_prod_time: u64,
     enable_doomslug: bool,
+    archive: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -114,6 +116,7 @@ pub fn setup(
         min_block_prod_time,
         max_block_prod_time,
         num_validator_seats,
+        archive,
     );
     let view_client = ViewClientActor::new(
         store.clone(),
@@ -188,6 +191,7 @@ pub fn setup_mock_with_validity_period(
         100,
         200,
         enable_doomslug,
+        false,
         network_adapter.clone(),
         transaction_validity_period,
         Utc::now(),
@@ -254,6 +258,7 @@ pub fn setup_mock_all_validators(
     tamper_with_fg: bool,
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
+    archive: bool,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -603,11 +608,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BlockHeaderAnnounce {
-                            header,
-                            approval_message: Some(approval_message),
-                        } => {
-                            let height_mod = header.inner_lite.height % 300;
+                        NetworkRequests::Approval { approval_message } => {
+                            let height_mod = approval_message.approval.target_height % 300;
 
                             let do_propagate = if tamper_with_fg {
                                 if height_mod < 100 {
@@ -704,7 +706,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::BanPeer { .. }
-                        | NetworkRequests::BlockHeaderAnnounce { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
@@ -728,6 +729,7 @@ pub fn setup_mock_all_validators(
                 block_prod_time,
                 block_prod_time * 3,
                 enable_doomslug,
+                archive,
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
@@ -795,7 +797,7 @@ pub fn setup_client_with_runtime(
         Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
             as Arc<dyn ValidatorSigner>
     });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
