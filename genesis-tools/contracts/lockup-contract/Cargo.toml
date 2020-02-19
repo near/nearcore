@@ -13,6 +13,7 @@ serde_json = { git = "https://github.com/nearprotocol/json", rev = "1f5779f3b0bd
 near-bindgen = "0.4.1"
 borsh = "0.2.10"
 wee_alloc = { version = "0.4.5", default-features = false, features = [] }
+common = { path = "../common"}
 
 [profile.release]
 codegen-units = 1
@@ -24,7 +25,3 @@ panic = "abort"
 
 [workspace]
 members = []
-
-[features]
-# In addition to locking up the tokens, the contract also allows to have a vesting schedule.
-vesting = []

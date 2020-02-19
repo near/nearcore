@@ -1,14 +1,10 @@
 //! A smart contract that allows lockup of a smart contract.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use key_management::{KeyType, PublicKey};
+use common::key_management::{KeyType, PublicKey};
 use near_bindgen::collections::Map;
 use near_bindgen::{env, near_bindgen, Promise};
 
-mod key_management;
-#[cfg(not(feature = "vesting"))]
-mod lockup_transfer_rules;
-#[cfg(feature = "vesting")]
 mod lockup_vesting_transfer_rules;
 
 #[global_allocator]
@@ -22,11 +18,8 @@ pub struct LockupContract {
     keys: Map<PublicKey, KeyType>,
     /// Whether this account is disallowed to stake anymore.
     permanently_unstaked: bool,
-    #[cfg(feature = "vesting")]
     vesting_start_timestamp: u64,
-    #[cfg(feature = "vesting")]
     vesting_cliff_timestamp: u64,
-    #[cfg(feature = "vesting")]
     vesting_end_timestamp: u64,
 }
 
@@ -47,7 +40,6 @@ impl LockupContract {
     }
 
     /// Check that the timestamps are monotonically non-decreasing.
-    #[cfg(feature = "vesting")]
     fn check_timestamp_ordering(timestamps: &[u64]) {
         for i in 1..timestamps.len() {
             assert!(
@@ -59,30 +51,8 @@ impl LockupContract {
 
     /// Initializes an account with the given lockup amount, lockup timestamp (when it
     /// expires), and the keys that it needs to add
-    #[init]
-    #[cfg(not(feature = "vesting"))]
-    pub fn new(
-        lockup_amount: u128,
-        lockup_timestamp: u64,
-        initial_keys: Vec<(PublicKey, KeyType)>,
-    ) -> Self {
-        let mut res = Self {
-            lockup_amount,
-            lockup_timestamp,
-            keys: Default::default(),
-            permanently_unstaked: false,
-        };
-        // It does not make sense to have a lockup contract if the unlocking is in the past.
-        Self::check_timestamps_future(&[lockup_timestamp]);
-        for (key, key_type) in initial_keys {
-            res.add_key_no_check(key, key_type);
-        }
-        res
-    }
-
     /// Same initialization method as above, but with vesting functionality.
     #[init]
-    #[cfg(feature = "vesting")]
     pub fn new(
         lockup_amount: u128,
         lockup_timestamp: u64,
@@ -164,14 +134,7 @@ impl LockupContract {
         Promise::new(env::current_account_id()).stake(amount, public_key);
     }
 
-    /// Get the amount of tokens that can be transferred.
-    #[cfg(not(feature = "vesting"))]
-    pub fn get_transferrable(&self) -> u128 {
-        lockup_transfer_rules::get_transferrable_amount(self.lockup_amount, self.lockup_timestamp)
-    }
-
     /// Get the amount of tokens that were vested.
-    #[cfg(feature = "vesting")]
     pub fn get_unvested(&self) -> u128 {
         lockup_vesting_transfer_rules::get_unvested_amount(
             self.vesting_start_timestamp,
@@ -182,7 +145,6 @@ impl LockupContract {
     }
 
     /// Get the amount of transferrable tokens that this account has. Takes vesting into account.
-    #[cfg(feature = "vesting")]
     pub fn get_transferrable(&self) -> u128 {
         let unvested = self.get_unvested();
         lockup_vesting_transfer_rules::get_transferrable_amount(
@@ -207,7 +169,6 @@ impl LockupContract {
     }
 
     /// Stop vesting and transfer all unvested tokens to a beneficiary.
-    #[cfg(feature = "vesting")]
     pub fn terminate(&mut self, beneficiary_id: String) {
         let unvested = self.get_unvested();
         self.lockup_amount -= unvested;

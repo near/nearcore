@@ -1,2 +1,0 @@
-MD5 (./lockup_contract.wasm) = 919a240e7f2689be4de5f98ea21bd5fa
-MD5 (./lockup_vesting_contract.wasm) = e5921810c58f9b398302976722fc977e

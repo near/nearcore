@@ -1,0 +1,2 @@
+0129cecd98ea3e7745f8733fbc512753  ./res/lockup_contract.wasm
+8d4ed5e84ca2a14becb40cb104de80af  ./res/vesting_contract.wasm
