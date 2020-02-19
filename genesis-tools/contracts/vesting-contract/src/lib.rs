@@ -1,10 +1,10 @@
 //! A smart contract that allows tokens vesting and lockup.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use common::key_management::{KeyType, PublicKey};
-use near_bindgen::collections::Map;
+use key_management::{KeyType, PublicKey};
 use near_bindgen::{env, near_bindgen, Promise};
 
+mod key_management;
 mod lockup_vesting_transfer_rules;
 
 #[global_allocator]
@@ -12,10 +12,9 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
-pub struct LockupContract {
+pub struct VestingContract {
     lockup_amount: u128,
     lockup_timestamp: u64,
-    keys: Map<PublicKey, KeyType>,
     /// Whether this account is disallowed to stake anymore.
     permanently_unstaked: bool,
     vesting_start_timestamp: u64,
@@ -23,14 +22,14 @@ pub struct LockupContract {
     vesting_end_timestamp: u64,
 }
 
-impl Default for LockupContract {
+impl Default for VestingContract {
     fn default() -> Self {
         env::panic(b"The contract is not initialized.");
     }
 }
 
 #[near_bindgen]
-impl LockupContract {
+impl VestingContract {
     /// Check that all timestamps are strictly in the future.
     fn check_timestamps_future(timestamps: &[u64]) {
         let block_timestamp = env::block_timestamp();
@@ -49,6 +48,10 @@ impl LockupContract {
         }
     }
 
+    fn assert_self() {
+        assert_eq!(env::predecessor_account_id(), env::current_account_id());
+    }
+
     /// Initializes an account with the given lockup amount, lockup timestamp (when it
     /// expires), and the keys that it needs to add
     /// Same initialization method as above, but with vesting functionality.
@@ -59,15 +62,15 @@ impl LockupContract {
         vesting_start_timestamp: u64,
         vesting_cliff_timestamp: u64,
         vesting_end_timestamp: u64,
-        initial_keys: Vec<(PublicKey, KeyType)>,
+        public_keys: Vec<PublicKey>,
+        foundation_keys: Vec<PublicKey>,
     ) -> Self {
-        let mut res = Self {
+        let res = Self {
             lockup_amount,
             lockup_timestamp,
             vesting_start_timestamp,
             vesting_cliff_timestamp,
             vesting_end_timestamp,
-            keys: Default::default(),
             permanently_unstaked: false,
         };
         // It is okay for vesting start and vesting cliff to be in the past, but it does not
@@ -81,51 +84,29 @@ impl LockupContract {
         ]);
         // The lockup should be after start of the vesting, potentially inclusive.
         Self::check_timestamp_ordering(&[vesting_start_timestamp, lockup_timestamp]);
-        for (key, key_type) in initial_keys {
-            res.add_key_no_check(key, key_type);
+        let account_id = env::current_account_id();
+        for public_key in public_keys {
+            Promise::new(account_id.clone()).add_access_key(
+                public_key,
+                0,
+                account_id.clone(),
+                KeyType::Regular.allowed_methods(),
+            );
+        }
+        for public_key in foundation_keys {
+            Promise::new(account_id.clone()).add_access_key(
+                public_key,
+                0,
+                account_id.clone(),
+                KeyType::Foundation.allowed_methods(),
+            );
         }
         res
     }
 
-    /// Get the key type of the key used to sign the transaction.
-    fn signer_key_type(&self) -> KeyType {
-        let signer_key = env::signer_account_pk();
-        self.get_key_type(&signer_key).expect("Key of the signer was not recorded.")
-    }
-
-    /// Get the key type of the given key.
-    fn get_key_type(&self, key: &PublicKey) -> Option<KeyType> {
-        self.keys.get(key)
-    }
-
-    /// Adds the key both to the internal collection and through promise without
-    /// checking the permissions of the signer.
-    fn add_key_no_check(&mut self, key: PublicKey, key_type: KeyType) {
-        self.keys.insert(&key, &key_type);
-        let account_id = env::current_account_id();
-        Promise::new(account_id.clone()).add_access_key(
-            key,
-            0,
-            account_id,
-            key_type.allowed_methods().to_vec(),
-        );
-    }
-
-    /// Add the new access key. The signer access key should have permission to do it.
-    pub fn add_key(&mut self, key: PublicKey, key_type: KeyType) {
-        self.signer_key_type().check_can_add_remove(&key_type);
-        self.add_key_no_check(key, key_type);
-    }
-
-    /// Remove a known access key. The signer access key should have enough permission to do it.
-    pub fn remove_key(&mut self, key: PublicKey) {
-        let key_type_to_remove = self.get_key_type(&key).expect("Cannot remove unknown key");
-        self.signer_key_type().check_can_add_remove(&key_type_to_remove);
-        Promise::new(env::current_account_id()).delete_key(key);
-    }
-
     /// Create a staking transaction on behalf of this account.
     pub fn stake(&self, amount: u128, public_key: PublicKey) {
+        Self::assert_self();
         assert!(!self.permanently_unstaked, "The account was permanently unstaked.");
         assert!(
             amount <= env::account_balance() + env::account_locked_balance(),
@@ -156,6 +137,7 @@ impl LockupContract {
 
     /// Transfer amount to another account.
     pub fn transfer(&self, amount: u128, account: String) {
+        Self::assert_self();
         assert!(amount <= self.get_transferrable(), "Not enough transferrable tokens to transfer.");
         Promise::new(account).transfer(amount);
     }
@@ -164,12 +146,14 @@ impl LockupContract {
     /// in preparation of terminating this account. Unfortunately, unstaking and termination
     /// cannot be done atomically, because unstaking takes unknown amount of time.
     pub fn permanently_unstake(&mut self, key: PublicKey) {
+        Self::assert_self();
         Promise::new(env::current_account_id()).stake(0, key);
         self.permanently_unstaked = true;
     }
 
     /// Stop vesting and transfer all unvested tokens to a beneficiary.
     pub fn terminate(&mut self, beneficiary_id: String) {
+        Self::assert_self();
         let unvested = self.get_unvested();
         self.lockup_amount -= unvested;
         self.vesting_end_timestamp = env::block_timestamp();
