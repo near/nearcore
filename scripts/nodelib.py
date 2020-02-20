@@ -99,7 +99,8 @@ def check_and_setup(nodocker, is_release, image, home_dir, init_flags, no_gas_pr
             print('Downloading testnet genesis records')
             url = 'https://s3-us-west-1.amazonaws.com/testnet.nearprotocol.com/testnet_genesis_records_%s.json' % testnet_genesis_hash
             urllib.urlretrieve(url, testnet_genesis_records)
-        init_flags.extend(['--genesis-config', 'near/res/testnet_genesis_config.json', '--genesis-records', testnet_genesis_records])
+        init_flags.extend(['--genesis-config', 'near/res/testnet_genesis_config.json', '--genesis-records', testnet_genesis_records,
+                           '--genesis-hash', testnet_genesis_hash])
 
     if nodocker:
         nodocker_init(home_dir, is_release, init_flags)

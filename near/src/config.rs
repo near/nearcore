@@ -138,6 +138,7 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+pub const GENESIS_HASH_FILE: &str = "genesis_hash";
 
 pub const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
@@ -734,6 +735,7 @@ pub fn init_configs(
     fast: bool,
     genesis_records: Option<&str>,
     genesis_config: Option<&str>,
+    genesis_hash: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -773,9 +775,14 @@ pub fn init_configs(
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
+            let mut file = File::create(dir.join(GENESIS_HASH_FILE))
+                .expect("Failed to create a genesis hash file.");
+            file.write_all(genesis_hash.expect("Genesis hash is required for testnet.").as_bytes())
+                .expect("Failed to write a genesis hash file.");
+
             let mut genesis_config = testnet_genesis(
-                genesis_records.expect("Genesis records file is required for testnet"),
-                genesis_config.expect("Genesis config file is required for testnet"),
+                genesis_records.expect("Genesis records file is required for testnet."),
+                genesis_config.expect("Genesis config file is required for testnet."),
             );
             genesis_config.chain_id = chain_id;
 

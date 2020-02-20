@@ -102,6 +102,7 @@ pub fn setup(
         &chain_genesis,
         runtime.clone(),
         network_adapter.clone(),
+        None,
     )
     .unwrap();
     let config = ClientConfig::test(

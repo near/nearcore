@@ -96,6 +96,7 @@ pub fn setup_network_node(
             &chain_genesis,
             runtime.clone(),
             network_adapter.clone(),
+            None,
         )
         .unwrap()
         .start();
