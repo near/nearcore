@@ -1,9 +1,7 @@
 use crate::util::{Packable, Point, Scalar};
 use blake2::VarBlake2b;
-use digest::generic_array;
+use digest::generic_array::{typenum::U32, GenericArray};
 use digest::{BlockInput, FixedOutput, Input, Reset, VariableOutput};
-use generic_array::typenum::U32;
-use generic_array::GenericArray;
 
 pub use blake2::Blake2b as Hash512;
 
