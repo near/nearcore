@@ -7,6 +7,8 @@ pub use signer::{EmptySigner, InMemorySigner, Signer};
 
 mod key_conversion;
 #[macro_use]
+mod hash;
+#[macro_use]
 mod traits;
 #[macro_use]
 mod util;
