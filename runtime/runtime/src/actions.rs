@@ -373,7 +373,7 @@ pub(crate) fn action_delete_key(
         .checked_sub(
             delete_key.public_key.try_to_vec().unwrap().len() as u64
                 + access_key.try_to_vec().unwrap().len() as u64
-                + storage_usage_config.num_bytes_data_record,
+                + storage_usage_config.num_extra_bytes_record,
         )
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -407,7 +407,7 @@ pub(crate) fn action_add_key(
         .checked_add(
             add_key.public_key.try_to_vec().unwrap().len() as u64
                 + add_key.access_key.try_to_vec().unwrap().len() as u64
-                + storage_config.num_bytes_data_record,
+                + storage_config.num_extra_bytes_record,
         )
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(

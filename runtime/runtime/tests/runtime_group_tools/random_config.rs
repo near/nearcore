@@ -37,7 +37,7 @@ pub fn random_config() -> RuntimeConfig {
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: rng.next_u64() % 10000,
-                num_bytes_data_record: rng.next_u64() % 10000,
+                num_extra_bytes_record: rng.next_u64() % 10000,
             },
             burnt_gas_reward: Fraction { numerator: rng.next_u64() % 100, denominator: 100 },
         },

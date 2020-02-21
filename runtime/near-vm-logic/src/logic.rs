@@ -1930,7 +1930,7 @@ impl<'a> VMLogic<'a> {
                     .checked_add(
                         value.len() as u64
                             + key.len() as u64
-                            + storage_config.num_bytes_data_record,
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
@@ -2047,7 +2047,7 @@ impl<'a> VMLogic<'a> {
                     .checked_sub(
                         value.len() as u64
                             + key.len() as u64
-                            + storage_config.num_bytes_data_record,
+                            + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, value)?;

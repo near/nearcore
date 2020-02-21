@@ -1109,7 +1109,7 @@ impl Runtime {
                         String::from_utf8(account_id.to_vec()).expect("Invalid account id");
                     let data_key = &key[(separator + 1)..];
                     let storage_usage =
-                        config.num_bytes_data_record + data_key.len() as u64 + value.len() as u64;
+                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
                     Some((account_id, storage_usage))
                 }
                 StateRecord::Contract { account_id, code } => {
@@ -1119,7 +1119,7 @@ impl Runtime {
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     let public_key: PublicKey = public_key.clone();
                     let access_key: AccessKey = access_key.clone().into();
-                    let storage_usage = config.num_bytes_data_record
+                    let storage_usage = config.num_extra_bytes_record
                         + public_key.try_to_vec().unwrap().len() as u64
                         + access_key.try_to_vec().unwrap().len() as u64;
                     Some((account_id.clone(), storage_usage))

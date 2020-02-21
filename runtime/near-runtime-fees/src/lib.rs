@@ -113,7 +113,7 @@ pub struct StorageUsageConfig {
     /// Number of bytes for an account record.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
-    pub num_bytes_data_record: u64,
+    pub num_extra_bytes_record: u64,
 }
 
 impl Default for RuntimeFeesConfig {
@@ -182,7 +182,7 @@ impl Default for RuntimeFeesConfig {
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 100,
-                num_bytes_data_record: 40,
+                num_extra_bytes_record: 40,
             },
             burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
         }
@@ -216,7 +216,7 @@ impl RuntimeFeesConfig {
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,
-                num_bytes_data_record: 0,
+                num_extra_bytes_record: 0,
             },
             burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
         }
