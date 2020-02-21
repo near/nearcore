@@ -989,23 +989,3 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     };
     NearConfig::new(config, &genesis_config, signer.into(), block_producer)
 }
-
-#[cfg(test)]
-mod test {
-    use crate::config::testnet_genesis;
-    use std::path::PathBuf;
-    /// make sure testnet genesis can be deserialized
-    #[test]
-    fn test_deserialize_state() {
-        let mut genesis_config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        genesis_config_path.push("res/testnet_genesis_config.json");
-
-        let mut genesis_records_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        genesis_records_path.push("res/test_records.json");
-        let genesis_config = testnet_genesis(
-            genesis_records_path.to_str().unwrap(),
-            genesis_config_path.to_str().unwrap(),
-        );
-        assert!(genesis_config.total_supply > 0);
-    }
-}
