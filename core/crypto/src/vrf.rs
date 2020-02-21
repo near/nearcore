@@ -1,10 +1,8 @@
 use crate::util::*;
-use blake2::{Blake2b, VarBlake2b};
 use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-use digest::{Input, VariableOutput};
 use rand_core::OsRng;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
@@ -13,30 +11,9 @@ use subtle::{ConditionallySelectable, ConstantTimeEq};
 #[derive(Copy, Clone)]
 pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
 #[derive(Copy, Clone)]
-pub struct SecretKey(Scalar, PublicKey);
+pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
-
-struct Hash(VarBlake2b);
-
-impl Hash {
-    fn new() -> Self {
-        Hash(VarBlake2b::new(32).unwrap())
-    }
-    fn chain(self, data: &[u8]) -> Self {
-        Hash(self.0.chain(data))
-    }
-    fn result(self) -> [u8; 32] {
-        let mut r = [0; 32];
-        self.0.variable_result(|s| {
-            r = *array_ref!(s, 0, 32);
-        });
-        r
-    }
-    fn result_scalar(self) -> Scalar {
-        Scalar::from_bytes_mod_order(self.result())
-    }
-}
 
 impl PublicKey {
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
@@ -44,7 +21,7 @@ impl PublicKey {
     }
 
     fn offset(&self, input: &[u8]) -> Scalar {
-        Hash::new().chain(&self.0).chain(input).result_scalar()
+        hash_s!(&self.0, input)
     }
 
     pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
@@ -54,22 +31,17 @@ impl PublicKey {
     fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = unwrap_or_return_false!(unpack(&value.0));
         let (r, c) = unwrap_or_return_false!(unpack(&proof.0));
-        Hash::new()
-            .chain(&self.0)
-            .chain(&value.0)
-            .chain(&vmul2(r + c * self.offset(input), &G, c, &self.1).pack())
-            .chain(&vmul2(r, &p, c, &G).pack())
-            .result_scalar()
-            == c
+        hash_s!(
+            &self.0,
+            &value.0,
+            vmul2(r + c * self.offset(input), &G, c, &self.1),
+            vmul2(r, &p, c, &G)
+        ) == c
     }
 }
 
 fn basemul(s: Scalar) -> Point {
     &s * &GT
-}
-
-fn bbmul(s: Scalar) -> [u8; 32] {
-    basemul(s).pack()
 }
 
 fn safe_invert(s: Scalar) -> Scalar {
@@ -99,7 +71,7 @@ impl SecretKey {
     }
 
     fn compute(&self, input: &[u8]) -> Value {
-        Value(bbmul(safe_invert(self.0 + self.1.offset(input))))
+        Value(basemul(safe_invert(self.0 + self.1.offset(input))).pack())
     }
 
     pub fn compute_vrf_with_proof(&self, input: &impl Borrow<[u8]>) -> (Value, Proof) {
@@ -109,16 +81,10 @@ impl SecretKey {
     fn compute_with_proof(&self, input: &[u8]) -> (Value, Proof) {
         let x = self.0 + self.1.offset(input);
         let inv = safe_invert(x);
-        let val = bbmul(inv);
-        let k = Scalar::from_hash(Blake2b::default().chain(x.as_bytes()));
-        let c = Hash::new()
-            .chain(&(self.1).0)
-            .chain(&val)
-            .chain(&bbmul(k))
-            .chain(&bbmul(inv * k))
-            .result_scalar();
-        let r = k - c * x;
-        (Value(val), Proof((r, c).pack()))
+        let val = basemul(inv).pack();
+        let k = prs!(x);
+        let c = hash_s!(&(self.1).0, &val, basemul(k), basemul(inv * k));
+        (Value(val), Proof((k - c * x, c).pack()))
     }
 
     pub fn is_vrf_valid(&self, input: &impl Borrow<[u8]>, value: &Value, proof: &Proof) -> bool {
