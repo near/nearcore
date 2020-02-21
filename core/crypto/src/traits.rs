@@ -150,6 +150,22 @@ macro_rules! value_type {
             }
         }
 
+        impl borsh::BorshSerialize for $ty {
+            #[inline]
+            fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+                writer.write_all(&self.0)
+            }
+        }
+
+        impl borsh::BorshDeserialize for $ty {
+            #[inline]
+            fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+                let mut data = [0u8; $l];
+                reader.read_exact(&mut data)?;
+                Ok($ty(data))
+            }
+        }
+
         common_conversions_fixed!($ty, $l, |s| &s.0, $what);
     };
 }

@@ -46,6 +46,8 @@ pub struct BlockHeaderInnerRest {
     pub chunks_included: u64,
     /// Root hash of the challenges in the given block.
     pub challenges_root: MerkleHash,
+    /// The output of the randomness beacon
+    pub random_value: CryptoHash,
     /// Score.
     pub score: BlockScore,
     /// Validator proposals.
@@ -107,6 +109,7 @@ impl BlockHeaderInnerRest {
         chunk_tx_root: MerkleHash,
         chunks_included: u64,
         challenges_root: MerkleHash,
+        random_value: CryptoHash,
         score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -126,6 +129,7 @@ impl BlockHeaderInnerRest {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            random_value,
             score,
             validator_proposals,
             chunk_mask,
@@ -261,6 +265,7 @@ impl BlockHeader {
         timestamp: u64,
         chunks_included: u64,
         challenges_root: MerkleHash,
+        random_value: CryptoHash,
         score: BlockScore,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -293,6 +298,7 @@ impl BlockHeader {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            random_value,
             score,
             validator_proposals,
             chunk_mask,
@@ -337,6 +343,7 @@ impl BlockHeader {
             chunk_tx_root,
             chunks_included,
             challenges_root,
+            CryptoHash::default(),
             0.into(),
             vec![],
             vec![],
@@ -387,6 +394,10 @@ pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
     pub challenges: Challenges,
+
+    // Data to confirm the correctness of randomness beacon output
+    pub vrf_value: near_crypto::vrf::Value,
+    pub vrf_proof: near_crypto::vrf::Proof,
 }
 
 pub fn genesis_chunks(
@@ -449,6 +460,9 @@ impl Block {
             ),
             chunks,
             challenges,
+
+            vrf_value: near_crypto::vrf::Value([0; 32]),
+            vrf_proof: near_crypto::vrf::Proof([0; 64]),
         }
     }
 
@@ -509,6 +523,10 @@ impl Block {
         let time =
             if now <= prev.inner_lite.timestamp { prev.inner_lite.timestamp + 1 } else { now };
 
+        let (vrf_value, vrf_proof) =
+            signer.compute_vrf_with_proof(prev.inner_rest.random_value.as_ref());
+        let random_value = hash(vrf_value.0.as_ref());
+
         Block {
             header: BlockHeader::new(
                 height,
@@ -521,6 +539,7 @@ impl Block {
                 time,
                 Block::compute_chunks_included(&chunks, height),
                 Block::compute_challenges_root(&challenges),
+                random_value,
                 score,
                 validator_proposals,
                 chunk_mask,
@@ -540,6 +559,9 @@ impl Block {
             ),
             chunks,
             challenges,
+
+            vrf_value,
+            vrf_proof,
         }
     }
 

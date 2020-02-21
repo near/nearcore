@@ -328,6 +328,8 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         balance: Balance,
     },
+    /// An attempt to stake with a key that is not convertable to ristretto
+    UnsuitableStakingKey { public_key: PublicKey },
     /// An error occurred during a `FunctionCall` Action.
     FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
@@ -592,6 +594,9 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
+            ActionErrorKind::UnsuitableStakingKey { public_key } => {
+                write!(f, "The staking key must be ED25519. {} is provided instead.", public_key)
+            }
             ActionErrorKind::CreateAccountNotAllowed { account_id, predecessor_id } => write!(
                 f,
                 "The new account_id {:?} can't be created by {:?}",
