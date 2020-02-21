@@ -20,10 +20,11 @@ const DEFAULT_RPC_URL: &str = "http://localhost:3030";
 /// Returns true if given validator might get kicked out.
 fn maybe_kicked_out(
     validator_info: &CurrentEpochValidatorInfo,
-    block_produced_median: NumBlocks,
+    blocks_produced_median: NumBlocks,
 ) -> bool {
+    // TODO discuss: validator may be kicked because of num_produced_chunks
     validator_info.num_produced_blocks * 100
-        < block_produced_median * u64::from(BLOCK_PRODUCER_KICKOUT_THRESHOLD)
+        < blocks_produced_median * u64::from(BLOCK_PRODUCER_KICKOUT_THRESHOLD)
 }
 
 fn main() {
@@ -104,7 +105,7 @@ fn main() {
             }
         }
         if !blocks_produced.is_empty() {
-            let block_produced_median = median(blocks_produced);
+            let blocks_produced_median = median(blocks_produced);
             validators
                 .current_validators
                 .iter()
@@ -112,7 +113,7 @@ fn main() {
                 .last()
                 .map(|validator_info| {
                     last_stake_amount = validator_info.stake;
-                    if maybe_kicked_out(validator_info, block_produced_median) {
+                    if maybe_kicked_out(validator_info, blocks_produced_median) {
                         restake = true;
                     }
                 });

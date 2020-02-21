@@ -54,6 +54,7 @@ impl RewardCalculator {
             }
         }
         if !blocks_produced.is_empty() {
+            assert!(!chunks_produced.is_empty());
             let blocks_produced_median = median(blocks_produced);
             let chunks_produced_median = median(chunks_produced);
             for (account_id, stats) in validator_block_chunk_stats {
@@ -85,7 +86,7 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use crate::RewardCalculator;
-    use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
+    use near_primitives::types::BlockChunkValidatorStats;
     use std::collections::HashMap;
 
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),
@@ -103,10 +104,7 @@ mod tests {
         };
         let validator_block_chunk_stats = vec![(
             "test".to_string(),
-            BlockChunkValidatorStats {
-                block_stats: ValidatorStats { produced: 43200, expected: 43200 },
-                chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
-            },
+            BlockChunkValidatorStats { blocks_produced: 43200, chunks_produced: 345600 },
         )]
         .into_iter()
         .collect::<HashMap<_, _>>();
@@ -118,6 +116,7 @@ mod tests {
         reward_calculator.calculate_reward(
             validator_block_chunk_stats,
             &validator_stake,
+            &HashMap::new(),
             0,
             10_u128.pow(24),
             total_supply,

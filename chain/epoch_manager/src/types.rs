@@ -163,7 +163,7 @@ impl BlockInfo {
     pub fn update_shard_tracker(
         &mut self,
         epoch_info: &EpochInfo,
-        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, u64>>,
+        mut prev_shard_tracker: HashMap<ShardId, HashMap<ValidatorId, NumChunks>>,
     ) {
         for (i, mask) in self.chunk_mask.iter().enumerate() {
             let chunk_validator_id =

@@ -8,8 +8,8 @@ use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, NumBlocks, ShardId,
-    ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, NumBlocks, NumChunks,
+    ShardId, ValidatorId, ValidatorStake,
 };
 use near_primitives::utils::median;
 use near_primitives::views::{
@@ -91,7 +91,7 @@ impl EpochManager {
         &self,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, NumBlocks>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, u64>>,
+        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, NumChunks>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashSet<AccountId>,
     ) -> (HashSet<AccountId>, HashMap<AccountId, BlockChunkValidatorStats>) {
@@ -111,10 +111,10 @@ impl EpochManager {
                 continue;
             }
             let num_blocks_produced =
-                block_validator_tracker.get(&(i as u64)).unwrap_or_else(|| &0).clone();
+                block_validator_tracker.get(&(i as ValidatorId)).unwrap_or_else(|| &0).clone();
             let mut num_chunks_produced = 0;
             for (_, tracker) in chunk_validator_tracker.iter() {
-                if let Some(num_produced) = tracker.get(&(i as u64)) {
+                if let Some(num_produced) = tracker.get(&(i as ValidatorId)) {
                     num_chunks_produced += *num_produced;
                 }
             }
@@ -123,6 +123,7 @@ impl EpochManager {
         }
 
         if !blocks_produced.is_empty() {
+            assert!(!chunks_produced.is_empty());
             let blocks_produced_median = median(blocks_produced.clone());
             let chunks_produced_median = median(chunks_produced.clone());
 
@@ -1716,10 +1717,6 @@ mod tests {
             )
             .unwrap();
         let mut validator_online_ratio = HashMap::new();
-        validator_online_ratio.insert(
-            "test1".to_string(),
-            BlockChunkValidatorStats { blocks_produced: 0, chunks_produced: 0 },
-        );
         validator_online_ratio.insert(
             "test2".to_string(),
             BlockChunkValidatorStats { blocks_produced: 1, chunks_produced: 1 },
