@@ -225,7 +225,7 @@ pbar.close()
 pbar = tqdm(total=num_machines, desc=' start near')
 def start_nearcore(m):
     m.run_detach_tmux(
-        'cd nearcore && target/release/near run --archive')
+        'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
     pbar.update(1)
 
 pmap(start_nearcore, machines)
