@@ -2830,7 +2830,7 @@ impl<'a> ChainUpdate<'a> {
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
             if !self.runtime_adapter.verify_approval_signature(
-                &prev_header.inner_lite.epoch_id,
+                &header.inner_lite.epoch_id,
                 &prev_header.hash,
                 &header.inner_rest.approvals,
             )? {
@@ -2856,10 +2856,7 @@ impl<'a> ChainUpdate<'a> {
             };
             let account_id_to_stake = self
                 .runtime_adapter
-                .get_epoch_block_producers_ordered(
-                    &prev_header.inner_lite.epoch_id,
-                    &header.prev_hash,
-                )?
+                .get_epoch_block_producers_ordered(&header.inner_lite.epoch_id, &header.prev_hash)?
                 .iter()
                 .map(|x| (x.0.account_id.clone(), x.0.stake))
                 .collect();

@@ -318,6 +318,12 @@ fn produce_block_with_approvals() {
                 CryptoHash::default(),
                 last_block.header.next_bp_hash,
             );
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
+
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
                 let signer = InMemoryValidatorSigner::from_seed(&s, KeyType::ED25519, &s);
@@ -331,8 +337,6 @@ fn produce_block_with_approvals() {
                 client
                     .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
             }
-
-            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
 
             future::ready(())
         }));
