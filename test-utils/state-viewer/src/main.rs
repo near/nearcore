@@ -335,22 +335,11 @@ fn main() {
         ("dump_state", Some(_args)) => {
             let (runtime, state_roots, height) = load_trie(store.clone(), home_dir, &near_config);
             let home_dir = PathBuf::from(&home_dir);
-            let mut chain_store = ChainStore::new(store.clone());
-            let genesis_hash = chain_store.get_block_hash_by_height(0).unwrap();
-            println!("Genesis hash: {}", &genesis_hash);
-            let output_path = home_dir.join(Path::new("output_config.json"));
-            let records_path =
-                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
-            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
-            println!(
-                "Saving state at {:?} @ {} into {} and records {}",
-                state_roots,
-                height,
-                output_path.display(),
-                records_path.display(),
-            );
+
+            println!("Generating genesis from state data");
+
             near_config.genesis_config.records = vec![];
-            for state_root in state_roots {
+            for state_root in state_roots.clone() {
                 let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
@@ -360,6 +349,40 @@ fn main() {
                 }
             }
 
+            println!("Calculating new genesis hash");
+            let store = near_store::test_utils::create_test_store();
+            let runtime = Arc::new(NightshadeRuntime::new(
+                &home_dir,
+                store.clone(),
+                near_config.genesis_config.clone(),
+                near_config.client_config.tracked_accounts.clone(),
+                near_config.client_config.tracked_shards.clone(),
+            ));
+            let chain_genesis = near_chain::ChainGenesis::new(
+                near_config.genesis_config.genesis_time,
+                near_config.genesis_config.gas_limit,
+                near_config.genesis_config.min_gas_price,
+                near_config.genesis_config.total_supply,
+                near_config.genesis_config.max_inflation_rate,
+                near_config.genesis_config.gas_price_adjustment_rate,
+                near_config.genesis_config.transaction_validity_period,
+                near_config.genesis_config.epoch_length,
+            );
+            let mut chain = near_chain::Chain::new(store, runtime.clone(), &chain_genesis).unwrap();
+            let genesis_hash = chain.get_block_by_height(0).unwrap().hash().to_string();
+
+            let output_path = home_dir.join(Path::new("output_config.json"));
+            let records_path =
+                home_dir.join(Path::new(&format!("output_records_{}.json", &genesis_hash)));
+            let genesis_hash_path = home_dir.join(Path::new("output_hash"));
+
+            println!(
+                "Saving state at {:?} @ {} into {} and records {}",
+                state_roots,
+                height,
+                output_path.display(),
+                records_path.display(),
+            );
             near_config
                 .genesis_config
                 .write_to_config_and_records_files(&output_path, &records_path);
