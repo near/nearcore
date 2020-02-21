@@ -7,7 +7,7 @@ use vm_logic_builder::VMLogicBuilder;
 #[test]
 fn test_storage_write_counter() {
     let mut logic_builder = VMLogicBuilder::default();
-    let data_record_cost = logic_builder.fees_config.storage_usage_config.data_record_cost;
+    let data_record_cost = logic_builder.fees_config.storage_usage_config.num_extra_bytes_record;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let key = b"foo";
     let val = b"bar";
