@@ -67,7 +67,7 @@ macro_rules! common_conversions_fixed {
 
             fn try_from(value: &[u8]) -> Result<Self, ()> {
                 match value.len() {
-                    $l => Self::try_from(array_ref!(value, 0, $l)).or(Err(())),
+                    $l => Self::try_from(::arrayref::array_ref!(value, 0, $l)).or(Err(())),
                     _ => Err(()),
                 }
             }
