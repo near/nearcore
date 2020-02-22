@@ -704,14 +704,6 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        info!(
-            "%%% {:?} Received block {} <- {} at {} from {}",
-            self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-            hash,
-            block.header.prev_hash,
-            block.header.inner_lite.height,
-            peer_id
-        );
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header.prev_hash, block.header.inner_lite.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =

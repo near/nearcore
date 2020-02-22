@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use rand::seq::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -785,9 +785,7 @@ impl ShardsManager {
                     return Ok(ProcessPartialEncodedChunkResult::Known);
                 }
             }
-        } else {
-            info!("%%% Chunk received {:?}", chunk_hash);
-        }
+        };
 
         // 6. Checking chunk height
         let chunk_requested =
@@ -912,12 +910,6 @@ impl ShardsManager {
             if !cares_about_shard {
                 self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
                 self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                info!(
-                    "%%% not care shard, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
-                    prev_block_hash,
-                    chunk_hash,
-                    partial_encoded_chunk.shard_id,
-                );
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(
                     prev_block_hash,
                 ));
@@ -941,24 +933,9 @@ impl ShardsManager {
 
             self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
-            info!(
-                "%%% care shard, can reconstruct, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
-                prev_block_hash,
-                chunk_hash,
-                partial_encoded_chunk.shard_id,
-            );
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(prev_block_hash));
         }
 
-        if have_all_parts && have_all_receipts {
-            // cares_about_shard && !can_reconstruct
-            info!(
-                "%%% care shard, cannot reconstruct, has_all_parts && has_all_receipts prev_block_hash {} chunk_hash {:?} shard_id {}",
-                prev_block_hash,
-                chunk_hash,
-                partial_encoded_chunk.shard_id,
-            );
-        }
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts(header))
     }
 
@@ -1237,18 +1214,10 @@ impl ShardsManager {
             );
 
             if Some(&to_whom) != self.me.as_ref() {
-                let chunk_hash = partial_encoded_chunk.chunk_hash.clone();
-                let shard_id = partial_encoded_chunk.shard_id.clone();
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkMessage {
                     account_id: to_whom.clone(),
                     partial_encoded_chunk,
                 });
-                info!(
-                    "%%% chunk sent {:?} in shard {} to {}",
-                    chunk_hash,
-                    shard_id,
-                    to_whom.clone()
-                );
             }
         }
 

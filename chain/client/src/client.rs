@@ -33,6 +33,7 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::Store;
 
+use crate::metrics;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncDownload};
 use crate::SyncStatus;
@@ -427,7 +428,6 @@ impl Client {
             seen: to_timestamp(Utc::now()),
         })?;
 
-        info!("%%% block produced {}", block.header.hash);
         Ok(Some(block))
     }
 
@@ -539,8 +539,9 @@ impl Client {
             &self.rs,
         )?;
 
-        info!(
-            "%%% Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
+        debug!(
+            target: "client",
+            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
             next_height,
             shard_id,
             num_filtered_transactions,
@@ -548,6 +549,8 @@ impl Client {
             validator_signer.validator_id(),
             encoded_chunk.chunk_hash().0,
         );
+
+        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -944,10 +947,6 @@ impl Client {
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), last_accepted_block_hash, |accepted_block| {
-            info!(
-                "%%% Block {} was missing chunks but now is ready to be processed",
-                accepted_block.hash
-            );
             debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
             accepted_blocks.write().unwrap().push(accepted_block);
         }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
