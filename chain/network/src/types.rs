@@ -28,7 +28,7 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, EpochId, MaybeBlockId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use near_primitives::views::{FinalExecutionOutcomeView, Finality, QueryRequest, QueryResponse};
 
 use crate::metrics;
 use crate::peer::Peer;
@@ -215,6 +215,7 @@ pub enum RoutedMessageBody {
         query_id: String,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     QueryResponse {
         query_id: String,
@@ -1007,6 +1008,7 @@ pub enum NetworkRequests {
         account_id: AccountId,
         block_id: MaybeBlockId,
         request: QueryRequest,
+        finality: Finality,
     },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
@@ -1195,7 +1197,7 @@ pub enum NetworkViewClientMessages {
     /// Transaction status response
     TxStatusResponse(FinalExecutionOutcomeView),
     /// General query
-    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest },
+    Query { query_id: String, block_id: MaybeBlockId, request: QueryRequest, finality: Finality },
     /// Query response
     QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Request for receipt outcome

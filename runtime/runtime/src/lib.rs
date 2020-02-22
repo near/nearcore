@@ -319,7 +319,6 @@ impl Runtime {
             Action::DeployContract(deploy_contract) => {
                 near_metrics::inc_counter(&metrics::ACTION_DEPLOY_CONTRACT_TOTAL);
                 action_deploy_contract(
-                    &self.config.transaction_costs,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
@@ -437,7 +436,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config)?;
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
@@ -1098,7 +1097,7 @@ impl Runtime {
         for record in records {
             let account_and_storage = match record {
                 StateRecord::Account { account_id, .. } => {
-                    Some((account_id.clone(), config.account_cost))
+                    Some((account_id.clone(), config.num_bytes_account))
                 }
                 StateRecord::Data { key, value } => {
                     let key = from_base64(key).expect("Failed to decode key");
@@ -1109,23 +1108,20 @@ impl Runtime {
                     let account_id =
                         String::from_utf8(account_id.to_vec()).expect("Invalid account id");
                     let data_key = &key[(separator + 1)..];
-                    let storage_usage = config.data_record_cost
-                        + config.key_cost_per_byte * (data_key.len() as u64)
-                        + config.value_cost_per_byte * (value.len() as u64);
+                    let storage_usage =
+                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
                     Some((account_id, storage_usage))
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = from_base64(&code).expect("Failed to decode wasm from base64");
-                    Some((account_id.clone(), config.code_cost_per_byte * (code.len() as u64)))
+                    Some((account_id.clone(), code.len() as u64))
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     let public_key: PublicKey = public_key.clone();
                     let access_key: AccessKey = access_key.clone().into();
-                    let storage_usage = config.data_record_cost
-                        + config.key_cost_per_byte
-                            * (public_key.try_to_vec().ok().unwrap_or_default().len() as u64)
-                        + config.value_cost_per_byte
-                            * (access_key.try_to_vec().ok().unwrap_or_default().len() as u64);
+                    let storage_usage = config.num_extra_bytes_record
+                        + public_key.try_to_vec().unwrap().len() as u64
+                        + access_key.try_to_vec().unwrap().len() as u64;
                     Some((account_id.clone(), storage_usage))
                 }
                 StateRecord::PostponedReceipt(_) => None,

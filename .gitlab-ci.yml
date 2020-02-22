@@ -71,6 +71,9 @@ coverage:
     - ./scripts/build_wasm.sh
     - bash -c 'timeout 60m python3 scripts/parallel_coverage.py'
     - (curl -s https://codecov.io/bash | bash) || true
+    only:
+    - staging
+    - master
 
 test_nearlib_release:
     stage: test

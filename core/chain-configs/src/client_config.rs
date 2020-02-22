@@ -80,6 +80,7 @@ impl ClientConfig {
         min_block_prod_time: u64,
         max_block_prod_time: u64,
         num_block_producer_seats: NumSeats,
+        archive: bool,
     ) -> Self {
         ClientConfig {
             version: Default::default(),
@@ -119,7 +120,7 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],
-            archive: false,
+            archive,
         }
     }
 }

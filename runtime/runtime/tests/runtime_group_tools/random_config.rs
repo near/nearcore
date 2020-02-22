@@ -36,11 +36,8 @@ pub fn random_config() -> RuntimeConfig {
                 delete_account_cost: random_fee(),
             },
             storage_usage_config: StorageUsageConfig {
-                account_cost: rng.next_u64() % 10000,
-                data_record_cost: rng.next_u64() % 10000,
-                key_cost_per_byte: rng.next_u64() % 100,
-                value_cost_per_byte: rng.next_u64() % 100,
-                code_cost_per_byte: rng.next_u64() % 100,
+                num_bytes_account: rng.next_u64() % 10000,
+                num_extra_bytes_record: rng.next_u64() % 10000,
             },
             burnt_gas_reward: Fraction { numerator: rng.next_u64() % 100, denominator: 100 },
         },

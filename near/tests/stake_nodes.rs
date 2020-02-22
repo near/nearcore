@@ -18,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumSeats};
-use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
+use near_primitives::views::{Finality, QueryRequest, QueryResponseKind, ValidatorInfo};
 use testlib::genesis_hash;
 
 #[derive(Clone)]
@@ -220,6 +220,7 @@ fn test_validator_kickout() {
                                                     .account_id
                                                     .clone(),
                                             },
+                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -249,6 +250,7 @@ fn test_validator_kickout() {
                                                     .account_id
                                                     .clone(),
                                             },
+                                            Finality::None,
                                         ))
                                         .then(move |res| {
                                             match res.unwrap().unwrap().unwrap().kind {
@@ -366,6 +368,7 @@ fn test_validator_join() {
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[1].account_id.clone(),
                                         },
+                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
@@ -385,6 +388,7 @@ fn test_validator_join() {
                                         QueryRequest::ViewAccount {
                                             account_id: test_nodes[2].account_id.clone(),
                                         },
+                                        Finality::None,
                                     ))
                                     .then(move |res| match res.unwrap().unwrap().unwrap().kind {
                                         QueryResponseKind::ViewAccount(result) => {
