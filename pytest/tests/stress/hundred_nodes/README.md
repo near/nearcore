@@ -18,11 +18,14 @@ cargo build -p keypair-generator --release
 1. Install python dependencies:
 
     ```bash
+    sudo apt install python3-dev
     cd pytest
     virtualenv venv -p `which python3` # First time only
     . venv/bin/activate
     pip install -r requirements.txt
     ```
+
+    Note: You need python3.6 or greater.
 
 2. Create a gcloud (vm disk) image that has compiled near binary
 
