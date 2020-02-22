@@ -9,7 +9,7 @@
 <br />
 
 
-## NEAR Protocol - Scalable and Usable blockchain
+# NEAR Protocol - Scalable and Usable Blockchain
 
 ![Build status](https://gitlab.com/near-protocol/nearcore/badges/master/pipeline.svg)
 [![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
@@ -21,6 +21,10 @@
 * 🛠 Through sharding, it will linearly scale with the number of validation nodes on the network.
 * 🗝 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
 finally makes using a blockchain protocol easy for both developers and consumers.
+
+## Build from Source
+
+See the [Documentation: Compile from Source](https://docs.nearprotocol.com/docs/contribution/nearcore#compile-from-source)
 
 ## Quick Start
 
