@@ -9,7 +9,7 @@
 <br />
 
 
-## NEAR Protocol - scalable and usable blockchain
+## NEAR Protocol - Scalable and Usable blockchain
 
 ![Build status](https://gitlab.com/near-protocol/nearcore/badges/master/pipeline.svg)
 [![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
@@ -22,7 +22,7 @@
 * 🗝 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
 finally makes using a blockchain protocol easy for both developers and consumers.
 
-## Quick start
+## Quick Start
 
 [Check out our documentation](http://docs.nearprotocol.com), specifically:
  - [Working with Smart Contracts in NEAR Studio](https://docs.nearprotocol.com/docs/quick-start/development-overview)
@@ -34,16 +34,8 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
 
-High level milestones:
-
- - [x] DevNet: a tool with fully working State Transition + WebAssembly.
- - [x] AlphaNet: Multi-node smart-contract platform.
- - [X] BetaNet: Added economics and enhanced security.
- - [ ] (In progress) Nightshade: Added sharding and staking.
- - [ ] TestNet: Added governance module, ready to launch as MainNet
- - [ ] MainNet: Launched full blockchain.
+This project is currently under heavy development. Please see [Issues](https://github.com/nearprotocol/nearcore/issues), [Milestones](https://github.com/nearprotocol/nearcore/milestones?direction=asc&sort=due_date&state=open) and [Projects](https://github.com/nearprotocol/nearcore/projects) to get a sense of the current status and working items.
 
 ## Running
 
