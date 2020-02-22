@@ -1,4 +1,5 @@
 use crate::util::{Packable, Point, Scalar};
+use arrayref::array_ref;
 use blake2::VarBlake2b;
 use digest::generic_array::{typenum::U32, GenericArray};
 use digest::{BlockInput, FixedOutput, Input, Reset, VariableOutput};
