@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
 use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, MaybeBlockId, ShardId, StateChanges, StateChangesRequest,
@@ -142,11 +143,7 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id or hash.
-pub enum GetBlock {
-    Best,
-    Height(BlockHeight),
-    Hash(CryptoHash),
-}
+pub struct GetBlock(pub BlockQueryInfo);
 
 impl Message for GetBlock {
     type Result = Result<BlockView, String>;

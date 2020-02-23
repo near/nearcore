@@ -4,8 +4,10 @@ use tempdir::TempDir;
 
 use near_client::GetBlock;
 use near_network::test_utils::WaitOrTimeout;
+use near_primitives::rpc::BlockQueryInfo;
 use near_primitives::test_utils::heavy_test;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
+use near_primitives::views::Finality;
 use testlib::start_nodes;
 
 fn run_nodes(
@@ -25,14 +27,18 @@ fn run_nodes(
     let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
-                match &res {
-                    Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
-                    Err(_) => return future::ready(()),
-                    _ => {}
-                };
-                future::ready(())
-            }));
+            actix::spawn(
+                view_client.send(GetBlock(BlockQueryInfo::Finality(Finality::None))).then(
+                    move |res| {
+                        match &res {
+                            Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
+                            Err(_) => return future::ready(()),
+                            _ => {}
+                        };
+                        future::ready(())
+                    },
+                ),
+            );
         }),
         100,
         40000,
